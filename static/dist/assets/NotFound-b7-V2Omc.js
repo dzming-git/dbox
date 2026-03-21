@@ -1,0 +1,1 @@
+import{i as e,s as t,y as n}from"./runtime-core.esm-bundler-DVw0MOCx.js";import{t as r}from"./_plugin-vue_export-helper-CXTkFu_Z.js";var i={},a={class:`not-found`};function o(r,i){return n(),t(`div`,a,[...i[0]||=[e(`h1`,null,`404`,-1),e(`p`,null,`页面未找到`,-1)]])}var s=r(i,[[`render`,o]]);export{s as default};

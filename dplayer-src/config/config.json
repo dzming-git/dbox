@@ -1,0 +1,40 @@
+{
+    "host": "0.0.0.0",
+    "auto_start": true,
+    "ports": {
+        "web": 8080,
+        "main_app": 8080,
+        "admin_app": 8081,
+        "thumbnail": 5001
+    },
+    "scan_directories": [
+        {
+            "path": "M:/<媒体库>",
+            "recursive": true,
+            "enabled": true
+        }
+    ],
+    "auto_scan_on_startup": true,
+    "scan_interval_minutes": 60,
+    "supported_formats": [
+        ".mp4",
+        ".avi",
+        ".mkv",
+        ".mov",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".m4v"
+    ],
+    "default_tags": [
+        "本地视频"
+    ],
+    "default_priority": 0,
+    "test": "value",
+    "scan_directory": "/path/to/scan",
+    "video_formats": [
+        "mp4",
+        "mkv",
+        "avi"
+    ]
+}

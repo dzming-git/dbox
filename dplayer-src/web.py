@@ -1,0 +1,2284 @@
+"""
+DPlayer 2.0 - 纯后端 Web 服务
+提供视频管理、标签管理、缩略图等 API 接口
+"""
+import os
+import sys
+
+# 开发模式：允许直接运行
+if '--dev' in sys.argv or os.environ.get('DPLAYER_DEV_MODE') == '1':
+    os.environ['DPLAYER_DEV_MODE'] = '1'
+    print("[DEV MODE] 直接运行模式已启用")
+
+# 服务启动守卫：必须通过 NSSM 启动
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+# 项目根目录是 dplayer-src 的父目录
+PROJECT_ROOT = os.path.dirname(_PROJECT_ROOT)
+
+# 添加模块路径
+for _p in [_PROJECT_ROOT, PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'services')]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from launcher_guard import check_service_launch
+check_service_launch('DPlayer Web Service', 'web.py')
+
+# 添加更多模块路径
+for p in [os.path.join(PROJECT_ROOT, 'msas-web'),
+          os.path.join(PROJECT_ROOT, 'msas-thumb'),
+          os.path.join(PROJECT_ROOT, 'libs')]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+print(f"[DEBUG] web.py loading from: {os.path.abspath(__file__)}")
+print(f"[DEBUG] PROJECT_ROOT: {PROJECT_ROOT}")
+
+from flask import Flask, jsonify, request, send_file, abort, Response, g, session, send_from_directory
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
+from urllib.parse import quote, unquote
+import json
+import logging
+import logging.handlers
+import threading
+import time
+import hashlib
+import random
+import re
+from functools import wraps
+
+# 导入缩略图服务客户端
+try:
+    import sys
+    sys.path.insert(0, os.path.join(PROJECT_ROOT, 'msas-thumb'))
+    from thumbnail_service_client import ThumbnailServiceClient
+    thumbnail_client = ThumbnailServiceClient()
+except ImportError as e:
+    thumbnail_client = None
+    print(f"[WARNING] 缩略图客户端导入失败: {e}")
+
+# 导入核心模块
+from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
+from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
+from auth_service import AuthService, init_root_user
+
+# 导入API蓝图
+from api.auth_api import auth_bp
+from api.playlist_api import playlist_bp
+from api.system_api import system_bp
+from backend.api.shared_watch_api import shared_watch_bp
+from backend.api.auth_api_v2 import auth_v2_bp
+
+# ============ 配置 ============
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'dplayer2-secret-key-change-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(PROJECT_ROOT, 'instance', 'dplayer.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+
+# CORS配置
+CORS(app, resources={
+    r"/api/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]},
+    r"/api/admin/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}
+})
+
+# ============ 日志配置 ============
+def setup_logging():
+    log_dir = os.path.join(PROJECT_ROOT, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, 'web.log'),
+        maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'
+    )
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    app.logger.setLevel(logging.INFO)
+    app.logger.addHandler(handler)
+    print("[DEBUG] Logging configured")
+
+setup_logging()
+
+# ============ 数据库初始化 ============
+print("[DEBUG] Initializing database...")
+db.init_app(app)
+with app.app_context():
+    db.create_all()
+    init_root_user()
+    print("[DEBUG] Database initialized")
+
+# ============ 注册蓝图 ============
+print("[DEBUG] Registering blueprints...")
+app.register_blueprint(auth_bp)
+app.register_blueprint(auth_v2_bp)  # v2版本JWT认证API
+app.register_blueprint(playlist_bp)
+app.register_blueprint(system_bp)
+app.register_blueprint(shared_watch_bp)  # 共享观看API
+
+# ============ 认证装饰器 ============
+def auth_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' in session:
+            g.user_id = session.get('user_id')
+            g.role = session.get('role', 0)
+            g.username = session.get('username')
+            return f(*args, **kwargs)
+        return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+    return decorated
+
+def admin_required(f):
+    """管理员权限装饰器 - 需要 JWT 认证"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization', '')
+        if token.startswith('Bearer '):
+            token = token[7:]
+        
+        if not token:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        
+        try:
+            from authlib.jose import jwt
+            SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
+            payload = jwt.decode(token, SECRET_KEY)
+            
+            if payload.get('type') != 'access':
+                return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
+            
+            g.user_id = payload.get('user_id')
+            g.role = payload.get('role', 0)
+            g.username = payload.get('username')
+            
+            # 检查是否是管理员或更高权限
+            if g.role < UserRole.ADMIN:
+                return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+            
+            return f(*args, **kwargs)
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'无效的 token: {str(e)}', 'code': 401}), 401
+    
+    return decorated
+
+# ============ 配置管理 ============
+CONFIG_FILE = os.path.join(PROJECT_ROOT, 'config', 'config.json')
+
+def load_config():
+    default = {
+        "scan_directories": [{"path": "M:/<媒体库>", "recursive": True, "enabled": True}],
+        "auto_scan_on_startup": True,
+        "supported_formats": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"],
+        "default_tags": ["本地视频"],
+        "default_priority": 0,
+        "ports": {"web": 8080, "thumbnail": 5001}
+    }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return {**default, **json.load(f)}
+        except:
+            pass
+    return default
+
+def save_config(cfg):
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        app.logger.error(f'保存配置失败: {e}')
+        return False
+
+app_config = load_config()
+
+# ============ 辅助函数 ============
+def get_user_session():
+    if 'user_session' not in session:
+        session['user_session'] = str(random.randint(100000, 999999))
+    return session['user_session']
+
+def record_interaction(video_id, user_session, interaction_type, score=1.0):
+    try:
+        interaction = UserInteraction(
+            video_id=video_id,
+            user_session=user_session,
+            interaction_type=interaction_type,
+            interaction_score=score
+        )
+        db.session.add(interaction)
+        
+        video_tags = VideoTag.query.filter_by(video_id=video_id).all()
+        for vt in video_tags:
+            pref = UserPreference.query.filter_by(
+                user_session=user_session, tag_id=vt.tag_id
+            ).first()
+            if pref:
+                pref.preference_score += score * 0.1
+                pref.interaction_count += 1
+            else:
+                pref = UserPreference(
+                    user_session=user_session,
+                    tag_id=vt.tag_id,
+                    preference_score=1.0 + score * 0.1,
+                    interaction_count=1
+                )
+                db.session.add(pref)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error(f'记录交互失败: {e}')
+        db.session.rollback()
+
+# ============ 静态文件服务 ============
+DIST_DIR = os.path.join(PROJECT_ROOT, 'static', 'dist')
+
+@app.route('/')
+def index():
+    """返回前端首页"""
+    return send_from_directory(DIST_DIR, 'index.html')
+
+@app.route('/assets/<path:filename>')
+def serve_assets(filename):
+    """返回前端资源文件"""
+    return send_from_directory(os.path.join(DIST_DIR, 'assets'), filename)
+
+@app.route('/favicon.svg')
+def serve_favicon():
+    """返回favicon"""
+    return send_from_directory(DIST_DIR, 'favicon.svg')
+
+# ============ API 路由 ============
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+# --- 视频管理 ---
+
+@app.route('/api/videos', methods=['GET'])
+def get_videos():
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        tag_id = request.args.get('tag_id', type=int)
+        search = request.args.get('search', '').strip()
+        filter_library_id = request.args.get('library_id', type=int)  # 管理员按库筛选
+        sort = request.args.get('sort', 'recommended')  # 排序方式: recommended, name, created_at, view_count, priority, like_count
+        order = request.args.get('order', 'desc')  # 排序方向: asc, desc
+
+        query = Video.query
+
+        # ============ 过滤被禁用的视频库 ============
+        # 获取当前用户可访问的激活视频库ID列表
+        allowed_library_ids = []
+
+        # 检查 Video 模型是否有 library_id 属性
+        has_library_id = hasattr(Video, 'library_id')
+
+        if has_library_id:
+            # 获取用户ID和角色 —— 优先 JWT token，其次 session
+            user_id = None
+            user_role = 0
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                try:
+                    from authlib.jose import jwt as _jwt
+                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                    _payload = _jwt.decode(auth_header[7:], _secret)
+                    user_id = _payload.get('user_id')
+                    user_role = _payload.get('role', 0)
+                except Exception:
+                    pass
+            if not user_id and 'user_id' in session:
+                user_id = session['user_id']
+                user_role = session.get('role', 0)
+
+            # 管理员和ROOT可以访问所有激活的库
+            if user_role in [UserRole.ADMIN, UserRole.ROOT]:
+                all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
+                allowed_library_ids = [lib.id for lib in all_active_libs]
+            elif user_id:
+                # 已登录的普通用户：查询用户直接权限 + 用户组权限
+                # 1. 获取用户直接权限的库
+                user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
+                for perm in user_perms:
+                    lib = VideoLibrary.query.get(perm.library_id)
+                    if lib and lib.is_active:
+                        allowed_library_ids.append(perm.library_id)
+
+                # 2. 获取用户组权限的库
+                user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                for ugm in user_groups:
+                    group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
+                    for perm in group_perms:
+                        lib = VideoLibrary.query.get(perm.library_id)
+                        if lib and lib.is_active and perm.library_id not in allowed_library_ids:
+                            allowed_library_ids.append(perm.library_id)
+            
+            # 3. 获取通用权限（user_id=NULL，表示所有人都可以访问）
+            # 这个在用户没有特定权限时也生效
+            general_perms = LibraryPermission.query.filter_by(user_id=None).all()
+            for perm in general_perms:
+                lib = VideoLibrary.query.get(perm.library_id)
+                if lib and lib.is_active and perm.library_id not in allowed_library_ids:
+                    allowed_library_ids.append(perm.library_id)
+
+            # 过滤条件：library_id 为 NULL（主数据库的视频）或在允许的视频库中
+            if allowed_library_ids:
+                query = query.filter(
+                    (Video.library_id == None) |
+                    (Video.library_id.in_(allowed_library_ids))
+                )
+            else:
+                # 未登录或无权限用户只能看到主数据库的视频
+                query = query.filter(Video.library_id == None)
+
+        # 如果调用方指定了 library_id（管理员按库精确筛选），直接用精确过滤覆盖宽泛条件
+        if filter_library_id is not None:
+            query = Video.query.filter(Video.library_id == filter_library_id)
+
+        # 搜索功能
+        if search:
+            query = query.filter(Video.title.ilike(f'%{search}%'))
+
+        # 标签筛选
+        if tag_id:
+            query = query.join(VideoTag).filter(VideoTag.tag_id == tag_id)
+
+        # ============ 重要：total 统计必须在权限过滤之后 ============
+        # 获取总数（已应用权限过滤）
+        total = query.count()
+
+        # ============ 排序策略 ============
+        from sqlalchemy import func, case
+
+        # 根据 order 参数确定排序方向
+        is_desc = order.lower() == 'desc'
+
+        # 排序方式映射
+        if sort == 'name':
+            # 按视频名排序
+            videos = query.order_by(Video.title.desc() if is_desc else Video.title.asc()).offset(offset).limit(limit).all()
+        elif sort == 'created_at':
+            # 按文件创建时间排序
+            videos = query.order_by(Video.created_at.desc() if is_desc else Video.created_at.asc()).offset(offset).limit(limit).all()
+        elif sort == 'view_count':
+            # 按播放量排序
+            videos = query.order_by(Video.view_count.desc() if is_desc else Video.view_count.asc()).offset(offset).limit(limit).all()
+        elif sort == 'priority':
+            # 按优先级排序
+            videos = query.order_by(Video.priority.desc() if is_desc else Video.priority.asc()).offset(offset).limit(limit).all()
+        elif sort == 'like_count':
+            # 按点赞数排序
+            videos = query.order_by(Video.like_count.desc() if is_desc else Video.like_count.asc()).offset(offset).limit(limit).all()
+        elif sort == 'download_count':
+            # 按下载数排序
+            videos = query.order_by(Video.download_count.desc() if is_desc else Video.download_count.asc()).offset(offset).limit(limit).all()
+        else:
+            # 默认推荐排序：首页推荐带随机成分（仅支持倒序）
+            # 如果没有指定 tag_id 和 search，则认为是首页推荐，加入随机成分
+            if not tag_id and not search:
+                # 使用 func.random() 为每个视频赋予随机权重
+                # 排序公式：priority + view_count * 0.1 + random() * 50
+                # 这样热门视频仍有优势，但随机视频也有机会排在前面
+                videos = query.order_by(
+                    (Video.priority + Video.view_count * 0.1 + func.random() * 50).desc()
+                ).offset(offset).limit(limit).all()
+            else:
+                # 标签页或搜索结果按原排序规则
+                videos = query.order_by(
+                    (Video.priority + Video.view_count).desc()
+                ).offset(offset).limit(limit).all()
+
+        return jsonify({
+            'success': True,
+            'videos': [v.to_dict() for v in videos],
+            'total': total,
+            'sort': sort,
+            'order': order
+        })
+    except Exception as e:
+        app.logger.error(f"获取视频列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/video/<video_hash>', methods=['GET'])
+def get_video(video_hash):
+    """获取单个视频详情 - 需要检查视频库权限"""
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        
+        # ============ 权限检查 ============
+        # 检查视频是否属于某个视频库
+        if video.library_id:
+            # 获取用户ID和角色
+            user_id = None
+            user_role = 0
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                try:
+                    from authlib.jose import jwt as _jwt
+                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                    _payload = _jwt.decode(auth_header[7:], _secret)
+                    user_id = _payload.get('user_id')
+                    user_role = _payload.get('role', 0)
+                except Exception:
+                    pass
+            if not user_id and 'user_id' in session:
+                user_id = session['user_id']
+                user_role = session.get('role', 0)
+            
+            # 管理员和ROOT可以访问所有视频
+            if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
+                # 检查用户权限
+                user_perm = LibraryPermission.query.filter_by(
+                    library_id=video.library_id, user_id=user_id
+                ).first()
+                
+                # 检查用户组权限
+                has_access = bool(user_perm)
+                if not has_access:
+                    user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                    for ugm in user_groups:
+                        group_perm = LibraryPermission.query.filter_by(
+                            library_id=video.library_id, group_id=ugm.group_id
+                        ).first()
+                        if group_perm:
+                            has_access = True
+                            break
+                
+                if not has_access:
+                    return jsonify({
+                        'success': False,
+                        'message': '无权访问此视频',
+                        'code': 403
+                    }), 403
+        
+        return jsonify({'success': True, 'video': video.to_dict()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/video/<video_hash>/like', methods=['POST'])
+def like_video(video_hash):
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video.like_count += 1
+        record_interaction(video.id, get_user_session(), 'like', 2.0)
+        db.session.commit()
+        return jsonify({'success': True, 'like_count': video.like_count})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/video/<video_hash>/favorite', methods=['POST'])
+def toggle_favorite(video_hash):
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        user_session = get_user_session()
+        
+        interaction = UserInteraction.query.filter_by(
+            video_id=video.id, user_session=user_session, interaction_type='favorite'
+        ).first()
+        
+        if interaction:
+            db.session.delete(interaction)
+            favorited = False
+        else:
+            interaction = UserInteraction(
+                video_id=video.id, user_session=user_session,
+                interaction_type='favorite', interaction_score=5.0
+            )
+            db.session.add(interaction)
+            favorited = True
+        
+        db.session.commit()
+        return jsonify({'success': True, 'favorited': favorited})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/video/<video_hash>', methods=['DELETE'])
+def delete_video(video_hash):
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        if video.local_path and os.path.exists(video.local_path):
+            os.remove(video.local_path)
+        db.session.delete(video)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '视频已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 观看次数记录 ---
+
+@app.route('/api/video/<video_hash>/view', methods=['POST'])
+def increment_view_count(video_hash):
+    """增加视频观看次数"""
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video.view_count = (video.view_count or 0) + 1
+        db.session.commit()
+        return jsonify({'success': True, 'view_count': video.view_count})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 视频播放 ---
+
+@app.route('/api/videos/<int:video_id>/play', methods=['GET'])
+@auth_required
+def play_video(video_id):
+    """播放视频 - 需要检查视频库权限"""
+    try:
+        video = Video.query.get(video_id)
+        if not video:
+            return jsonify({'success': False, 'message': '视频不存在'}), 404
+        
+        # ============ 权限检查 ============
+        # 检查视频是否属于某个视频库
+        if video.library_id:
+            # 获取用户ID和角色
+            user_id = g.user_id
+            user_role = g.role
+            
+            # 管理员和ROOT可以访问所有视频
+            if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
+                # 检查用户权限
+                user_perm = LibraryPermission.query.filter_by(
+                    library_id=video.library_id, user_id=user_id
+                ).first()
+                
+                # 检查用户组权限
+                has_access = bool(user_perm)
+                if not has_access:
+                    user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                    for ugm in user_groups:
+                        group_perm = LibraryPermission.query.filter_by(
+                            library_id=video.library_id, group_id=ugm.group_id
+                        ).first()
+                        if group_perm:
+                            has_access = True
+                            break
+                
+                if not has_access:
+                    return jsonify({
+                        'success': False,
+                        'message': '无权播放此视频',
+                        'code': 403
+                    }), 403
+        
+        video_path = video.local_path or video.url
+        if not video_path or not os.path.exists(video_path):
+            return jsonify({'success': False, 'message': '视频文件不存在'}), 404
+        
+        range_header = request.headers.get('Range', None)
+        file_size = os.path.getsize(video_path)
+        
+        if range_header:
+            match = re.search('bytes=(\d+)-(\d*)', range_header)
+            byte1 = int(match.group(1)) if match else 0
+            byte2 = int(match.group(2)) if match and match.group(2) else file_size - 1
+            length = byte2 - byte1 + 1
+            
+            def generate():
+                with open(video_path, 'rb') as f:
+                    f.seek(byte1)
+                    yield f.read(length)
+            
+            resp = Response(generate(), 206, mimetype='video/mp4', direct_passthrough=True)
+            resp.headers.add('Content-Range', f'bytes {byte1}-{byte2}/{file_size}')
+            resp.headers.add('Content-Length', str(length))
+        else:
+            def generate():
+                with open(video_path, 'rb') as f:
+                    while data := f.read(8192):
+                        yield data
+            resp = Response(generate(), 200, mimetype='video/mp4', direct_passthrough=True)
+            resp.headers.add('Content-Length', str(file_size))
+        
+        return resp
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 标签管理 ---
+
+@app.route('/api/tags', methods=['GET'])
+def get_tags():
+    """获取标签列表 - 需要按用户权限过滤视频数量"""
+    try:
+        # ============ 获取用户可访问的视频库 ============
+        # 获取用户ID和角色
+        user_id = None
+        user_role = 0
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            try:
+                from authlib.jose import jwt as _jwt
+                _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                _payload = _jwt.decode(auth_header[7:], _secret)
+                user_id = _payload.get('user_id')
+                user_role = _payload.get('role', 0)
+            except Exception:
+                pass
+        if not user_id and 'user_id' in session:
+            user_id = session['user_id']
+            user_role = session.get('role', 0)
+        
+        # 获取用户可访问的视频库ID列表
+        allowed_library_ids = []
+        
+        if user_id:
+            # 管理员和ROOT可以访问所有激活的库
+            if user_role in [UserRole.ADMIN, UserRole.ROOT]:
+                all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
+                allowed_library_ids = [lib.id for lib in all_active_libs]
+            else:
+                # 获取用户直接权限的库
+                user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
+                for perm in user_perms:
+                    lib = VideoLibrary.query.get(perm.library_id)
+                    if lib and lib.is_active:
+                        allowed_library_ids.append(perm.library_id)
+                
+                # 获取用户组权限的库
+                user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                for ugm in user_groups:
+                    group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
+                    for perm in group_perms:
+                        lib = VideoLibrary.query.get(perm.library_id)
+                        if lib and lib.is_active and perm.library_id not in allowed_library_ids:
+                            allowed_library_ids.append(perm.library_id)
+        
+        # ============ 获取标签并过滤视频数量 ============
+        tags = Tag.query.all()
+        
+        # 为每个标签计算用户可见的视频数量
+        from sqlalchemy import or_
+        result_tags = []
+        for tag in tags:
+            # 构建查询：该标签下用户可见的视频数量
+            query = Video.query.join(VideoTag).filter(VideoTag.tag_id == tag.id)
+            
+            # 应用权限过滤
+            if allowed_library_ids:
+                query = query.filter(
+                    or_(
+                        Video.library_id == None,
+                        Video.library_id.in_(allowed_library_ids)
+                    )
+                )
+            else:
+                query = query.filter(Video.library_id == None)
+            
+            video_count = query.count()
+            
+            # 只返回有可见视频的标签
+            if video_count > 0:
+                tag_dict = tag.to_dict()
+                tag_dict['video_count'] = video_count
+                result_tags.append(tag_dict)
+        
+        # 按视频数量排序
+        result_tags.sort(key=lambda t: t['video_count'], reverse=True)
+        
+        return jsonify({'success': True, 'tags': result_tags})
+    except Exception as e:
+        app.logger.error(f"获取标签列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/tags', methods=['POST'])
+def create_tag():
+    """创建新标签 - 前端期望的API路径"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': '标签名不能为空'}), 400
+        
+        if len(name) < 2 or len(name) > 20:
+            return jsonify({'success': False, 'message': '标签名长度需在2-20字符之间'}), 400
+        
+        if Tag.query.filter_by(name=name).first():
+            return jsonify({'success': False, 'message': '标签已存在'}), 400
+        
+        tag = Tag(name=name, category=data.get('category', '类型'))
+        db.session.add(tag)
+        db.session.commit()
+        return jsonify({'success': True, 'tag': tag.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# 保留旧路径以兼容
+@app.route('/api/tags/add', methods=['POST'])
+def add_tag():
+    """创建新标签 - 旧路径兼容"""
+    return create_tag()
+
+@app.route('/api/tags/<int:tag_id>', methods=['PUT'])
+def update_tag(tag_id):
+    """更新标签 - PUT方法"""
+    return _do_update_tag(tag_id)
+
+@app.route('/api/tags/update/<int:tag_id>', methods=['POST'])
+def update_tag_post(tag_id):
+    """更新标签 - POST方法（兼容前端）"""
+    return _do_update_tag(tag_id)
+
+def _do_update_tag(tag_id):
+    """更新标签的实际逻辑"""
+    try:
+        tag = Tag.query.get_or_404(tag_id)
+        data = request.get_json()
+        
+        name = data.get('name', '').strip()
+        if name:
+            if len(name) < 2 or len(name) > 20:
+                return jsonify({'success': False, 'message': '标签名长度需在2-20字符之间'}), 400
+            
+            # 检查名称唯一性（排除当前标签）
+            existing = Tag.query.filter_by(name=name).first()
+            if existing and existing.id != tag_id:
+                return jsonify({'success': False, 'message': '标签名已存在'}), 400
+            
+            tag.name = name
+        
+        if 'category' in data:
+            tag.category = data['category'].strip() or '类型'
+        
+        db.session.commit()
+        return jsonify({'success': True, 'tag': tag.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
+def delete_tag(tag_id):
+    try:
+        tag = Tag.query.get_or_404(tag_id)
+        VideoTag.query.filter_by(tag_id=tag_id).delete()
+        db.session.delete(tag)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '标签已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 管理后台 API ---
+
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def get_admin_users():
+    """获取用户列表（管理员）"""
+    try:
+        users = User.query.all()
+        return jsonify({
+            'success': True,
+            'users': [{
+                'id': u.id,
+                'username': u.username,
+                'role': u.role,
+                'role_name': u.role_name,
+                'created_at': u.created_at.isoformat() if u.created_at else None
+            } for u in users]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/users', methods=['POST'])
+@admin_required
+def create_admin_user():
+    """创建新用户（管理员）"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        role_str = data.get('role', 'user')
+        
+        # 将字符串角色转换为数字
+        role_map = {
+            'guest': UserRole.GUEST,
+            'user': UserRole.USER,
+            'admin': UserRole.ADMIN,
+            'root': UserRole.ROOT
+        }
+        role = role_map.get(role_str, UserRole.USER)
+        
+        if not username or not password:
+            return jsonify({'success': False, 'message': '用户名和密码不能为空'}), 400
+        
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': '用户名已存在'}), 400
+        
+        user = User(username=username, role=role)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'role_name': user.role_name
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+@admin_required
+def update_admin_user(user_id):
+    """更新用户信息（管理员）"""
+    try:
+        user = User.query.get_or_404(user_id)
+        data = request.get_json()
+
+        # 更新用户名
+        if 'username' in data:
+            new_username = data['username'].strip()
+            if not new_username:
+                return jsonify({'success': False, 'message': '用户名不能为空'}), 400
+            # 检查用户名是否已被其他用户占用
+            existing_user = User.query.filter_by(username=new_username).first()
+            if existing_user and existing_user.id != user_id:
+                return jsonify({'success': False, 'message': '用户名已存在'}), 400
+            user.username = new_username
+
+        # 更新角色
+        if 'role' in data:
+            role_map = {
+                'guest': UserRole.GUEST,
+                'user': UserRole.USER,
+                'admin': UserRole.ADMIN,
+                'root': UserRole.ROOT
+            }
+            user.role = role_map.get(data['role'], UserRole.USER)
+
+        # 更新密码（如果提供了）
+        if data.get('password'):
+            user.set_password(data['password'])
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'role_name': user.role_name
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def delete_admin_user(user_id):
+    """删除用户（管理员）"""
+    try:
+        user = User.query.get_or_404(user_id)
+        if user.id == current_user.id:
+            return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '用户已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/config', methods=['GET'])
+@admin_required
+def get_system_config():
+    """获取系统配置"""
+    try:
+        # 从数据库或配置文件读取
+        config = {
+            'max_upload_size': 1024,  # MB
+            'thumbnail_quality': 85,
+            'auto_sync': True,
+            'allow_register': False
+        }
+        return jsonify({'success': True, 'config': config})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/config', methods=['POST'])
+@admin_required
+def update_system_config():
+    """更新系统配置"""
+    try:
+        data = request.get_json()
+        # 这里可以保存到数据库或配置文件
+        return jsonify({'success': True, 'message': '配置已保存'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/videos/batch-delete', methods=['POST'])
+@admin_required
+def batch_delete_videos():
+    """批量删除视频"""
+    try:
+        data = request.get_json()
+        hashes = data.get('hashes', [])
+        
+        if not hashes:
+            return jsonify({'success': False, 'message': '未选择视频'}), 400
+        
+        deleted_count = 0
+        for video_hash in hashes:
+            video = Video.query.filter_by(hash=video_hash).first()
+            if video:
+                # 删除关联记录
+                UserInteraction.query.filter_by(video_id=video.id).delete()
+                VideoTag.query.filter_by(video_id=video.id).delete()
+                db.session.delete(video)
+                deleted_count += 1
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'已删除 {deleted_count} 个视频',
+            'deleted_count': deleted_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/videos/<video_hash>/update', methods=['POST'])
+@admin_required
+def update_video_info(video_hash):
+    """更新视频信息"""
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        data = request.get_json()
+        
+        if 'title' in data:
+            video.title = data['title'].strip()
+        if 'description' in data:
+            video.description = data.get('description', '').strip()
+        if 'priority' in data:
+            priority = data['priority']
+            # 验证优先级范围 0-100
+            if not isinstance(priority, (int, float)):
+                return jsonify({'success': False, 'message': '优先级必须是数字'}), 400
+            if priority < 0 or priority > 100:
+                return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
+            video.priority = int(priority)
+        
+        db.session.commit()
+        return jsonify({'success': True, 'video': video.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/videos/batch-update-priority', methods=['POST'])
+@admin_required
+def batch_update_priority():
+    """批量设置视频优先级"""
+    try:
+        data = request.get_json()
+        hashes = data.get('hashes', [])
+        priority = data.get('priority')
+        
+        if not hashes:
+            return jsonify({'success': False, 'message': '未选择视频'}), 400
+        
+        # 验证优先级
+        if priority is None:
+            return jsonify({'success': False, 'message': '请提供优先级值'}), 400
+        if not isinstance(priority, (int, float)):
+            return jsonify({'success': False, 'message': '优先级必须是数字'}), 400
+        if priority < 0 or priority > 100:
+            return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
+        
+        updated_count = 0
+        for video_hash in hashes:
+            video = Video.query.filter_by(hash=video_hash).first()
+            if video:
+                video.priority = int(priority)
+                updated_count += 1
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'已更新 {updated_count} 个视频的优先级',
+            'updated_count': updated_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 缩略图服务 ---
+
+@app.route('/thumbnail/<video_hash>')
+def get_thumbnail(video_hash):
+    """获取缩略图，支持懒加载生成 - 需要检查视频库权限"""
+    thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+
+    # 先尝试查找已存在的文件
+    for ext in ['gif', 'jpg', 'png']:
+        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+        if os.path.exists(path):
+            resp = send_file(path, mimetype=f'image/{ext}')
+            resp.cache_control.max_age = 3600
+            return resp
+
+    # 文件不存在，尝试懒加载生成
+    try:
+        # 查找视频的本地路径
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not video or not video.local_path:
+            # 没有视频记录或本地路径，返回404
+            abort(404)
+
+        # ============ 权限检查 ============
+        # 检查视频是否属于某个视频库
+        if video.library_id:
+            # 获取用户ID和角色
+            user_id = None
+            user_role = 0
+
+            # 方式1: 从 Authorization header 获取 token
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                try:
+                    from authlib.jose import jwt as _jwt
+                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                    _payload = _jwt.decode(auth_header[7:], _secret)
+                    user_id = _payload.get('user_id')
+                    user_role = _payload.get('role', 0)
+                except Exception:
+                    pass
+
+            # 方式2: 从查询参数 token 获取（用于 <img> 标签）
+            if not user_id:
+                query_token = request.args.get('token', '')
+                if query_token:
+                    try:
+                        from authlib.jose import jwt as _jwt
+                        _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                        _payload = _jwt.decode(query_token, _secret)
+                        user_id = _payload.get('user_id')
+                        user_role = _payload.get('role', 0)
+                    except Exception:
+                        pass
+
+            # 方式3: 从 session 获取
+            if not user_id and 'user_id' in session:
+                user_id = session['user_id']
+                user_role = session.get('role', 0)
+
+            # 管理员和ROOT可以访问所有缩略图
+            if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
+                # 检查用户权限
+                user_perm = LibraryPermission.query.filter_by(
+                    library_id=video.library_id, user_id=user_id
+                ).first()
+                
+                # 检查通用权限（user_id=NULL 表示所有人都可以访问）
+                general_perm = LibraryPermission.query.filter_by(
+                    library_id=video.library_id, user_id=None
+                ).first()
+
+                # 检查用户组权限
+                has_access = bool(user_perm) or bool(general_perm)
+                if not has_access:
+                    user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                    for ugm in user_groups:
+                        group_perm = LibraryPermission.query.filter_by(
+                            library_id=video.library_id, group_id=ugm.group_id
+                        ).first()
+                        if group_perm:
+                            has_access = True
+                            break
+
+                if not has_access:
+                    abort(403)
+
+        # 调用缩略图服务生成
+        if thumbnail_client:
+            result = thumbnail_client.generate_thumbnail(
+                video_path=video.local_path,
+                video_hash=video_hash,
+                output_format='gif'  # 优先生成 GIF 动图
+            )
+            if result and result.get('success'):
+                # 生成成功，重新检查文件
+                for ext in ['gif', 'jpg', 'png']:
+                    path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+                    if os.path.exists(path):
+                        resp = send_file(path, mimetype=f'image/{ext}')
+                        resp.cache_control.max_age = 3600
+                        return resp
+
+        # 服务不可用或生成失败，返回 JSON 状态让前端轮询
+        return jsonify({
+            'success': False,
+            'status': 'generating',
+            'message': '缩略图正在生成中',
+            'video_hash': video_hash
+        }), 202
+
+    except Exception as e:
+        app.logger.error(f"缩略图生成失败: {e}")
+        return jsonify({
+            'success': False,
+            'status': 'error',
+            'message': str(e),
+            'video_hash': video_hash
+        }), 202
+
+
+@app.route('/api/thumbnail/status/<video_hash>', methods=['GET'])
+def get_thumbnail_status(video_hash):
+    """检查缩略图生成状态，返回进度信息"""
+    thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+
+    # 检查文件是否存在
+    for ext in ['gif', 'jpg', 'png']:
+        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+        if os.path.exists(path):
+            return jsonify({
+                'success': True,
+                'status': 'ready',
+                'progress': 100,
+                'url': f'/thumbnail/{video_hash}.{ext}'
+            })
+
+    # 文件不存在，查询缩略图服务任务状态
+    if thumbnail_client:
+        try:
+            # 查询任务状态
+            result = thumbnail_client.get_task_status_by_hash(video_hash)
+            if result and result.get('success'):
+                # 缩略图服务返回的数据格式: {success: true, task_id: ..., status: ..., progress: ...}
+                task_status = result.get('status', 'unknown')
+                progress = result.get('progress', 0)
+
+                # 映射状态
+                status_map = {
+                    'pending': 'pending',
+                    'processing': 'processing',
+                    'completed': 'ready',
+                    'failed': 'failed'
+                }
+                mapped_status = status_map.get(task_status, task_status)
+
+                return jsonify({
+                    'success': True,
+                    'status': mapped_status,
+                    'progress': progress,
+                    'message': f'缩略图生成中 ({progress}%)'
+                })
+        except Exception as e:
+            app.logger.error(f"查询缩略图任务状态失败: {e}")
+
+    # 没有找到任务
+    return jsonify({
+        'success': False,
+        'status': 'not_found',
+        'progress': 0,
+        'message': '缩略图尚未生成'
+    })
+
+# --- 配置 API ---
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    return jsonify({'success': True, 'config': app_config})
+
+@app.route('/api/config', methods=['PUT'])
+def update_config():
+    try:
+        data = request.get_json()
+        for k, v in data.items():
+            app_config[k] = v
+        if save_config(app_config):
+            return jsonify({'success': True, 'config': app_config})
+        return jsonify({'success': False, 'message': '保存失败'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 上传 API ---
+
+@app.route('/api/upload', methods=['POST'])
+@auth_required
+def upload_video():
+    """上传视频文件"""
+    try:
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'message': '未找到视频文件'}), 400
+        
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': '未选择文件'}), 400
+        
+        # 检查文件格式
+        allowed_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv'}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in allowed_extensions:
+            return jsonify({
+                'success': False, 
+                'message': f'不支持的文件格式，请上传 {", ".join(allowed_extensions)} 格式的视频'
+            }), 400
+        
+        # 创建上传目录
+        upload_dir = os.path.join(PROJECT_ROOT, 'uploads')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # 生成唯一文件名
+        import uuid
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"{unique_id}_{file.filename}"
+        file_path = os.path.join(upload_dir, safe_filename)
+        
+        # 保存文件
+        file.save(file_path)
+        
+        # 生成视频hash
+        video_hash = Video.generate_hash(file_path)
+        
+        # 检查是否已存在
+        existing = Video.query.filter_by(hash=video_hash).first()
+        if existing:
+            os.remove(file_path)
+            return jsonify({
+                'success': False,
+                'message': '该视频已存在',
+                'video': existing.to_dict()
+            }), 409
+        
+        # 获取文件大小
+        file_size = os.path.getsize(file_path)
+        
+        # 获取表单数据
+        title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
+        description = request.form.get('description', '').strip()
+        
+        # 创建视频记录
+        video = Video(
+            hash=video_hash,
+            title=title,
+            description=description,
+            url=f'/local_video/{quote(file_path.replace(chr(92), "/"), safe=":/")}',
+            file_path=file_path,
+            file_size=file_size,
+            duration='00:00',  # 后续可以提取真实时长
+            thumbnail=f'/thumbnail/{video_hash}'
+        )
+        
+        db.session.add(video)
+        db.session.commit()
+        
+        # 异步生成缩略图（这里简化处理）
+        # TODO: 调用缩略图服务生成真实缩略图
+        
+        return jsonify({
+            'success': True,
+            'message': '上传成功',
+            'video': video.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 状态 API ---
+
+@app.route('/api/status')
+def status():
+    try:
+        return jsonify({
+            'success': True,
+            'status': 'running',
+            'database': {
+                'videos': Video.query.count(),
+                'tags': Tag.query.count()
+            },
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 扫描 API ---
+
+@app.route('/api/scan', methods=['POST'])
+def scan_videos():
+    try:
+        total_added = 0
+        for dir_cfg in app_config.get('scan_directories', []):
+            if not dir_cfg.get('enabled', True):
+                continue
+            
+            dir_path = dir_cfg.get('path', '')
+            if not os.path.exists(dir_path):
+                continue
+            
+            for root, _, files in os.walk(dir_path):
+                for f in files:
+                    if any(f.lower().endswith(ext) for ext in app_config.get('supported_formats', [])):
+                        video_path = os.path.join(root, f)
+                        video_hash = Video.generate_hash(video_path)
+                        
+                        if Video.query.filter_by(hash=video_hash).first():
+                            continue
+                        
+                        title = os.path.splitext(f)[0]
+                        video = Video(
+                            hash=video_hash,
+                            title=title,
+                            description=f'本地视频: {f}',
+                            url=f'/local_video/{quote(video_path.replace(chr(92), "/"), safe=":/")}',
+                            thumbnail=f'/thumbnail/{video_hash}',
+                            is_downloaded=True,
+                            local_path=video_path
+                        )
+                        db.session.add(video)
+                        db.session.flush()
+                        
+                        for tag_name in app_config.get('default_tags', ['本地视频']):
+                            tag = Tag.query.filter_by(name=tag_name).first()
+                            if not tag:
+                                tag = Tag(name=tag_name, category='类型')
+                                db.session.add(tag)
+                                db.session.flush()
+                            db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
+                        
+                        total_added += 1
+        
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'添加了 {total_added} 个视频', 'total_added': total_added})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 本地视频服务 ---
+
+@app.route('/local_video/<path:video_path>')
+def serve_local_video(video_path):
+    try:
+        # 解码并规范化路径
+        video_path = unquote(video_path)
+        # 处理双斜杠、多余斜杠等问题（如 C://Users// -> C:/Users/）
+        while '//' in video_path:
+            video_path = video_path.replace('//', '/')
+        # 将斜杠转换为系统路径分隔符
+        video_path = video_path.replace('/', os.sep)
+
+        app.logger.info(f"[serve_local_video] 原始请求: {request.path}, 解析后: {video_path}")
+
+        # 获取扫描目录白名单
+        scan_dirs = [cfg['path'].replace('\\', '/') for cfg in app_config.get('scan_directories', [])]
+
+        # 白名单检查：1. 扫描目录 2. 数据库中已有视频的 local_path
+        allowed = any(video_path.startswith(d.replace('/', os.sep)) for d in scan_dirs)
+
+        # 如果不在扫描目录，检查是否在数据库中
+        if not allowed:
+            # 查找最后一个路径分隔符后的文件名，用文件名匹配
+            filename = os.path.basename(video_path)
+            existing_video = Video.query.filter(Video.local_path.like(f'%{filename}')).first()
+            if existing_video:
+                # 检查路径是否相同（忽略斜杠方向）
+                db_path = existing_video.local_path.replace('/', '\\').replace('\\\\', '\\')
+                req_path = video_path.replace('/', '\\').replace('\\\\', '\\')
+                if db_path == req_path or db_path.endswith(req_path) or req_path.endswith(db_path):
+                    allowed = True
+                    app.logger.info(f"[serve_local_video] 路径在数据库中找到: {video_path}")
+
+        if not allowed:
+            app.logger.warning(f"[serve_local_video] 路径未通过白名单: {video_path}")
+            abort(403)
+        if not os.path.exists(video_path):
+            app.logger.warning(f"[serve_local_video] 文件不存在: {video_path}")
+            abort(403)
+        return send_file(video_path, mimetype='video/mp4')
+    except Exception as e:
+        app.logger.error(f"[serve_local_video] 错误: {str(e)}, 路径: {video_path if 'video_path' in dir() else 'unknown'}")
+        abort(500)
+
+# ============ 视频库管理 API =================
+
+@app.route('/api/admin/libraries', methods=['GET'])
+@admin_required
+def get_libraries():
+    """获取所有视频库列表"""
+    try:
+        libraries = VideoLibrary.query.order_by(VideoLibrary.created_at.desc()).all()
+        result = []
+        for lib in libraries:
+            lib_dict = lib.to_dict(include_stats=True)
+            try:
+                lib_dict['video_count'] = Video.query.filter_by(library_id=lib.id).count()
+            except Exception:
+                lib_dict['video_count'] = 0
+            result.append(lib_dict)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        app.logger.error(f"获取视频库列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries', methods=['POST'])
+@admin_required
+def create_library():
+    """创建新视频库"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        
+        # 自动生成数据库文件名：库名拼音或时间戳
+        import time
+        import re
+        if not name:
+            return jsonify({'success': False, 'message': '请输入视频库名称'}), 400
+
+        # 检查名称是否重复
+        if VideoLibrary.query.filter_by(name=name).first():
+            return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
+
+        # 自动生成数据库文件名（使用时间戳确保唯一性）
+        safe_name = re.sub(r'[^\w\u4e00-\u9fff]', '_', name)  # 保留中文、字母、数字、下划线
+        db_file = f"{safe_name}_{int(time.time())}.db"
+        
+        # 确保文件名唯一
+        while VideoLibrary.query.filter_by(db_file=db_file).first():
+            db_file = f"{safe_name}_{int(time.time())}_{random.randint(1000,9999)}.db"
+
+        # 创建视频库
+        library = VideoLibrary(
+            name=name,
+            description=description,
+            db_path=os.path.join(PROJECT_ROOT, 'libraries'),
+            db_file=db_file,
+            is_active=True,
+            config=data.get('config', {})
+        )
+
+        # 确保目录存在
+        os.makedirs(library.db_path, exist_ok=True)
+
+        # 创建数据库文件（从模板复制或创建空数据库）
+        db_full_path = library.full_db_path
+        if not os.path.exists(db_full_path):
+            # 从现有数据库复制结构
+            import shutil
+            template_db = os.path.join(PROJECT_ROOT, 'instance', 'dplayer.db')
+            if os.path.exists(template_db):
+                shutil.copy2(template_db, db_full_path)
+            else:
+                # 创建空数据库
+                db.create_all()
+
+        db.session.add(library)
+        db.session.commit()
+
+        return jsonify({'success': True, 'data': library.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"创建视频库失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>', methods=['GET'])
+@admin_required
+def get_library(library_id):
+    """获取视频库详情"""
+    try:
+        library = VideoLibrary.query.get_or_404(library_id)
+        lib_dict = library.to_dict(include_stats=True)
+        return jsonify({'success': True, 'data': lib_dict})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>', methods=['PUT'])
+@admin_required
+def update_library(library_id):
+    """更新视频库配置"""
+    try:
+        library = VideoLibrary.query.get_or_404(library_id)
+        data = request.get_json()
+
+        if 'name' in data:
+            # 检查名称重复
+            existing = VideoLibrary.query.filter(VideoLibrary.name == data['name'], VideoLibrary.id != library_id).first()
+            if existing:
+                return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
+            library.name = data['name'].strip()
+
+        if 'description' in data:
+            library.description = data['description'].strip()
+
+        if 'is_active' in data:
+            library.is_active = bool(data['is_active'])
+
+        if 'config' in data:
+            library.config = data['config']
+
+        db.session.commit()
+        return jsonify({'success': True, 'data': library.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>', methods=['DELETE'])
+@admin_required
+def delete_library(library_id):
+    """删除视频库"""
+    try:
+        library = VideoLibrary.query.get_or_404(library_id)
+
+        # 可选：删除数据库文件
+        # db_file = library.full_db_path
+        # if os.path.exists(db_file):
+        #     os.remove(db_file)
+
+        db.session.delete(library)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '视频库已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 用户权限管理 API =================
+
+@app.route('/api/admin/libraries/<int:library_id>/permissions', methods=['GET'])
+@admin_required
+def get_library_permissions(library_id):
+    """获取视频库的权限列表"""
+    try:
+        library = VideoLibrary.query.get_or_404(library_id)
+        permissions = LibraryPermission.query.filter_by(library_id=library_id).all()
+        return jsonify({
+            'success': True,
+            'data': [p.to_dict() for p in permissions]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>/permissions', methods=['POST'])
+@admin_required
+def add_library_permission(library_id):
+    """添加用户权限"""
+    try:
+        library = VideoLibrary.query.get_or_404(library_id)
+        data = request.get_json()
+
+        user_id = data.get('user_id')
+        group_id = data.get('group_id')
+        role = data.get('role', 'user')
+        access_level = data.get('access_level', 'read')
+        permissions = data.get('permissions', [])
+
+        if not user_id and not group_id:
+            return jsonify({'success': False, 'message': '请指定用户或用户组'}), 400
+
+        # 检查权限是否已存在
+        if user_id:
+            existing = LibraryPermission.query.filter_by(library_id=library_id, user_id=user_id).first()
+        else:
+            existing = LibraryPermission.query.filter_by(library_id=library_id, group_id=group_id).first()
+
+        if existing:
+            return jsonify({'success': False, 'message': '权限已存在，请使用更新接口'}), 400
+
+        # 创建权限
+        permission = LibraryPermission(
+            library_id=library_id,
+            user_id=user_id,
+            group_id=group_id,
+            role=role,
+            access_level=access_level,
+            permissions=permissions,
+            created_by=g.user.id if hasattr(g, 'user') else None
+        )
+
+        db.session.add(permission)
+
+        # 记录审计日志
+        audit_log = LibraryAuditLog(
+            library_id=library_id,
+            target_user_id=user_id,
+            action='create',
+            new_value={'role': role, 'access_level': access_level},
+            operator_id=g.user.id if hasattr(g, 'user') else None
+        )
+        db.session.add(audit_log)
+
+        db.session.commit()
+        return jsonify({'success': True, 'data': permission.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>/permissions/<int:perm_id>', methods=['PUT'])
+@admin_required
+def update_library_permission(library_id, perm_id):
+    """更新用户权限"""
+    try:
+        permission = LibraryPermission.query.filter_by(id=perm_id, library_id=library_id).first_or_404()
+        data = request.get_json()
+
+        old_value = {
+            'role': permission.role,
+            'access_level': permission.access_level,
+            'permissions': permission.permissions
+        }
+
+        if 'role' in data:
+            permission.role = data['role']
+        if 'access_level' in data:
+            permission.access_level = data['access_level']
+        if 'permissions' in data:
+            permission.permissions = data['permissions']
+
+        # 记录审计日志
+        audit_log = LibraryAuditLog(
+            library_id=library_id,
+            target_user_id=permission.user_id,
+            action='update',
+            old_value=old_value,
+            new_value={'role': permission.role, 'access_level': permission.access_level},
+            operator_id=g.user.id if hasattr(g, 'user') else None
+        )
+        db.session.add(audit_log)
+
+        db.session.commit()
+        return jsonify({'success': True, 'data': permission.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>/permissions/<int:perm_id>', methods=['DELETE'])
+@admin_required
+def delete_library_permission(library_id, perm_id):
+    """删除用户权限"""
+    try:
+        permission = LibraryPermission.query.filter_by(id=perm_id, library_id=library_id).first_or_404()
+
+        # 记录审计日志
+        audit_log = LibraryAuditLog(
+            library_id=library_id,
+            target_user_id=permission.user_id,
+            action='delete',
+            old_value={'role': permission.role, 'access_level': permission.access_level},
+            operator_id=g.user.id if hasattr(g, 'user') else None
+        )
+        db.session.add(audit_log)
+
+        db.session.delete(permission)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '权限已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 批量导入视频 API =================
+
+@app.route('/api/admin/scan-folder', methods=['POST'])
+@admin_required
+def scan_folder():
+    """扫描指定文件夹，预览视频文件
+    
+    请求参数:
+    - folder_path: 要扫描的文件夹路径
+    - recursive: 是否递归扫描子文件夹（默认true）
+    - supported_formats: 支持的视频格式（可选，默认使用配置文件中的格式）
+    
+    返回:
+    - videos: 发现的视频文件列表
+    - total: 总数
+    """
+    try:
+        data = request.get_json()
+        folder_path = data.get('folder_path', '').strip()
+        recursive = data.get('recursive', True)
+        supported_formats = data.get('supported_formats', app_config.get('supported_formats', []))
+        
+        if not folder_path:
+            return jsonify({'success': False, 'message': '请指定要扫描的文件夹路径'}), 400
+        
+        if not os.path.exists(folder_path):
+            return jsonify({'success': False, 'message': '指定的文件夹不存在'}), 400
+        
+        if not os.path.isdir(folder_path):
+            return jsonify({'success': False, 'message': '指定的路径不是文件夹'}), 400
+        
+        # 扫描视频文件
+        videos = []
+        if recursive:
+            for root, _, files in os.walk(folder_path):
+                for f in files:
+                    if any(f.lower().endswith(ext) for ext in supported_formats):
+                        video_path = os.path.join(root, f)
+                        file_size = os.path.getsize(video_path)
+                        video_hash = Video.generate_hash(video_path)
+                        
+                        # 检查是否已存在
+                        existing = Video.query.filter_by(hash=video_hash).first()
+                        
+                        videos.append({
+                            'path': video_path,
+                            'filename': f,
+                            'title': os.path.splitext(f)[0],
+                            'size': file_size,
+                            'size_mb': round(file_size / (1024 * 1024), 2),
+                            'hash': video_hash,
+                            'exists': existing is not None,
+                            'existing_id': existing.id if existing else None
+                        })
+        else:
+            for f in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, f)
+                if os.path.isfile(file_path) and any(f.lower().endswith(ext) for ext in supported_formats):
+                    file_size = os.path.getsize(file_path)
+                    video_hash = Video.generate_hash(file_path)
+                    
+                    existing = Video.query.filter_by(hash=video_hash).first()
+                    
+                    videos.append({
+                        'path': file_path,
+                        'filename': f,
+                        'title': os.path.splitext(f)[0],
+                        'size': file_size,
+                        'size_mb': round(file_size / (1024 * 1024), 2),
+                        'hash': video_hash,
+                        'exists': existing is not None,
+                        'existing_id': existing.id if existing else None
+                    })
+        
+        # 按文件名排序
+        videos.sort(key=lambda x: x['filename'])
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'videos': videos,
+                'total': len(videos),
+                'new_count': len([v for v in videos if not v['exists']]),
+                'existing_count': len([v for v in videos if v['exists']])
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f"扫描文件夹失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/import-videos', methods=['POST'])
+@admin_required
+def import_videos():
+    """批量导入视频到指定视频库
+    
+    请求参数:
+    - library_id: 目标视频库ID（可选，默认导入到主数据库）
+    - videos: 视频列表，每个视频包含:
+        - path: 视频文件路径
+        - title: 标题（可选，默认使用文件名）
+        - description: 描述（可选）
+        - tags: 标签列表（可选）
+    - skip_existing: 是否跳过已存在的视频（默认true）
+    - default_tags: 默认标签（可选）
+    
+    返回:
+    - imported: 成功导入的数量
+    - skipped: 跳过的数量
+    - failed: 失败的数量
+    - errors: 错误信息列表
+    """
+    try:
+        data = request.get_json()
+        library_id = data.get('library_id')  # 必须指定有效的视频库ID
+        videos = data.get('videos', [])
+        skip_existing = data.get('skip_existing', True)
+        default_tags = data.get('default_tags', app_config.get('default_tags', ['本地视频']))
+
+        if not videos:
+            return jsonify({'success': False, 'message': '请选择要导入的视频'}), 400
+
+        # 验证视频库：必须指定有效的激活视频库
+        if not library_id:
+            return jsonify({'success': False, 'message': '请选择目标视频库'}), 400
+
+        # 检查视频库是否存在且已激活
+        library = VideoLibrary.query.get(library_id)
+        if not library:
+            return jsonify({'success': False, 'message': '视频库不存在'}), 400
+
+        if not library.is_active:
+            return jsonify({'success': False, 'message': '该视频库已被禁用，无法导入'}), 400
+        
+        imported = 0
+        skipped = 0
+        failed = 0
+        errors = []
+        
+        for video_data in videos:
+            try:
+                video_path = video_data.get('path')
+                if not video_path or not os.path.exists(video_path):
+                    errors.append(f"文件不存在: {video_path}")
+                    failed += 1
+                    continue
+                
+                # 生成hash
+                video_hash = Video.generate_hash(video_path)
+                
+                # 检查是否已存在
+                existing = Video.query.filter_by(hash=video_hash).first()
+                if existing:
+                    if skip_existing:
+                        skipped += 1
+                        continue
+                    else:
+                        # 删除已存在的记录
+                        db.session.delete(existing)
+                        db.session.flush()
+                
+                # 获取视频信息
+                title = video_data.get('title', os.path.splitext(os.path.basename(video_path))[0])
+                description = video_data.get('description', f'本地视频: {os.path.basename(video_path)}')
+                file_size = os.path.getsize(video_path)
+                
+                # 创建视频记录（必须指定 library_id）
+                video = Video(
+                    hash=video_hash,
+                    title=title,
+                    description=description,
+                    url=f'/local_video/{quote(video_path.replace(chr(92), "/"), safe=":/")}',
+                    thumbnail=f'/thumbnail/{video_hash}',
+                    file_size=file_size,
+                    is_downloaded=True,
+                    local_path=video_path,
+                    priority=app_config.get('default_priority', 0),
+                    library_id=library_id  # 绑定到指定的视频库
+                )
+                db.session.add(video)
+                db.session.flush()
+                
+                # 添加标签
+                tags = video_data.get('tags', default_tags)
+                for tag_name in tags:
+                    tag = Tag.query.filter_by(name=tag_name).first()
+                    if not tag:
+                        tag = Tag(name=tag_name, category='类型')
+                        db.session.add(tag)
+                        db.session.flush()
+                    db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
+                
+                imported += 1
+                
+            except Exception as e:
+                errors.append(f"导入失败 {video_data.get('path', 'unknown')}: {str(e)}")
+                failed += 1
+                app.logger.error(f"导入视频失败: {e}")
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'imported': imported,
+                'skipped': skipped,
+                'failed': failed,
+                'errors': errors[:10]  # 只返回前10个错误
+            },
+            'message': f'成功导入 {imported} 个视频，跳过 {skipped} 个，失败 {failed} 个'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"批量导入视频失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/browse-folders', methods=['GET'])
+@admin_required
+def browse_folders():
+    """浏览服务器文件夹结构
+    
+    查询参数:
+    - path: 要浏览的路径（可选，默认为根目录或用户主目录）
+    - show_files: 是否显示文件（默认false，只显示文件夹）
+    
+    返回:
+    - current_path: 当前路径
+    - parent_path: 父目录路径
+    - folders: 文件夹列表
+    - drives: 驱动器列表（Windows）或根目录（Unix）
+    """
+    try:
+        path = request.args.get('path', '')
+        show_files = request.args.get('show_files', 'false').lower() == 'true'
+        
+        # 如果没有指定路径，返回根目录或驱动器列表
+        if not path:
+            if os.name == 'nt':  # Windows
+                # 获取所有驱动器
+                import string
+                drives = []
+                for letter in string.ascii_uppercase:
+                    drive = f"{letter}:\\"
+                    if os.path.exists(drive):
+                        try:
+                            drives.append({
+                                'name': drive,
+                                'path': drive,
+                                'type': 'drive',
+                                'display': f"{letter}: 驱动器"
+                            })
+                        except:
+                            pass
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'current_path': '',
+                        'parent_path': None,
+                        'folders': drives,
+                        'is_root': True
+                    }
+                })
+            else:  # Unix/Linux/macOS
+                path = '/'
+        
+        # 规范化路径
+        path = os.path.normpath(path)
+        
+        if not os.path.exists(path):
+            return jsonify({'success': False, 'message': '路径不存在'}), 404
+        
+        if not os.path.isdir(path):
+            return jsonify({'success': False, 'message': '不是有效的文件夹'}), 400
+        
+        # 获取文件夹列表
+        folders = []
+        files = []
+        
+        try:
+            items = os.listdir(path)
+        except PermissionError:
+            return jsonify({'success': False, 'message': '没有权限访问此文件夹'}), 403
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'读取文件夹失败: {str(e)}'}), 500
+        
+        for item in items:
+            item_path = os.path.join(path, item)
+            try:
+                is_dir = os.path.isdir(item_path)
+                if is_dir:
+                    # 跳过隐藏文件夹和系统文件夹
+                    if not item.startswith('.') and item not in ['$RECYCLE.BIN', 'System Volume Information']:
+                        folders.append({
+                            'name': item,
+                            'path': item_path,
+                            'type': 'folder'
+                        })
+                elif show_files:
+                    # 获取文件信息
+                    stat = os.stat(item_path)
+                    files.append({
+                        'name': item,
+                        'path': item_path,
+                        'type': 'file',
+                        'size': stat.st_size,
+                        'modified': datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+            except (PermissionError, OSError):
+                # 跳过无法访问的文件/文件夹
+                continue
+        
+        # 排序：文件夹按名称排序
+        folders.sort(key=lambda x: x['name'].lower())
+        files.sort(key=lambda x: x['name'].lower())
+        
+        # 合并结果
+        result = folders + files
+        
+        # 获取父目录
+        parent_path = os.path.dirname(path) if path not in ['/', '\\'] else None
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'current_path': path,
+                'parent_path': parent_path,
+                'folders': result,
+                'is_root': False
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f"浏览文件夹失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 用户可访问视频库 API =================
+
+@app.route('/api/user/libraries', methods=['GET'])
+def get_user_libraries():
+    """获取当前用户可访问的视频库列表"""
+    try:
+        user_id = None
+        if hasattr(g, 'user') and g.user:
+            user_id = g.user.id
+        elif 'user_id' in session:
+            user_id = session['user_id']
+
+        # 获取所有激活的视频库
+        libraries = VideoLibrary.query.filter_by(is_active=True).all()
+
+        if not user_id:
+            # 未登录用户，只能看到公开的（暂时返回空）
+            return jsonify({'success': True, 'data': [], 'current_library': None})
+
+        # 获取用户权限
+        result = []
+        for lib in libraries:
+            # 检查用户是否有权限
+            user_perm = LibraryPermission.query.filter_by(library_id=lib.id, user_id=user_id).first()
+
+            # 检查用户所属用户组的权限
+            group_perms = []
+            user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+            for ugm in user_groups:
+                gp = LibraryPermission.query.filter_by(library_id=lib.id, group_id=ugm.group_id).first()
+                if gp:
+                    group_perms.append(gp)
+
+            # 合并权限（用户权限 > 用户组权限）
+            perm = user_perm or (group_perms[0] if group_perms else None)
+
+            if perm or g.user.role == UserRole.ADMIN or g.user.role == UserRole.ROOT:
+                lib_dict = lib.to_dict()
+                lib_dict['access_level'] = perm.access_level if perm else 'full'
+                lib_dict['role'] = perm.role if perm else 'admin'
+
+                # 解析详细权限
+                if perm and perm.permissions:
+                    lib_dict['permissions'] = perm.permissions
+                else:
+                    # 根据 access_level 设置默认权限
+                    if lib_dict['access_level'] == 'full':
+                        lib_dict['permissions'] = ['browse', 'play', 'download', 'upload', 'edit', 'delete']
+                    elif lib_dict['access_level'] == 'write':
+                        lib_dict['permissions'] = ['browse', 'play', 'download', 'upload', 'edit']
+                    elif lib_dict['access_level'] == 'read':
+                        lib_dict['permissions'] = ['browse', 'play']
+                    else:
+                        lib_dict['permissions'] = []
+
+                result.append(lib_dict)
+
+        # 获取当前选中的视频库
+        current_library_id = session.get('current_library_id')
+        if not current_library_id and result:
+            current_library_id = result[0]['id']
+
+        return jsonify({
+            'success': True,
+            'data': result,
+            'current_library': current_library_id
+        })
+    except Exception as e:
+        app.logger.error(f"获取用户视频库失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/user/libraries/switch', methods=['POST'])
+def switch_user_library():
+    """切换当前视频库"""
+    try:
+        data = request.get_json()
+        library_id = data.get('library_id')
+
+        if not library_id:
+            return jsonify({'success': False, 'message': '请指定视频库'}), 400
+
+        # 验证用户身份：优先 JWT token，其次 session
+        user_id = None
+        user_role = 0
+        # 尝试 JWT token
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            try:
+                from authlib.jose import jwt as _jwt
+                _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                payload = _jwt.decode(auth_header[7:], _secret)
+                user_id = payload.get('user_id')
+                user_role = payload.get('role', 0)
+            except Exception:
+                pass
+        # 无 token 时使用 session
+        if not user_id:
+            user_id = session.get('user_id')
+            user_role = session.get('role', 0)
+
+        if not user_id:
+            return jsonify({'success': False, 'message': '请先登录'}), 401
+
+        library = VideoLibrary.query.get_or_404(library_id)
+
+        # 检查视频库是否被禁用
+        if not library.is_active:
+            return jsonify({'success': False, 'message': '该视频库已被禁用'}), 403
+
+        # 管理员/ROOT 可以访问所有库；普通用户检查权限
+        if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
+            user_perm = LibraryPermission.query.filter_by(library_id=library_id, user_id=user_id).first()
+            group_perms = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+            has_access = bool(user_perm or any(
+                LibraryPermission.query.filter_by(library_id=library_id, group_id=ugm.group_id).first()
+                for ugm in group_perms
+            ))
+            if not has_access:
+                return jsonify({'success': False, 'message': '无权访问该视频库'}), 403
+
+        session['current_library_id'] = library_id
+        return jsonify({
+            'success': True,
+            'message': f'已切换到视频库: {library.name}',
+            'current_library': library_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 用户组管理 API =================
+
+@app.route('/api/admin/user-groups', methods=['GET'])
+@admin_required
+def get_user_groups():
+    """获取所有用户组"""
+    try:
+        groups = LibraryUserGroup.query.all()
+        return jsonify({
+            'success': True,
+            'data': [g.to_dict(include_members=True) for g in groups]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/user-groups', methods=['POST'])
+@admin_required
+def create_user_group():
+    """创建用户组"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+
+        if not name:
+            return jsonify({'success': False, 'message': '请输入用户组名称'}), 400
+
+        if LibraryUserGroup.query.filter_by(name=name).first():
+            return jsonify({'success': False, 'message': '用户组名称已存在'}), 400
+
+        group = LibraryUserGroup(name=name, description=description)
+        db.session.add(group)
+        db.session.commit()
+
+        return jsonify({'success': True, 'data': group.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/user-groups/<int:group_id>', methods=['DELETE'])
+@admin_required
+def delete_user_group(group_id):
+    """删除用户组"""
+    try:
+        group = LibraryUserGroup.query.get_or_404(group_id)
+        db.session.delete(group)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '用户组已删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/user-groups/<int:group_id>/members', methods=['POST'])
+@admin_required
+def add_user_to_group(group_id):
+    """添加用户到用户组"""
+    try:
+        group = LibraryUserGroup.query.get_or_404(group_id)
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({'success': False, 'message': '请指定用户'}), 400
+
+        # 检查用户是否存在
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'success': False, 'message': '用户不存在'}), 404
+
+        # 检查是否已是成员
+        existing = LibraryUserGroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+        if existing:
+            return jsonify({'success': False, 'message': '用户已是成员'}), 400
+
+        member = LibraryUserGroupMember(group_id=group_id, user_id=user_id)
+        db.session.add(member)
+        db.session.commit()
+
+        return jsonify({'success': True, 'data': group.to_dict(include_members=True)})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/user-groups/<int:group_id>/members/<int:user_id>', methods=['DELETE'])
+@admin_required
+def remove_user_from_group(group_id, user_id):
+    """从用户组移除用户"""
+    try:
+        member = LibraryUserGroupMember.query.filter_by(group_id=group_id, user_id=user_id).first_or_404()
+        db.session.delete(member)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '用户已从用户组移除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 审计日志 API =================
+
+@app.route('/api/admin/libraries/<int:library_id>/audit-logs', methods=['GET'])
+@admin_required
+def get_library_audit_logs(library_id):
+    """获取视频库权限变更日志"""
+    try:
+        logs = LibraryAuditLog.query.filter_by(library_id=library_id).order_by(
+            LibraryAuditLog.created_at.desc()
+        ).limit(100).all()
+        return jsonify({
+            'success': True,
+            'data': [log.to_dict() for log in logs]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 主入口 ============
+if __name__ == '__main__':
+    port = app_config.get('ports', {}).get('web', 8080)
+    print(f"[DEBUG] Starting DPlayer 2.0 Web service on port {port}")
+    app.logger.info(f'DPlayer 2.0 Web 服务启动于端口 {port}')
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
