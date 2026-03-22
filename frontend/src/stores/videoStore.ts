@@ -102,9 +102,9 @@ export const useVideoStore = defineStore('video', () => {
   }
   
   // 删除视频
-  const deleteVideo = async (hash: string) => {
+  const deleteVideo = async (hash: string, deleteFile = false) => {
     try {
-      const response = await videoApi.deleteVideo(hash) as any
+      const response = await videoApi.deleteVideo(hash, deleteFile) as any
       if (response.success) {
         // 从列表中移除
         videos.value = videos.value.filter(v => v.hash !== hash)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
 
@@ -14,6 +14,26 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 
+// 监听 video.hash 变化，重置缩略图状态
+watch(() => props.video.hash, () => {
+  // 重置所有状态
+  hasTriedReady = false
+  lastCheckTime = 0
+  thumbnailProgress.value = 0
+  thumbnailStatus.value = ''
+  isLoading.value = true
+  hasError.value = false
+
+  // 停止现有轮询
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+
+  // 重新加载缩略图
+  loadThumbnail()
+})
+
 // 缩略图URL和加载状态
 const thumbnailUrl = ref('')
 const isLoading = ref(true)
@@ -23,8 +43,17 @@ const thumbnailStatus = ref('')   // 状态文本
 
 // 检查缩略图状态并轮询
 let pollTimer: number | null = null
+let hasTriedReady = false  // 标记是否已经尝试过ready状态
+let lastCheckTime = 0  // 上次检查时间，用于防止频繁轮询
 
-const checkThumbnailStatus = async (hash: string) => {
+const checkThumbnailStatus = async (hash: string, force = false) => {
+  // 防止过于频繁的检查（至少间隔1秒）
+  const now = Date.now()
+  if (!force && now - lastCheckTime < 1000) {
+    return
+  }
+  lastCheckTime = now
+
   try {
     const response = await fetch(`/api/thumbnail/status/${hash}`)
     const data = await response.json()
@@ -32,14 +61,23 @@ const checkThumbnailStatus = async (hash: string) => {
     if (data.success && data.status === 'ready') {
       // 缩略图已生成，重新加载图片
       const token = userStore.token
-      if (token) {
-        thumbnailUrl.value = `/thumbnail/${hash}?token=${token}&t=${Date.now()}`
-      } else {
-        thumbnailUrl.value = `/thumbnail/${hash}?t=${Date.now()}`
+      const newUrl = token
+        ? `/thumbnail/${hash}?token=${token}&t=${Date.now()}`
+        : `/thumbnail/${hash}?t=${Date.now()}`
+
+      // 只有URL确实变化时才更新，避免重复触发加载
+      if (thumbnailUrl.value !== newUrl) {
+        thumbnailUrl.value = newUrl
       }
-      isLoading.value = false
+
+      // 设置为加载中状态，等待图片实际加载完成
+      isLoading.value = true
       thumbnailProgress.value = 100
       thumbnailStatus.value = ''
+
+      // 标记已经处理过ready状态，避免重复处理
+      hasTriedReady = true
+
       // 停止轮询
       if (pollTimer) {
         clearInterval(pollTimer)
@@ -58,6 +96,10 @@ const checkThumbnailStatus = async (hash: string) => {
         clearInterval(pollTimer)
         pollTimer = null
       }
+    } else if (data.status === 'not_found') {
+      // 缩略图尚未生成，触发生成
+      thumbnailStatus.value = '生成中...'
+      thumbnailProgress.value = 0
     }
   } catch (e) {
     console.error('检查缩略图状态失败:', e)
@@ -86,10 +128,10 @@ const loadThumbnail = async () => {
 }
 
 // 处理图片加载错误
-const handleImageError = () => {
-  // 图片加载失败，可能是后端正在生成或权限问题
-  // 启动轮询检查状态
-  if (!pollTimer) {
+const handleImageError = async () => {
+  // 图片加载失败（可能是后端正在生成或其他问题）
+  // 只有在未处理过ready状态时才启动轮询，避免重复触发
+  if (!pollTimer && !hasTriedReady) {
     isLoading.value = true
     thumbnailStatus.value = '生成中...'
     pollTimer = window.setInterval(() => {
@@ -97,7 +139,17 @@ const handleImageError = () => {
     }, 2000) // 每2秒检查一次
 
     // 立即检查一次
-    checkThumbnailStatus(props.video.hash)
+    checkThumbnailStatus(props.video.hash, true)
+  } else if (hasTriedReady) {
+    // 已经处理过ready状态但图片仍然加载失败
+    // 可能是临时网络问题，重新尝试一次轮询
+    isLoading.value = true
+    thumbnailStatus.value = '加载失败，重试中...'
+    hasTriedReady = false  // 重置标记，允许重新轮询
+    checkThumbnailStatus(props.video.hash, true)
+  } else {
+    // 轮询中但图片加载失败，继续等待下一次轮询
+    isLoading.value = true
   }
 }
 
@@ -107,6 +159,7 @@ const handleImageLoad = () => {
   hasError.value = false
   thumbnailProgress.value = 100
   thumbnailStatus.value = ''
+  hasTriedReady = false  // 重置标记
   // 停止轮询
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -116,6 +169,7 @@ const handleImageLoad = () => {
 
 // 组件挂载时加载缩略图
 onMounted(() => {
+  hasTriedReady = false  // 重置标记
   loadThumbnail()
 })
 
@@ -125,6 +179,7 @@ onUnmounted(() => {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  hasTriedReady = false
 })
 
 // 格式化时长

@@ -12,23 +12,35 @@ if '--dev' in sys.argv or os.environ.get('DPLAYER_DEV_MODE') == '1':
 
 # 服务启动守卫：必须通过 NSSM 启动
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-# 项目根目录是 dplayer-src 的父目录
-PROJECT_ROOT = os.path.dirname(_PROJECT_ROOT)
+# 兼容两种目录结构：
+# 1. 源码模式：web.py 在 dplayer-src/ 下，PROJECT_ROOT 是 dplayer2.0
+# 2. 运行模式：web.py 在 runtime/ 下，PROJECT_ROOT 是 DPlayer
+# 优先使用 _PROJECT_ROOT，如果子目录不存在则使用父目录
+if os.path.exists(os.path.join(_PROJECT_ROOT, 'msas-web')):
+    PROJECT_ROOT = _PROJECT_ROOT
+else:
+    PROJECT_ROOT = os.path.dirname(_PROJECT_ROOT)
 
 # 添加模块路径
-for _p in [_PROJECT_ROOT, PROJECT_ROOT, os.path.join(PROJECT_ROOT, 'services')]:
-    if _p not in sys.path:
+# services 目录可能在 PROJECT_ROOT 或 _PROJECT_ROOT 下
+_services_path = os.path.join(PROJECT_ROOT, 'services')
+if not os.path.exists(_services_path):
+    _services_path = os.path.join(_PROJECT_ROOT, 'services')
+for _p in [_PROJECT_ROOT, PROJECT_ROOT, _services_path]:
+    if _p not in sys.path and os.path.exists(_p):
         sys.path.insert(0, _p)
 
 from launcher_guard import check_service_launch
 check_service_launch('DPlayer Web Service', 'web.py')
 
 # 添加更多模块路径
-for p in [os.path.join(PROJECT_ROOT, 'msas-web'),
-          os.path.join(PROJECT_ROOT, 'msas-thumb'),
-          os.path.join(PROJECT_ROOT, 'libs')]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# msas-web, msas-thumb, libs 可能在 PROJECT_ROOT 或 _PROJECT_ROOT 下
+for _name in ['msas-web', 'msas-thumb', 'libs']:
+    _path = os.path.join(PROJECT_ROOT, _name)
+    if not os.path.exists(_path):
+        _path = os.path.join(_PROJECT_ROOT, _name)
+    if _path not in sys.path and os.path.exists(_path):
+        sys.path.insert(0, _path)
 
 print(f"[DEBUG] web.py loading from: {os.path.abspath(__file__)}")
 print(f"[DEBUG] PROJECT_ROOT: {PROJECT_ROOT}")
@@ -231,22 +243,26 @@ def record_interaction(video_id, user_session, interaction_type, score=1.0):
         db.session.rollback()
 
 # ============ 静态文件服务 ============
-DIST_DIR = os.path.join(PROJECT_ROOT, 'static', 'dist')
+# 注意：8080端口仅提供API服务，不提供前端静态文件
+# 前端由 dplayer-webui 服务独立提供（5173端口）
+# 以下静态文件路由已禁用，如需启用请注释掉
 
-@app.route('/')
-def index():
-    """返回前端首页"""
-    return send_from_directory(DIST_DIR, 'index.html')
+# DIST_DIR = os.path.join(PROJECT_ROOT, 'static', 'dist')
 
-@app.route('/assets/<path:filename>')
-def serve_assets(filename):
-    """返回前端资源文件"""
-    return send_from_directory(os.path.join(DIST_DIR, 'assets'), filename)
+# @app.route('/')
+# def index():
+#     """返回前端首页"""
+#     return send_from_directory(DIST_DIR, 'index.html')
 
-@app.route('/favicon.svg')
-def serve_favicon():
-    """返回favicon"""
-    return send_from_directory(DIST_DIR, 'favicon.svg')
+# @app.route('/assets/<path:filename>')
+# def serve_assets(filename):
+#     """返回前端资源文件"""
+#     return send_from_directory(os.path.join(DIST_DIR, 'assets'), filename)
+
+# @app.route('/favicon.svg')
+# def serve_favicon():
+#     """返回favicon"""
+#     return send_from_directory(DIST_DIR, 'favicon.svg')
 
 # ============ API 路由 ============
 
@@ -499,9 +515,21 @@ def toggle_favorite(video_hash):
 @app.route('/api/video/<video_hash>', methods=['DELETE'])
 def delete_video(video_hash):
     try:
+        # 获取是否同时删除文件的选项（默认不删除文件）
+        delete_file = request.json.get('delete_file', False) if request.json else False
+
         video = Video.query.filter_by(hash=video_hash).first_or_404()
-        if video.local_path and os.path.exists(video.local_path):
+
+        # 只有明确要求删除文件时才删除
+        if delete_file and video.local_path and os.path.exists(video.local_path):
             os.remove(video.local_path)
+            # 同时删除缩略图
+            thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+            for ext in ['gif', 'jpg', 'png']:
+                thumb_path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+
         db.session.delete(video)
         db.session.commit()
         return jsonify({'success': True, 'message': '视频已删除'})
@@ -1008,20 +1036,31 @@ def batch_delete_videos():
     try:
         data = request.get_json()
         hashes = data.get('hashes', [])
-        
+        # 获取是否同时删除文件的选项（默认不删除文件）
+        delete_file = data.get('delete_file', False)
+
         if not hashes:
             return jsonify({'success': False, 'message': '未选择视频'}), 400
-        
+
         deleted_count = 0
         for video_hash in hashes:
             video = Video.query.filter_by(hash=video_hash).first()
             if video:
+                # 如果选择删除文件，同时删除视频文件和缩略图
+                if delete_file and video.local_path and os.path.exists(video.local_path):
+                    os.remove(video.local_path)
+                    thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+                    for ext in ['gif', 'jpg', 'png']:
+                        thumb_path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+                        if os.path.exists(thumb_path):
+                            os.remove(thumb_path)
+
                 # 删除关联记录
                 UserInteraction.query.filter_by(video_id=video.id).delete()
                 VideoTag.query.filter_by(video_id=video.id).delete()
                 db.session.delete(video)
                 deleted_count += 1
-        
+
         db.session.commit()
         return jsonify({
             'success': True,
@@ -1227,11 +1266,13 @@ def get_thumbnail_status(video_hash):
     for ext in ['gif', 'jpg', 'png']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
+            # 返回不带扩展名的URL，由前端添加token或后端处理
             return jsonify({
                 'success': True,
                 'status': 'ready',
                 'progress': 100,
-                'url': f'/thumbnail/{video_hash}.{ext}'
+                'url': f'/thumbnail/{video_hash}',
+                'format': ext
             })
 
     # 文件不存在，查询缩略图服务任务状态
@@ -1253,12 +1294,21 @@ def get_thumbnail_status(video_hash):
                 }
                 mapped_status = status_map.get(task_status, task_status)
 
-                return jsonify({
+                # 如果是已完成，添加URL
+                response_data = {
                     'success': True,
                     'status': mapped_status,
-                    'progress': progress,
-                    'message': f'缩略图生成中 ({progress}%)'
-                })
+                    'progress': progress
+                }
+                if mapped_status == 'ready':
+                    # 从缩略图服务获取格式信息
+                    thumb_format = result.get('format', 'gif')
+                    response_data['url'] = f'/thumbnail/{video_hash}'
+                    response_data['format'] = thumb_format
+                else:
+                    response_data['message'] = f'缩略图生成中 ({progress}%)'
+
+                return jsonify(response_data)
         except Exception as e:
             app.logger.error(f"查询缩略图任务状态失败: {e}")
 

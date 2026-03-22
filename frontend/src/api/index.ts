@@ -56,8 +56,8 @@ export const videoApi = {
   favoriteVideo: (hash: string) =>
     api.post(`/api/video/${hash}/favorite`),
   
-  deleteVideo: (hash: string) =>
-    api.delete(`/api/video/${hash}`),
+  deleteVideo: (hash: string, deleteFile = false) =>
+    api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
   
   updateVideo: (hash: string, data: Record<string, unknown>) =>
     api.post(`/api/videos/${hash}/update`, data),

@@ -79,12 +79,18 @@ const loadMore = async () => {
   await videoStore.loadMore()
 }
 
+const shuffling = ref(false)
+
 const handleShuffle = async () => {
+  shuffling.value = true
   await videoStore.shuffleVideos()
+  shuffling.value = false
 }
 
 const handleUndo = async () => {
+  shuffling.value = true
   await videoStore.undoShuffle()
+  shuffling.value = false
 }
 
 const hasPreviousVideos = computed(() => videoStore.previousVideos && videoStore.previousVideos.length > 0)
@@ -151,12 +157,22 @@ const formatDuration = (seconds?: number): string => {
           <option value="asc">正序</option>
         </select>
         <!-- 换一批按钮 -->
-        <button class="shuffle-btn" @click="handleShuffle" title="换一批">
-          🔄 换一批
+        <button class="shuffle-btn" @click="handleShuffle" :disabled="shuffling" title="换一批">
+          <svg class="shuffle-icon" :class="{ spinning: shuffling }" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l4.4-6c.6-.9 1.9-1.4 3-1.1l5.8 1.6"/>
+            <path d="M22 6h-1.4c-1.3 0-2.5.6-3.3 1.7l-4.4 6c-.6.9-1.9 1.4-3 1.1l-5.8-1.6"/>
+            <path d="M7.5 12L5 8l9 4-2.5 4"/>
+            <path d="M16.5 12L19 16l-9-4 2.5-4"/>
+          </svg>
+          <span class="shuffle-text">{{ shuffling ? '换选中...' : '换一批' }}</span>
         </button>
         <!-- 撤回按钮 -->
-        <button v-if="hasPreviousVideos" class="undo-btn" @click="handleUndo" title="撤回">
-          ↩️ 撤回
+        <button v-if="hasPreviousVideos" class="undo-btn" @click="handleUndo" :disabled="shuffling" title="撤回">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
+            <path d="M7 6L3 10l4 4"/>
+          </svg>
+          <span class="undo-text">撤回</span>
         </button>
       </div>
       <div v-if="searchQuery" class="search-status">
@@ -302,48 +318,92 @@ const formatDuration = (seconds?: number): string => {
 
 /* 换一批按钮 */
 .shuffle-btn {
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
-  font-size: 14px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(74, 158, 255, 0.3);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(74, 158, 255, 0.15) 0%, rgba(74, 158, 255, 0.05) 100%);
+  color: #4a9eff;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
-.shuffle-btn:hover {
+.shuffle-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(74, 158, 255, 0.25) 0%, rgba(74, 158, 255, 0.15) 100%);
   border-color: #4a9eff;
-  background: #2a2a2a;
+  box-shadow: 0 0 20px rgba(74, 158, 255, 0.2);
+  transform: translateY(-1px);
 }
 
-.shuffle-btn:active {
-  transform: scale(0.98);
+.shuffle-btn:active:not(:disabled) {
+  transform: scale(0.96) translateY(0);
+}
+
+.shuffle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shuffle-icon {
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.shuffle-icon.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.shuffle-text {
+  letter-spacing: 0.3px;
 }
 
 /* 撤回按钮 */
 .undo-btn {
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #1a1a1a;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(250, 173, 20, 0.3);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(250, 173, 20, 0.15) 0%, rgba(250, 173, 20, 0.05) 100%);
   color: #faad14;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
-.undo-btn:hover {
+.undo-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(250, 173, 20, 0.25) 0%, rgba(250, 173, 20, 0.15) 100%);
   border-color: #faad14;
-  background: #2a2a2a;
+  box-shadow: 0 0 20px rgba(250, 173, 20, 0.2);
+  transform: translateY(-1px);
+}
+
+.undo-btn:active:not(:disabled) {
+  transform: scale(0.96) translateY(0);
+}
+
+.undo-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.undo-text {
+  letter-spacing: 0.3px;
 }
 
 .search-box {
@@ -537,6 +597,31 @@ const formatDuration = (seconds?: number): string => {
   .search-input {
     height: 44px;
     font-size: 14px;
+  }
+
+  /* 移动端换一批按钮 */
+  .shuffle-btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .shuffle-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .undo-btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .undo-btn svg {
+    width: 14px;
+    height: 14px;
   }
 }
 </style>

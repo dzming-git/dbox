@@ -47,6 +47,19 @@ const showVideoEditModal = ref(false)
 const showPriorityModal = ref(false)
 const batchPriorityValue = ref(50)
 
+// 排序选项（不使用推荐）
+const sortOptions = [
+  { value: 'name', label: '视频名' },
+  { value: 'created_at', label: '文件时间' },
+  { value: 'view_count', label: '播放量' },
+  { value: 'priority', label: '优先级' },
+  { value: 'like_count', label: '点赞数' },
+  { value: 'download_count', label: '下载数' },
+  { value: 'file_size', label: '文件大小' }
+]
+const videoSortBy = ref('created_at')  // 默认按文件时间
+const videoSortOrder = ref('desc')     // 默认倒序
+
 // 用户管理
 const users = ref<any[]>([])
 const showUserModal = ref(false)
@@ -579,14 +592,18 @@ const triggerFullSync = async () => {
   }
 }
 
-// 获取视频列表（Admin 专用，直接调用 API 支持 library_id 筛选）
+// 获取视频列表（Admin 专用，直接调用 API 支持 library_id 筛选和排序）
 const fetchVideos = async (resetPage = true) => {
   if (resetPage) videoPage.value = 1
   loading.value.videos = true
+  // 清空选择
+  selectedVideos.value = []
   try {
     const params: any = {
       limit: 20,
       offset: (videoPage.value - 1) * 20,
+      sort: videoSortBy.value,
+      order: videoSortOrder.value
     }
     if (videoSearch.value.trim()) params.search = videoSearch.value.trim()
     if (videoLibraryFilter.value !== '') params.library_id = videoLibraryFilter.value
@@ -708,11 +725,28 @@ const getPriorityLabel = (priority: number) => {
   return '极低'
 }
 
+// 删除视频确认对话框
+const showDeleteConfirm = ref(false)
+const deletingVideoHash = ref('')
+const deletingVideoTitle = ref('')
+const deleteFileOption = ref(false)  // 是否同时删除文件
+
+// 打开删除确认对话框
+const openDeleteConfirm = (hash: string, title: string) => {
+  deletingVideoHash.value = hash
+  deletingVideoTitle.value = title
+  deleteFileOption.value = false
+  showDeleteConfirm.value = true
+}
+
 // 删除视频
-const deleteVideo = async (hash: string) => {
-  if (!confirm('确定要删除这个视频吗？')) return
+const deleteVideo = async () => {
+  if (!deletingVideoHash.value) return
+  showDeleteConfirm.value = false
   try {
-    const res = await api.delete(`/api/videos/${hash}`) as any
+    const res = await api.delete(`/api/videos/${deletingVideoHash.value}`, {
+      data: { delete_file: deleteFileOption.value }
+    }) as any
     if (res.success) {
       showToast('删除成功')
       fetchVideos()
@@ -721,15 +755,28 @@ const deleteVideo = async (hash: string) => {
     console.error('删除视频失败:', error)
     showToast('删除失败')
   }
+  deletingVideoHash.value = ''
+  deletingVideoTitle.value = ''
+}
+
+// 批量删除确认对话框
+const showBatchDeleteConfirm = ref(false)
+const batchDeleteFileOption = ref(false)  // 是否同时删除文件
+
+// 打开批量删除确认对话框
+const openBatchDeleteConfirm = () => {
+  if (selectedVideos.value.length === 0) return
+  batchDeleteFileOption.value = false
+  showBatchDeleteConfirm.value = true
 }
 
 // 批量删除视频
 const batchDeleteVideos = async () => {
-  if (selectedVideos.value.length === 0) return
-  if (!confirm(`确定要删除选中的 ${selectedVideos.value.length} 个视频吗？`)) return
+  showBatchDeleteConfirm.value = false
   try {
     const res = await api.post('/api/admin/videos/batch-delete', {
-      hashes: selectedVideos.value
+      hashes: selectedVideos.value,
+      delete_file: batchDeleteFileOption.value
     }) as any
     if (res.success) {
       showToast('批量删除成功')
@@ -1149,6 +1196,7 @@ onMounted(() => {
         <div class="section-header">
           <h3>视频管理</h3>
           <div class="section-actions">
+            <!-- 视频库筛选 -->
             <select
               v-model="videoLibraryFilter"
               @change="fetchVideos()"
@@ -1158,24 +1206,45 @@ onMounted(() => {
               <option value="">全部视频库</option>
               <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
             </select>
-            <input 
-              v-model="videoSearch" 
+            <!-- 排序选择 -->
+            <select
+              v-model="videoSortBy"
+              @change="fetchVideos()"
+              class="search-input"
+              style="min-width: 120px"
+            >
+              <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <!-- 升序/降序 -->
+            <select
+              v-model="videoSortOrder"
+              @change="fetchVideos()"
+              class="search-input"
+              style="min-width: 80px"
+            >
+              <option value="desc">降序</option>
+              <option value="asc">升序</option>
+            </select>
+            <!-- 搜索 -->
+            <input
+              v-model="videoSearch"
               @keyup.enter="fetchVideos()"
-              type="text" 
-              placeholder="搜索视频..." 
+              type="text"
+              placeholder="搜索视频..."
               class="search-input"
             />
             <button class="action-btn" @click="fetchVideos()">搜索</button>
-            <button 
-              class="action-btn" 
+            <!-- 批量操作 -->
+            <button
+              class="action-btn"
               @click="showPriorityModal = true"
               :disabled="selectedVideos.length === 0"
             >
               批量设置优先级 ({{ selectedVideos.length }})
             </button>
-            <button 
-              class="action-btn danger" 
-              @click="batchDeleteVideos"
+            <button
+              class="action-btn danger"
+              @click="openBatchDeleteConfirm"
               :disabled="selectedVideos.length === 0"
             >
               批量删除 ({{ selectedVideos.length }})
@@ -1183,19 +1252,33 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="data-table-container">
+        <!-- 加载状态 -->
+        <div v-if="loading.videos" class="loading-state">
+          <div class="loading-spinner"></div>
+          <span>加载中...</span>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else-if="videos.length === 0" class="empty-state">
+          <div class="empty-icon">📁</div>
+          <div class="empty-text">暂无视频</div>
+          <div class="empty-hint">请尝试导入视频或调整筛选条件</div>
+        </div>
+
+        <!-- 桌面端表格 -->
+        <div v-else class="data-table-container video-table-desktop">
           <table class="data-table">
             <thead>
               <tr>
                 <th>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     :checked="selectedVideos.length === videos.length && videos.length > 0"
                     @change="toggleSelectAll"
                   />
                 </th>
                 <th>标题</th>
-                <th>优先级</th>
+                <th class="sortable">优先级</th>
                 <th>大小</th>
                 <th>时长</th>
                 <th>上传时间</th>
@@ -1205,25 +1288,25 @@ onMounted(() => {
             <tbody>
               <tr v-for="video in videos" :key="video.hash">
                 <td>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     :checked="selectedVideos.includes(video.hash)"
                     @change="toggleVideoSelection(video.hash)"
                   />
                 </td>
                 <td class="video-title-cell">
-                  <img 
-                    :src="video.thumbnail" 
-                    class="video-thumb" 
-                    v-if="video.thumbnail" 
+                  <img
+                    :src="video.thumbnail"
+                    class="video-thumb"
+                    v-if="video.thumbnail"
                     @error="(e: Event) => (e.target as HTMLImageElement).style.display='none'"
                   />
                   <span>{{ video.title || '(无标题)' }}</span>
                   <small style="color:#999; font-size:11px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px;" :title="video.local_path">{{ video.local_path }}</small>
                 </td>
                 <td>
-                  <span 
-                    class="priority-badge" 
+                  <span
+                    class="priority-badge"
                     :style="{ backgroundColor: getPriorityColor(video.priority || 0) + '20', color: getPriorityColor(video.priority || 0) }"
                   >
                     {{ video.priority || 0 }}
@@ -1235,11 +1318,86 @@ onMounted(() => {
                 <td>{{ formatDate(video.created_at) }}</td>
                 <td>
                   <button class="icon-btn" @click="editVideo(video)">✏️</button>
-                  <button class="icon-btn danger" @click="deleteVideo(video.hash)">🗑️</button>
+                  <button class="icon-btn danger" @click="openDeleteConfirm(video.hash, video.title)">🗑️</button>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 手机端卡片列表 - 优化版本 -->
+        <div v-if="loading.videos" class="loading-state mobile">
+          <div class="loading-spinner"></div>
+          <span>加载中...</span>
+        </div>
+        <div v-else-if="videos.length === 0" class="empty-state mobile">
+          <div class="empty-icon">📁</div>
+          <div class="empty-text">暂无视频</div>
+        </div>
+        <div v-else class="video-cards-mobile">
+          <div v-for="video in videos" :key="video.hash" class="video-card-mobile">
+            <!-- 缩略图 -->
+            <img
+              v-if="video.thumbnail"
+              :src="video.thumbnail"
+              class="card-thumb"
+              :alt="video.title"
+              @error="(e: Event) => (e.target as HTMLImageElement).style.display='none'"
+            />
+            <div v-else class="card-thumb card-thumb-placeholder">📹</div>
+
+            <!-- 卡片内容 -->
+            <div class="card-content">
+              <div class="card-header">
+                <input
+                  type="checkbox"
+                  class="card-checkbox"
+                  :checked="selectedVideos.includes(video.hash)"
+                  @change="toggleVideoSelection(video.hash)"
+                />
+                <span class="card-title">{{ video.title || '(无标题)' }}</span>
+              </div>
+
+              <!-- 元信息 -->
+              <div class="card-meta">
+                <span class="card-priority"
+                  :style="{ backgroundColor: getPriorityColor(video.priority || 0) + '20', color: getPriorityColor(video.priority || 0) }">
+                  P{{ video.priority || 0 }}
+                </span>
+                <span>📦 {{ video.file_size ? formatFileSize(video.file_size) : '-' }}</span>
+                <span>📅 {{ formatDate(video.created_at) }}</span>
+              </div>
+
+              <div class="card-path" :title="video.local_path">{{ video.local_path }}</div>
+
+              <div class="card-actions">
+                <button class="action-btn" @click="editVideo(video)">编辑</button>
+                <button class="action-btn danger" @click="openDeleteConfirm(video.hash, video.title)">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分页组件 -->
+        <div v-if="videoTotal > 20" class="pagination">
+          <button
+            class="page-btn"
+            :disabled="videoPage <= 1"
+            @click="videoPage--; fetchVideos(false)"
+          >
+            上一页
+          </button>
+          <span class="page-info">
+            第 {{ videoPage }} / {{ Math.ceil(videoTotal / 20) }} 页
+            (共 {{ videoTotal }} 条)
+          </span>
+          <button
+            class="page-btn"
+            :disabled="videoPage >= Math.ceil(videoTotal / 20)"
+            @click="videoPage++; fetchVideos(false)"
+          >
+            下一页
+          </button>
         </div>
       </div>
 
@@ -1876,12 +2034,139 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 删除单个视频确认对话框 -->
+    <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
+      <div class="dialog">
+        <h3>确认删除</h3>
+        <p>确定要删除视频「<strong>{{ deletingVideoTitle }}</strong>」吗？</p>
+        <div class="dialog-checkbox">
+          <label>
+            <input type="checkbox" v-model="deleteFileOption" />
+            同时删除视频文件（不可恢复）
+          </label>
+        </div>
+        <div class="dialog-buttons">
+          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+          <button class="btn-danger" @click="deleteVideo">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量删除确认对话框 -->
+    <div v-if="showBatchDeleteConfirm" class="dialog-overlay" @click.self="showBatchDeleteConfirm = false">
+      <div class="dialog">
+        <h3>确认批量删除</h3>
+        <p>确定要删除选中的 <strong>{{ selectedVideos.length }}</strong> 个视频吗？</p>
+        <div class="dialog-checkbox">
+          <label>
+            <input type="checkbox" v-model="batchDeleteFileOption" />
+            同时删除视频文件（不可恢复）
+          </label>
+        </div>
+        <div class="dialog-buttons">
+          <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
+          <button class="btn-danger" @click="batchDeleteVideos">删除</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
   </div>
 </template>
 
 <style scoped>
+/* 删除确认对话框 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 360px;
+  max-width: 480px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.dialog h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: #1a1a2e;
+}
+
+.dialog p {
+  margin: 0 0 16px 0;
+  color: #666;
+  line-height: 1.5;
+}
+
+.dialog-checkbox {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.dialog-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #333;
+  font-size: 14px;
+}
+
+.dialog-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: #f0f0f0;
+  border: none;
+  border-radius: 6px;
+  color: #333;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-secondary:hover {
+  background: #e0e0e0;
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  background: #dc3545;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-danger:hover {
+  background: #c82333;
+}
+
 .admin-page {
   min-height: 100vh;
   background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
@@ -2268,11 +2553,13 @@ onMounted(() => {
   background: white;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .data-table {
   width: 100%;
+  min-width: 600px;  /* 确保小屏幕下表格不会被压缩 */
   border-collapse: collapse;
 }
 
@@ -2288,20 +2575,173 @@ onMounted(() => {
   font-weight: 600;
   font-size: 13px;
   color: #666;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.data-table th:hover {
+  background: #e9ecef;
+}
+
+.data-table th.sortable {
+  position: relative;
+  padding-right: 24px;
+}
+
+.data-table th.sortable::after {
+  content: '↕';
+  position: absolute;
+  right: 8px;
+  opacity: 0.3;
+}
+
+.data-table th.sort-asc::after {
+  content: '↑';
+  opacity: 1;
+  color: #1890ff;
+}
+
+.data-table th.sort-desc::after {
+  content: '↓';
+  opacity: 1;
+  color: #1890ff;
 }
 
 .data-table td {
   color: #333;
 }
 
+.data-table tbody tr {
+  transition: background 0.15s ease;
+}
+
 .data-table tbody tr:hover {
-  background: #f8f9fa;
+  background: #f0f7ff;
+}
+
+.data-table tbody tr.selected {
+  background: #e6f7ff;
+}
+
+/* 桌面端默认显示表格，隐藏手机端卡片 */
+.video-table-desktop {
+  display: block;
+}
+.video-cards-mobile {
+  display: none;
 }
 
 .video-title-cell {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* 加载状态 */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #999;
+  gap: 12px;
+}
+
+.loading-state.mobile {
+  padding: 40px 20px;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f0f0f0;
+  border-top-color: #1890ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #999;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.empty-state.mobile {
+  padding: 40px 20px;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.empty-text {
+  font-size: 16px;
+  color: #666;
+  font-weight: 500;
+}
+
+.empty-hint {
+  font-size: 13px;
+  color: #999;
+  margin-top: 8px;
+}
+
+/* 分页组件 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px;
+  margin-top: 16px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.page-btn {
+  padding: 8px 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: white;
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  color: #1890ff;
+  border-color: #1890ff;
+}
+
+.page-btn:disabled {
+  color: #ccc;
+  border-color: #f0f0f0;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #666;
 }
 
 .video-thumb {
@@ -2684,15 +3124,150 @@ input:checked + .slider:before {
   .data-table {
     font-size: 12px;
   }
-  
+
   .data-table th,
   .data-table td {
     padding: 10px 8px;
   }
-  
+
   .video-thumb {
     display: none;
-}
+  }
+
+  /* 默认隐藏手机端卡片 */
+  .video-cards-mobile {
+    display: none;
+  }
+
+  /* 手机端卡片式布局 - 优化版本 */
+  .video-card-mobile {
+    background: white;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    gap: 12px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .video-card-mobile:active {
+    transform: scale(0.98);
+  }
+
+  .video-card-mobile .card-thumb {
+    width: 80px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: #f0f0f0;
+  }
+
+  .video-card-mobile .card-thumb-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: #ccc;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+  }
+
+  .video-card-mobile .card-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .video-card-mobile .card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .video-card-mobile .card-checkbox {
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+
+  .video-card-mobile .card-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+  }
+
+  .video-card-mobile .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 11px;
+    color: #888;
+  }
+
+  .video-card-mobile .card-meta span {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .video-card-mobile .card-priority {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .video-card-mobile .card-path {
+    font-size: 11px;
+    color: #999;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .video-card-mobile .card-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid #f5f5f5;
+    margin-top: auto;
+  }
+
+  .video-card-mobile .card-actions .action-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  /* 隐藏表格，显示卡片 */
+  .video-table-desktop {
+    display: none !important;
+  }
+  .video-cards-mobile {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .video-card-mobile {
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
 }
 
 /* 视频库管理样式 */

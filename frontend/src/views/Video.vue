@@ -717,16 +717,18 @@ const saveEdit = async () => {
 
 // 删除视频
 const showDeleteConfirm = ref(false)
+const deleteFileOption = ref(false)  // 是否同时删除文件
 
 const confirmDelete = () => {
+  deleteFileOption.value = false
   showDeleteConfirm.value = true
 }
 
 const handleDelete = async () => {
   if (!video.value) return
-  
+
   try {
-    await videoStore.deleteVideo(video.value.hash)
+    await videoStore.deleteVideo(video.value.hash, deleteFileOption.value)
     router.push('/')
   } catch (e) {
     alert('删除失败')
@@ -1016,7 +1018,12 @@ const handleDelete = async () => {
         <div class="dialog">
           <h3>确认删除</h3>
           <p>确定要删除视频 "{{ video.title }}" 吗？</p>
-          <p class="warning-text">此操作不可恢复。</p>
+          <div class="dialog-checkbox">
+            <label>
+              <input type="checkbox" v-model="deleteFileOption" />
+              同时删除视频文件（不可恢复）
+            </label>
+          </div>
           <div class="dialog-actions">
             <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
             <button class="btn-danger" @click="handleDelete" data-testid="confirm-delete-button">删除</button>
@@ -1645,6 +1652,28 @@ const handleDelete = async () => {
   gap: 12px;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.dialog-checkbox {
+  margin: 16px 0;
+  padding: 12px;
+  background: #2a2a2a;
+  border-radius: 8px;
+}
+
+.dialog-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #ccc;
+  font-size: 14px;
+}
+
+.dialog-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 /* 共享观看对话框 */
