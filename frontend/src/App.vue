@@ -100,7 +100,6 @@ const closeUserDropdown = (event: MouseEvent) => {
           </div>
         </div>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
-        <RouterLink to="/upload" class="nav-link upload-nav" v-if="userStore.isLoggedIn">上传</RouterLink>
       </div>
       <div class="nav-right">
         <!-- 未登录状态 -->
@@ -134,6 +133,12 @@ const closeUserDropdown = (event: MouseEvent) => {
                 <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
               </svg>
               管理
+            </RouterLink>
+            <RouterLink to="/upload" class="dropdown-item" v-if="userStore.isAdmin" @click="showUserDropdown = false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/>
+              </svg>
+              上传视频
             </RouterLink>
             <RouterLink to="/favorites" class="dropdown-item" @click="showUserDropdown = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

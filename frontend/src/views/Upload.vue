@@ -1,11 +1,38 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
+import { useUserStore } from '../stores/userStore'
 import api from '../api'
 
 const router = useRouter()
 const videoStore = useVideoStore()
+const userStore = useUserStore()
+
+// 视频集列表
+const libraries = ref<any[]>([])
+const selectedLibraryId = ref<number | null>(null)
+
+// 获取视频集列表
+const fetchLibraries = async () => {
+  try {
+    const res = await api.get('/api/libraries') as any
+    if (res.success) {
+      libraries.value = res.data || []
+      // 默认选择第一个有写权限的视频集
+      const writableLib = libraries.value.find((lib: any) => lib.access_level === 'full' || lib.access_level === 'write')
+      if (writableLib) {
+        selectedLibraryId.value = writableLib.id
+      }
+    }
+  } catch (error) {
+    console.error('获取视频集列表失败:', error)
+  }
+}
+
+onMounted(() => {
+  fetchLibraries()
+})
 
 // 上传状态
 const isDragging = ref(false)
@@ -83,6 +110,10 @@ const validateFile = (file: File): string | null => {
   if (file.size > maxFileSize) {
     return `文件大小超过限制，最大支持 ${formatFileSize(maxFileSize)}`
   }
+  // 验证视频集选择
+  if (!selectedLibraryId.value) {
+    return '请选择上传到的视频集'
+  }
   return null
 }
 
@@ -105,6 +136,9 @@ const handleFile = async (file: File) => {
     const formData = new FormData()
     formData.append('video', file)
     formData.append('title', videoForm.value.title)
+    if (selectedLibraryId.value) {
+      formData.append('library_id', selectedLibraryId.value.toString())
+    }
     
     // 模拟上传进度
     const progressInterval = setInterval(() => {
@@ -220,6 +254,21 @@ const toggleTag = (tagId: number) => {
       <!-- 视频信息表单（可选） -->
       <div v-if="!isUploading && !uploadedVideo" class="video-form">
         <h3>视频信息（可选）</h3>
+        
+        <!-- 视频集选择 -->
+        <div class="form-group">
+          <label>视频集 *</label>
+          <select v-model="selectedLibraryId" class="library-select">
+            <option :value="null" disabled>请选择视频集</option>
+            <option 
+              v-for="lib in libraries" 
+              :key="lib.id" 
+              :value="lib.id"
+            >
+              {{ lib.name }}
+            </option>
+          </select>
+        </div>
         <div class="form-group">
           <label>标题</label>
           <input 
@@ -472,6 +521,24 @@ const toggleTag = (tagId: number) => {
 
 .form-group input:focus,
 .form-group textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.library-select {
+  width: 100%;
+  padding: 12px 16px;
+  background: #0f0f0f;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+  box-sizing: border-box;
+}
+
+.library-select:focus {
   outline: none;
   border-color: #667eea;
 }

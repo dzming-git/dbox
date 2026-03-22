@@ -1752,6 +1752,41 @@ def upload_video():
         # 获取表单数据
         title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
         description = request.form.get('description', '').strip()
+        library_id = request.form.get('library_id')
+        
+        # 检查视频集权限（仅管理员可上传到任意视频集）
+        if library_id:
+            library_id = int(library_id)
+            library = VideoLibrary.query.get(library_id)
+            if not library:
+                os.remove(file_path)
+                return jsonify({'success': False, 'message': '视频集不存在'}), 400
+            
+            # 检查权限
+            if g.role != 'ROOT':
+                # 检查直接权限
+                perm = LibraryPermission.query.filter_by(
+                    library_id=library_id, user_id=g.user_id
+                ).first()
+                # 检查用户组权限
+                has_permission = False
+                if perm and perm.access_level in ['full', 'write']:
+                    has_permission = True
+                else:
+                    members = LibraryUserGroupMember.query.filter_by(user_id=g.user_id).all()
+                    for m in members:
+                        group_perm = LibraryPermission.query.filter_by(
+                            library_id=library_id, group_id=m.group_id
+                        ).first()
+                        if group_perm and group_perm.access_level in ['full', 'write']:
+                            has_permission = True
+                            break
+                
+                if not has_permission:
+                    os.remove(file_path)
+                    return jsonify({'success': False, 'message': '无权上传到该视频集'}), 403
+        else:
+            library_id = None
         
         # 创建视频记录
         video = Video(
@@ -1762,7 +1797,8 @@ def upload_video():
             file_path=file_path,
             file_size=file_size,
             duration='00:00',  # 后续可以提取真实时长
-            thumbnail=f'/thumbnail/{video_hash}'
+            thumbnail=f'/thumbnail/{video_hash}',
+            library_id=library_id
         )
         
         db.session.add(video)
