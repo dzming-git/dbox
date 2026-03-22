@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 WebUI 服务重启脚本
+DPlayer WebUI 服务重启脚本
 """
 import os
 import sys
@@ -24,7 +24,7 @@ def run_cmd(cmd, description):
 
 def main():
     print("=" * 50)
-    print("DPlayer 1.0 WebUI 服务重启脚本")
+    print("DPlayer WebUI 服务重启脚本")
     print("=" * 50)
     print()
     

@@ -1,6 +1,6 @@
 {
     "name": "thumbnail",
-    "display_name": "DPlayer 1.0 缩略图服务",
+    "display_name": "DPlayer 缩略图服务",
     "type": "python",
     "entry": "thumbnail_service.py",
     "workdir": "${PROJECT_ROOT}",
@@ -16,8 +16,8 @@
             "AppStderr": "${PROJECT_ROOT}\\logs\\thumbnail_stderr.log"
         },
         "Details": {
-            "DisplayName": "DPlayer 1.0 缩略图服务",
-            "Description": "DPlayer 1.0 缩略图微服务 - 负责视频缩略图的生成和管理",
+            "DisplayName": "DPlayer 缩略图服务",
+            "Description": "DPlayer 缩略图微服务 - 负责视频缩略图的生成和管理",
             "Start": "SERVICE_AUTO_START"
         }
     },

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 开发同步工具
+DPlayer 开发同步工具
 
 功能：
   1. 开发阶段将源码目录的变更自动同步到运行目录
@@ -345,7 +345,7 @@ def watch_mode(source_dir: Path, runtime_dir: Path):
     log = setup_logging(runtime_dir / 'logs')
     
     print('=' * 60)
-    print('  DPlayer 1.0 开发同步工具 - 监控模式')
+    print('  DPlayer 开发同步工具 - 监控模式')
     print('=' * 60)
     print(f'  源码目录: {source_dir}')
     print(f'  运行目录: {runtime_dir}')
@@ -381,7 +381,7 @@ def watch_mode(source_dir: Path, runtime_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 1.0 开发同步工具',
+        description='DPlayer 开发同步工具',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -433,7 +433,7 @@ def main():
         log = setup_logging(runtime_dir / 'logs' if runtime_dir.exists() else source_dir / 'logs')
         
         print('=' * 60)
-        print('  DPlayer 1.0 开发同步工具')
+        print('  DPlayer 开发同步工具')
         print('=' * 60)
         print(f'  源码目录: {source_dir}')
         print(f'  运行目录: {runtime_dir}')

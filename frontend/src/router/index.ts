@@ -83,7 +83,7 @@ router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
   
   // 设置页面标题
-  document.title = `${to.meta.title || 'DPlayer'} - DPlayer 1.0`
+  document.title = `${to.meta.title || 'DPlayer'} - DPlayer`
   
   // 1. 公开页面直接放行（登录页等）
   if (to.meta.public) {

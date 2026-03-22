@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 - 服务管理脚本
+DPlayer - 服务管理脚本
 
 功能：
   1. 通过 Python API 管理服务（不直接调用 Windows 命令）
@@ -38,20 +38,20 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 SERVICES = {
     'web': {
         'service_name': 'dplayer-web',
-        'display_name': 'DPlayer 1.0 Web服务',
-        'description': 'DPlayer 1.0 Web API服务',
+        'display_name': 'DPlayer Web服务',
+        'description': 'DPlayer Web API服务',
         'port': 8080,
     },
     'thumbnail': {
         'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 1.0 缩略图服务',
-        'description': 'DPlayer 1.0 缩略图微服务',
+        'display_name': 'DPlayer 缩略图服务',
+        'description': 'DPlayer 缩略图微服务',
         'port': 5001,
     },
     'webui': {
         'service_name': 'dplayer-webui',
-        'display_name': 'DPlayer 1.0 WebUI服务',
-        'description': 'DPlayer 1.0 Vue3前端界面',
+        'display_name': 'DPlayer WebUI服务',
+        'description': 'DPlayer Vue3前端界面',
         'port': 5173,
     },
 }
@@ -462,7 +462,7 @@ def cmd_restart(manager: NSSMServiceManager, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 1.0 服务管理脚本',
+        description='DPlayer 服务管理脚本',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:

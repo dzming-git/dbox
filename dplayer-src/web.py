@@ -1,5 +1,5 @@
 """
-DPlayer 1.0 - 纯后端 Web 服务
+DPlayer - 纯后端 Web 服务
 提供视频管理、标签管理、缩略图等 API 接口
 """
 import os
@@ -2771,6 +2771,6 @@ def get_library_audit_logs(library_id):
 # ============ 主入口 ============
 if __name__ == '__main__':
     port = app_config.get('ports', {}).get('web', 8080)
-    print(f"[DEBUG] Starting DPlayer 1.0 Web service on port {port}")
-    app.logger.info(f'DPlayer 1.0 Web 服务启动于端口 {port}')
+    print(f"[DEBUG] Starting DPlayer Web service on port {port}")
+    app.logger.info(f'DPlayer Web 服务启动于端口 {port}')
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

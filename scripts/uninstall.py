@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 服务卸载脚本
+DPlayer 服务卸载脚本
 
 功能：
   1. 停止并移除 NSSM 注册的 Windows 服务
@@ -37,11 +37,11 @@ DEFAULT_DEST = r'C:\DPlayer\runtime'
 NSSM_SERVICES = {
     'web': {
         'service_name': 'dplayer-web',
-        'display_name': 'DPlayer 1.0 Web服务',
+        'display_name': 'DPlayer Web服务',
     },
     'thumbnail': {
         'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 1.0 缩略图服务',
+        'display_name': 'DPlayer 缩略图服务',
     },
 }
 
@@ -199,7 +199,7 @@ def purge_runtime(dest_dir: Path, force: bool = False) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 1.0 服务卸载脚本',
+        description='DPlayer 服务卸载脚本',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -237,7 +237,7 @@ def main():
     force       = args.force
 
     print('=' * 60)
-    print('  DPlayer 1.0 服务卸载程序')
+    print('  DPlayer 服务卸载程序')
     print('=' * 60)
     print(f'  运行目录 : {dest_dir}')
     print(f'  操作     : {"移除服务 + 删除运行目录" if purge else "仅移除服务注册"}')

@@ -31,7 +31,7 @@ def create_app():
 def main():
     """主函数"""
     print("=" * 60)
-    print("DPlayer 1.0 - Root账号初始化工具")
+    print("DPlayer - Root账号初始化工具")
     print("=" * 60)
     
     app = create_app()

@@ -80,7 +80,7 @@ const closeUserDropdown = (event: MouseEvent) => {
     <!-- 登录页面不显示导航栏 -->
     <nav class="nav" v-if="!isLoginPage">
       <div class="nav-left">
-        <RouterLink to="/" class="logo">DPlayer 1.0</RouterLink>
+        <RouterLink to="/" class="logo">DPlayer</RouterLink>
         <!-- 视频库切换器 -->
         <div class="library-switcher" v-if="userStore.isLoggedIn && userLibraries.length > 1">
           <button class="switcher-btn" @click="showLibrarySwitcher = !showLibrarySwitcher">

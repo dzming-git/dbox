@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 服务安装脚本
+DPlayer 服务安装脚本
 
 功能：
   1. 将源码文件拷贝到指定运行目录（解除服务与源码目录的路径绑定）
@@ -42,24 +42,24 @@ SOURCE_DIR = Path(__file__).parent.parent.resolve()
 NSSM_SERVICES = {
     'web': {
         'service_name': 'dplayer-web',
-        'display_name': 'DPlayer 1.0 Web服务',
-        'description': 'DPlayer 1.0 Web API服务 - 提供视频管理、标签管理等API接口',
+        'display_name': 'DPlayer Web服务',
+        'description': 'DPlayer Web API服务 - 提供视频管理、标签管理等API接口',
         'entry': 'web.py',
         'port': 8080,
         'log_prefix': 'web',
     },
     'thumbnail': {
         'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 1.0 缩略图服务',
-        'description': 'DPlayer 1.0 缩略图微服务 - 负责视频缩略图的生成和管理',
+        'display_name': 'DPlayer 缩略图服务',
+        'description': 'DPlayer 缩略图微服务 - 负责视频缩略图的生成和管理',
         'entry': 'thumbnail_service.py',
         'port': 5001,
         'log_prefix': 'thumbnail',
     },
     'webui': {
         'service_name': 'dplayer-webui',
-        'display_name': 'DPlayer 1.0 WebUI服务',
-        'description': 'DPlayer 1.0 WebUI前端服务 - 提供Vue3前端界面',
+        'display_name': 'DPlayer WebUI服务',
+        'description': 'DPlayer WebUI前端服务 - 提供Vue3前端界面',
         'entry': 'services/webui_service.py',
         'port': 5173,
         'log_prefix': 'webui',
@@ -383,7 +383,7 @@ def backup_runtime(dest_dir: Path) -> Path | None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 1.0 服务安装脚本（拷贝文件 + NSSM 注册）',
+        description='DPlayer 服务安装脚本（拷贝文件 + NSSM 注册）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -448,7 +448,7 @@ def main():
 
     WORK_DIR = dest_dir
     print('=' * 60)
-    print('  DPlayer 1.0 Installer')
+    print('  DPlayer Installer')
     print('=' * 60)
     print(f'  Source dir : {SOURCE_DIR}')
     print(f'  Runtime dir: {dest_dir}')

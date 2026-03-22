@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 1.0 - 临时文件清理脚本
+DPlayer - 临时文件清理脚本
 
 功能：
   1. 清理临时脚本文件（.tmp.py, test_*.py, debug_*.py 等）
@@ -201,7 +201,7 @@ def move_to_archive(file_path: Path, archive_dir: Path, dry_run: bool = True) ->
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 1.0 临时文件清理脚本',
+        description='DPlayer 临时文件清理脚本',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -225,7 +225,7 @@ def main():
     patterns = DEEP_CLEAN_PATTERNS if args.deep else DEFAULT_TEMP_PATTERNS
     
     print("=" * 70)
-    print("  DPlayer 1.0 - 临时文件清理脚本")
+    print("  DPlayer - 临时文件清理脚本")
     print("=" * 70)
     print(f"  项目目录: {PROJECT_ROOT}")
     print(f"  归档目录: {ARCHIVE_DIR}")

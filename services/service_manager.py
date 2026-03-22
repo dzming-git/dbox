@@ -1,5 +1,5 @@
 """
-DPlayer 1.0 - 统一服务管理器
+DPlayer - 统一服务管理器
 管理 Web 服务和缩略图服务的启动、停止、重启
 
 支持两种运行模式：
@@ -80,7 +80,7 @@ if IS_WINDOWS:
 SERVICES = {
     'web': {
         'name': 'DPlayer-Web',
-        'display_name': 'DPlayer 1.0 Web服务',
+        'display_name': 'DPlayer Web服务',
         'port': 8080,
         'script': os.path.join(BASEDIR, 'web.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'web.pid'),
@@ -88,7 +88,7 @@ SERVICES = {
     },
     'thumbnail': {
         'name': 'DPlayer-Thumbnail',
-        'display_name': 'DPlayer 1.0 缩略图服务',
+        'display_name': 'DPlayer 缩略图服务',
         'port': 5001,
         'script': os.path.join(BASEDIR, 'thumbnail_service.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'thumbnail.pid'),
@@ -96,7 +96,7 @@ SERVICES = {
     },
     'webui': {
         'name': 'DPlayer-WebUI',
-        'display_name': 'DPlayer 1.0 WebUI服务',
+        'display_name': 'DPlayer WebUI服务',
         'port': 5173,
         'script': os.path.join(BASEDIR, 'services', 'webui_service.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'webui.pid'),
