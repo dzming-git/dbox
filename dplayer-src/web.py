@@ -1320,6 +1320,69 @@ def get_thumbnail_status(video_hash):
         'message': '缩略图尚未生成'
     })
 
+
+@app.route('/api/thumbnail/<video_hash>', methods=['DELETE'])
+def delete_thumbnail(video_hash):
+    """删除指定视频的缩略图"""
+    thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+
+    deleted = False
+    # 删除所有格式的缩略图文件
+    for ext in ['gif', 'jpg', 'png']:
+        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                deleted = True
+            except Exception as e:
+                app.logger.error(f"删除缩略图文件失败: {e}")
+
+    if deleted:
+        return jsonify({'success': True, 'message': '缩略图已删除'})
+    else:
+        return jsonify({'success': False, 'message': '缩略图文件不存在'})
+
+
+@app.route('/api/thumbnail/regenerate/<video_hash>', methods=['POST'])
+def regenerate_thumbnail(video_hash):
+    """重新生成指定视频的缩略图"""
+    # 先删除旧缩略图
+    thumb_dir = os.path.join(PROJECT_ROOT, 'static', 'thumbnails')
+    for ext in ['gif', 'jpg', 'png']:
+        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception as e:
+                app.logger.error(f"删除旧缩略图失败: {e}")
+
+    # 查找视频
+    video = Video.query.filter_by(hash=video_hash).first()
+    if not video or not video.local_path:
+        return jsonify({'success': False, 'message': '视频不存在或无本地路径'}), 404
+
+    # 调用缩略图服务重新生成
+    if thumbnail_client:
+        try:
+            result = thumbnail_client.generate_thumbnail(
+                video_path=video.local_path,
+                video_hash=video_hash,
+                output_format='gif'
+            )
+            if result and result.get('success'):
+                return jsonify({
+                    'success': True,
+                    'message': '缩略图重新生成中',
+                    'task_id': result.get('task_id')
+                })
+            else:
+                return jsonify({'success': False, 'message': result.get('error', '生成失败')}), 500
+        except Exception as e:
+            app.logger.error(f"重新生成缩略图失败: {e}")
+            return jsonify({'success': False, 'message': str(e)}), 500
+    else:
+        return jsonify({'success': False, 'message': '缩略图服务不可用'}), 503
+
 # --- 配置 API ---
 
 @app.route('/api/config', methods=['GET'])

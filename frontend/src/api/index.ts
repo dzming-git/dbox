@@ -103,15 +103,24 @@ const THUMB_BASE = ''  // 统一使用相对路径，开发时由 Vite 代理处
 export const thumbnailApi = {
   getThumbnail: (hash: string) =>
     `${API_BASE}/thumbnail/${hash}`,
-  
+
   generate: (videoPath: string, videoHash: string) =>
     axios.post(`${THUMB_BASE}/api/thumbnail/generate`, {
       video_path: videoPath,
       video_hash: videoHash
     }),
-  
-  getStatus: (taskId: string) =>
-    axios.get(`${THUMB_BASE}/api/thumbnail/status/${taskId}`)
+
+  // 查询缩略图状态
+  getStatus: (hash: string) =>
+    axios.get(`${THUMB_BASE}/api/thumbnail/status/${hash}`),
+
+  // 删除缩略图
+  delete: (hash: string) =>
+    axios.delete(`${THUMB_BASE}/api/thumbnail/${hash}`),
+
+  // 重新生成缩略图
+  regenerate: (hash: string) =>
+    axios.post(`${THUMB_BASE}/api/thumbnail/regenerate/${hash}`)
 }
 
 // 健康检查

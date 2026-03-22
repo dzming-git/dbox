@@ -3,6 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
+import { thumbnailApi } from '../api'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -759,6 +760,82 @@ const deleteVideo = async () => {
   deletingVideoTitle.value = ''
 }
 
+// 缩略图操作相关状态
+const showThumbnailModal = ref(false)
+const thumbnailVideoHash = ref('')
+const thumbnailVideoTitle = ref('')
+const thumbnailStatus = ref<'loading' | 'ready' | 'not_found' | 'generating'>('loading')
+const thumbnailLoading = ref(false)
+
+// 打开缩略图操作模态框
+const openThumbnailModal = async (hash: string, title: string) => {
+  thumbnailVideoHash.value = hash
+  thumbnailVideoTitle.value = title
+  showThumbnailModal.value = true
+  await checkThumbnailStatus(hash)
+}
+
+// 检查缩略图状态
+const checkThumbnailStatus = async (hash: string) => {
+  thumbnailLoading.value = true
+  try {
+    const res = await thumbnailApi.getStatus(hash) as any
+    if (res.success) {
+      thumbnailStatus.value = res.status
+    } else {
+      thumbnailStatus.value = 'not_found'
+    }
+  } catch (e) {
+    thumbnailStatus.value = 'not_found'
+  }
+  thumbnailLoading.value = false
+}
+
+// 重新生成缩略图
+const regenerateThumbnail = async () => {
+  if (!thumbnailVideoHash.value) return
+  thumbnailLoading.value = true
+  thumbnailStatus.value = 'generating'
+  try {
+    const res = await thumbnailApi.regenerate(thumbnailVideoHash.value) as any
+    if (res.success) {
+      showToast('缩略图正在重新生成')
+      // 轮询检查状态
+      const checkInterval = setInterval(async () => {
+        await checkThumbnailStatus(thumbnailVideoHash.value)
+        if (thumbnailStatus.value === 'ready' || thumbnailStatus.value === 'not_found') {
+          clearInterval(checkInterval)
+          thumbnailLoading.value = false
+        }
+      }, 2000)
+    } else {
+      showToast(res.message || '生成失败')
+      thumbnailLoading.value = false
+    }
+  } catch (e) {
+    showToast('生成失败')
+    thumbnailLoading.value = false
+  }
+}
+
+// 删除缩略图
+const deleteThumbnail = async () => {
+  if (!thumbnailVideoHash.value) return
+  thumbnailLoading.value = true
+  try {
+    const res = await thumbnailApi.delete(thumbnailVideoHash.value) as any
+    if (res.success) {
+      showToast('缩略图已删除')
+      thumbnailStatus.value = 'not_found'
+    } else {
+      showToast(res.message || '删除失败')
+    }
+  } catch (e) {
+    showToast('删除失败')
+  }
+  thumbnailLoading.value = false
+}
+
 // 批量删除确认对话框
 const showBatchDeleteConfirm = ref(false)
 const batchDeleteFileOption = ref(false)  // 是否同时删除文件
@@ -1317,8 +1394,9 @@ onMounted(() => {
                 <td>{{ video.duration != null ? video.duration + 's' : '-' }}</td>
                 <td>{{ formatDate(video.created_at) }}</td>
                 <td>
-                  <button class="icon-btn" @click="editVideo(video)">✏️</button>
-                  <button class="icon-btn danger" @click="openDeleteConfirm(video.hash, video.title)">🗑️</button>
+                  <button class="icon-btn" @click="editVideo(video)" title="编辑">✏️</button>
+                  <button class="icon-btn" @click="openThumbnailModal(video.hash, video.title)" title="缩略图">🖼️</button>
+                  <button class="icon-btn danger" @click="openDeleteConfirm(video.hash, video.title)" title="删除">🗑️</button>
                 </td>
               </tr>
             </tbody>
@@ -1392,6 +1470,7 @@ onMounted(() => {
 
               <div class="card-actions">
                 <button class="action-btn" @click="editVideo(video)">编辑</button>
+                <button class="action-btn" @click="openThumbnailModal(video.hash, video.title)">缩略图</button>
                 <button class="action-btn danger" @click="openDeleteConfirm(video.hash, video.title)">删除</button>
               </div>
             </div>
@@ -2090,6 +2169,65 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 缩略图操作对话框 -->
+    <div v-if="showThumbnailModal" class="dialog-overlay" @click.self="showThumbnailModal = false">
+      <div class="dialog thumbnail-dialog">
+        <h3>缩略图管理</h3>
+        <p class="dialog-video-title">视频：{{ thumbnailVideoTitle }}</p>
+
+        <!-- 缩略图状态显示 -->
+        <div class="thumbnail-status">
+          <div v-if="thumbnailLoading" class="thumbnail-loading">
+            <div class="loading-spinner"></div>
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="thumbnailStatus === 'ready'" class="thumbnail-ready">
+            <img
+              :src="`/thumbnail/${thumbnailVideoHash}?t=${Date.now()}`"
+              class="thumbnail-preview"
+              @error="(e: Event) => (e.target as HTMLImageElement).style.display='none'"
+            />
+            <div class="thumbnail-status-text">✓ 缩略图已生成</div>
+          </div>
+          <div v-else-if="thumbnailStatus === 'generating'" class="thumbnail-generating">
+            <div class="thumbnail-placeholder">
+              <span class="placeholder-icon">🖼️</span>
+            </div>
+            <div class="thumbnail-status-text">正在生成缩略图...</div>
+          </div>
+          <div v-else class="thumbnail-not-found">
+            <div class="thumbnail-placeholder">
+              <span class="placeholder-icon">🖼️</span>
+            </div>
+            <div class="thumbnail-status-text">暂无缩略图</div>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="thumbnail-actions">
+          <button
+            class="action-btn primary"
+            @click="regenerateThumbnail"
+            :disabled="thumbnailLoading"
+          >
+            {{ thumbnailStatus === 'ready' ? '重新生成' : '生成缩略图' }}
+          </button>
+          <button
+            v-if="thumbnailStatus === 'ready'"
+            class="action-btn danger"
+            @click="deleteThumbnail"
+            :disabled="thumbnailLoading"
+          >
+            删除缩略图
+          </button>
+        </div>
+
+        <div class="dialog-buttons">
+          <button class="btn-secondary" @click="showThumbnailModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
   </div>
@@ -2185,6 +2323,122 @@ onMounted(() => {
 
 .btn-danger:hover {
   background: #c82333;
+}
+
+/* 缩略图对话框样式 */
+.thumbnail-dialog {
+  min-width: 400px;
+  max-width: 90vw;
+}
+
+.dialog-video-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thumbnail-status {
+  margin: 20px 0;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumbnail-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #666;
+}
+
+.thumbnail-ready {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.thumbnail-preview {
+  max-width: 280px;
+  max-height: 180px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  object-fit: contain;
+}
+
+.thumbnail-status-text {
+  font-size: 14px;
+  color: #28a745;
+}
+
+.thumbnail-generating,
+.thumbnail-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.thumbnail-placeholder {
+  width: 200px;
+  height: 120px;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.thumbnail-status-text {
+  font-size: 14px;
+  color: #999;
+}
+
+.thumbnail-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.thumbnail-actions .action-btn {
+  flex: 1;
+  max-width: 160px;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .thumbnail-dialog {
+    min-width: auto;
+    width: 90vw;
+    padding: 16px;
+  }
+
+  .thumbnail-preview {
+    max-width: 100%;
+    max-height: 150px;
+  }
+
+  .thumbnail-actions {
+    flex-direction: column;
+  }
+
+  .thumbnail-actions .action-btn {
+    max-width: 100%;
+  }
 }
 
 .admin-page {
