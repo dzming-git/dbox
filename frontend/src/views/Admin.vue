@@ -1335,6 +1335,26 @@ onMounted(() => {
           <div class="empty-text">暂无视频</div>
         </div>
         <div v-else class="video-cards-mobile">
+          <!-- 移动端全选工具栏 -->
+          <div class="mobile-selection-bar">
+            <label class="checkbox-label select-all">
+              <input
+                type="checkbox"
+                :checked="selectedVideos.length === videos.length && videos.length > 0"
+                @change="toggleSelectAll"
+              />
+              <span>{{ selectedVideos.length === videos.length ? '取消全选' : '全选' }}</span>
+            </label>
+            <span class="selected-count">{{ selectedVideos.length }} 已选</span>
+            <button
+              v-if="selectedVideos.length > 0"
+              class="action-btn danger small"
+              @click="openBatchDeleteConfirm"
+            >
+              批量删除
+            </button>
+          </div>
+
           <div v-for="video in videos" :key="video.hash" class="video-card-mobile">
             <!-- 缩略图 -->
             <img
@@ -3253,6 +3273,45 @@ input:checked + .slider:before {
   .video-table-desktop {
     display: none !important;
   }
+
+  /* 移动端选择工具栏 */
+  .mobile-selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 8px;
+  }
+
+  .mobile-selection-bar .select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+  }
+
+  .mobile-selection-bar .select-all input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+
+  .mobile-selection-bar .selected-count {
+    flex: 1;
+    font-size: 12px;
+    color: #666;
+  }
+
+  .mobile-selection-bar .action-btn.small {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
   .video-cards-mobile {
     display: flex !important;
     flex-direction: column;
