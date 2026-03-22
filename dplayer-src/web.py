@@ -604,8 +604,11 @@ def play_video(video_id):
 
 @app.route('/api/tags', methods=['GET'])
 def get_tags():
-    """获取标签列表 - 需要按用户权限过滤视频数量"""
+    """获取标签列表 - 支持树形结构和扁平结构"""
     try:
+        # 获取是否返回树形结构的参数
+        tree_mode = request.args.get('tree', 'false').lower() == 'true'
+        
         # ============ 获取用户可访问的视频库 ============
         # 获取用户ID和角色
         user_id = None
@@ -652,28 +655,32 @@ def get_tags():
         # ============ 获取标签并过滤视频数量 ============
         tags = Tag.query.all()
         
+        # 判断是否是管理员/ROOT（管理员应该看到所有标签）
+        is_admin = user_id and user_role in [2, 3]  # ADMIN=2, ROOT=3
+        
         # 为每个标签计算用户可见的视频数量
         from sqlalchemy import or_
         result_tags = []
         for tag in tags:
-            # 构建查询：该标签下用户可见的视频数量
-            query = Video.query.join(VideoTag).filter(VideoTag.tag_id == tag.id)
+            # 构建查询：该标签下用户可见的视频数量（包含所有子标签的视频）
+            tag_ids = tag.get_all_child_ids()
+            query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
             
-            # 应用权限过滤
-            if allowed_library_ids:
-                query = query.filter(
-                    or_(
-                        Video.library_id == None,
-                        Video.library_id.in_(allowed_library_ids)
+            # 应用权限过滤（管理员可以看到所有视频，普通用户需要过滤）
+            if not is_admin:
+                if allowed_library_ids:
+                    query = query.filter(
+                        or_(
+                            Video.library_id == None,
+                            Video.library_id.in_(allowed_library_ids)
+                        )
                     )
-                )
-            else:
-                query = query.filter(Video.library_id == None)
+                # else: 不添加任何过滤，未登录用户可以看到所有视频
             
             video_count = query.count()
             
-            # 只返回有可见视频的标签
-            if video_count > 0:
+            # 管理员显示所有标签，普通用户只显示有可见视频的标签
+            if is_admin or video_count > 0:
                 tag_dict = tag.to_dict()
                 tag_dict['video_count'] = video_count
                 result_tags.append(tag_dict)
@@ -681,14 +688,53 @@ def get_tags():
         # 按视频数量排序
         result_tags.sort(key=lambda t: t['video_count'], reverse=True)
         
+        # 如果是树形模式，转换为树结构
+        if tree_mode:
+            tree = _build_tag_tree(result_tags)
+            return jsonify({'success': True, 'tags': tree})
+        
         return jsonify({'success': True, 'tags': result_tags})
     except Exception as e:
         app.logger.error(f"获取标签列表失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/api/tags/all', methods=['GET'])
+def get_all_tags():
+    """获取所有标签（不进行权限过滤）"""
+    try:
+        tags = Tag.query.all()
+        result = []
+        for tag in tags:
+            result.append({
+                'id': tag.id,
+                'name': tag.name,
+                'category': tag.category,
+                'parent_id': tag.parent_id,
+                'video_count': tag.video_count()
+            })
+        return jsonify({'success': True, 'tags': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _build_tag_tree(tags):
+    """将扁平标签列表转换为树形结构"""
+    tag_map = {tag['id']: {**tag, 'children': []} for tag in tags}
+    tree = []
+    
+    for tag in tags:
+        tag_node = tag_map[tag['id']]
+        if tag['parent_id'] is None or tag['parent_id'] not in tag_map:
+            tree.append(tag_node)
+        else:
+            tag_map[tag['parent_id']]['children'].append(tag_node)
+    
+    return tree
+
 @app.route('/api/tags', methods=['POST'])
 def create_tag():
-    """创建新标签 - 前端期望的API路径"""
+    """创建新标签 - 支持多级标签"""
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
@@ -701,7 +747,22 @@ def create_tag():
         if Tag.query.filter_by(name=name).first():
             return jsonify({'success': False, 'message': '标签已存在'}), 400
         
-        tag = Tag(name=name, category=data.get('category', '类型'))
+        # 处理父标签
+        parent_id = data.get('parent_id')
+        if parent_id:
+            # 验证父标签存在
+            parent_tag = Tag.query.get(parent_id)
+            if not parent_tag:
+                return jsonify({'success': False, 'message': '父标签不存在'}), 400
+            # 避免循环引用：检查父标签是否是当前标签的子标签
+            if parent_id and parent_tag.parent_id == int(parent_id) if parent_tag else False:
+                return jsonify({'success': False, 'message': '不能设置自己的子标签为父标签'}), 400
+        
+        tag = Tag(
+            name=name,
+            category=data.get('category', '类型'),
+            parent_id=parent_id
+        )
         db.session.add(tag)
         db.session.commit()
         return jsonify({'success': True, 'tag': tag.to_dict()})
@@ -746,6 +807,20 @@ def _do_update_tag(tag_id):
         if 'category' in data:
             tag.category = data['category'].strip() or '类型'
         
+        # 支持修改父标签
+        if 'parent_id' in data:
+            new_parent_id = data['parent_id']
+            if new_parent_id:
+                # 验证父标签存在
+                parent_tag = Tag.query.get(new_parent_id)
+                if not parent_tag:
+                    return jsonify({'success': False, 'message': '父标签不存在'}), 400
+                # 避免循环引用：不能设置自己或自己的子标签为父标签
+                child_ids = tag.get_all_child_ids()
+                if new_parent_id in child_ids:
+                    return jsonify({'success': False, 'message': '不能设置自己的子标签为父标签'}), 400
+            tag.parent_id = new_parent_id
+        
         db.session.commit()
         return jsonify({'success': True, 'tag': tag.to_dict()})
     except Exception as e:
@@ -756,7 +831,15 @@ def _do_update_tag(tag_id):
 def delete_tag(tag_id):
     try:
         tag = Tag.query.get_or_404(tag_id)
+        
+        # 处理子标签：将子标签提升为顶级标签
+        for child in tag.children:
+            child.parent_id = None
+        
+        # 删除标签与视频的关联
         VideoTag.query.filter_by(tag_id=tag_id).delete()
+        
+        # 删除标签
         db.session.delete(tag)
         db.session.commit()
         return jsonify({'success': True, 'message': '标签已删除'})

@@ -21,12 +21,14 @@ export interface Video {
   updated_at?: string
 }
 
-// 标签类型
+// 标签类型 - 支持多级标签
 export interface Tag {
   id: number
   name: string
   category?: string
+  parent_id?: number | null
   video_count: number
+  children?: Tag[]
 }
 
 // 用户类型

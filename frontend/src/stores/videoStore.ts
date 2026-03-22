@@ -147,10 +147,10 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
   
-  // 创建标签
-  const createTag = async (name: string, category?: string) => {
+  // 创建标签 - 支持多级标签
+  const createTag = async (name: string, category?: string, parentId?: number) => {
     try {
-      const response = await tagApi.createTag(name, category) as any
+      const response = await tagApi.createTag(name, category, parentId) as any
       if (response.success) {
         await fetchTags()
       }
@@ -161,7 +161,7 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
   
-  // 更新标签
+  // 更新标签 - 支持修改父标签
   const updateTag = async (id: number, data: Partial<Tag>) => {
     try {
       const response = await tagApi.updateTag(id, data) as any

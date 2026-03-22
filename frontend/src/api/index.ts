@@ -69,16 +69,23 @@ export const videoApi = {
     api.get('/api/status')
 }
 
-// 标签相关API
+// 标签相关API - 支持多级标签
 export const tagApi = {
-  getTags: () => api.get('/api/tags'),
+  // 获取标签列表 - 支持tree参数获取树形结构
+  getTags: (params?: { tree?: boolean }) => api.get('/api/tags', { params }),
   
-  createTag: (name: string, category?: string) =>
-    api.post('/api/tags/add', { name, category }),
+  // 获取所有标签（管理员用，不进行权限过滤）
+  getAllTags: () => api.get('/api/tags/all'),
   
+  // 创建标签 - 支持parent_id创建子标签
+  createTag: (name: string, category?: string, parentId?: number) =>
+    api.post('/api/tags', { name, category, parent_id: parentId }),
+  
+  // 更新标签 - 支持修改parent_id
   updateTag: (id: number, data: Record<string, unknown>) =>
-    api.post(`/api/tags/update/${id}`, data),
+    api.put(`/api/tags/${id}`, data),
   
+  // 删除标签
   deleteTag: (id: number) =>
     api.delete(`/api/tags/${id}`)
 }

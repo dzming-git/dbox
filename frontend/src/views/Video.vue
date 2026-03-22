@@ -12,6 +12,8 @@ const video = ref<Video | null>(null)
 const loading = ref(true)
 const isFavorited = ref(false)
 const isLiked = ref(false)
+const isDisliked = ref(false)
+const isWatchLater = ref(false)
 const videoPlayer = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref(false)
 const currentTime = ref(0)
@@ -64,9 +66,13 @@ onMounted(async () => {
 const loadUserInteractions = () => {
   if (!video.value) return
   const likedVideos = JSON.parse(localStorage.getItem('likedVideos') || '[]')
+  const dislikedVideos = JSON.parse(localStorage.getItem('dislikedVideos') || '[]')
   const favoritedVideos = JSON.parse(localStorage.getItem('favoritedVideos') || '[]')
+  const watchLaterVideos = JSON.parse(localStorage.getItem('watchLaterVideos') || '[]')
   isLiked.value = likedVideos.includes(video.value.hash)
+  isDisliked.value = dislikedVideos.includes(video.value.hash)
   isFavorited.value = favoritedVideos.includes(video.value.hash)
+  isWatchLater.value = watchLaterVideos.includes(video.value.hash)
 }
 
 // 保存点赞状态到localStorage
@@ -114,6 +120,53 @@ const saveFavoriteStatus = () => {
   
   localStorage.setItem('favoritedVideos', JSON.stringify(favoritedVideos))
   localStorage.setItem('favorites', JSON.stringify(favorites))
+}
+
+// 保存踩状态到localStorage
+const saveDislikeStatus = () => {
+  if (!video.value) return
+  const dislikedVideos = JSON.parse(localStorage.getItem('dislikedVideos') || '[]')
+  if (isDisliked.value) {
+    if (!dislikedVideos.includes(video.value.hash)) {
+      dislikedVideos.push(video.value.hash)
+    }
+  } else {
+    const index = dislikedVideos.indexOf(video.value.hash)
+    if (index > -1) dislikedVideos.splice(index, 1)
+  }
+  localStorage.setItem('dislikedVideos', JSON.stringify(dislikedVideos))
+}
+
+// 保存稍后看状态到localStorage
+const saveWatchLaterStatus = () => {
+  if (!video.value) return
+  const watchLaterVideos = JSON.parse(localStorage.getItem('watchLaterVideos') || '[]')
+  const watchLaterList = JSON.parse(localStorage.getItem('watchLater') || '[]')
+  
+  if (isWatchLater.value) {
+    if (!watchLaterVideos.includes(video.value.hash)) {
+      watchLaterVideos.push(video.value.hash)
+    }
+    // 添加到稍后看列表
+    if (!watchLaterList.find((v: any) => v.hash === video.value!.hash)) {
+      watchLaterList.push({
+        hash: video.value.hash,
+        title: video.value.title,
+        thumbnail: video.value.thumbnail,
+        duration: video.value.duration,
+        added_at: new Date().toISOString()
+      })
+    }
+  } else {
+    const index = watchLaterVideos.indexOf(video.value.hash)
+    if (index > -1) watchLaterVideos.splice(index, 1)
+    // 从稍后看列表移除
+    const wlIndex = watchLaterList.findIndex((v: any) => v.hash === video.value!.hash)
+    if (wlIndex > -1) watchLaterList.splice(wlIndex, 1)
+  }
+  
+  localStorage.setItem('watchLaterVideos', JSON.stringify(watchLaterVideos))
+  localStorage.setItem('watchLater', JSON.stringify(watchLaterList))
 }
 
 // 添加到观看历史
@@ -183,6 +236,30 @@ const handleFavorite = async () => {
   await videoStore.favoriteVideo(video.value.hash)
   // 显示提示
   const message = isFavorited.value ? '已添加到收藏' : '已取消收藏'
+  showToast(message)
+}
+
+const handleDislike = async () => {
+  if (!video.value) return
+  // 踩和点赞互斥：如果当前是点赞状态，先取消点赞
+  if (isLiked.value) {
+    isLiked.value = false
+    video.value.like_count--
+    saveLikeStatus()
+  }
+  isDisliked.value = !isDisliked.value
+  saveDislikeStatus()
+  // 显示提示
+  const message = isDisliked.value ? '我不喜欢这个视频' : '已取消踩'
+  showToast(message)
+}
+
+const handleWatchLater = async () => {
+  if (!video.value) return
+  isWatchLater.value = !isWatchLater.value
+  saveWatchLaterStatus()
+  // 显示提示
+  const message = isWatchLater.value ? '已添加到稍后看' : '已从稍后看移除'
   showToast(message)
 }
 
@@ -789,8 +866,10 @@ const handleDelete = async () => {
 
         <!-- 查看模式 -->
         <template v-else>
-          <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
-          
+          <div class="video-title-row">
+            <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
+          </div>
+
           <div class="video-meta">
             <span class="meta-item" data-testid="view-count">{{ video.view_count }} 次观看</span>
             <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
@@ -809,71 +888,125 @@ const handleDelete = async () => {
             </span>
           </div>
 
-          <!-- 操作按钮 -->
-          <div class="action-buttons">
-            <button 
-              class="action-btn" 
-              :class="{ active: isLiked }"
-              @click="handleLike"
-              data-testid="like-button"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
-              </svg>
-              点赞 ({{ video.like_count }})
-            </button>
+          <!-- 视频下方交互按钮 -->
+          <div class="interaction-bar">
+            <!-- 第一行：互动按钮 -->
+            <div class="interaction-buttons">
+              <!-- 点赞 -->
+              <button
+                class="interact-btn like-btn"
+                :class="{ active: isLiked }"
+                @click="handleLike"
+                data-testid="like-button"
+              >
+                <div class="btn-icon">
+                  <svg v-if="!isLiked" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                  </svg>
+                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                  </svg>
+                </div>
+                <span class="btn-label">{{ video.like_count || 0 }}</span>
+              </button>
 
-            <button 
-              class="action-btn" 
-              :class="{ active: isFavorited }"
-              @click="handleFavorite"
-              data-testid="favorite-button"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-              </svg>
-              收藏
-            </button>
+              <!-- 收藏 -->
+              <button
+                class="interact-btn favorite-btn"
+                :class="{ active: isFavorited }"
+                @click="handleFavorite"
+                data-testid="favorite-button"
+              >
+                <div class="btn-icon">
+                  <svg v-if="!isFavorited" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                  </svg>
+                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                  </svg>
+                </div>
+                <span class="btn-label">{{ video.favorite_count || 0 }}</span>
+              </button>
 
-            <button class="action-btn" @click="handleDownload" data-testid="download-button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-              </svg>
-              下载
-            </button>
+              <!-- 稍后看 -->
+              <button
+                class="interact-btn watchlater-btn"
+                :class="{ active: isWatchLater }"
+                @click="handleWatchLater"
+                data-testid="watchlater-button"
+              >
+                <div class="btn-icon">
+                  <svg v-if="!isWatchLater" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14" stroke="currentColor" fill="none" stroke-width="2"/>
+                  </svg>
+                </div>
+                <span class="btn-label">稍后看</span>
+              </button>
 
-            <button class="action-btn" @click="handleShare" data-testid="share-button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
-              </svg>
-              分享
-            </button>
+              <!-- 共享观看 -->
+              <button
+                class="interact-btn sharewatch-btn"
+                :class="{ active: isSharedMode }"
+                @click="isSharedMode ? showShareDialog = true : createSharedWatchSession()"
+                data-testid="sharewatch-button"
+              >
+                <div class="btn-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <span class="btn-label">{{ isSharedMode ? '共享中' : '共享' }}</span>
+              </button>
 
-            <button 
-              class="action-btn share-watch-btn" 
-              :class="{ active: isSharedMode }"
-              @click="isSharedMode ? showShareDialog = true : createSharedWatchSession()"
-              data-testid="share-watch-button"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-              </svg>
-              {{ isSharedMode ? '共享中' : '共享观看' }}
-            </button>
+              <!-- 下载 -->
+              <button class="action-btn" @click="handleDownload" data-testid="download-button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span class="btn-label">下载</span>
+              </button>
 
-            <button class="action-btn edit-btn" @click="startEdit" data-testid="edit-button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-              </svg>
-              编辑
-            </button>
+              <!-- 分享 -->
+              <button class="action-btn" @click="handleShare" data-testid="share-button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="18" cy="5" r="3"/>
+                  <circle cx="6" cy="12" r="3"/>
+                  <circle cx="18" cy="19" r="3"/>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+                <span class="btn-label">分享</span>
+              </button>
+            </div>
 
-            <button class="action-btn delete-btn" @click="confirmDelete" data-testid="delete-button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-              </svg>
-              删除
-            </button>
+            <!-- 第二行：管理按钮 -->
+            <div class="action-buttons">
+              <button class="action-btn edit-btn" @click="startEdit" data-testid="edit-button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+
+              <button class="action-btn delete-btn" @click="confirmDelete" data-testid="delete-button" title="删除">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -1120,8 +1253,16 @@ const handleDelete = async () => {
 .video-title {
   font-size: 24px;
   font-weight: 600;
-  margin: 0 0 12px 0;
+  margin: 0;
   color: #fff;
+}
+
+.video-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .video-meta {
@@ -1155,36 +1296,189 @@ const handleDelete = async () => {
   color: #ccc;
 }
 
+/* 交互按钮栏 */
+.interaction-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #333;
+  margin: 20px 0;
+}
+
+/* 左侧交互按钮组 */
+.interaction-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.interact-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.interact-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  transform: scale(1.05);
+}
+
+.interact-btn .btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.interact-btn:hover .btn-icon {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.interact-btn .btn-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.2;
+}
+
+/* 点赞按钮 */
+.interact-btn.like-btn:hover,
+.interact-btn.like-btn.active {
+  color: #ff6b6b;
+}
+
+.interact-btn.like-btn:hover .btn-icon,
+.interact-btn.like-btn.active .btn-icon {
+  background: rgba(255, 107, 107, 0.15);
+}
+
+.interact-btn.like-btn.active .btn-icon {
+  animation: likeAnim 0.3s ease;
+}
+
+@keyframes likeAnim {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+/* 踩按钮 */
+.interact-btn.dislike-btn:hover,
+.interact-btn.dislike-btn.active {
+  color: #ffd93d;
+}
+
+.interact-btn.dislike-btn:hover .btn-icon,
+.interact-btn.dislike-btn.active .btn-icon {
+  background: rgba(255, 217, 61, 0.15);
+}
+
+/* 收藏按钮 */
+.interact-btn.favorite-btn:hover,
+.interact-btn.favorite-btn.active {
+  color: #ff6b9d;
+}
+
+.interact-btn.favorite-btn:hover .btn-icon,
+.interact-btn.favorite-btn.active .btn-icon {
+  background: rgba(255, 107, 157, 0.15);
+}
+
+.interact-btn.favorite-btn.active .btn-icon {
+  animation: favoriteAnim 0.4s ease;
+}
+
+@keyframes favoriteAnim {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.2); }
+  50% { transform: scale(0.95); }
+  75% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* 稍后看按钮 */
+.interact-btn.watchlater-btn:hover,
+.interact-btn.watchlater-btn.active {
+  color: #69dbff;
+}
+
+.interact-btn.watchlater-btn:hover .btn-icon,
+.interact-btn.watchlater-btn.active .btn-icon {
+  background: rgba(105, 219, 255, 0.15);
+}
+
+.interact-btn.watchlater-btn.active .btn-icon svg polyline {
+  stroke: #69dbff;
+}
+
+/* 共享观看按钮 */
+.interact-btn.sharewatch-btn:hover,
+.interact-btn.sharewatch-btn.active {
+  color: #2196F3;
+}
+
+.interact-btn.sharewatch-btn:hover .btn-icon,
+.interact-btn.sharewatch-btn.active .btn-icon {
+  background: rgba(33, 150, 243, 0.15);
+}
+
+/* 右侧操作按钮 */
 .action-buttons {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .action-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: #333;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  background: transparent;
   border: none;
-  border-radius: 20px;
-  color: #fff;
-  font-size: 14px;
+  border-radius: 8px;
+  color: #888;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
 .action-btn:hover {
-  background: #444;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  transform: scale(1.05);
 }
 
 .action-btn.active {
-  background: #2196F3;
+  color: #2196F3;
 }
 
 .action-btn.active:hover {
-  background: #1976D2;
+  color: #fff;
+}
+
+.action-btn .btn-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.2;
 }
 
 .error-container {
@@ -1305,22 +1599,6 @@ const handleDelete = async () => {
 
 .delete-btn:hover {
   background: #f44336;
-}
-
-.share-watch-btn {
-  background: #9c27b0;
-}
-
-.share-watch-btn:hover {
-  background: #7b1fa2;
-}
-
-.share-watch-btn.active {
-  background: #4caf50;
-}
-
-.share-watch-btn.active:hover {
-  background: #388e3c;
 }
 
 /* 对话框 */
@@ -1488,13 +1766,57 @@ const handleDelete = async () => {
     font-size: 18px;
   }
 
-  .action-buttons {
+  /* 交互按钮移动端适配 - 允许换行 */
+  .interaction-bar {
+    gap: 12px;
+    padding: 16px 0;
+  }
+
+  .interaction-buttons {
+    flex-wrap: wrap;
     gap: 8px;
+    justify-content: center;
+  }
+
+  .interact-btn {
+    padding: 6px 4px;
+    flex: 1 1 calc(33% - 4px);
+    max-width: calc(33% - 4px);
+    min-width: 60px;
+  }
+
+  .interact-btn .btn-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .interact-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .interact-btn .btn-label {
+    font-size: 10px;
+  }
+
+  .action-buttons {
+    gap: 4px;
+    justify-content: center;
   }
 
   .action-btn {
-    padding: 8px 16px;
-    font-size: 13px;
+    padding: 6px 8px;
+    flex: 1 1 calc(50% - 4px);
+    max-width: calc(50% - 4px);
+  }
+
+  .action-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .action-btn .btn-label {
+    font-size: 10px;
   }
 
   .player-controls {

@@ -203,25 +203,48 @@ class Tag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True, nullable=False, index=True)
     category = db.Column(db.String(50))  # 标签分类：如 "类型", "作者", "地区" 等
+    parent_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=True)  # 父标签ID，支持多级
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # 关系
     videos = db.relationship('VideoTag', back_populates='tag', cascade='all, delete-orphan')
+    parent = db.relationship('Tag', remote_side=[id], backref='children')  # 自关联：父标签 / 子标签
 
     def __repr__(self):
         return f'<Tag {self.name}>'
 
     def video_count(self):
-        """获取实际存在的视频数量（过滤掉已删除的视频）"""
-        return len([vt for vt in self.videos if vt.video is not None])
+        """获取实际存在的视频数量（包含所有子标签的视频）"""
+        # 统计当前标签及其所有子标签的视频数量
+        tag_ids = self.get_all_child_ids()
+        return VideoTag.query.filter(VideoTag.tag_id.in_(tag_ids)).count()
 
-    def to_dict(self):
-        return {
+    def get_all_child_ids(self):
+        """获取当前标签及所有子标签的ID列表"""
+        ids = [self.id]
+        for child in self.children:
+            ids.extend(child.get_all_child_ids())
+        return ids
+
+    def get_all_parent_ids(self):
+        """获取所有父标签ID列表（用于继承逻辑）"""
+        ids = []
+        if self.parent:
+            ids.append(self.parent.id)
+            ids.extend(self.parent.get_all_parent_ids())
+        return ids
+
+    def to_dict(self, include_children=False):
+        result = {
             'id': self.id,
             'name': self.name,
             'category': self.category,
+            'parent_id': self.parent_id,
             'video_count': self.video_count()
         }
+        if include_children:
+            result['children'] = [child.to_dict(include_children=True) for child in self.children]
+        return result
 
 
 class VideoTag(db.Model):
