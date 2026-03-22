@@ -72,7 +72,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   <div class="login-container">
     <div class="login-box">
       <div class="login-header">
-        <h1 class="login-title">DPlayer 2.0</h1>
+        <h1 class="login-title">DPlayer 1.0</h1>
         <p class="login-subtitle">欢迎回来</p>
       </div>
 

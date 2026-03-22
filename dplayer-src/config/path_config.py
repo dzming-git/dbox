@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 2.0 - 路径配置模块
+DPlayer 1.0 - 路径配置模块
 
 提供运行目录的动态解析，确保服务可以在任何位置运行，不依赖硬编码路径。
 """
@@ -121,7 +121,7 @@ def get_install_info() -> dict | None:
 
 if __name__ == '__main__':
     # 测试模式
-    print('DPlayer 2.0 路径配置')
+    print('DPlayer 1.0 路径配置')
     print('=' * 60)
     print(f'运行目录: {RUNTIME_DIR}')
     print(f'源码目录: {get_source_dir() or "N/A (未安装)"}')

@@ -6,7 +6,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Home',
     component: () => import('../views/Home.vue'),
-    meta: { title: '首页', public: true }
+    meta: { title: '首页', requiresAuth: true }
   },
   {
     path: '/login',
@@ -66,7 +66,7 @@ const routes: RouteRecordRaw[] = [
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFound.vue'),
-    meta: { title: '页面未找到' }
+    meta: { title: '页面未找到', public: true }
   }
 ]
 
@@ -83,7 +83,7 @@ router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
   
   // 设置页面标题
-  document.title = `${to.meta.title || 'DPlayer'} - DPlayer 2.0`
+  document.title = `${to.meta.title || 'DPlayer'} - DPlayer 1.0`
   
   // 1. 公开页面直接放行（登录页等）
   if (to.meta.public) {

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo  DPlayer 2.0 WebUI 服务重启脚本
+echo  DPlayer 1.0 WebUI 服务重启脚本
 echo ========================================
 echo.
 

@@ -1,4 +1,4 @@
-# DPlayer 2.0
+# DPlayer 1.0
 
 视频播放器后端服务 - 纯API架构
 
@@ -47,13 +47,13 @@ Dplayer2.0/
 # 安装Web服务
 nssm install dplayer-web "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\web.py"
 nssm set dplayer-web AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
-nssm set dplayer-web DisplayName "DPlayer 2.0 Web服务"
+nssm set dplayer-web DisplayName "DPlayer 1.0 Web服务"
 nssm set dplayer-web Start SERVICE_AUTO_START
 
 # 安装缩略图服务
 nssm install dplayer-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\thumbnail_service.py"
 nssm set dplayer-thumbnail AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
-nssm set dplayer-thumbnail DisplayName "DPlayer 2.0 缩略图服务"
+nssm set dplayer-thumbnail DisplayName "DPlayer 1.0 缩略图服务"
 nssm set dplayer-thumbnail Start SERVICE_AUTO_START
 
 # 启动服务

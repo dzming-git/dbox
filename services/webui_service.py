@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 2.0 WebUI 服务启动器
+DPlayer 1.0 WebUI 服务启动器
 
 通过 Python 包装器启动前端 Vite 开发服务器，使其可以被 NSSM 管理。
 """
@@ -71,7 +71,7 @@ def find_npm():
 def start_webui():
     """启动 WebUI 服务"""
     logger.info("=" * 60)
-    logger.info("DPlayer 2.0 WebUI 服务启动")
+    logger.info("DPlayer 1.0 WebUI 服务启动")
     logger.info("=" * 60)
     logger.info(f"工作目录: {FRONTEND_DIR}")
     logger.info(f"服务地址: http://0.0.0.0:5173")

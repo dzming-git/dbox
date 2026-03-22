@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 2.0 - 服务启动守卫
+DPlayer 1.0 - 服务启动守卫
 
 拦截直接运行 python xxx.py 的行为，强制要求通过 NSSM 服务管理启动。
 

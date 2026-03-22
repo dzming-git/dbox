@@ -197,21 +197,36 @@ class Video(db.Model):
 
 
 class Tag(db.Model):
-    """标签模型"""
+    """标签模型 - 支持多视频库独立标签体系"""
     __tablename__ = 'tags'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(50), nullable=False, index=True)  # 标签名称（同一路径下唯一）
+    path = db.Column(db.String(200), nullable=False, index=True)  # 完整路径，如 /动物/狗/哈士奇
     category = db.Column(db.String(50))  # 标签分类：如 "类型", "作者", "地区" 等
     parent_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=True)  # 父标签ID，支持多级
+    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=True)  # 视频库ID，null表示全局标签
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # 关系
     videos = db.relationship('VideoTag', back_populates='tag', cascade='all, delete-orphan')
     parent = db.relationship('Tag', remote_side=[id], backref='children')  # 自关联：父标签 / 子标签
+    library = db.relationship('VideoLibrary', backref='tags')  # 视频库关系
+
+    # 唯一约束：同一视频库下路径唯一
+    __table_args__ = (db.UniqueConstraint('path', 'library_id', name='_path_library_uc'),)
 
     def __repr__(self):
-        return f'<Tag {self.name}>'
+        return f'<Tag {self.path}>'
+
+    def calculate_path(self):
+        """计算完整路径"""
+        if self.parent:
+            parent_path = self.parent.calculate_path() if self.parent.path == '/' else self.parent.path
+            self.path = f"{parent_path}/{self.name}" if parent_path != '/' else f"/{self.name}"
+        else:
+            self.path = f"/{self.name}"
+        return self.path
 
     def video_count(self):
         """获取实际存在的视频数量（包含所有子标签的视频）"""
@@ -238,8 +253,10 @@ class Tag(db.Model):
         result = {
             'id': self.id,
             'name': self.name,
+            'path': self.path,
             'category': self.category,
             'parent_id': self.parent_id,
+            'library_id': self.library_id,
             'video_count': self.video_count()
         }
         if include_children:

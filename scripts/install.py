@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 2.0 服务安装脚本
+DPlayer 1.0 服务安装脚本
 
 功能：
   1. 将源码文件拷贝到指定运行目录（解除服务与源码目录的路径绑定）
@@ -42,24 +42,24 @@ SOURCE_DIR = Path(__file__).parent.parent.resolve()
 NSSM_SERVICES = {
     'web': {
         'service_name': 'dplayer-web',
-        'display_name': 'DPlayer 2.0 Web服务',
-        'description': 'DPlayer 2.0 Web API服务 - 提供视频管理、标签管理等API接口',
+        'display_name': 'DPlayer 1.0 Web服务',
+        'description': 'DPlayer 1.0 Web API服务 - 提供视频管理、标签管理等API接口',
         'entry': 'web.py',
         'port': 8080,
         'log_prefix': 'web',
     },
     'thumbnail': {
         'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 2.0 缩略图服务',
-        'description': 'DPlayer 2.0 缩略图微服务 - 负责视频缩略图的生成和管理',
+        'display_name': 'DPlayer 1.0 缩略图服务',
+        'description': 'DPlayer 1.0 缩略图微服务 - 负责视频缩略图的生成和管理',
         'entry': 'thumbnail_service.py',
         'port': 5001,
         'log_prefix': 'thumbnail',
     },
     'webui': {
         'service_name': 'dplayer-webui',
-        'display_name': 'DPlayer 2.0 WebUI服务',
-        'description': 'DPlayer 2.0 WebUI前端服务 - 提供Vue3前端界面',
+        'display_name': 'DPlayer 1.0 WebUI服务',
+        'description': 'DPlayer 1.0 WebUI前端服务 - 提供Vue3前端界面',
         'entry': 'services/webui_service.py',
         'port': 5173,
         'log_prefix': 'webui',
@@ -272,7 +272,7 @@ def write_install_json(source_dir: Path, dest_dir: Path, update: bool):
 # 核心：NSSM 服务注册
 # ============================================================
 
-def register_nssm_services(dest_dir: Path, nssm_exe: str, services: list[str] | None = None, dev_mode: bool = False):
+def register_nssm_services(dest_dir: Path, nssm_exe: str, services: list[str] | None = None):
     """
     使用 NSSM 将服务注册为 Windows 服务，工作目录指向运行目录。
 
@@ -280,11 +280,8 @@ def register_nssm_services(dest_dir: Path, nssm_exe: str, services: list[str] | 
         dest_dir:  运行目录（已拷贝好文件的目录）
         nssm_exe:  nssm 可执行文件路径
         services:  需要安装的服务 key 列表，None 表示全部
-        dev_mode:  是否为开发模式（直接指向源码目录）
     """
     log.info(f'\n[3/3] Register NSSM services (work dir: {dest_dir})')
-    if dev_mode:
-        log.info(f'  [DEV MODE] Using source directory directly for hot reload')
 
     python_exe = find_python_exe(dest_dir)
     log.info(f'  Python: {python_exe}')
@@ -328,7 +325,7 @@ def register_nssm_services(dest_dir: Path, nssm_exe: str, services: list[str] | 
             continue
 
         # 配置服务参数
-        env_extra = 'DPLAYER_DEV_MODE=1' if dev_mode else 'DPLAYER_SERVICE_MODE=1'
+        env_extra = 'DPLAYER_SERVICE_MODE=1'
         nssm_sets = [
             ('AppDirectory',  str(dest_dir)),
             ('DisplayName',   svc['display_name']),
@@ -386,7 +383,7 @@ def backup_runtime(dest_dir: Path) -> Path | None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 2.0 服务安装脚本（拷贝文件 + NSSM 注册）',
+        description='DPlayer 1.0 服务安装脚本（拷贝文件 + NSSM 注册）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -396,7 +393,6 @@ def main():
   python scripts/install.py --no-service           只拷贝文件
   python scripts/install.py --service-only         只重新注册服务
   python scripts/install.py --services web         只安装 web 服务
-  python scripts/install.py --dev                  开发模式：不拷贝，直接指向源码目录（热更新）
         """
     )
     parser.add_argument(
@@ -423,17 +419,12 @@ def main():
         '--start', nargs='?', const=True, default=None, type=lambda x: x.lower() == 'true',
         help='安装完成后自动启动服务 (默认: 读取配置文件)'
     )
-    parser.add_argument(
-        '--dev', action='store_true',
-        help='开发模式：直接指向源码目录，不拷贝文件，保留热更新特性'
-    )
     args = parser.parse_args()
 
     dest_dir   = Path(args.dest).resolve()
     update     = args.update
     no_service = args.no_service
     svc_only   = args.service_only
-    dev_mode   = args.dev
 
     # 读取配置文件中的 auto_start 设置
     config_path = SOURCE_DIR / 'config' / 'config.json'
@@ -455,40 +446,24 @@ def main():
     if args.start is not None:
         should_auto_start = args.start
 
-    # Dev 模式：工作目录指向源码目录
-    if dev_mode:
-        WORK_DIR = SOURCE_DIR
-        print('=' * 60)
-        print('  DPlayer 2.0 Installer (DEV MODE)')
-        print('=' * 60)
-        print(f'  Source dir : {SOURCE_DIR}')
-        print(f'  Work dir   : {SOURCE_DIR} (dev mode, no copy)')
-        print(f'  Mode       : development (hot reload enabled)')
-        print(f'  Auto start : {"Yes" if should_auto_start else "No"}')
-        print('=' * 60)
-    else:
-        WORK_DIR = dest_dir
-        print('=' * 60)
-        print('  DPlayer 2.0 Installer')
-        print('=' * 60)
-        print(f'  Source dir : {SOURCE_DIR}')
-        print(f'  Runtime dir: {dest_dir}')
-        print(f'  Mode       : {"update" if update else "fresh install"}')
-        print(f'  Auto start : {"Yes" if should_auto_start else "No"}')
-        print('=' * 60)
+    WORK_DIR = dest_dir
+    print('=' * 60)
+    print('  DPlayer 1.0 Installer')
+    print('=' * 60)
+    print(f'  Source dir : {SOURCE_DIR}')
+    print(f'  Runtime dir: {dest_dir}')
+    print(f'  Mode       : {"update" if update else "fresh install"}')
+    print(f'  Auto start : {"Yes" if should_auto_start else "No"}')
+    print('=' * 60)
 
-    # 1. 拷贝文件（非 dev 模式）
-    if dev_mode:
-        log.info('\n[1/3] DEV MODE: Skip file copy, using source dir directly')
-    elif not svc_only:
+    # 1. 拷贝文件
+    if not svc_only:
         if update and dest_dir.exists():
             backup_runtime(dest_dir)
         copy_files(SOURCE_DIR, dest_dir, update=update)
 
-    # 2. 写入 install.json（非 dev 模式）
-    if dev_mode:
-        log.info('\n[2/3] DEV MODE: Skip install.json, using source dir directly')
-    elif not svc_only:
+    # 2. 写入 install.json
+    if not svc_only:
         log.info('\n[2/3] Write install.json')
         info = write_install_json(SOURCE_DIR, dest_dir, update)
         log.info(f'  version : {info["version"]}')
@@ -504,8 +479,7 @@ def main():
         else:
             reg_results = register_nssm_services(
                 WORK_DIR, nssm_exe,
-                services=args.services,
-                dev_mode=dev_mode
+                services=args.services
             )
 
             # 根据配置文件或命令行参数决定是否自动启动服务
@@ -526,23 +500,13 @@ def main():
         log.info('\n[skip] Service registration skipped (--no-service)')
 
     print('\n' + '=' * 60)
-    if dev_mode:
-        print(f'  [OK] DEV MODE Install complete')
-        print('=' * 60)
-        print('\nNext steps:')
-        print(f'  Start web service    : nssm start dplayer-web')
-        print(f'  Start thumb service  : nssm start dplayer-thumbnail')
-        print(f'  Check service status : nssm status dplayer-web')
-        print(f'  Uninstall            : python scripts/uninstall.py --dev')
-        print('\n注意: DEV 模式下服务直接从源码目录运行，Flask/Vue 热更新已启用')
-    else:
-        print(f'  [OK] Install complete -> {dest_dir}')
-        print('=' * 60)
-        print('\nNext steps:')
-        print(f'  Start web service    : nssm start dplayer-web')
-        print(f'  Start thumb service  : nssm start dplayer-thumbnail')
-        print(f'  Check service status : nssm status dplayer-web')
-        print(f'  Uninstall            : python scripts/uninstall.py --dest {dest_dir}')
+    print(f'  [OK] Install complete')
+    print('=' * 60)
+    print('\nNext steps:')
+    print(f'  Start web service    : nssm start dplayer-web')
+    print(f'  Start thumb service  : nssm start dplayer-thumbnail')
+    print(f'  Check service status : nssm status dplayer-web')
+    print(f'  Uninstall            : python scripts/uninstall.py')
 
 
 if __name__ == '__main__':

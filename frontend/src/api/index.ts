@@ -87,7 +87,11 @@ export const tagApi = {
   
   // 删除标签
   deleteTag: (id: number) =>
-    api.delete(`/api/tags/${id}`)
+    api.delete(`/api/tags/${id}`),
+
+  // 搜索标签 - 用于智能提示
+  searchTags: (keyword: string, libraryId?: number) =>
+    api.get('/api/tags/search', { params: { q: keyword, library_id: libraryId } })
 }
 
 // 配置相关API

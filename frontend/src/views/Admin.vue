@@ -44,10 +44,13 @@ const videoTotal = ref(0)
 const videoLibraryFilter = ref<number | ''>('')  // 当前筛选的视频库ID，空字符串表示全部
 const selectedVideos = ref<string[]>([])
 const editingVideo = ref<any>(null)
+const editingVideoTags = ref<string>('')  // 标签输入（用 "/" 分隔）
 const showVideoEditModal = ref(false)
 const showPriorityModal = ref(false)
 const batchPriorityValue = ref(50)
 const thumbnailBatchLoading = ref(false)
+const showThumbnailModal = ref(false)  // 缩略图操作弹窗
+const thumbnailBatchDeleting = ref(false)  // 批量删除中
 
 // 批量生成缩略图
 const batchGenerateThumbnails = async () => {
@@ -76,6 +79,44 @@ const batchGenerateThumbnails = async () => {
   if (failCount > 0) {
     showToast(`失败 ${failCount} 个`)
   }
+}
+
+// 批量删除缩略图
+const batchDeleteThumbnails = async () => {
+  if (selectedVideos.value.length === 0) return
+  showThumbnailModal.value = false
+  thumbnailBatchDeleting.value = true
+  let successCount = 0
+  let failMessages: string[] = []
+
+  for (const hash of selectedVideos.value) {
+    try {
+      const res = await thumbnailApi.delete(hash) as any
+      if (res.success) {
+        successCount++
+      } else {
+        failMessages.push(res.message || '删除失败')
+      }
+    } catch (e: any) {
+      failMessages.push(e.response?.data?.message || '请求失败')
+    }
+  }
+
+  thumbnailBatchDeleting.value = false
+  if (successCount > 0) {
+    showToast(`已删除 ${successCount} 个缩略图`)
+  }
+  if (failMessages.length > 0) {
+    // 显示所有失败原因（去重）
+    const uniqueMsgs = [...new Set(failMessages)]
+    showToast(`失败: ${uniqueMsgs.join('; ')}`)
+  }
+}
+
+// 打开缩略图操作弹窗
+const openThumbnailModal = () => {
+  if (selectedVideos.value.length === 0) return
+  showThumbnailModal.value = true
 }
 
 // 排序选项（不使用推荐）
@@ -693,8 +734,20 @@ const saveSystemConfig = async () => {
 }
 
 // 编辑视频
-const editVideo = (video: any) => {
+const editVideo = async (video: any) => {
   editingVideo.value = { ...video }
+  // 加载当前视频的标签
+  try {
+    const res = await api.get(`/api/video/${video.hash}`) as any
+    if (res.success && res.video && res.video.tags) {
+      // 将标签对象数组转换为路径字符串
+      editingVideoTags.value = res.video.tags.map((t: any) => t.path || t.name).join(' / ')
+    } else {
+      editingVideoTags.value = ''
+    }
+  } catch (e) {
+    editingVideoTags.value = ''
+  }
   showVideoEditModal.value = true
 }
 
@@ -702,12 +755,24 @@ const editVideo = (video: any) => {
 const saveVideoEdit = async () => {
   if (!editingVideo.value) return
   try {
+    // 先保存基本信息
     const res = await api.post(`/api/videos/${editingVideo.value.hash}/update`, {
       title: editingVideo.value.title,
       description: editingVideo.value.description,
       priority: editingVideo.value.priority
     }) as any
+    
     if (res.success) {
+      // 再保存标签
+      const tagPaths = editingVideoTags.value
+        .split('/')
+        .map((t: string) => t.trim())
+        .filter((t: string) => t)
+      
+      await api.post(`/api/video/${editingVideo.value.hash}/tags`, {
+        tags: tagPaths
+      })
+      
       showToast('保存成功')
       showVideoEditModal.value = false
       fetchVideos()
@@ -984,12 +1049,27 @@ const syncStatusColor = computed(() => {
 // Toast 提示
 const toastMessage = ref('')
 const showToastFlag = ref(false)
+let toastQueue: string[] = []
+let toastTimer: any = null
+
 const showToast = (message: string) => {
-  toastMessage.value = message
+  toastQueue.push(message)
+  if (!showToastFlag.value) {
+    showNextToast()
+  }
+}
+
+const showNextToast = () => {
+  if (toastQueue.length === 0) {
+    showToastFlag.value = false
+    return
+  }
+  toastMessage.value = toastQueue.shift()!
   showToastFlag.value = true
   setTimeout(() => {
     showToastFlag.value = false
-  }, 2000)
+    setTimeout(() => showNextToast(), 100)
+  }, 2500)
 }
 
 // 切换标签页
@@ -1275,10 +1355,10 @@ onMounted(() => {
             </button>
             <button
               class="action-btn"
-              @click="batchGenerateThumbnails"
-              :disabled="selectedVideos.length === 0 || thumbnailBatchLoading"
+              @click="openThumbnailModal"
+              :disabled="selectedVideos.length === 0"
             >
-              {{ thumbnailBatchLoading ? '生成中...' : '批量生成缩略图' }}
+              缩略图操作 ({{ selectedVideos.length }})
             </button>
             <button
               class="action-btn danger"
@@ -1795,6 +1875,15 @@ onMounted(() => {
             </div>
             <small class="form-hint">优先级越高，视频在推荐中的排名越靠前</small>
           </div>
+          <div class="form-group">
+            <label>标签（用 "/" 分隔层级）</label>
+            <input 
+              v-model="editingVideoTags" 
+              type="text" 
+              placeholder="例如: 动物 / 狗 / 哈士奇"
+            />
+            <small class="form-hint">用 "/" 分隔表示层级，如 "/动物/狗" 是 "/动物" 的子标签</small>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="action-btn" @click="showVideoEditModal = false">取消</button>
@@ -2128,6 +2217,33 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 缩略图操作弹窗 -->
+    <div v-if="showThumbnailModal" class="dialog-overlay" @click.self="showThumbnailModal = false">
+      <div class="dialog">
+        <h3>缩略图操作</h3>
+        <p>已选择 <strong>{{ selectedVideos.length }}</strong> 个视频</p>
+        <div class="thumbnail-modal-ops">
+          <button
+            class="action-btn"
+            @click="batchGenerateThumbnails"
+            :disabled="thumbnailBatchLoading"
+          >
+            {{ thumbnailBatchLoading ? '生成中...' : '批量生成缩略图' }}
+          </button>
+          <button
+            class="action-btn danger"
+            @click="batchDeleteThumbnails"
+            :disabled="thumbnailBatchDeleting"
+          >
+            {{ thumbnailBatchDeleting ? '删除中...' : '批量删除缩略图' }}
+          </button>
+        </div>
+        <div class="dialog-buttons">
+          <button class="btn-secondary" @click="showThumbnailModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
   </div>
@@ -2189,6 +2305,18 @@ onMounted(() => {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+.thumbnail-modal-ops {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.thumbnail-modal-ops .action-btn {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 14px;
 }
 
 .dialog-buttons {

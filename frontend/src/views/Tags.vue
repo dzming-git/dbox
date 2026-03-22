@@ -136,92 +136,14 @@ const getParentName = (parentId: number | null | undefined): string => {
   return parent?.name || '顶级标签'
 }
 
-// 创建标签
-const showCreateDialog = ref(false)
-const newTagName = ref('')
-const newTagCategory = ref('')
-const newTagParentId = ref<number | null>(null)
-const createError = ref('')
 
-const openCreateDialog = (parentId: number | null = null) => {
-  newTagName.value = ''
-  newTagCategory.value = ''
-  newTagParentId.value = parentId
-  createError.value = ''
-  showCreateDialog.value = true
-}
+// 查看标签下的视频 - 跳转到首页并筛选该标签
+import { useRouter } from 'vue-router'
 
-const handleCreateTag = async () => {
-  if (!newTagName.value.trim()) {
-    createError.value = '标签名称不能为空'
-    return
-  }
-  
-  try {
-    await videoStore.createTag(
-      newTagName.value.trim(), 
-      newTagCategory.value.trim() || undefined,
-      newTagParentId.value || undefined
-    )
-    showCreateDialog.value = false
-    await fetchAllTags()
-  } catch (e) {
-    createError.value = '创建标签失败，可能标签已存在'
-  }
-}
+const router = useRouter()
 
-// 编辑标签
-const editingTag = ref<Tag | null>(null)
-const editTagName = ref('')
-const editTagCategory = ref('')
-const editTagParentId = ref<number | null>(null)
-const editError = ref('')
-
-const openEditDialog = (tag: Tag) => {
-  editingTag.value = tag
-  editTagName.value = tag.name
-  editTagCategory.value = tag.category || ''
-  editTagParentId.value = tag.parent_id || null
-  editError.value = ''
-}
-
-const handleUpdateTag = async () => {
-  if (!editingTag.value) return
-  if (!editTagName.value.trim()) {
-    editError.value = '标签名称不能为空'
-    return
-  }
-  
-  try {
-    await videoStore.updateTag(editingTag.value.id, {
-      name: editTagName.value.trim(),
-      category: editTagCategory.value.trim() || undefined,
-      parent_id: editTagParentId.value
-    })
-    editingTag.value = null
-    await fetchAllTags()
-  } catch (e) {
-    editError.value = '更新标签失败'
-  }
-}
-
-// 删除标签
-const deletingTag = ref<Tag | null>(null)
-
-const confirmDelete = (tag: Tag) => {
-  deletingTag.value = tag
-}
-
-const handleDeleteTag = async () => {
-  if (!deletingTag.value) return
-  
-  try {
-    await videoStore.deleteTag(deletingTag.value.id)
-    deletingTag.value = null
-    await fetchAllTags()
-  } catch (e) {
-    alert('删除标签失败')
-  }
+const viewTagVideos = (tag: Tag) => {
+  router.push({ path: '/', query: { tag: tag.path || tag.name } })
 }
 </script>
 
@@ -229,12 +151,7 @@ const handleDeleteTag = async () => {
   <div class="tags-page">
     <div class="page-header">
       <h1 class="page-title">标签管理</h1>
-      <button class="create-btn" @click="openCreateDialog(null)">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-        </svg>
-        创建标签
-      </button>
+      <p class="page-desc">标签在视频中使用时自动创建，无需手动管理</p>
     </div>
 
     <!-- 搜索 -->
@@ -308,33 +225,15 @@ const handleDeleteTag = async () => {
             </div>
           </div>
           
-          <!-- 操作按钮 -->
+          <!-- 操作按钮 - 只保留查看视频列表 -->
           <div class="tag-actions">
             <button 
-              class="action-icon-btn add-child" 
-              @click="openCreateDialog(item.tag.id)"
-              title="添加子标签"
+              class="action-icon-btn view" 
+              @click="viewTagVideos(item.tag)"
+              title="查看视频"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-              </svg>
-            </button>
-            <button 
-              class="action-icon-btn edit" 
-              @click="openEditDialog(item.tag)"
-              title="编辑"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-              </svg>
-            </button>
-            <button 
-              class="action-icon-btn delete" 
-              @click="confirmDelete(item.tag)"
-              title="删除"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
               </svg>
             </button>
           </div>
@@ -344,100 +243,10 @@ const handleDeleteTag = async () => {
       <!-- 空状态 -->
       <div v-if="displayTags.length === 0" class="empty-state">
         <p v-if="searchQuery">没有找到匹配的标签</p>
-        <p v-else>暂无标签，点击上方按钮创建</p>
+        <p v-else>暂无标签，在视频中添加标签后会自动显示</p>
       </div>
     </div>
 
-    <!-- 创建标签对话框 -->
-    <div v-if="showCreateDialog" class="dialog-overlay">
-      <div class="dialog">
-        <h3>{{ newTagParentId ? '创建子标签' : '创建新标签' }}</h3>
-        <div class="form-group">
-          <label>标签名称</label>
-          <input 
-            v-model="newTagName" 
-            type="text" 
-            placeholder="输入标签名称"
-            @keyup.enter="handleCreateTag"
-          />
-        </div>
-        <div class="form-group">
-          <label>分类（可选）</label>
-          <input 
-            v-model="newTagCategory" 
-            type="text" 
-            placeholder="输入分类名称"
-            @keyup.enter="handleCreateTag"
-          />
-        </div>
-        <p v-if="createError" class="error-text">{{ createError }}</p>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="showCreateDialog = false">取消</button>
-          <button class="btn-primary" @click="handleCreateTag">创建</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 编辑标签对话框 -->
-    <div v-if="editingTag" class="dialog-overlay">
-      <div class="dialog">
-        <h3>编辑标签</h3>
-        <div class="form-group">
-          <label>标签名称</label>
-          <input 
-            v-model="editTagName" 
-            type="text" 
-            placeholder="输入标签名称"
-            @keyup.enter="handleUpdateTag"
-          />
-        </div>
-        <div class="form-group">
-          <label>分类（可选）</label>
-          <input 
-            v-model="editTagCategory" 
-            type="text" 
-            placeholder="输入分类名称"
-            @keyup.enter="handleUpdateTag"
-          />
-        </div>
-        <div class="form-group">
-          <label>父标签</label>
-          <select v-model="editTagParentId" class="parent-select">
-            <option :value="null">顶级标签</option>
-            <option 
-              v-for="tag in allTagsList.filter(t => t.id !== editingTag?.id)" 
-              :key="tag.id" 
-              :value="tag.id"
-            >
-              {{ tag.name }}
-            </option>
-          </select>
-        </div>
-        <p v-if="editError" class="error-text">{{ editError }}</p>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="editingTag = null">取消</button>
-          <button class="btn-primary" @click="handleUpdateTag">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 删除确认对话框 -->
-    <div v-if="deletingTag" class="dialog-overlay">
-      <div class="dialog">
-        <h3>确认删除</h3>
-        <p>确定要删除标签 "{{ deletingTag.name }}" 吗？</p>
-        <p v-if="getChildren(deletingTag.id).length > 0" class="warning-text">
-          该标签有 {{ getChildren(deletingTag.id).length }} 个子标签，删除后子标签将变为顶级标签。
-        </p>
-        <p v-if="(deletingTag.video_count || 0) > 0" class="warning-text">
-          该标签关联了 {{ deletingTag.video_count }} 个视频，删除后将移除这些关联。
-        </p>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="deletingTag = null">取消</button>
-          <button class="btn-danger" @click="handleDeleteTag">删除</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -459,6 +268,12 @@ const handleDeleteTag = async () => {
   font-size: 28px;
   font-weight: 600;
   color: #fff;
+  margin: 0;
+}
+
+.page-desc {
+  font-size: 14px;
+  color: #888;
   margin: 0;
 }
 
@@ -780,6 +595,63 @@ const handleDeleteTag = async () => {
 .parent-select:focus {
   outline: none;
   border-color: #2196F3;
+}
+
+/* 智能建议下拉框 */
+.suggestion-wrapper {
+  position: relative;
+}
+
+.suggestions-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.suggestion-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #333;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover {
+  background: #3a3a3a;
+}
+
+.suggestion-path {
+  color: #fff;
+  font-size: 14px;
+}
+
+.suggestion-category {
+  color: #888;
+  font-size: 12px;
+  background: #444;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.suggestion-empty {
+  padding: 10px 12px;
+  color: #888;
+  font-size: 13px;
+  text-align: center;
 }
 
 .error-text {

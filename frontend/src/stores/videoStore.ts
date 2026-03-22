@@ -188,7 +188,21 @@ export const useVideoStore = defineStore('video', () => {
       throw e
     }
   }
-  
+
+  // 搜索标签 - 用于智能提示
+  const searchTags = async (keyword: string, libraryId?: number) => {
+    try {
+      const response = await tagApi.searchTags(keyword, libraryId) as any
+      if (response.success) {
+        return response.tags || []
+      }
+      return []
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '搜索标签失败'
+      return []
+    }
+  }
+
   const filterByTag = async (tagId: number | null) => {
     selectedTagId.value = tagId
     await fetchVideos(true)
@@ -263,6 +277,7 @@ export const useVideoStore = defineStore('video', () => {
     createTag,
     updateTag,
     deleteTag,
+    searchTags,
     filterByTag,
     setSortBy,
     setSortOrder,

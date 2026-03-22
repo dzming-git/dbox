@@ -1,14 +1,9 @@
 """
-DPlayer 2.0 - 纯后端 Web 服务
+DPlayer 1.0 - 纯后端 Web 服务
 提供视频管理、标签管理、缩略图等 API 接口
 """
 import os
 import sys
-
-# 开发模式：允许直接运行
-if '--dev' in sys.argv or os.environ.get('DPLAYER_DEV_MODE') == '1':
-    os.environ['DPLAYER_DEV_MODE'] = '1'
-    print("[DEV MODE] 直接运行模式已启用")
 
 # 服务启动守卫：必须通过 NSSM 启动
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -632,13 +627,14 @@ def play_video(video_id):
 
 @app.route('/api/tags', methods=['GET'])
 def get_tags():
-    """获取标签列表 - 支持树形结构和扁平结构"""
+    """获取标签列表 - 支持树形结构，融合模式可跨视频库聚合"""
     try:
-        # 获取是否返回树形结构的参数
+        # 获取参数
         tree_mode = request.args.get('tree', 'false').lower() == 'true'
+        library_id = request.args.get('library_id', type=int)  # 可选，按视频库筛选
+        merge_mode = request.args.get('merge', 'false').lower() == 'true'  # 融合模式
         
         # ============ 获取用户可访问的视频库 ============
-        # 获取用户ID和角色
         user_id = None
         user_role = 0
         auth_header = request.headers.get('Authorization', '')
@@ -655,23 +651,19 @@ def get_tags():
             user_id = session['user_id']
             user_role = session.get('role', 0)
         
-        # 获取用户可访问的视频库ID列表
         allowed_library_ids = []
         
         if user_id:
-            # 管理员和ROOT可以访问所有激活的库
             if user_role in [UserRole.ADMIN, UserRole.ROOT]:
                 all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
                 allowed_library_ids = [lib.id for lib in all_active_libs]
             else:
-                # 获取用户直接权限的库
                 user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
                 for perm in user_perms:
                     lib = VideoLibrary.query.get(perm.library_id)
                     if lib and lib.is_active:
                         allowed_library_ids.append(perm.library_id)
                 
-                # 获取用户组权限的库
                 user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
                 for ugm in user_groups:
                     group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
@@ -680,43 +672,106 @@ def get_tags():
                         if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                             allowed_library_ids.append(perm.library_id)
         
-        # ============ 获取标签并过滤视频数量 ============
-        tags = Tag.query.all()
+        is_admin = user_id and user_role in [2, 3]
         
-        # 判断是否是管理员/ROOT（管理员应该看到所有标签）
-        is_admin = user_id and user_role in [2, 3]  # ADMIN=2, ROOT=3
-        
-        # 为每个标签计算用户可见的视频数量
-        from sqlalchemy import or_
-        result_tags = []
-        for tag in tags:
-            # 构建查询：该标签下用户可见的视频数量（包含所有子标签的视频）
-            tag_ids = tag.get_all_child_ids()
-            query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+        # ============ 融合模式：合并相同路径的标签 ============
+        if merge_mode:
+            # 查询所有用户可见的标签
+            if not is_admin and allowed_library_ids:
+                query = Tag.query.filter(
+                    (Tag.library_id == None) | 
+                    (Tag.library_id.in_(allowed_library_ids))
+                )
+            else:
+                query = Tag.query
             
-            # 应用权限过滤（管理员可以看到所有视频，普通用户需要过滤）
-            if not is_admin:
-                if allowed_library_ids:
-                    query = query.filter(
-                        or_(
+            all_tags = query.all()
+            
+            # 按路径分组，合并视频数量
+            from sqlalchemy import or_ as sql_or
+            path_video_map = {}  # {path: total_video_count}
+            
+            for tag in all_tags:
+                tag_ids = tag.get_all_child_ids()
+                video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+                
+                if not is_admin and allowed_library_ids:
+                    video_query = video_query.filter(
+                        sql_or(
                             Video.library_id == None,
                             Video.library_id.in_(allowed_library_ids)
                         )
                     )
-                # else: 不添加任何过滤，未登录用户可以看到所有视频
+                
+                video_count = video_query.count()
+                
+                if tag.path in path_video_map:
+                    path_video_map[tag.path] += video_count
+                else:
+                    path_video_map[tag.path] = video_count
             
-            video_count = query.count()
+            # 构建融合后的标签列表
+            result_tags = []
+            seen_paths = set()
+            for tag in all_tags:
+                if tag.path in seen_paths:
+                    continue
+                seen_paths.add(tag.path)
+                
+                video_count = path_video_map.get(tag.path, 0)
+                if is_admin or video_count > 0:
+                    tag_dict = tag.to_dict()
+                    tag_dict['video_count'] = video_count
+                    result_tags.append(tag_dict)
             
-            # 管理员显示所有标签，普通用户只显示有可见视频的标签
+            result_tags.sort(key=lambda t: t['video_count'], reverse=True)
+            
+            if tree_mode:
+                tree = _build_tag_tree(result_tags)
+                return jsonify({'success': True, 'tags': tree})
+            
+            return jsonify({'success': True, 'tags': result_tags})
+        
+        # ============ 普通模式（原有逻辑）==========
+        if not is_admin and allowed_library_ids:
+            query = Tag.query.filter(
+                (Tag.library_id == None) | 
+                (Tag.library_id.in_(allowed_library_ids))
+            )
+        else:
+            query = Tag.query
+        
+        if library_id:
+            query = query.filter(
+                (Tag.library_id == None) | 
+                (Tag.library_id == library_id)
+            )
+        
+        tags = query.all()
+        
+        from sqlalchemy import or_ as sql_or
+        result_tags = []
+        for tag in tags:
+            tag_ids = tag.get_all_child_ids()
+            video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+            
+            if not is_admin and allowed_library_ids:
+                video_query = video_query.filter(
+                    sql_or(
+                        Video.library_id == None,
+                        Video.library_id.in_(allowed_library_ids)
+                    )
+                )
+            
+            video_count = video_query.count()
+            
             if is_admin or video_count > 0:
                 tag_dict = tag.to_dict()
                 tag_dict['video_count'] = video_count
                 result_tags.append(tag_dict)
         
-        # 按视频数量排序
         result_tags.sort(key=lambda t: t['video_count'], reverse=True)
         
-        # 如果是树形模式，转换为树结构
         if tree_mode:
             tree = _build_tag_tree(result_tags)
             return jsonify({'success': True, 'tags': tree})
@@ -760,36 +815,110 @@ def _build_tag_tree(tags):
     
     return tree
 
+
+def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型'):
+    """
+    根据路径获取或创建标签（支持层级）
+    例如: "/动物/狗/哈士奇" 会创建 3 级标签
+    
+    Args:
+        tag_path: 标签路径，如 "/动物/狗/哈士奇"
+        library_id: 视频库ID（可选，null表示全局标签）
+        category: 分类
+    
+    Returns:
+        Tag 对象
+    """
+    # 规范化路径
+    tag_path = tag_path.strip()
+    if not tag_path.startswith('/'):
+        tag_path = '/' + tag_path
+    
+    # 解析路径层级
+    parts = [p for p in tag_path.split('/') if p]
+    
+    if not parts:
+        return None
+    
+    parent_id = None
+    current_path = ''
+    
+    for i, part in enumerate(parts):
+        # 构建当前层级的路径
+        if i == 0:
+            current_path = '/' + part
+        else:
+            current_path = current_path + '/' + part
+        
+        # 查询是否已存在
+        existing_tag = Tag.query.filter_by(
+            path=current_path,
+            library_id=library_id
+        ).first()
+        
+        if existing_tag:
+            parent_id = existing_tag.id
+        else:
+            # 创建新标签
+            new_tag = Tag(
+                name=part,
+                path=current_path,
+                category=category,
+                parent_id=parent_id,
+                library_id=library_id
+            )
+            db.session.add(new_tag)
+            db.session.flush()
+            parent_id = new_tag.id
+    
+    # 返回最终创建的标签
+    return Tag.query.filter_by(
+        path=current_path,
+        library_id=library_id
+    ).first()
+
+
 @app.route('/api/tags', methods=['POST'])
 def create_tag():
-    """创建新标签 - 支持多级标签"""
+    """创建新标签 - 支持多级标签，按路径+视频库判断唯一性"""
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
         if not name:
             return jsonify({'success': False, 'message': '标签名不能为空'}), 400
         
-        if len(name) < 2 or len(name) > 20:
-            return jsonify({'success': False, 'message': '标签名长度需在2-20字符之间'}), 400
+        if len(name) < 1 or len(name) > 20:
+            return jsonify({'success': False, 'message': '标签名长度需在1-20字符之间'}), 400
         
-        if Tag.query.filter_by(name=name).first():
-            return jsonify({'success': False, 'message': '标签已存在'}), 400
+        # 获取视频库ID（可选，null表示全局标签）
+        library_id = data.get('library_id')
         
-        # 处理父标签
+        # 计算路径
         parent_id = data.get('parent_id')
         if parent_id:
-            # 验证父标签存在
             parent_tag = Tag.query.get(parent_id)
             if not parent_tag:
                 return jsonify({'success': False, 'message': '父标签不存在'}), 400
-            # 避免循环引用：检查父标签是否是当前标签的子标签
-            if parent_id and parent_tag.parent_id == int(parent_id) if parent_tag else False:
+            # 避免循环引用
+            if parent_tag.parent_id == int(parent_id) if parent_tag else False:
                 return jsonify({'success': False, 'message': '不能设置自己的子标签为父标签'}), 400
+            # 计算子标签路径
+            parent_path = parent_tag.path if parent_tag.path != '/' else ''
+            tag_path = f"{parent_path}/{name}"
+        else:
+            tag_path = f"/{name}"
+        
+        # 基于路径+视频库判断唯一性
+        existing = Tag.query.filter_by(path=tag_path, library_id=library_id).first()
+        if existing:
+            return jsonify({'success': False, 'message': f'标签路径已存在: {tag_path}'}), 400
         
         tag = Tag(
             name=name,
+            path=tag_path,
             category=data.get('category', '类型'),
-            parent_id=parent_id
+            parent_id=parent_id,
+            library_id=library_id
         )
         db.session.add(tag)
         db.session.commit()
@@ -803,6 +932,173 @@ def create_tag():
 def add_tag():
     """创建新标签 - 旧路径兼容"""
     return create_tag()
+
+
+@app.route('/api/video/<video_hash>/tags', methods=['POST'])
+@admin_required
+def set_video_tags(video_hash):
+    """
+    为视频设置标签（自动创建不存在的标签）
+    请求体: { "tags": ["/动物/狗", "/动物/猫", "/可爱"] }
+    用 "/" 分隔层级，如 "/动物/狗/哈士奇"
+    """
+    try:
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not video:
+            return jsonify({'success': False, 'message': '视频不存在'}), 404
+        
+        data = request.get_json()
+        tag_paths = data.get('tags', [])
+        
+        if not tag_paths:
+            return jsonify({'success': False, 'message': '标签列表不能为空'}), 400
+        
+        # 获取视频库ID（用于标签隔离）
+        library_id = video.library_id
+        
+        # 先移除所有现有标签关联
+        VideoTag.query.filter_by(video_id=video.id).delete()
+        
+        # 添加新标签
+        created_tags = []
+        for tag_path in tag_paths:
+            if not tag_path:
+                continue
+            # 自动创建标签（如果不存在）
+            tag = get_or_create_tag_by_path(tag_path, library_id)
+            if tag:
+                # 创建关联
+                vt = VideoTag(video_id=video.id, tag_id=tag.id)
+                db.session.add(vt)
+                created_tags.append(tag.to_dict())
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'已设置 {len(created_tags)} 个标签',
+            'tags': created_tags
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/video/<video_hash>/tags', methods=['DELETE'])
+@admin_required
+def remove_video_tag(video_hash):
+    """
+    从视频移除单个标签（引用计数为0时自动删除标签）
+    请求体: { "tag_path": "/动物/狗" }
+    """
+    try:
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not video:
+            return jsonify({'success': False, 'message': '视频不存在'}), 404
+        
+        data = request.get_json()
+        tag_path = data.get('tag_path', '').strip()
+        
+        if not tag_path:
+            return jsonify({'success': False, 'message': '标签路径不能为空'}), 400
+        
+        # 查找标签
+        library_id = video.library_id
+        tag = Tag.query.filter_by(path=tag_path, library_id=library_id).first()
+        
+        if not tag:
+            return jsonify({'success': False, 'message': '标签不存在'}), 404
+        
+        # 移除关联
+        VideoTag.query.filter_by(video_id=video.id, tag_id=tag.id).delete()
+        
+        # 检查引用计数，如果为0则删除标签
+        remaining_count = VideoTag.query.filter_by(tag_id=tag.id).count()
+        if remaining_count == 0:
+            # 删除标签及其子标签
+            def delete_tag_and_children(tag_id):
+                # 先递归删除子标签
+                children = Tag.query.filter_by(parent_id=tag_id).all()
+                for child in children:
+                    delete_tag_and_children(child.id)
+                # 删除标签
+                Tag.query.filter_by(id=tag_id).delete()
+            
+            delete_tag_and_children(tag.id)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': '标签已移除' + ('（标签已删除）' if remaining_count == 0 else '')
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/tags/search', methods=['GET'])
+def search_tags():
+    """搜索标签 - 用于智能提示，按路径匹配"""
+    try:
+        keyword = request.args.get('q', '').strip()
+        library_id = request.args.get('library_id', type=int)  # 可选，按视频库筛选
+        limit = request.args.get('limit', 20, type=int)
+        
+        if not keyword:
+            return jsonify({'success': True, 'tags': []})
+        
+        # 获取当前用户权限
+        user_id = getattr(g, 'user_id', None)
+        user_role = getattr(g, 'role', None)
+        
+        # 判断是否是管理员/ROOT
+        is_admin = user_id and user_role in [2, 3]  # ADMIN=2, ROOT=3
+        
+        # 构建查询：匹配路径包含关键词的标签
+        query = Tag.query.filter(Tag.path.like(f'%{keyword}%'))
+        
+        # 视频库过滤：普通用户只能看到自己有权限的库的标签 + 全局标签
+        if not is_admin:
+            allowed_library_ids = []
+            
+            if user_id:
+                # 已登录普通用户：获取有权限的视频库ID
+                # 直接权限
+                perms = LibraryPermission.query.filter_by(user_id=user_id).all()
+                allowed_library_ids.extend([p.library_id for p in perms])
+                
+                # 用户组权限
+                group_members = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
+                for gm in group_members:
+                    group_perms = LibraryPermission.query.filter_by(group_id=gm.group_id).all()
+                    allowed_library_ids.extend([p.library_id for p in group_perms])
+                
+                # 允许查看：全局标签(null) + 有权限的视频库标签
+                if allowed_library_ids:
+                    query = query.filter(
+                        (Tag.library_id == None) | 
+                        (Tag.library_id.in_(allowed_library_ids))
+                    )
+            # else: 未登录用户，只能看到全局标签
+            elif library_id:
+                # 指定了视频库
+                query = query.filter(
+                    (Tag.library_id == None) | 
+                    (Tag.library_id == library_id)
+                )
+        
+        # 限制结果数量
+        tags = query.order_by(Tag.path).limit(limit).all()
+        
+        return jsonify({
+            'success': True,
+            'tags': [t.to_dict() for t in tags]
+        })
+    except Exception as e:
+        app.logger.error(f"搜索标签失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/tags/<int:tag_id>', methods=['PUT'])
 def update_tag(tag_id):
@@ -2475,6 +2771,6 @@ def get_library_audit_logs(library_id):
 # ============ 主入口 ============
 if __name__ == '__main__':
     port = app_config.get('ports', {}).get('web', 8080)
-    print(f"[DEBUG] Starting DPlayer 2.0 Web service on port {port}")
-    app.logger.info(f'DPlayer 2.0 Web 服务启动于端口 {port}')
+    print(f"[DEBUG] Starting DPlayer 1.0 Web service on port {port}")
+    app.logger.info(f'DPlayer 1.0 Web 服务启动于端口 {port}')
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
