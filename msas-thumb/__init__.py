@@ -1,1 +1,0 @@
-# msas-thumb package

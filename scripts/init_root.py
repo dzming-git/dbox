@@ -10,7 +10,7 @@ import sys
 
 # 添加项目路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(project_root, 'msas-web'))
+sys.path.insert(0, os.path.join(project_root, 'src', 'web'))
 
 from flask import Flask
 from core.models import db, User, UserRole
@@ -21,7 +21,7 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = 'init-root-secret-key'
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(
-        project_root, 'msas-web', 'instance', 'dplayer.db'
+        project_root, 'data', 'databases', 'dplayer.db'
     )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     

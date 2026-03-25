@@ -1,0 +1,31 @@
+{
+    "name": "web",
+    "display_name": "DPlayer Web服务",
+    "type": "python",
+    "entry": "dplayer-src/web.py",
+    "workdir": "${PROJECT_ROOT}",
+    "port": 8080,
+    "nssm_params": {
+        "Application": {
+            "ApplicationPath": "${PYTHON_EXE}",
+            "Application": "${PROJECT_ROOT}\\dplayer-src\\web.py",
+            "AppDirectory": "${PROJECT_ROOT}"
+        },
+        "I/O": {
+            "AppStdout": "${PROJECT_ROOT}\\logs\\web_stdout.log",
+            "AppStderr": "${PROJECT_ROOT}\\logs\\web_stderr.log"
+        },
+        "Details": {
+            "DisplayName": "DPlayer Web服务",
+            "Description": "DPlayer Web API服务 - 提供视频管理、标签管理等API接口",
+            "Start": "SERVICE_AUTO_START"
+        },
+        "Environment": {
+            "AppEnvironmentExtra": "DPLAYER_DEV_MODE=1"
+        }
+    },
+    "dependencies": [],
+    "auto_start": true,
+    "restart_delay": 5000,
+    "dev_mode": true
+}

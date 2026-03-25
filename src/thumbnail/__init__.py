@@ -1,0 +1,1 @@
+# msa-thumb package

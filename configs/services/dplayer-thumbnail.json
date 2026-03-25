@@ -1,0 +1,31 @@
+{
+    "name": "thumbnail",
+    "display_name": "DPlayer 缩略图服务",
+    "type": "python",
+    "entry": "dplayer-src/thumbnail_service.py",
+    "workdir": "${PROJECT_ROOT}",
+    "port": 5001,
+    "nssm_params": {
+        "Application": {
+            "ApplicationPath": "${PYTHON_EXE}",
+            "Application": "${PROJECT_ROOT}\\dplayer-src\\thumbnail_service.py",
+            "AppDirectory": "${PROJECT_ROOT}"
+        },
+        "I/O": {
+            "AppStdout": "${PROJECT_ROOT}\\logs\\thumbnail_stdout.log",
+            "AppStderr": "${PROJECT_ROOT}\\logs\\thumbnail_stderr.log"
+        },
+        "Details": {
+            "DisplayName": "DPlayer 缩略图服务",
+            "Description": "DPlayer 缩略图微服务 - 负责视频缩略图的生成和管理",
+            "Start": "SERVICE_AUTO_START"
+        },
+        "Environment": {
+            "AppEnvironmentExtra": "DPLAYER_DEV_MODE=1"
+        }
+    },
+    "dependencies": [],
+    "auto_start": true,
+    "restart_delay": 5000,
+    "dev_mode": true
+}
