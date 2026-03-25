@@ -10,6 +10,9 @@ import string
 from functools import wraps
 
 from core.models import db, Video, User, SharedWatchSession, UserRole
+from liblog import get_module_logger
+
+log = get_module_logger()
 
 shared_watch_bp = Blueprint('shared_watch', __name__)
 
@@ -116,6 +119,8 @@ def create_shared_session():
     db.session.add(session)
     db.session.commit()
 
+    log.operation('WEB', f"创建共享观看会话: {share_code} (视频: {video_hash})")
+
     return jsonify({
         'success': True,
         'share_code': share_code,
@@ -172,6 +177,7 @@ def join_shared_session(share_code):
             session.invitee_id = g.user.id
             session.status = 'active'
             db.session.commit()
+            log.operation('WEB', f"加入共享观看会话: {share_code} (用户: {g.user.username})")
         elif g.user.id != session.invitee_id:
             return jsonify({'success': False, 'message': '此链接仅限邀请用户使用'}), 403
 
@@ -257,5 +263,6 @@ def end_shared_session(share_code):
     session.status = 'ended'
     session.ended_at = datetime.utcnow()
     db.session.commit()
+    log.operation('WEB', f"结束共享观看会话: {share_code}")
 
     return jsonify({'success': True})

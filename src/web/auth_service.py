@@ -293,6 +293,8 @@ class AuthService:
                 s.is_active = False
 
             db.session.commit()
+            if count > 0:
+                log.runtime('INFO', f"清理过期会话: {count}个")
             return count
 
         except Exception as e:

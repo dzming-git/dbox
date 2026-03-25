@@ -574,9 +574,11 @@ def toggle_favorite(video_hash):
             favorited = True
         
         db.session.commit()
+        log.operation('WEB', f"{'收藏' if favorited else '取消收藏'}视频: {video.title}")
         return jsonify({'success': True, 'favorited': favorited})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"收藏操作失败: {video_hash}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/video/<video_hash>', methods=['DELETE'])
@@ -599,9 +601,11 @@ def delete_video(video_hash):
 
         db.session.delete(video)
         db.session.commit()
+        log.maintenance('INFO', f"删除视频: {video.title} (hash: {video_hash}), 删除文件: {delete_file}")
         return jsonify({'success': True, 'message': '视频已删除'})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"删除视频失败: {video_hash}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # --- 观看次数记录 ---
@@ -1011,9 +1015,11 @@ def create_tag():
         )
         db.session.add(tag)
         db.session.commit()
+        log.maintenance('INFO', f"创建标签: {name} (路径: {tag_path})")
         return jsonify({'success': True, 'tag': tag.to_dict()})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"创建标签失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # 保留旧路径以兼容
@@ -1062,6 +1068,8 @@ def set_video_tags(video_hash):
                 created_tags.append(tag.to_dict())
         
         db.session.commit()
+        
+        log.runtime('INFO', f"为视频设置标签: {len(created_tags)}个标签 (video_hash: {video_hash})")
         
         return jsonify({
             'success': True,
@@ -1116,6 +1124,7 @@ def remove_video_tag(video_hash):
             delete_tag_and_children(tag.id)
         
         db.session.commit()
+        log.runtime('INFO', f"从视频移除标签: {tag_path} (video_hash: {video_hash})")
         
         return jsonify({
             'success': True,
@@ -1267,9 +1276,11 @@ def _do_update_tag(tag_id):
             tag.parent_id = new_parent_id
         
         db.session.commit()
+        log.maintenance('INFO', f"更新标签: {tag.name} (ID: {tag_id})")
         return jsonify({'success': True, 'tag': tag.to_dict()})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"更新标签失败: {tag_id}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
@@ -1287,9 +1298,11 @@ def delete_tag(tag_id):
         # 删除标签
         db.session.delete(tag)
         db.session.commit()
+        log.maintenance('INFO', f"删除标签: {tag.name} (ID: {tag_id})")
         return jsonify({'success': True, 'message': '标签已删除'})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"删除标签失败: {tag_id}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # --- 管理后台 API ---
@@ -1342,6 +1355,7 @@ def create_admin_user():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        log.maintenance('INFO', f"创建用户: {username} (角色: {user.role_name})")
         
         return jsonify({
             'success': True,
@@ -1390,6 +1404,7 @@ def update_admin_user(user_id):
             user.set_password(data['password'])
 
         db.session.commit()
+        log.maintenance('INFO', f"更新用户信息: {user.username} (ID: {user_id})")
 
         return jsonify({
             'success': True,
@@ -1402,6 +1417,7 @@ def update_admin_user(user_id):
         })
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"更新用户信息失败: {user_id}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
@@ -1414,9 +1430,11 @@ def delete_admin_user(user_id):
             return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
         db.session.delete(user)
         db.session.commit()
+        log.maintenance('INFO', f"删除用户: {user.username} (ID: {user_id})")
         return jsonify({'success': True, 'message': '用户已删除'})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"删除用户失败: {user_id}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/admin/config', methods=['GET'])
@@ -1479,11 +1497,8 @@ def batch_delete_videos():
                 deleted_count += 1
 
         db.session.commit()
+        log.maintenance('INFO', f"批量删除视频: {deleted_count}个, 删除文件: {delete_file}")
         return jsonify({
-            'success': True,
-            'message': f'已删除 {deleted_count} 个视频',
-            'deleted_count': deleted_count
-        })
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1510,6 +1525,7 @@ def update_video_info(video_hash):
             video.priority = int(priority)
         
         db.session.commit()
+        log.runtime('INFO', f"更新视频信息: {video.title}")
         return jsonify({'success': True, 'video': video.to_dict()})
     except Exception as e:
         db.session.rollback()
@@ -1544,6 +1560,7 @@ def batch_update_priority():
                 updated_count += 1
         
         db.session.commit()
+        log.runtime('INFO', f"批量更新优先级: {updated_count}个视频, 优先级: {priority}")
         return jsonify({
             'success': True,
             'message': f'已更新 {updated_count} 个视频的优先级',
@@ -1551,6 +1568,7 @@ def batch_update_priority():
         })
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f"批量更新优先级失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # --- 缩略图服务 ---
@@ -1875,6 +1893,7 @@ def update_config():
         for k, v in data.items():
             app_config[k] = v
         if save_config(app_config):
+            log.maintenance('INFO', f"更新配置文件: {list(data.keys())}")
             return jsonify({'success': True, 'config': app_config})
         return jsonify({'success': False, 'message': '保存失败'}), 500
     except Exception as e:
@@ -1986,6 +2005,7 @@ def upload_video():
         
         db.session.add(video)
         db.session.commit()
+        log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size})")
         
         # 异步生成缩略图（这里简化处理）
         # TODO: 调用缩略图服务生成真实缩略图
@@ -3019,6 +3039,123 @@ def get_library_audit_logs(library_id):
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 系统日志查询 API =================
+
+@app.route('/api/admin/logs', methods=['GET'])
+@admin_required
+def get_system_logs():
+    """
+    获取系统日志（从 liblog 日志文件读取）
+    
+    参数:
+    - type: 日志类型 (maintenance/runtime/debug/operation)，默认 maintenance
+    - page: 页码，默认 1
+    - limit: 每页条数，默认 20
+    """
+    log_type = request.args.get('type', 'maintenance').strip().lower()
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)
+    
+    # 验证日志类型
+    valid_types = ['maintenance', 'runtime', 'debug', 'operation']
+    if log_type not in valid_types:
+        return jsonify({'success': False, 'message': f'无效的日志类型，可选: {", ".join(valid_types)}'}), 400
+    
+    # 限制每页条数范围
+    limit = max(1, min(limit, 200))
+    page = max(1, page)
+    
+    # 日志文件路径
+    log_dir = os.path.join(_DATA_DIR, 'logs')
+    log_file = os.path.join(log_dir, f'{log_type}.log')
+    
+    if not os.path.exists(log_file):
+        return jsonify({
+            'success': True,
+            'logs': [],
+            'total': 0,
+            'page': page,
+            'limit': limit,
+            'total_pages': 0,
+            'type': log_type
+        })
+    
+    # 读取并解析日志文件
+    try:
+        # 尝试 UTF-8 读取，失败则尝试 GBK
+        try:
+            with open(log_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            with open(log_file, 'r', encoding='gbk', errors='replace') as f:
+                lines = f.readlines()
+        
+        # 解析日志行
+        parsed_logs = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            parsed = parse_log_line(line, log_type)
+            if parsed:
+                parsed_logs.append(parsed)
+        
+        # 倒序排列（最新在前）
+        parsed_logs.reverse()
+        
+        # 计算分页
+        total = len(parsed_logs)
+        total_pages = (total + limit - 1) // limit if total > 0 else 0
+        start = (page - 1) * limit
+        end = start + limit
+        page_logs = parsed_logs[start:end]
+        
+        return jsonify({
+            'success': True,
+            'logs': page_logs,
+            'total': total,
+            'page': page,
+            'limit': limit,
+            'total_pages': total_pages,
+            'type': log_type
+        })
+    
+    except Exception as e:
+        log.debug('ERROR', f'读取日志文件失败: {e}')
+        return jsonify({'success': False, 'message': f'读取日志失败: {str(e)}'}), 500
+
+
+def parse_log_line(line: str, log_type: str) -> dict | None:
+    """
+    解析单行日志
+    
+    格式:
+    - maintenance/runtime/debug: [时间] | [等级] | [模块] | [内容]
+    - operation: [时间] | [IP] | [模块] | [内容]
+    """
+    import re
+    
+    # 匹配格式: [xxx] | [xxx] | [xxx] | [xxx]
+    match = re.match(r'^\[([^\]]+)\]\s*\|\s*\[([^\]]+)\]\s*\|\s*\[([^\]]+)\]\s*\|\s*\[(.+)\]$', line)
+    if not match:
+        return None
+    
+    timestamp = match.group(1).strip()
+    field2 = match.group(2).strip()  # 等级（或 IP）
+    module = match.group(3).strip()
+    content = match.group(4).strip()
+    
+    return {
+        'timestamp': timestamp,
+        'level': field2 if log_type != 'operation' else '',
+        'source': field2 if log_type == 'operation' else '',
+        'module': module,
+        'content': content,
+        'type': log_type
+    }
 
 
 # ============ 主入口 ============

@@ -3,7 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
-import { thumbnailApi } from '../api'
+import { thumbnailApi, logApi } from '../api'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -1072,7 +1072,64 @@ const showNextToast = () => {
   }, 2500)
 }
 
-// 切换标签页
+// ============ 系统日志功能 ============
+const logEntries = ref<any[]>([])
+const logPage = ref(1)
+const logLimit = ref(20)
+const logTotal = ref(0)
+const logTotalPages = ref(0)
+const logType = ref('maintenance')
+const logLoading = ref(false)
+
+const logTypes = [
+  { value: 'maintenance', label: '维护日志', icon: '🔧' },
+  { value: 'runtime', label: '运行日志', icon: '📋' },
+  { value: 'debug', label: '调试日志', icon: '🐛' },
+  { value: 'operation', label: '操作日志', icon: '👤' }
+]
+
+const logLimitOptions = [10, 20, 50, 100]
+
+const fetchLogs = async (resetPage = true) => {
+  logLoading.value = true
+  try {
+    const params: any = { type: logType.value }
+    if (resetPage) {
+      logPage.value = 1
+    }
+    params.page = logPage.value
+    params.limit = logLimit.value
+    const res = await logApi.getLogs(params) as any
+    if (res.success) {
+      logEntries.value = res.logs || []
+      logTotal.value = res.total || 0
+      logTotalPages.value = res.total_pages || 0
+    }
+  } catch (error) {
+    console.error('获取日志失败:', error)
+    showToast('获取日志失败')
+  } finally {
+    logLoading.value = false
+  }
+}
+
+const switchLogType = (type: string) => {
+  logType.value = type
+  fetchLogs(true)
+}
+
+const changeLogPage = (page: number) => {
+  logPage.value = page
+  // 换页不触发刷新，直接从已加载的数据取
+  // 需要重新请求因为分页在服务端
+  fetchLogs(false)
+}
+
+const changeLogLimit = () => {
+  fetchLogs(true)
+}
+
+// ============ 切换标签页 ============
 const switchTab = (tab: string) => {
   activeTab.value = tab
   if (tab === 'videos') { fetchLibraries(); fetchVideos() }
@@ -1084,6 +1141,9 @@ const switchTab = (tab: string) => {
   }
   if (tab === 'import') {
     fetchLibraries()
+  }
+  if (tab === 'logs') {
+    fetchLogs()
   }
 }
 
@@ -1099,6 +1159,7 @@ onMounted(() => {
   else if (restoredTab === 'config') fetchSystemConfig()
   else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
   else if (restoredTab === 'import') fetchLibraries()
+  else if (restoredTab === 'logs') fetchLogs()
 })
 </script>
 
@@ -1160,6 +1221,14 @@ onMounted(() => {
         v-if="userStore.isAdmin"
       >
         📥 批量导入
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'logs' }"
+        @click="switchTab('logs')"
+        v-if="userStore.isAdmin"
+      >
+        📜 系统日志
       </button>
     </div>
 
@@ -1829,6 +1898,111 @@ onMounted(() => {
               </ul>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 系统日志标签页 -->
+      <div v-if="activeTab === 'logs'" class="tab-content">
+        <div class="section-header">
+          <h3>📜 系统日志</h3>
+          <div class="section-actions">
+            <select v-model="logLimit" @change="changeLogLimit" class="page-size-select">
+              <option v-for="n in logLimitOptions" :key="n" :value="n">{{ n }} 条/页</option>
+            </select>
+            <button class="action-btn primary" @click="fetchLogs(true)" :disabled="logLoading">
+              {{ logLoading ? '加载中...' : '🔄 刷新' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 日志类型子标签 -->
+        <div class="log-type-tabs">
+          <button
+            v-for="lt in logTypes"
+            :key="lt.value"
+            class="log-type-btn"
+            :class="{ active: logType === lt.value }"
+            @click="switchLogType(lt.value)"
+          >
+            {{ lt.icon }} {{ lt.label }}
+          </button>
+        </div>
+
+        <!-- 日志表格 -->
+        <div class="log-container">
+          <div v-if="logLoading" class="loading-text">加载中...</div>
+          <div v-else-if="logEntries.length === 0" class="empty-text">暂无日志</div>
+          <template v-else>
+            <!-- 桌面端表格 -->
+            <div class="log-table-wrapper">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th class="log-col-time">时间</th>
+                    <th class="log-col-level">{{ logType === 'operation' ? '来源' : '等级' }}</th>
+                    <th class="log-col-module">模块</th>
+                    <th class="log-col-content">内容</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(entry, idx) in logEntries" :key="idx">
+                    <td class="log-col-time log-mono">{{ entry.timestamp }}</td>
+                    <td class="log-col-level">
+                      <span v-if="logType === 'operation'" class="log-source">{{ entry.source }}</span>
+                      <span v-else class="log-badge" :class="'log-level-' + entry.level.toLowerCase()">
+                        {{ entry.level }}
+                      </span>
+                    </td>
+                    <td class="log-col-module log-mono">{{ entry.module }}</td>
+                    <td class="log-col-content">{{ entry.content }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 移动端卡片 -->
+            <div class="log-cards">
+              <div v-for="(entry, idx) in logEntries" :key="idx" class="log-card">
+                <div class="log-card-header">
+                  <span v-if="logType === 'operation'" class="log-source">{{ entry.source }}</span>
+                  <span v-else class="log-badge" :class="'log-level-' + entry.level.toLowerCase()">
+                    {{ entry.level }}
+                  </span>
+                  <span class="log-card-module log-mono">{{ entry.module }}</span>
+                </div>
+                <div class="log-card-content">{{ entry.content }}</div>
+                <div class="log-card-time log-mono">{{ entry.timestamp }}</div>
+              </div>
+            </div>
+
+            <!-- 分页 -->
+            <div class="log-pagination" v-if="logTotalPages > 1">
+              <span class="log-page-info">共 {{ logTotal }} 条</span>
+              <div class="log-page-btns">
+                <button
+                  class="page-btn"
+                  :disabled="logPage <= 1"
+                  @click="changeLogPage(1)"
+                >首页</button>
+                <button
+                  class="page-btn"
+                  :disabled="logPage <= 1"
+                  @click="changeLogPage(logPage - 1)"
+                >上一页</button>
+                <span class="page-current">{{ logPage }} / {{ logTotalPages }}</span>
+                <button
+                  class="page-btn"
+                  :disabled="logPage >= logTotalPages"
+                  @click="changeLogPage(logPage + 1)"
+                >下一页</button>
+                <button
+                  class="page-btn"
+                  :disabled="logPage >= logTotalPages"
+                  @click="changeLogPage(logTotalPages)"
+                >末页</button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -4198,5 +4372,236 @@ input:checked + .slider:before {
 
 .btn-secondary:hover {
   background: #e0e0e0;
+}
+
+/* ============ 系统日志样式 ============ */
+
+.log-type-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.log-type-btn {
+  padding: 6px 14px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.log-type-btn:hover {
+  background: #f0f0f0;
+}
+
+.log-type-btn.active {
+  background: #1976D2;
+  color: #fff;
+  border-color: #1976D2;
+}
+
+.log-container {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  overflow: hidden;
+}
+
+.log-table-wrapper {
+  overflow-x: auto;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.log-table th {
+  background: #f5f5f5;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+.log-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+
+.log-table tr:hover {
+  background: #fafafa;
+}
+
+.log-col-time {
+  width: 150px;
+  white-space: nowrap;
+}
+
+.log-col-level {
+  width: 80px;
+  white-space: nowrap;
+}
+
+.log-col-module {
+  width: 220px;
+  white-space: nowrap;
+}
+
+.log-col-content {
+  word-break: break-all;
+  min-width: 200px;
+}
+
+.log-mono {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+/* 日志等级徽标 */
+.log-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.log-level-info { background: #E3F2FD; color: #1565C0; }
+.log-level-warn { background: #FFF3E0; color: #E65100; }
+.log-level-error { background: #FFEBEE; color: #C62828; }
+.log-level-fatal { background: #C62828; color: #fff; }
+.log-level-debug { background: #F5F5F5; color: #616161; }
+
+.log-source {
+  color: #666;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+/* 分页 */
+.log-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-page-info {
+  color: #666;
+  font-size: 13px;
+}
+
+.log-page-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-btn {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-current {
+  font-size: 13px;
+  padding: 0 8px;
+  color: #333;
+}
+
+.page-size-select {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 加载和空状态 */
+.loading-text, .empty-text {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+/* 移动端卡片 */
+.log-cards {
+  display: none;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .log-table-wrapper {
+    display: none;
+  }
+
+  .log-cards {
+    display: block;
+  }
+
+  .log-card {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 12px;
+  }
+
+  .log-card:last-child {
+    border-bottom: none;
+  }
+
+  .log-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .log-card-module {
+    font-size: 11px;
+    color: #888;
+  }
+
+  .log-card-content {
+    font-size: 13px;
+    color: #333;
+    word-break: break-all;
+    margin-bottom: 6px;
+  }
+
+  .log-card-time {
+    font-size: 11px;
+    color: #999;
+  }
+
+  .log-pagination {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .log-page-btns {
+    justify-content: center;
+  }
 }
 </style>

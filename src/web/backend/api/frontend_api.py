@@ -682,6 +682,7 @@ def start_service(service_key):
         result = start_service(service_key)
 
         if result.get('success'):
+            log.maintenance('INFO', f"启动服务: {service_key}")
             return jsonify({
                 'success': True,
                 'message': f'服务 {service_key} 启动成功'
@@ -709,6 +710,7 @@ def stop_service(service_key):
         result = stop_service(service_key)
 
         if result.get('success'):
+            log.maintenance('INFO', f"停止服务: {service_key}")
             return jsonify({
                 'success': True,
                 'message': f'服务 {service_key} 停止成功'
@@ -736,6 +738,7 @@ def restart_service(service_key):
         result = restart_service(service_key)
 
         if result.get('success'):
+            log.maintenance('INFO', f"重启服务: {service_key}")
             return jsonify({
                 'success': True,
                 'message': f'服务 {service_key} 重启成功'

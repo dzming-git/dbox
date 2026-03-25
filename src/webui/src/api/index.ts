@@ -196,4 +196,11 @@ export const libraryApi = {
   getAuditLogs: (libraryId: number) => api.get(`/api/admin/libraries/${libraryId}/audit-logs`)
 }
 
+// 系统日志 API
+export const logApi = {
+  // 获取系统日志
+  getLogs: (params: { type?: string; page?: number; limit?: number }) =>
+    api.get('/api/admin/logs', { params })
+}
+
 export default api
