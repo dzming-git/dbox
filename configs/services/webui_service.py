@@ -9,7 +9,6 @@ import os
 import sys
 import subprocess
 import signal
-from liblog import get_module_logger
 from pathlib import Path
 
 # 服务启动守卫：必须通过 NSSM 启动
@@ -18,18 +17,18 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(_CONFIGS_DIR))
 _DATA_DIR = os.path.join(_PROJECT_ROOT, 'data')
 _SRC_DIR = os.path.join(_PROJECT_ROOT, 'src')
 
-for _p in [_CONFIGS_DIR]:
+# 设置 sys.path
+for _p in [_SRC_DIR, _CONFIGS_DIR]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+from liblog import get_module_logger
 from launcher_guard import check_service_launch
 check_service_launch('DPlayer WebUI Service', 'configs/services/webui_service.py')
 
 # 配置日志
 LOG_DIR = os.path.join(_DATA_DIR, 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
-s - %(levelname)s - %(message)s',
-    handlers=[    ]
-)
 log = get_module_logger()
 
 # 前端目录

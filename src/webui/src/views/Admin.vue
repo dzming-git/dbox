@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
 import { thumbnailApi, logApi } from '../api'
+import { thumbnailManageApi } from '../api'
+import { serviceManageApi } from '../api'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -149,6 +151,32 @@ const systemConfig = ref({
   auto_sync: true,
   allow_register: false
 })
+
+// 缩略图管理
+const thumbConfig = ref({
+  auto_generate: false,
+  max_workers: 2,
+  task_interval: 3,
+  auto_generate_interval: 3600
+})
+const thumbStats = ref<any>({
+  total_videos: 0,
+  total_thumbnails: 0,
+  no_thumbnail_count: 0,
+  thumb_service_status: 'unknown',
+  thumb_service_stats: null,
+  is_auto_generating: false
+})
+const thumbLoading = ref(false)
+const thumbSaving = ref(false)
+const thumbGenerating = ref(false)
+const thumbConfigLoaded = ref(false)
+
+// 服务管理
+const services = ref<any[]>([])
+const servicesLoading = ref(false)
+const servicesInterval = ref<number | null>(null)
+const serviceControlLoading = ref<string | null>(null)  // 当前正在操作的服务名
 
 // 视频库管理
 const libraries = ref<any[]>([])
@@ -733,6 +761,243 @@ const saveSystemConfig = async () => {
   }
 }
 
+// ============ 缩略图管理 ============
+
+const fetchThumbnailConfig = async () => {
+  thumbLoading.value = true
+  try {
+    const res = await thumbnailManageApi.getConfig() as any
+    if (res.success) {
+      thumbConfig.value = { ...thumbConfig.value, ...res.config }
+      thumbStats.value = res.stats
+      thumbConfigLoaded.value = true
+    }
+  } catch (error) {
+    console.error('获取缩略图配置失败:', error)
+  } finally {
+    thumbLoading.value = false
+  }
+}
+
+const saveThumbnailConfig = async () => {
+  thumbSaving.value = true
+  try {
+    const res = await thumbnailManageApi.updateConfig(thumbConfig.value) as any
+    if (res.success) {
+      showToast('缩略图配置已保存')
+      // 刷新统计
+      fetchThumbnailConfig()
+    } else {
+      showToast(res.message || '保存失败')
+    }
+  } catch (error) {
+    console.error('保存缩略图配置失败:', error)
+    showToast('保存失败')
+  } finally {
+    thumbSaving.value = false
+  }
+}
+
+const triggerGenerateMissing = async () => {
+  thumbGenerating.value = true
+  try {
+    const res = await thumbnailManageApi.generateMissing() as any
+    if (res.success) {
+      showToast(`已提交 ${res.submitted} 个缩略图生成任务`)
+      // 延迟刷新统计
+      setTimeout(() => fetchThumbnailConfig(), 5000)
+    } else {
+      showToast(res.message || '生成失败')
+    }
+  } catch (error) {
+    console.error('触发生成失败:', error)
+    showToast('触发失败')
+  } finally {
+    thumbGenerating.value = false
+  }
+}
+
+const stopAutoGenerate = async () => {
+  try {
+    const res = await thumbnailManageApi.stopAuto() as any
+    if (res.success) {
+      showToast(res.message || '自动生成已停止')
+      thumbConfig.value.auto_generate = false
+      thumbStats.value.is_auto_generating = false
+    }
+  } catch (error) {
+    console.error('停止自动生成失败:', error)
+    showToast('停止失败')
+  }
+}
+
+// 缩略图自动生成间隔格式化
+const formatInterval = (seconds: number) => {
+  if (seconds < 60) return `${seconds} 秒`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟`
+  return `${(seconds / 3600).toFixed(1)} 小时`
+}
+
+// 缩略图服务状态文本
+const thumbServiceStatusText = (status: string) => {
+  const map: Record<string, string> = {
+    running: '运行中',
+    offline: '离线',
+    error: '异常',
+    unknown: '未知'
+  }
+  return map[status] || status
+}
+
+// 缩略图服务状态颜色
+const thumbServiceStatusClass = (status: string) => {
+  const map: Record<string, string> = {
+    running: 'status-ok',
+    offline: 'status-error',
+    error: 'status-error',
+    unknown: 'status-unknown'
+  }
+  return map[status] || ''
+}
+
+// ============ 服务管理 ============
+
+const fetchServices = async () => {
+  servicesLoading.value = true
+  try {
+    const res = await serviceManageApi.getServices() as any
+    if (res.success) {
+      services.value = res.services
+    }
+  } catch (error) {
+    console.error('获取服务列表失败:', error)
+  } finally {
+    servicesLoading.value = false
+  }
+}
+
+// 启动/停止/重启轮询
+const startServicePolling = (fast = false) => {
+  stopServicePolling()
+  const interval = fast ? 2000 : 10000  // 正常10秒，加速2秒
+  servicesInterval.value = window.setInterval(() => {
+    fetchServices()
+  }, interval)
+}
+
+const stopServicePolling = () => {
+  if (servicesInterval.value) {
+    clearInterval(servicesInterval.value)
+    servicesInterval.value = null
+  }
+}
+
+const controlService = async (serviceName: string, action: 'start' | 'stop' | 'restart') => {
+  serviceControlLoading.value = serviceName
+  try {
+    const res = await serviceManageApi.control(serviceName, action) as any
+    if (res.success) {
+      const actionText: Record<string, string> = {
+        start: '启动',
+        stop: '停止',
+        restart: '重启',
+      }
+      showToast(`${actionText[action]}成功`)
+
+      // 重启中：加速轮询直到服务恢复运行
+      if (action === 'restart' || action === 'start') {
+        startServicePolling(true)
+        // 15次加速轮询后恢复正常频率
+        let count = 0
+        const checkInterval = setInterval(async () => {
+          count++
+          try {
+            const statusRes = await serviceManageApi.getServices() as any
+            if (statusRes.success) {
+              const svc = statusRes.services.find((s: any) => s.service_name === serviceName)
+              if (svc && svc.system_status === 'RUNNING') {
+                clearInterval(checkInterval)
+                startServicePolling(false)
+              }
+            }
+          } catch {}
+          if (count >= 15) {
+            clearInterval(checkInterval)
+            startServicePolling(false)
+          }
+        }, 2000)
+      } else {
+        // 停止后刷新一次
+        setTimeout(() => fetchServices(), 1000)
+      }
+    } else {
+      showToast(res.message || '操作失败')
+    }
+  } catch (error: any) {
+    console.error('控制服务失败:', error)
+    showToast(error.response?.data?.message || '操作失败')
+  } finally {
+    serviceControlLoading.value = null
+  }
+}
+
+// 服务状态显示文本
+const systemStatusText = (status: string) => {
+  const map: Record<string, string> = {
+    RUNNING: '运行中',
+    STOPPED: '已停止',
+    START_PENDING: '启动中',
+    STOP_PENDING: '停止中',
+    PAUSE_PENDING: '暂停中',
+    PAUSED: '已暂停',
+    CONTINUE_PENDING: '恢复中',
+    unknown: '未知',
+  }
+  return map[status] || status
+}
+
+const systemStatusClass = (status: string) => {
+  if (status === 'RUNNING') return 'svc-running'
+  if (status === 'PAUSED') return 'svc-paused'
+  if (status === 'STOPPED') return 'svc-stopped'
+  if (status.includes('PENDING')) return 'svc-pending'
+  return 'svc-unknown'
+}
+
+const healthStatusClass = (status: string) => {
+  if (status === 'healthy') return 'svc-running'
+  if (status === 'unhealthy') return 'svc-stopped'
+  return 'svc-unknown'
+}
+
+const healthStatusIcon = (status: string) => {
+  if (status === 'healthy') return '🟢'
+  if (status === 'unhealthy') return '🔴'
+  return '⚪'
+}
+
+// 判断按钮是否可用
+const canStart = (svc: any) => {
+  const s = svc.system_status
+  return s === 'STOPPED' || s === 'PAUSED'
+}
+
+const canStop = (svc: any) => {
+  return svc.system_status === 'RUNNING'
+}
+
+const canRestart = (svc: any) => {
+  return svc.system_status === 'RUNNING'
+}
+
+const isOperating = (serviceName: string) => {
+  const s = serviceControlLoading.value === serviceName
+  const svc = services.value.find(sv => sv.service_name === serviceName)
+  // 操作中：显式 loading 或状态处于 PENDING
+  const pending = svc && svc.system_status.includes('PENDING')
+  return s || pending
+}
+
 // 编辑视频
 const editVideo = async (video: any) => {
   editingVideo.value = { ...video }
@@ -1135,6 +1400,8 @@ const switchTab = (tab: string) => {
   if (tab === 'videos') { fetchLibraries(); fetchVideos() }
   if (tab === 'users') fetchUsers()
   if (tab === 'config') fetchSystemConfig()
+  if (tab === 'thumbnail') fetchThumbnailConfig()
+  if (tab === 'services') { fetchServices(); startServicePolling() }
   if (tab === 'libraries') {
     fetchLibraries()
     fetchUserGroups()
@@ -1145,6 +1412,8 @@ const switchTab = (tab: string) => {
   if (tab === 'logs') {
     fetchLogs()
   }
+  // 离开服务管理页时停止轮询
+  if (tab !== 'services') stopServicePolling()
 }
 
 onMounted(() => {
@@ -1157,9 +1426,16 @@ onMounted(() => {
   if (restoredTab === 'videos') { fetchLibraries(); fetchVideos() }
   else if (restoredTab === 'users') fetchUsers()
   else if (restoredTab === 'config') fetchSystemConfig()
+  else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
+  else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
   else if (restoredTab === 'import') fetchLibraries()
   else if (restoredTab === 'logs') fetchLogs()
+})
+
+// 组件卸载时停止轮询
+onUnmounted(() => {
+  stopServicePolling()
 })
 </script>
 
@@ -1205,6 +1481,21 @@ onMounted(() => {
         @click="switchTab('config')"
       >
         ⚙️ 系统配置
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'thumbnail' }"
+        @click="switchTab('thumbnail')"
+      >
+        🖼️ 缩略图管理
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'services' }"
+        @click="switchTab('services')"
+        v-if="userStore.isRoot"
+      >
+        🔧 服务管理
       </button>
       <button
         class="tab-btn"
@@ -1697,6 +1988,302 @@ onMounted(() => {
           </div>
           <div class="form-actions">
             <button class="action-btn primary" @click="saveSystemConfig">保存配置</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 缩略图管理标签页 -->
+      <div v-if="activeTab === 'thumbnail'" class="tab-content">
+        <div class="section-header">
+          <h3>缩略图管理</h3>
+          <div class="section-actions">
+            <button
+              class="action-btn primary"
+              @click="triggerGenerateMissing"
+              :disabled="thumbGenerating || thumbStats.no_thumbnail_count === 0"
+            >
+              {{ thumbGenerating ? '生成中...' : '立即生成缺失缩略图' }}
+              <span v-if="thumbStats.no_thumbnail_count > 0" class="badge-count">
+                {{ thumbStats.no_thumbnail_count }}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="thumbLoading && !thumbConfigLoaded" class="loading-placeholder">
+          <div class="loading-spinner"></div>
+          <p>加载中...</p>
+        </div>
+
+        <div v-else>
+          <!-- 统计概览 -->
+          <div class="thumb-stats-grid">
+            <div class="thumb-stat-card">
+              <div class="stat-icon">🎬</div>
+              <div class="stat-info">
+                <span class="stat-value">{{ thumbStats.total_videos }}</span>
+                <span class="stat-label">总视频数</span>
+              </div>
+            </div>
+            <div class="thumb-stat-card">
+              <div class="stat-icon">🖼️</div>
+              <div class="stat-info">
+                <span class="stat-value">{{ thumbStats.total_thumbnails }}</span>
+                <span class="stat-label">已有缩略图</span>
+              </div>
+            </div>
+            <div class="thumb-stat-card" :class="{ 'stat-warning': thumbStats.no_thumbnail_count > 0 }">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-info">
+                <span class="stat-value">{{ thumbStats.no_thumbnail_count }}</span>
+                <span class="stat-label">缺失缩略图</span>
+              </div>
+            </div>
+            <div class="thumb-stat-card">
+              <div class="stat-icon">🔧</div>
+              <div class="stat-info">
+                <span class="stat-value" :class="thumbServiceStatusClass(thumbStats.thumb_service_status)">
+                  {{ thumbServiceStatusText(thumbStats.thumb_service_status) }}
+                </span>
+                <span class="stat-label">缩略图服务</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 缩略图服务任务状态 -->
+          <div v-if="thumbStats.thumb_service_stats" class="thumb-service-detail">
+            <h4>服务任务状态</h4>
+            <div class="task-stats-row">
+              <span>已完成: <b>{{ thumbStats.thumb_service_stats.tasks_completed }}</b></span>
+              <span>失败: <b class="text-error">{{ thumbStats.thumb_service_stats.tasks_failed }}</b></span>
+              <span>执行中: <b>{{ thumbStats.thumb_service_stats.active_tasks }}</b></span>
+              <span>队列中: <b>{{ thumbStats.thumb_service_stats.queue_size }}</b></span>
+            </div>
+          </div>
+
+          <!-- 配置表单 -->
+          <div class="config-form thumb-config-form">
+            <h4 class="config-section-title">生成设置</h4>
+
+            <!-- 自动生成开关 -->
+            <div class="form-group form-row">
+              <div class="form-label-area">
+                <label>自动生成缺失缩略图</label>
+                <span class="form-hint">开启后会定期扫描没有缩略图的视频并自动生成</span>
+              </div>
+              <label class="switch">
+                <input v-model="thumbConfig.auto_generate" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- 自动生成运行状态 -->
+            <div v-if="thumbStats.is_auto_generating" class="auto-status-banner running">
+              <div class="auto-status-dot"></div>
+              <span>自动生成正在运行中</span>
+              <button class="action-btn danger small" @click="stopAutoGenerate">停止</button>
+            </div>
+
+            <!-- 并发线程数 -->
+            <div class="form-group">
+              <label>最大并发线程数</label>
+              <div class="input-with-hint">
+                <input
+                  v-model.number="thumbConfig.max_workers"
+                  type="number"
+                  min="1"
+                  max="8"
+                  step="1"
+                />
+                <span class="input-hint">1-8，建议 1-3，值越大 CPU 占用越高</span>
+              </div>
+            </div>
+
+            <!-- 任务间隔 -->
+            <div class="form-group">
+              <label>任务间隔时间</label>
+              <div class="input-with-hint">
+                <input
+                  v-model.number="thumbConfig.task_interval"
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                />
+                <span class="input-hint">1-60 秒，每个生成任务之间的等待时间</span>
+              </div>
+            </div>
+
+            <!-- 自动扫描间隔（仅当 auto_generate 开启时显示） -->
+            <div class="form-group" v-if="thumbConfig.auto_generate">
+              <label>自动扫描间隔</label>
+              <div class="input-with-hint">
+                <input
+                  v-model.number="thumbConfig.auto_generate_interval"
+                  type="number"
+                  min="300"
+                  max="86400"
+                  step="300"
+                />
+                <span class="input-hint">{{ formatInterval(thumbConfig.auto_generate_interval) }}，5分钟 ~ 24小时</span>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button class="action-btn primary" @click="saveThumbnailConfig" :disabled="thumbSaving">
+                {{ thumbSaving ? '保存中...' : '保存配置' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 服务管理标签页 -->
+      <div v-if="activeTab === 'services'" class="tab-content">
+        <div class="section-header">
+          <h3>服务管理</h3>
+          <div class="section-actions">
+            <span class="auto-refresh-hint">自动刷新中</span>
+            <button class="action-btn" @click="fetchServices()" :disabled="servicesLoading">
+              {{ servicesLoading ? '刷新中...' : '手动刷新' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="servicesLoading && services.length === 0" class="loading-placeholder">
+          <div class="loading-spinner"></div>
+          <p>扫描服务中...</p>
+        </div>
+
+        <div v-else-if="services.length === 0" class="empty-state">
+          <p>未发现 dplayer- 前缀的 NSSM 服务</p>
+        </div>
+
+        <div v-else class="services-list">
+          <div
+            v-for="svc in services"
+            :key="svc.service_name"
+            class="service-card"
+            :class="{ 'svc-card-operating': isOperating(svc.service_name) }"
+          >
+            <!-- 服务头部 -->
+            <div class="svc-header">
+              <div class="svc-title-area">
+                <h4>{{ svc.display_name }}</h4>
+                <span class="svc-name-tag">{{ svc.service_name }}</span>
+              </div>
+              <div class="svc-status-lights">
+                <!-- 系统层健康灯 -->
+                <div
+                  class="health-light"
+                  :class="systemStatusClass(svc.system_status)"
+                  :title="'系统状态: ' + systemStatusText(svc.system_status)"
+                >
+                  <span class="light-dot"></span>
+                  <span class="light-label">系统</span>
+                </div>
+                <!-- 服务层健康灯 -->
+                <div
+                  class="health-light"
+                  :class="healthStatusClass(svc.health_status)"
+                  :title="'服务状态: ' + (svc.health_status === 'healthy' ? '正常' : svc.health_status)"
+                >
+                  <span class="light-dot"></span>
+                  <span class="light-label">服务</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 服务详情 -->
+            <div class="svc-details">
+              <div class="svc-desc">{{ svc.description }}</div>
+
+              <div class="svc-metrics">
+                <!-- 系统状态 -->
+                <div class="metric-item">
+                  <span class="metric-label">系统状态</span>
+                  <span class="metric-value" :class="systemStatusClass(svc.system_status)">
+                    {{ systemStatusText(svc.system_status) }}
+                  </span>
+                </div>
+                <!-- 服务层健康 -->
+                <div class="metric-item">
+                  <span class="metric-label">服务健康</span>
+                  <span class="metric-value">
+                    {{ healthStatusIcon(svc.health_status) }}
+                    <span :class="healthStatusClass(svc.health_status)">{{ svc.health_status === 'healthy' ? '正常' : svc.health_status === 'unhealthy' ? '异常' : '未知' }}</span>
+                  </span>
+                </div>
+                <!-- PID -->
+                <div class="metric-item">
+                  <span class="metric-label">PID</span>
+                  <span class="metric-value mono">{{ svc.pid ?? '-' }}</span>
+                </div>
+                <!-- 内存 -->
+                <div class="metric-item">
+                  <span class="metric-label">内存</span>
+                  <span class="metric-value mono">{{ svc.memory_mb != null ? svc.memory_mb + ' MB' : '-' }}</span>
+                </div>
+                <!-- CPU -->
+                <div class="metric-item">
+                  <span class="metric-label">CPU</span>
+                  <span class="metric-value mono">{{ svc.cpu_percent != null ? svc.cpu_percent + '%' : '-' }}</span>
+                </div>
+                <!-- 端口 -->
+                <div class="metric-item">
+                  <span class="metric-label">端口</span>
+                  <span class="metric-value mono">:{{ svc.port }}</span>
+                </div>
+                <!-- 延迟 -->
+                <div class="metric-item" v-if="svc.health_latency_ms != null">
+                  <span class="metric-label">延迟</span>
+                  <span class="metric-value mono">{{ svc.health_latency_ms }} ms</span>
+                </div>
+              </div>
+
+              <!-- 服务层详情 -->
+              <div v-if="svc.health_detail" class="svc-health-detail">
+                {{ svc.health_detail }}
+              </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="svc-actions">
+              <!-- 启动中 / 停止中：只显示 loading -->
+              <template v-if="isOperating(svc.service_name)">
+                <div class="svc-operating-indicator">
+                  <div class="loading-spinner small"></div>
+                  <span>操作中...</span>
+                </div>
+              </template>
+              <!-- 已停止/暂停：显示启动按钮 -->
+              <template v-else-if="canStart(svc)">
+                <button
+                  class="action-btn primary"
+                  @click="controlService(svc.service_name, 'start')"
+                  :disabled="isOperating(svc.service_name)"
+                >
+                  ▶ 启动
+                </button>
+              </template>
+              <!-- 运行中：显示停止和重启 -->
+              <template v-else-if="canStop(svc)">
+                <button
+                  class="action-btn danger"
+                  @click="controlService(svc.service_name, 'stop')"
+                  :disabled="isOperating(svc.service_name)"
+                >
+                  ⏹ 停止
+                </button>
+                <button
+                  class="action-btn"
+                  @click="controlService(svc.service_name, 'restart')"
+                  :disabled="isOperating(svc.service_name)"
+                >
+                  🔄 重启
+                </button>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -4601,6 +5188,485 @@ input:checked + .slider:before {
   }
 
   .log-page-btns {
+    justify-content: center;
+  }
+}
+
+/* ============ 缩略图管理样式 ============ */
+.thumb-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.thumb-stat-card {
+  background: var(--card-bg, #1e1e2e);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--border-color, #2d2d3f);
+  transition: all 0.2s;
+}
+
+.thumb-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.thumb-stat-card.stat-warning {
+  border-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, var(--card-bg, #1e1e2e) 100%);
+}
+
+.stat-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary, #e1e1e1);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-secondary, #888);
+  margin-top: 2px;
+}
+
+.status-ok {
+  color: #10b981;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+.status-unknown {
+  color: #888;
+}
+
+.text-error {
+  color: #ef4444;
+}
+
+.thumb-service-detail {
+  background: var(--card-bg, #1e1e2e);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  border: 1px solid var(--border-color, #2d2d3f);
+}
+
+.thumb-service-detail h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--text-secondary, #888);
+}
+
+.task-stats-row {
+  display: flex;
+  gap: 24px;
+  font-size: 14px;
+  color: var(--text-primary, #e1e1e1);
+}
+
+.task-stats-row span b {
+  font-weight: 600;
+}
+
+.thumb-config-form {
+  margin-top: 8px;
+}
+
+.config-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 20px;
+  color: var(--text-primary, #e1e1e1);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, #2d2d3f);
+}
+
+.form-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.form-label-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-label-area label {
+  font-weight: 500;
+  color: var(--text-primary, #e1e1e1);
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin-top: 4px;
+}
+
+.input-with-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-with-hint input {
+  width: 180px;
+}
+
+.input-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+}
+
+.auto-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auto-status-banner.running {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.auto-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.auto-status-banner .action-btn.small {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.loading-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  color: var(--text-secondary, #888);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color, #2d2d3f);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .thumb-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .thumb-stat-card {
+    padding: 14px;
+  }
+  
+  .stat-value {
+    font-size: 20px;
+  }
+  
+  .form-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .task-stats-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  
+  .input-with-hint input {
+    width: 100%;
+  }
+}
+
+/* ============ 服务管理样式 ============ */
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.service-card {
+  background: var(--card-bg, #1e1e2e);
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #2d2d3f);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.service-card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.service-card.svc-card-operating {
+  border-color: rgba(102, 126, 234, 0.4);
+  opacity: 0.9;
+}
+
+.svc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #2d2d3f);
+}
+
+.svc-title-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.svc-title-area h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #e1e1e1);
+}
+
+.svc-name-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(102, 126, 234, 0.15);
+  color: #667eea;
+  font-family: monospace;
+  font-weight: 500;
+}
+
+.svc-status-lights {
+  display: flex;
+  gap: 16px;
+}
+
+.health-light {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.light-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.light-label {
+  color: var(--text-secondary, #888);
+}
+
+/* 状态颜色 */
+.health-light.svc-running .light-dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+.health-light.svc-stopped .light-dot {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+.health-light.svc-paused .light-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+.health-light.svc-pending .light-dot {
+  background: #3b82f6;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+  animation: pulse-dot 1s infinite;
+}
+.health-light.svc-unknown .light-dot {
+  background: #555;
+}
+
+.svc-details {
+  padding: 16px 20px;
+}
+
+.svc-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 12px;
+}
+
+.svc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.metric-label {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #e1e1e1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metric-value.mono {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.metric-value.svc-running { color: #10b981; }
+.metric-value.svc-stopped { color: #ef4444; }
+.metric-value.svc-paused { color: #f59e0b; }
+.metric-value.svc-pending { color: #3b82f6; }
+.metric-value.svc-unknown { color: #888; }
+
+.svc-health-detail {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+
+.svc-actions {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color, #2d2d3f);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.svc-operating-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #3b82f6;
+  font-size: 13px;
+  font-weight: 500;
+  width: 100%;
+  justify-content: center;
+}
+
+.loading-spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  margin-bottom: 0;
+}
+
+.auto-refresh-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.auto-refresh-hint::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-dot 2s infinite;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px;
+  color: var(--text-secondary, #888);
+}
+
+/* 移动端服务卡片适配 */
+@media (max-width: 768px) {
+  .svc-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .svc-metrics {
+    gap: 10px;
+  }
+
+  .metric-item {
+    min-width: 60px;
+  }
+
+  .svc-actions {
     justify-content: center;
   }
 }

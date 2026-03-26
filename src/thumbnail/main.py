@@ -43,7 +43,7 @@ for p in [_THIS_DIR, _SRC_DIR]:
 # ============ 配置 ============
 THUMBNAIL_PORT = int(os.getenv('THUMBNAIL_SERVICE_PORT', '5001'))
 THUMBNAIL_HOST = os.getenv('THUMBNAIL_SERVICE_HOST', '0.0.0.0')
-MAX_CONCURRENT = int(os.getenv('MAX_CONCURRENT_TASKS', '5'))
+MAX_CONCURRENT = int(os.getenv('MAX_CONCURRENT_TASKS', '2'))  # 降低并发数，避免CPU被占满
 QUEUE_SIZE = int(os.getenv('QUEUE_SIZE', '100'))
 
 THUMBNAIL_DIR = os.path.join(_DATA_DIR, 'thumbnails')
@@ -167,16 +167,16 @@ def generate_thumbnail(task):
                     valid_end = total_frames
                     valid_frames = total_frames
 
-                # 均匀采样3个时间点，每个点截取0.5秒（约12-13帧）
-                num_sample_points = 3
-                frames_per_point = int(fps * 0.5)  # 0.5秒的帧数
+                # 优化：只采样2个时间点，每个点取少量帧（降低CPU消耗）
+                num_sample_points = 2
+                frames_per_point = min(8, int(fps * 0.3))  # 每个点最多8帧，约0.3秒
                 sample_interval = valid_frames // (num_sample_points + 1)
 
                 for sp in range(1, num_sample_points + 1):
                     # 计算采样位置（中间部分均匀分布）
                     sample_pos = valid_start + (sp * sample_interval)
 
-                    # 每个采样点截取0.5秒的连续帧
+                    # 每个采样点截取少量帧
                     for fp in range(frames_per_point):
                         frame_pos = sample_pos + fp
                         if frame_pos >= total_frames:
@@ -185,14 +185,14 @@ def generate_thumbnail(task):
                         ret, f = cap.read()
                         if not ret:
                             break
-                        f = cv2.resize(f, (320, 180))
+                        f = cv2.resize(f, (240, 135))  # 降低分辨率减轻CPU负担
                         f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
                         frames.append(Image.fromarray(f))
 
                 if frames:
                     output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.gif')
-                    # 按照原视频速度播放：fps=25则每帧约40ms
-                    frame_duration = int(1000 / fps) if fps > 0 else 100
+                    # 降低帧率到8fps，减少GIF文件大小和CPU消耗
+                    frame_duration = 125  # 固定125ms/帧（8fps），保证流畅度
                     frames[0].save(
                         output_path,
                         save_all=True,

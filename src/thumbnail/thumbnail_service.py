@@ -311,16 +311,15 @@ def generate_thumbnail(task):
             if output_format == 'gif':
                 output_path = os.path.join(THUMBNAIL_DIR, f'{video_hash}.gif')
 
-                # 生成 GIF 动图：取 20%、50%、80% 位置各 1 秒，拼接成 3 秒动图
+                # 优化：只采样2个位置，每个位置少量帧，降低CPU消耗
                 frames = []
-                # 计算目标帧率（原视频帧率，限制在 10fps 以内保证性能）
-                target_fps = min(10, int(fps))
-                frame_duration = int(1000 / target_fps)  # 每帧毫秒数
+                # 固定帧率8fps，减少GIF大小和CPU消耗
+                frame_duration = 125  # 125ms/帧 = 8fps
 
-                # 计算三个位置：20%、50%、80%
-                positions = [0.2, 0.5, 0.8]
-                # 每个位置取 1 秒 = fps 帧
-                frames_per_segment = int(fps)
+                # 计算两个位置：30%、70%
+                positions = [0.3, 0.7]
+                # 每个位置最多取8帧（约0.3秒）
+                frames_per_segment = min(8, int(fps * 0.3))
 
                 for pos_ratio in positions:
                     start_frame = int(total_frames * pos_ratio)
@@ -333,15 +332,15 @@ def generate_thumbnail(task):
 
                     for i in range(frames_per_segment):
                         ret, f = cap.read()
-                        if not ret or i >= 30:  # 最多取 30 帧/段（降低总帧数）
+                        if not ret:
                             break
-                        # 调整大小并转换为 RGB
-                        f = cv2.resize(f, (320, 180))
+                        # 调整大小（降低分辨率减轻CPU负担）
+                        f = cv2.resize(f, (240, 135))
                         f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
                         frames.append(Image.fromarray(f))
 
                 if frames:
-                    # 保存为 GIF，按原视频速度播放
+                    # 保存为 GIF
                     frames[0].save(
                         output_path,
                         save_all=True,

@@ -6,9 +6,10 @@
 *.db
 *.db-journal
 data/databases/
+data/libraries/
 data/logs/
-data/uploads/
 data/thumbnails/
+data/uploads/
 libraries/
 
 # ============================================

@@ -40,9 +40,12 @@ const shareUrl = ref('')
 const syncInterval = ref<number | null>(null)
 const lastSyncTime = ref(0)
 
-// 视频源URL - 直接使用后端返回的url字段，已包含正确格式
+// 视频源URL - 使用后端返回的 url 字段（/api/videos/{id}/play），拼接 token 用于认证
 const videoUrl = computed(() => {
-  return video.value?.url || ''
+  const url = video.value?.url || ''
+  if (!url) return ''
+  const token = localStorage.getItem('token')
+  return token ? `${url}?token=${token}` : url
 })
 
 onMounted(async () => {

@@ -25,10 +25,7 @@ watch(() => props.video.hash, () => {
   hasError.value = false
 
   // 停止现有轮询
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  stopPolling()
 
   // 重新加载缩略图
   loadThumbnail()
@@ -46,10 +43,14 @@ let pollTimer: number | null = null
 let hasTriedReady = false  // 标记是否已经尝试过ready状态
 let lastCheckTime = 0  // 上次检查时间，用于防止频繁轮询
 
+// 全局轮询计数器：限制同时轮询的卡片数量，避免首页加载时产生大量并发请求
+let globalPollingCount = 0
+const MAX_CONCURRENT_POLLS = 3
+
 const checkThumbnailStatus = async (hash: string, force = false) => {
-  // 防止过于频繁的检查（至少间隔1秒）
+  // 防止过于频繁的检查（至少间隔3秒）
   const now = Date.now()
-  if (!force && now - lastCheckTime < 1000) {
+  if (!force && now - lastCheckTime < 3000) {
     return
   }
   lastCheckTime = now
@@ -84,10 +85,7 @@ const checkThumbnailStatus = async (hash: string, force = false) => {
       hasTriedReady = true
 
       // 停止轮询
-      if (pollTimer) {
-        clearInterval(pollTimer)
-        pollTimer = null
-      }
+      stopPolling()
     } else if (data.status === 'processing' || data.status === 'pending') {
       // 正在生成，更新进度
       thumbnailProgress.value = data.progress || 0
@@ -97,10 +95,7 @@ const checkThumbnailStatus = async (hash: string, force = false) => {
       hasError.value = true
       isLoading.value = false
       thumbnailStatus.value = '生成失败'
-      if (pollTimer) {
-        clearInterval(pollTimer)
-        pollTimer = null
-      }
+      stopPolling()
     } else if (data.status === 'not_found') {
       // 缩略图尚未生成，触发生成
       thumbnailStatus.value = '正在启动生成...'
@@ -168,11 +163,12 @@ const loadThumbnail = async () => {
       thumbnailStatus.value = '生成中...'
       thumbnailProgress.value = 0
       
-      // 启动轮询
-      if (!pollTimer) {
+      // 启动轮询（限制全局并发数）
+      if (!pollTimer && globalPollingCount < MAX_CONCURRENT_POLLS) {
+        globalPollingCount++
         pollTimer = window.setInterval(() => {
           checkThumbnailStatus(props.video.hash)
-        }, 2000)
+        }, 3000) // 每3秒检查一次（降低频率减轻后端压力）
       }
       
       // 立即检查一次
@@ -192,16 +188,26 @@ const loadThumbnail = async () => {
   }
 }
 
+// 停止轮询并释放全局计数器
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+    globalPollingCount--
+  }
+}
+
 // 处理图片加载错误
 const handleImageError = async () => {
   // 图片加载失败（可能是后端正在生成或其他问题）
   // 只有在未处理过ready状态时才启动轮询，避免重复触发
-  if (!pollTimer && !hasTriedReady) {
+  if (!pollTimer && !hasTriedReady && globalPollingCount < MAX_CONCURRENT_POLLS) {
     isLoading.value = true
     thumbnailStatus.value = '生成中...'
+    globalPollingCount++
     pollTimer = window.setInterval(() => {
       checkThumbnailStatus(props.video.hash)
-    }, 2000) // 每2秒检查一次
+    }, 3000) // 每3秒检查一次
 
     // 立即检查一次
     checkThumbnailStatus(props.video.hash, true)
@@ -226,10 +232,7 @@ const handleImageLoad = () => {
   thumbnailStatus.value = ''
   hasTriedReady = false  // 重置标记
   // 停止轮询
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  stopPolling()
 }
 
 // 组件挂载时加载缩略图
@@ -240,10 +243,7 @@ onMounted(() => {
 
 // 组件卸载时清理定时器
 onUnmounted(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  stopPolling()
   hasTriedReady = false
 })
 

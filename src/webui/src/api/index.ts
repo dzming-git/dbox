@@ -203,4 +203,37 @@ export const logApi = {
     api.get('/api/admin/logs', { params })
 }
 
+// 缩略图管理 API
+export const thumbnailManageApi = {
+  // 获取缩略图配置和统计
+  getConfig: () => api.get('/api/admin/thumbnail/config'),
+
+  // 更新缩略图配置
+  updateConfig: (config: {
+    auto_generate?: boolean
+    max_workers?: number
+    task_interval?: number
+    auto_generate_interval?: number
+  }) => api.post('/api/admin/thumbnail/config', config),
+
+  // 手动触发批量生成缺失缩略图
+  generateMissing: () => api.post('/api/admin/thumbnail/generate-missing'),
+
+  // 获取自动生成状态
+  getAutoStatus: () => api.get('/api/admin/thumbnail/auto-generate/status'),
+
+  // 停止自动生成
+  stopAuto: () => api.post('/api/admin/thumbnail/auto-generate/stop')
+}
+
+// 服务管理 API
+export const serviceManageApi = {
+  // 获取所有 dplayer 服务的状态
+  getServices: () => api.get('/api/admin/services'),
+
+  // 控制服务（start/stop/restart）
+  control: (serviceName: string, action: 'start' | 'stop' | 'restart') =>
+    api.post(`/api/admin/services/${serviceName}/control`, { action })
+}
+
 export default api

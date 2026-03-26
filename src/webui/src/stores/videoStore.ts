@@ -24,11 +24,19 @@ export const useVideoStore = defineStore('video', () => {
   // 换一批功能 - 保存之前的视频列表用于撤回
   const previousVideos = ref<Video[]>([])
   
+  // 刷新节流：记录最后获取时间，避免短时间内重复请求
+  let _lastFetchTime = 0
+  const FETCH_COOLDOWN = 30 * 1000  // 30 秒冷却
+  const hasFetchedRecently = () => Date.now() - _lastFetchTime < FETCH_COOLDOWN
+  
   const hasMore = computed(() => 
     pagination.value.offset + videos.value.length < pagination.value.total
   )
   
   const fetchVideos = async (reset = false) => {
+    // 节流：如果最近刚获取过且不是强制刷新，跳过
+    if (reset && hasFetchedRecently()) return
+    _lastFetchTime = Date.now()
     loading.value = true
     try {
       const params: any = {

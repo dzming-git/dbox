@@ -110,13 +110,21 @@ app.register_blueprint(shared_watch_bp)  # 共享观看API
 
 # ============ 认证装饰器 ============
 def auth_required(f):
-    """通用认证装饰器 - 同时支持 Session 和 JWT Bearer Token"""
+    """通用认证装饰器 - 同时支持 Session、JWT Bearer Token 和 URL query token"""
     @wraps(f)
     def decorated(*args, **kwargs):
+        token = None
+        
         # 优先检查 JWT Bearer Token
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
             token = auth_header[7:]
+        
+        # 回退到 URL query 参数 token（用于 video/audio 标签等无法自定义 header 的场景）
+        if not token:
+            token = request.args.get('token')
+        
+        if token:
             try:
                 from authlib.jose import jwt as _jwt
                 payload = _jwt.decode(token, JWT_SECRET_KEY)
@@ -1426,7 +1434,7 @@ def delete_admin_user(user_id):
     """删除用户（管理员）"""
     try:
         user = User.query.get_or_404(user_id)
-        if user.id == current_user.id:
+        if user.id == g.user_id:
             return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
         db.session.delete(user)
         db.session.commit()
@@ -1499,6 +1507,10 @@ def batch_delete_videos():
         db.session.commit()
         log.maintenance('INFO', f"批量删除视频: {deleted_count}个, 删除文件: {delete_file}")
         return jsonify({
+            'success': True,
+            'message': f'已删除 {deleted_count} 个视频',
+            'deleted_count': deleted_count
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1658,21 +1670,22 @@ def get_thumbnail(video_hash):
                 if not has_access:
                     abort(403)
 
-        # 调用缩略图服务生成
+        # 调用缩略图服务异步生成（后台线程，不阻塞当前请求）
         if thumbnail_client:
-            result = thumbnail_client.generate_thumbnail(
-                video_path=video.local_path,
-                video_hash=video_hash,
-                output_format='gif'  # 优先生成 GIF 动图
-            )
-            if result and result.get('success'):
-                # 生成成功，重新检查文件
-                for ext in ['gif', 'jpg', 'png']:
-                    path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
-                    if os.path.exists(path):
-                        resp = send_file(path, mimetype=f'image/{ext}')
-                        resp.cache_control.max_age = 3600
-                        return resp
+            video_path = video.local_path
+            _hash = video_hash
+
+            def _async_generate(vp, vh):
+                try:
+                    thumbnail_client.generate_thumbnail(
+                        video_path=vp,
+                        video_hash=vh,
+                        output_format='gif'
+                    )
+                except Exception as e:
+                    log.debug('ERROR', f"后台缩略图生成失败: {e}")
+
+            threading.Thread(target=_async_generate, args=(video_path, _hash), daemon=True).start()
 
         # 服务不可用或生成失败，返回 JSON 状态让前端轮询
         return jsonify({
@@ -1793,20 +1806,28 @@ def get_thumbnail_status(video_hash):
                             has_permission = False
             
             if has_permission:
-                # 提交生成任务
-                result = thumbnail_client.generate_thumbnail(
-                    video_path=video.local_path,
-                    video_hash=video_hash,
-                    output_format='gif'
-                )
-                if result and result.get('success'):
-                    return jsonify({
-                        'success': True,
-                        'status': 'pending',
-                        'progress': 0,
-                        'message': '缩略图生成任务已提交',
-                        'task_id': result.get('task_id')
-                    })
+                # 提交生成任务（后台线程，不阻塞请求）
+                _vp = video.local_path
+                _vh = video_hash
+
+                def _async_gen(vp, vh):
+                    try:
+                        thumbnail_client.generate_thumbnail(
+                            video_path=vp,
+                            video_hash=vh,
+                            output_format='gif'
+                        )
+                    except Exception as e:
+                        log.debug('ERROR', f"后台缩略图生成失败: {e}")
+
+                threading.Thread(target=_async_gen, args=(_vp, _vh), daemon=True).start()
+
+                return jsonify({
+                    'success': True,
+                    'status': 'pending',
+                    'progress': 0,
+                    'message': '缩略图生成任务已提交'
+                })
     except Exception as e:
         log.debug('ERROR', f"自动触发生成缩略图失败: {e}")
     
@@ -2201,7 +2222,7 @@ def create_library():
         library = VideoLibrary(
             name=name,
             description=description,
-            db_path=os.path.join(_DATA_DIR, 'libraries'),
+            db_path='libraries',
             db_file=db_file,
             is_active=True,
             config=data.get('config', {})
@@ -3156,6 +3177,637 @@ def parse_log_line(line: str, log_type: str) -> dict | None:
         'content': content,
         'type': log_type
     }
+
+
+# ============ 缩略图管理 API =================
+
+# 缩略图配置文件路径
+_THUMB_CONFIG_FILE = os.path.join(_DATA_DIR, 'thumbnail_config.json')
+
+# 默认缩略图配置
+_DEFAULT_THUMB_CONFIG = {
+    'auto_generate': False,          # 是否自动扫描生成缺失缩略图
+    'max_workers': 2,                # 最大并发生成线程数
+    'task_interval': 3,              # 任务间隔时间（秒）
+    'auto_generate_interval': 3600   # 自动扫描间隔（秒），默认1小时
+}
+
+# 自动生成后台线程控制
+_thumb_auto_thread = None
+_thumb_auto_stop_event = threading.Event()
+
+
+def _load_thumb_config():
+    """加载缩略图配置"""
+    try:
+        if os.path.exists(_THUMB_CONFIG_FILE):
+            with open(_THUMB_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            # 合并默认值，确保新字段存在
+            merged = {**_DEFAULT_THUMB_CONFIG, **config}
+            return merged
+    except Exception as e:
+        log.debug('ERROR', f'加载缩略图配置失败: {e}')
+    return {**_DEFAULT_THUMB_CONFIG}
+
+
+def _save_thumb_config(config):
+    """保存缩略图配置"""
+    try:
+        os.makedirs(os.path.dirname(_THUMB_CONFIG_FILE), exist_ok=True)
+        with open(_THUMB_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        log.debug('ERROR', f'保存缩略图配置失败: {e}')
+        return False
+
+
+@app.route('/api/admin/thumbnail/config', methods=['GET'])
+@admin_required
+def get_thumbnail_config():
+    """获取缩略图管理配置"""
+    try:
+        config = _load_thumb_config()
+
+        # 获取缩略图统计信息
+        thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
+        total_thumbnails = 0
+        if os.path.exists(thumb_dir):
+            total_thumbnails = len([f for f in os.listdir(thumb_dir)
+                                     if f.lower().endswith(('.gif', '.jpg', '.png'))])
+
+        # 获取无缩略图的视频数量
+        from core.models import Video
+        db_videos = Video.query.all()
+        no_thumb_count = 0
+        for v in db_videos:
+            if v.hash:
+                has_thumb = any(
+                    os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
+                    for ext in ['gif', 'jpg', 'png']
+                )
+                if not has_thumb:
+                    no_thumb_count += 1
+
+        # 获取缩略图服务状态
+        thumb_service_status = 'unknown'
+        thumb_service_stats = None
+        if thumbnail_client:
+            try:
+                import requests as req
+                resp = req.get(f'{thumbnail_client.service_url}/metrics', timeout=3)
+                if resp.status_code == 200:
+                    thumb_service_stats = resp.json()
+                    thumb_service_status = 'running'
+                else:
+                    thumb_service_status = 'error'
+            except Exception:
+                thumb_service_status = 'offline'
+
+        # 获取自动生成线程状态
+        is_auto_running = _thumb_auto_thread is not None and _thumb_auto_thread.is_alive()
+
+        return jsonify({
+            'success': True,
+            'config': config,
+            'stats': {
+                'total_videos': len(db_videos),
+                'total_thumbnails': total_thumbnails,
+                'no_thumbnail_count': no_thumb_count,
+                'thumb_service_status': thumb_service_status,
+                'thumb_service_stats': thumb_service_stats,
+                'is_auto_generating': is_auto_running
+            }
+        })
+    except Exception as e:
+        log.debug('ERROR', f'获取缩略图配置失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/thumbnail/config', methods=['POST'])
+@admin_required
+def update_thumbnail_config():
+    """更新缩略图管理配置"""
+    try:
+        data = request.get_json()
+        config = _load_thumb_config()
+
+        # 只允许更新指定字段
+        allowed_fields = ['auto_generate', 'max_workers', 'task_interval', 'auto_generate_interval']
+        for field in allowed_fields:
+            if field in data:
+                # 参数校验
+                if field == 'max_workers':
+                    config[field] = max(1, min(int(data[field]), 8))
+                elif field == 'task_interval':
+                    config[field] = max(1, min(int(data[field]), 60))
+                elif field == 'auto_generate_interval':
+                    config[field] = max(300, min(int(data[field]), 86400))  # 5分钟 ~ 24小时
+                elif field == 'auto_generate':
+                    config[field] = bool(data[field])
+
+        if _save_thumb_config(config):
+            log.maintenance('INFO', f'缩略图配置已更新: {config}')
+
+            # 如果开启了自动生成，启动后台线程
+            if config['auto_generate'] and (_thumb_auto_thread is None or not _thumb_auto_thread.is_alive()):
+                _start_auto_generate(config)
+            # 如果关闭了自动生成，停止后台线程
+            elif not config['auto_generate'] and _thumb_auto_thread is not None:
+                _thumb_auto_stop_event.set()
+
+            return jsonify({'success': True, 'message': '配置已保存', 'config': config})
+        else:
+            return jsonify({'success': False, 'message': '保存配置失败'}), 500
+    except Exception as e:
+        log.debug('ERROR', f'更新缩略图配置失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _start_auto_generate(config=None):
+    """启动自动生成缩略图后台线程"""
+    global _thumb_auto_thread
+
+    if config is None:
+        config = _load_thumb_config()
+
+    _thumb_auto_stop_event.clear()
+
+    def _auto_generate_worker():
+        """自动扫描并生成缺失缩略图"""
+        log.maintenance('INFO', '缩略图自动生成线程已启动')
+
+        while not _thumb_auto_stop_event.is_set():
+            try:
+                _generate_missing_thumbnails(config)
+            except Exception as e:
+                log.debug('ERROR', f'自动生成缩略图出错: {e}')
+
+            # 等待下一次扫描
+            _thumb_auto_stop_event.wait(config.get('auto_generate_interval', 3600))
+
+        log.maintenance('INFO', '缩略图自动生成线程已停止')
+
+    _thumb_auto_thread = threading.Thread(target=_auto_generate_worker, daemon=True)
+    _thumb_auto_thread.start()
+
+
+def _generate_missing_thumbnails(config=None):
+    """扫描并生成缺失的缩略图"""
+    if config is None:
+        config = _load_thumb_config()
+
+    thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
+    max_workers = config.get('max_workers', 2)
+    task_interval = config.get('task_interval', 3)
+
+    from core.models import Video
+    db_videos = Video.query.all()
+
+    missing_videos = []
+    for v in db_videos:
+        if v.hash and v.local_path and os.path.exists(v.local_path):
+            has_thumb = any(
+                os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
+                for ext in ['gif', 'jpg', 'png']
+            )
+            if not has_thumb:
+                missing_videos.append(v)
+
+    if not missing_videos:
+        log.maintenance('INFO', '没有需要生成缩略图的视频')
+        return
+
+    log.maintenance('INFO', f'发现 {len(missing_videos)} 个视频缺少缩略图，开始批量生成（并发数: {max_workers}，间隔: {task_interval}秒）')
+
+    if thumbnail_client:
+        # 使用缩略图微服务批量提交
+        import concurrent.futures
+
+        def _submit_one(video):
+            try:
+                thumbnail_client.generate_thumbnail(
+                    video_path=video.local_path,
+                    video_hash=video.hash,
+                    output_format='gif'
+                )
+                return (video.hash, True, None)
+            except Exception as e:
+                return (video.hash, False, str(e))
+
+        # 使用线程池控制并发
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for i, video in enumerate(missing_videos):
+                # 如果停止信号触发，提前退出
+                if _thumb_auto_stop_event.is_set():
+                    log.maintenance('INFO', f'自动生成被停止，已提交 {i}/{len(missing_videos)} 个任务')
+                    break
+
+                future = executor.submit(_submit_one, video)
+                futures.append(future)
+
+                # 任务间隔
+                if i < len(missing_videos) - 1 and task_interval > 0:
+                    _thumb_auto_stop_event.wait(task_interval)
+
+            # 收集结果
+            success = 0
+            failed = 0
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    _, ok, err = future.result()
+                    if ok:
+                        success += 1
+                    else:
+                        failed += 1
+                except Exception:
+                    failed += 1
+
+        log.maintenance('INFO', f'批量生成缩略图完成: 成功 {success}, 失败 {failed}')
+    else:
+        # 缩略图服务不可用，使用本地生成
+        log.maintenance('WARN', '缩略图微服务不可用，无法批量生成')
+
+    return {'submitted': len(missing_videos)}
+
+
+@app.route('/api/admin/thumbnail/generate-missing', methods=['POST'])
+@admin_required
+def generate_missing_thumbnails():
+    """手动触发一次批量生成缺失缩略图（不开启自动模式）"""
+    try:
+        config = _load_thumb_config()
+        result = _generate_missing_thumbnails(config)
+        return jsonify({
+            'success': True,
+            'message': f'已提交生成任务',
+            'submitted': result.get('submitted', 0) if result else 0
+        })
+    except Exception as e:
+        log.debug('ERROR', f'批量生成缩略图失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/thumbnail/auto-generate/status', methods=['GET'])
+@admin_required
+def get_auto_generate_status():
+    """获取自动生成线程状态"""
+    is_running = _thumb_auto_thread is not None and _thumb_auto_thread.is_alive()
+    return jsonify({
+        'success': True,
+        'is_running': is_running
+    })
+
+
+@app.route('/api/admin/thumbnail/auto-generate/stop', methods=['POST'])
+@admin_required
+def stop_auto_generate():
+    """停止自动生成线程"""
+    global _thumb_auto_thread
+
+    if _thumb_auto_thread is not None and _thumb_auto_thread.is_alive():
+        _thumb_auto_stop_event.set()
+        # 更新配置文件
+        config = _load_thumb_config()
+        config['auto_generate'] = False
+        _save_thumb_config(config)
+        log.maintenance('INFO', '缩略图自动生成已手动停止')
+        return jsonify({'success': True, 'message': '自动生成已停止'})
+    else:
+        return jsonify({'success': True, 'message': '自动生成已停止'})
+
+
+# ============ 服务管理 API =================
+
+# 服务元信息映射（nssm service name -> 服务描述）
+_SERVICE_META = {
+    'dplayer-web': {
+        'display_name': 'DPlayer Web服务',
+        'description': 'Web API 服务 - 视频管理、用户认证等',
+        'health_url': None,  # 自己就是 web 服务，特殊处理
+        'port': 8080,
+    },
+    'dplayer-thumbnail': {
+        'display_name': 'DPlayer 缩略图服务',
+        'description': '视频缩略图生成微服务',
+        'health_url': 'http://localhost:5001/health',
+        'port': 5001,
+    },
+    'dplayer-webui': {
+        'display_name': 'DPlayer WebUI服务',
+        'description': 'Vue3 前端界面',
+        'health_url': 'http://localhost:5173',
+        'port': 5173,
+        'health_check_json': False,  # 前端返回 HTML，只检查 HTTP 状态码
+    },
+}
+
+# Windows 服务状态码映射
+_WIN32_SVC_STATUS = {
+    1: 'STOPPED',
+    2: 'START_PENDING',
+    3: 'STOP_PENDING',
+    4: 'RUNNING',
+    5: 'CONTINUE_PENDING',
+    6: 'PAUSE_PENDING',
+    7: 'PAUSED',
+}
+
+# 控制服务操作的锁（防止并发操作同一服务）
+_svc_control_locks = {}
+
+
+def _open_scm():
+    """打开服务控制管理器 (SCM)"""
+    import win32service
+    return win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ALL_ACCESS)
+
+
+def _scan_services() -> list:
+    """
+    扫描 dplayer- 前缀的 Windows 服务（通过 win32service API）
+    """
+    try:
+        import win32service
+
+        scm = _open_scm()
+        try:
+            services = win32service.EnumServicesStatus(
+                scm, win32service.SERVICE_WIN32, win32service.SERVICE_STATE_ALL
+            )
+            return [s[0] for s in services if s[0].startswith('dplayer-')]
+        finally:
+            win32service.CloseServiceHandle(scm)
+    except Exception as e:
+        log.debug('DEBUG', f'[服务管理] 扫描服务异常: {type(e).__name__}: {e}')
+        return []
+
+
+def _get_service_status(service_name: str) -> dict:
+    """
+    获取单个服务的系统层状态信息（通过 win32service + psutil）
+
+    Returns:
+        dict: { status, pid, memory_mb, cpu_percent }
+    """
+    info = {
+        'status': 'unknown',
+        'pid': None,
+        'memory_mb': None,
+        'cpu_percent': None,
+    }
+
+    # 1. 通过 win32service 获取 Windows 服务状态和进程 PID
+    try:
+        import win32service
+
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        svc = win32service.OpenService(scm, service_name, win32service.SERVICE_QUERY_STATUS)
+        status_info = win32service.QueryServiceStatus(svc)
+        win32service.CloseServiceHandle(svc)
+        win32service.CloseServiceHandle(scm)
+
+        state_code = status_info[1]
+        info['status'] = _WIN32_SVC_STATUS.get(state_code, f'UNKNOWN({state_code})')
+
+        # 尝试获取服务的进程 PID
+        # win32service 不直接提供 PID，但 NSSM 服务的实际进程是子进程
+        # 通过状态信息中的 process ID 获取（如果可用）
+        # status_info 结构: (serviceType, currentState, controlsAccepted, ...)
+        # 注意：标准的 QueryServiceStatus 不包含 PID，需要用 QueryServiceStatusEx
+    except Exception as e:
+        log.debug('DEBUG', f'[服务管理] 获取服务状态异常 {service_name}: {type(e).__name__}: {e}')
+        info['status'] = 'unknown'
+        return info
+
+    # PAUSED / RUNNING 状态都尝试获取 PID/CPU/内存（进程实际仍在运行）
+    if info['status'] not in ('RUNNING', 'PAUSED'):
+        return info
+
+    # 2. 获取进程 PID
+    try:
+        import psutil
+
+        # 方法1: 通过端口查找进程（最可靠）
+        meta = _SERVICE_META.get(service_name, {})
+        port = meta.get('port')
+        if port:
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.laddr and conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                    info['pid'] = conn.pid
+                    break
+
+        # 方法2: 通过进程名查找
+        if not info['pid']:
+            app_name = 'python.exe'
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'] and proc.info['name'].lower() == app_name.lower():
+                        # 检查命令行是否包含 dplayer 相关路径
+                        cmdline = proc.info.get('cmdline') or []
+                        cmdline_str = ' '.join(cmdline).lower()
+                        if 'dplayer' in cmdline_str and service_name.replace('dplayer-', '') in cmdline_str:
+                            info['pid'] = proc.info['pid']
+                            break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+        # 3. 获取内存和 CPU
+        if info['pid']:
+            try:
+                proc = psutil.Process(info['pid'])
+                mem_info = proc.memory_info()
+                info['memory_mb'] = round(mem_info.rss / (1024 * 1024), 1)
+                info['cpu_percent'] = proc.cpu_percent(interval=0.5)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                info['pid'] = None
+    except ImportError:
+        pass
+
+    return info
+
+
+def _check_service_health(service_name: str) -> dict:
+    """
+    检查服务层健康状态（通过 HTTP 健康检查）
+    
+    Returns:
+        dict: { status: 'healthy'|'unhealthy'|'unknown', latency_ms, detail }
+    """
+    meta = _SERVICE_META.get(service_name, {})
+    health_url = meta.get('health_url')
+
+    result = {
+        'status': 'unknown',
+        'latency_ms': None,
+        'detail': '',
+    }
+
+    if not health_url:
+        # web 服务自身，直接返回 healthy
+        result['status'] = 'healthy'
+        result['detail'] = '自身服务'
+        return result
+
+    try:
+        import requests
+        start = time.time()
+        resp = requests.get(health_url, timeout=3)
+        latency = (time.time() - start) * 1000
+
+        result['latency_ms'] = round(latency, 1)
+
+        if resp.status_code == 200:
+            # 判断是否需要解析 JSON（部分服务如 webui 只返回 HTML）
+            if meta.get('health_check_json', True):
+                try:
+                    data = resp.json()
+                    if data.get('status') == 'healthy':
+                        result['status'] = 'healthy'
+                        result['detail'] = '正常'
+                    else:
+                        result['status'] = 'unhealthy'
+                        result['detail'] = f"状态异常: {data.get('status', 'unknown')}"
+                except (ValueError, KeyError):
+                    result['status'] = 'unhealthy'
+                    result['detail'] = '响应格式异常'
+            else:
+                # 非 JSON 服务，HTTP 200 即为 healthy
+                result['status'] = 'healthy'
+                result['detail'] = '正常'
+        else:
+            result['status'] = 'unhealthy'
+            result['detail'] = f"HTTP {resp.status_code}"
+    except requests.exceptions.Timeout:
+        result['status'] = 'unhealthy'
+        result['detail'] = '超时（>3s）'
+    except requests.exceptions.ConnectionError:
+        result['status'] = 'unhealthy'
+        result['detail'] = '连接失败'
+    except Exception as e:
+        result['status'] = 'unknown'
+        result['detail'] = str(e)[:100]
+
+    return result
+
+
+@app.route('/api/admin/services', methods=['GET'])
+@admin_required
+def get_services():
+    """获取所有 dplayer 服务的状态"""
+    try:
+        nssm_services = _scan_services()
+        services = []
+
+        for svc_name in nssm_services:
+            sys_status = _get_service_status(svc_name)
+            svc_health = _check_service_health(svc_name) if sys_status['status'] in ('RUNNING', 'PAUSED') else {
+                'status': 'unknown', 'latency_ms': None, 'detail': '服务未运行'
+            }
+
+            meta = _SERVICE_META.get(svc_name, {})
+            services.append({
+                'service_name': svc_name,
+                'display_name': meta.get('display_name', svc_name),
+                'description': meta.get('description', ''),
+                'port': meta.get('port'),
+                # 系统层状态
+                'system_status': sys_status['status'],
+                'pid': sys_status['pid'],
+                'memory_mb': sys_status['memory_mb'],
+                'cpu_percent': sys_status['cpu_percent'],
+                # 服务层健康
+                'health_status': svc_health['status'],
+                'health_latency_ms': svc_health['latency_ms'],
+                'health_detail': svc_health['detail'],
+            })
+
+        return jsonify({
+            'success': True,
+            'services': services,
+        })
+    except Exception as e:
+        log.debug('ERROR', f'获取服务列表失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/services/<service_name>/control', methods=['POST'])
+@admin_required
+def control_service(service_name):
+    """控制服务：start / stop / restart"""
+    try:
+        data = request.get_json()
+        action = data.get('action', '').lower()
+
+        if action not in ('start', 'stop', 'restart'):
+            return jsonify({'success': False, 'message': f'无效操作: {action}'}), 400
+
+        # 安全检查：只允许操作 dplayer- 前缀的服务
+        if not service_name.startswith('dplayer-'):
+            return jsonify({'success': False, 'message': '只允许操作 dplayer- 前缀的服务'}), 403
+
+        # 防并发锁
+        if service_name not in _svc_control_locks:
+            _svc_control_locks[service_name] = threading.Lock()
+
+        if not _svc_control_locks[service_name].acquire(blocking=False):
+            return jsonify({'success': False, 'message': '该服务正在操作中，请稍后再试'}), 409
+
+        try:
+            import win32service
+
+            display_name = _SERVICE_META.get(service_name, {}).get('display_name', service_name)
+
+            scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+            svc = win32service.OpenService(scm, service_name, win32service.SERVICE_ALL_ACCESS)
+
+            try:
+                if action == 'start':
+                    win32service.StartService(svc, None)
+                elif action == 'stop':
+                    win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
+                elif action == 'restart':
+                    # 先停止
+                    status = win32service.QueryServiceStatus(svc)
+                    if status[1] == win32service.SERVICE_RUNNING:
+                        win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
+                        # 等待停止完成（最多30秒）
+                        for _ in range(30):
+                            time.sleep(1)
+                            status = win32service.QueryServiceStatus(svc)
+                            if status[1] == win32service.SERVICE_STOPPED:
+                                break
+                            elif status[1] == win32service.SERVICE_STOP_PENDING:
+                                continue
+                            else:
+                                break
+                        else:
+                            raise RuntimeError('停止服务超时（30秒）')
+                    # 再启动
+                    win32service.StartService(svc, None)
+            finally:
+                win32service.CloseServiceHandle(svc)
+                win32service.CloseServiceHandle(scm)
+
+            action_text = {'start': '启动', 'stop': '停止', 'restart': '重启'}
+            log.maintenance('INFO', f'服务 {service_name} {action} 成功')
+            return jsonify({
+                'success': True,
+                'message': f'{display_name} {action_text[action]}成功',
+                'action': action,
+            })
+        except Exception as e:
+            error_msg = str(e)
+            log.debug('ERROR', f'服务 {service_name} {action} 失败: {error_msg}')
+            return jsonify({'success': False, 'message': error_msg}), 500
+        finally:
+            _svc_control_locks[service_name].release()
+
+    except Exception as e:
+        log.debug('ERROR', f'控制服务失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ============ 主入口 ============

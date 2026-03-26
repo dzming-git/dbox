@@ -178,7 +178,7 @@ class Video(db.Model):
             'hash': self.hash,
             'title': self.title,
             'description': self.description,
-            'url': self.url,
+            'url': f'/api/videos/{self.id}/play',
             'thumbnail': self.thumbnail,
             'duration': self.duration,
             'file_size': self.file_size,
@@ -408,8 +408,8 @@ class VideoLibrary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
     description = db.Column(db.Text)
-    db_path = db.Column(db.String(500), nullable=False)  # 数据库文件目录
-    db_file = db.Column(db.String(200), nullable=False)  # 数据库文件名
+    db_path = db.Column(db.String(500), nullable=False)  # 数据库文件子目录（相对于 data/），如 "libraries"
+    db_file = db.Column(db.String(200), nullable=False)  # 数据库文件名，如 "xxx_123456.db"
     is_active = db.Column(db.Boolean, default=True)  # 是否激活
     config = db.Column(db.JSON)  # 额外配置
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -423,9 +423,21 @@ class VideoLibrary(db.Model):
 
     @property
     def full_db_path(self):
-        """获取完整的数据库文件路径"""
+        """获取完整的数据库文件绝对路径（运行时动态拼接，不依赖存储的绝对路径）"""
         import os
-        return os.path.join(self.db_path, self.db_file)
+        # 优先从环境变量获取 data 目录，其次用相对 main.py 的标准路径
+        data_dir = os.environ.get('DPLAYER_DATA_DIR')
+        if not data_dir:
+            # main.py 位于 src/web/，data/ 位于项目根目录
+            _src_web = os.path.dirname(os.path.abspath(__file__))
+            data_dir = os.path.join(os.path.dirname(os.path.dirname(_src_web)), 'data')
+        # db_path 可能是绝对路径（旧数据），也可能是相对路径（新数据），统一处理
+        if os.path.isabs(self.db_path):
+            # 兼容旧数据：绝对路径只取最后一级目录名（如 "libraries"），然后拼到 data_dir 下
+            sub = os.path.basename(self.db_path.rstrip('/\\'))
+            return os.path.join(data_dir, sub, self.db_file)
+        else:
+            return os.path.join(data_dir, self.db_path, self.db_file)
 
     def to_dict(self, include_stats=False):
         """转换为字典"""
