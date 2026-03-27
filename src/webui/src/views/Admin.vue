@@ -4994,7 +4994,7 @@ input:checked + .slider:before {
   background: #fff;
   border-radius: 8px;
   border: 1px solid #e0e0e0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .log-table-wrapper {
@@ -5062,11 +5062,11 @@ input:checked + .slider:before {
   font-weight: 600;
 }
 
-.log-level-info { background: #E3F2FD; color: #1565C0; }
-.log-level-warn { background: #FFF3E0; color: #E65100; }
-.log-level-error { background: #FFEBEE; color: #C62828; }
-.log-level-fatal { background: #C62828; color: #fff; }
-.log-level-debug { background: #F5F5F5; color: #616161; }
+.log-level-info { background: #2196F3; color: #fff; }
+.log-level-warn { background: #FF9800; color: #fff; }
+.log-level-error { background: #f44336; color: #fff; }
+.log-level-fatal { background: #B71C1C; color: #fff; }
+.log-level-debug { background: #9E9E9E; color: #fff; }
 
 .log-source {
   color: #666;
@@ -5138,6 +5138,8 @@ input:checked + .slider:before {
 /* 移动端卡片 */
 .log-cards {
   display: none;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 /* 移动端适配 */
@@ -5148,6 +5150,9 @@ input:checked + .slider:before {
 
   .log-cards {
     display: block;
+    max-height: calc(100vh - 350px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .log-card {
