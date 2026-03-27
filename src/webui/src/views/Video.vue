@@ -2,18 +2,17 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
+import { useUserStore } from '../stores/userStore'
 import { tagApi } from '../api'
 import type { Video, Tag } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const videoStore = useVideoStore()
+const userStore = useUserStore()
 
-// 检查当前用户是否为管理员
-const isAdmin = computed(() => {
-  const role = localStorage.getItem('userRole')
-  return role === '1' || role === '0'  // ADMIN=1, ROOT=0
-})
+// 检查当前用户是否为管理员（使用 userStore 的统一判断）
+const isAdmin = computed(() => userStore.isAdmin)
 
 const video = ref<Video | null>(null)
 const loading = ref(true)
