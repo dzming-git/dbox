@@ -5138,8 +5138,6 @@ input:checked + .slider:before {
 /* 移动端卡片 */
 .log-cards {
   display: none;
-  max-height: 400px;
-  overflow-y: auto;
 }
 
 /* 移动端适配 */
@@ -5150,8 +5148,11 @@ input:checked + .slider:before {
 
   .log-cards {
     display: block;
-    max-height: calc(100vh - 350px);
+  }
+
+  .log-container {
     overflow-y: auto;
+    max-height: calc(100vh - 350px);
     -webkit-overflow-scrolling: touch;
   }
 
