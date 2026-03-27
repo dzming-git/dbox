@@ -1692,8 +1692,10 @@ def get_thumbnail(video_hash):
             def _async_generate(vp, vh):
                 try:
                     thumbnail_bus.call_method(
-                        'com.dplayer.Thumbnaild', 'Generate',
-                        {'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
+                        service='com.dplayer.thumbnaild',
+                        interface='com.dplayer.Thumbnaild',
+                        method='Generate',
+                        params={'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
                     )
                 except Exception as e:
                     log.debug('ERROR', f"后台封面生成失败: {e}")
@@ -1741,8 +1743,10 @@ def get_thumbnail_status(video_hash):
         try:
             # 查询任务状态
             result = thumbnail_bus.call_method(
-                'com.dplayer.Thumbnaild', 'GetStatus',
-                {'video_hash': video_hash}
+                service='com.dplayer.thumbnaild',
+                interface='com.dplayer.Thumbnaild',
+                method='GetStatus',
+                params={'video_hash': video_hash}
             )
             if result and result.get('success'):
                 # 缩略图服务返回的数据格式: {success: true, task_id: ..., status: ..., progress: ...}
@@ -1829,8 +1833,10 @@ def get_thumbnail_status(video_hash):
                 def _async_gen(vp, vh):
                     try:
                         thumbnail_bus.call_method(
-                            'com.dplayer.Thumbnaild', 'Generate',
-                            {'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
+                            service='com.dplayer.thumbnaild',
+                            interface='com.dplayer.Thumbnaild',
+                            method='Generate',
+                            params={'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
                         )
                     except Exception as e:
                         log.debug('ERROR', f"后台封面生成失败: {e}")
@@ -1898,8 +1904,10 @@ def regenerate_thumbnail(video_hash):
     if thumbnail_bus:
         try:
             result = thumbnail_bus.call_method(
-                'com.dplayer.Thumbnaild', 'Generate',
-                {'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'gif'}
+                service='com.dplayer.thumbnaild',
+                interface='com.dplayer.Thumbnaild',
+                method='Generate',
+                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'gif'}
             )
             if result and result.get('success'):
                 return jsonify({
@@ -3270,7 +3278,10 @@ def get_thumbnail_config():
         if thumbnail_bus:
             try:
                 thumb_service_stats = thumbnail_bus.call_method(
-                    'com.dplayer.Thumbnaild', 'GetMetrics', {}
+                    service='com.dplayer.thumbnaild',
+                    interface='com.dplayer.Thumbnaild',
+                    method='GetMetrics',
+                    params={}
                 )
                 if thumb_service_stats:
                     thumb_service_status = 'running'
@@ -3402,8 +3413,10 @@ def _generate_missing_thumbnails(config=None):
         def _submit_one(video):
             try:
                 thumbnail_bus.call_method(
-                    'com.dplayer.Thumbnaild', 'Generate',
-                    {'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'gif'}
+                    service='com.dplayer.thumbnaild',
+                    interface='com.dplayer.Thumbnaild',
+                    method='Generate',
+                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'gif'}
                 )
                 return (video.hash, True, None)
             except Exception as e:

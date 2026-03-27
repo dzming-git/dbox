@@ -3474,6 +3474,9 @@ onUnmounted(() => {
 
 .tab-content {
   animation: fadeIn 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 180px);
 }
 
 @keyframes fadeIn {
@@ -4995,18 +4998,25 @@ input:checked + .slider:before {
   border-radius: 8px;
   border: 1px solid #e0e0e0;
   overflow: visible;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 500px;
 }
 
 .log-table-wrapper {
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 500px;
+  max-height: calc(100vh - 340px);
+  flex: 1;
 }
 
 .log-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  color: #333;
 }
 
 .log-table th {
@@ -5016,12 +5026,14 @@ input:checked + .slider:before {
   font-weight: 600;
   border-bottom: 2px solid #e0e0e0;
   white-space: nowrap;
+  color: #333;
 }
 
 .log-table td {
   padding: 8px 12px;
   border-bottom: 1px solid #f0f0f0;
   vertical-align: top;
+  color: #333;
 }
 
 .log-table tr:hover {
@@ -5031,6 +5043,7 @@ input:checked + .slider:before {
 .log-col-time {
   width: 150px;
   white-space: nowrap;
+  color: #666;
 }
 
 .log-col-level {
@@ -5041,11 +5054,13 @@ input:checked + .slider:before {
 .log-col-module {
   width: 220px;
   white-space: nowrap;
+  color: #666;
 }
 
 .log-col-content {
   word-break: break-all;
   min-width: 200px;
+  color: #333;
 }
 
 .log-mono {
@@ -5154,6 +5169,11 @@ input:checked + .slider:before {
     overflow-y: auto;
     max-height: calc(100vh - 350px);
     -webkit-overflow-scrolling: touch;
+    min-height: 300px;
+  }
+
+  .tab-content {
+    min-height: auto;
   }
 
   .log-card {

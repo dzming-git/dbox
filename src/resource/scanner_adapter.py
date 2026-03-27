@@ -49,17 +49,27 @@ import time
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-# 添加 src 目录到 path 以便导入 servicebus
+# 添加 src 目录到 path 以便导入 servicebus 和本地模块
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from .models import (
-    ResourceLibrary, ResourceLibraryDB, ResourceItem, ResourceItemDB,
-    ResourceType, ScanMode, Database
-)
-from .indexer import MediaIndexer
-from .watcher import LibraryWatcher
+# 支持直接运行和模块导入
+try:
+    from .models import (
+        ResourceLibrary, ResourceLibraryDB, ResourceItem, ResourceItemDB,
+        ResourceType, ScanMode, Database
+    )
+    from .indexer import MediaIndexer
+    from .watcher import LibraryWatcher
+except ImportError:
+    from resource.models import (
+        ResourceLibrary, ResourceLibraryDB, ResourceItem, ResourceItemDB,
+        ResourceType, ScanMode, Database
+    )
+    from resource.indexer import MediaIndexer
+    from resource.watcher import LibraryWatcher
+
 from servicebus.service_base import BaseDBusService
 
 

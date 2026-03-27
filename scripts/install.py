@@ -81,6 +81,14 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'resource',
     },
+    'user': {
+        'service_name': 'dplayer-userd',
+        'display_name': 'DPlayer 用户管理服务',
+        'description': 'DPlayer 用户管理微服务 - 负责用户增删改查和认证',
+        'entry': 'src/user/main.py',
+        'port': None,
+        'log_prefix': 'user',
+    },
 }
 
 # ============================================================
