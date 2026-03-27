@@ -58,14 +58,14 @@ try:
     from servicebus import BusClient
     # 连接总线调用 thumbnaild
     thumbnail_bus = BusClient(
-        'web',
+        'web-client',
         host='127.0.0.1',
         rpc_port=15555,
         pub_port=15556
     )
     # 连接总线调用 servicemgr
     svc_mgr_bus = BusClient(
-        'web',
+        'web-svc-mgr',
         host='127.0.0.1',
         rpc_port=15555,
         pub_port=15556
@@ -3722,25 +3722,48 @@ def _check_service_health(service_name: str) -> dict:
 @admin_required
 def get_services():
     """获取所有 dplayer 服务的状态（通过 servicemgrd 总线查询）"""
+    import time
+    total_start = time.time()
     try:
         # 优先通过总线查询（异步获取，不阻塞）
         if svc_mgr_bus:
+            bus_start = time.time()
             try:
                 result = svc_mgr_bus.call_method(
                     'com.dplayer.servicemgr',
                     'com.dplayer.ServiceMgr',
                     'ListServices',
-                    {}
+                    {},
+                    timeout=3000  # 3秒超时
                 )
+                bus_elapsed = (time.time() - bus_start) * 1000
+                log.debug('INFO', f'总线调用耗时: {bus_elapsed:.0f}ms, result={result is not None}')
                 if result and 'services' in result:
-                    services = result['services']
+                    # 转换总线返回的字段名以匹配前端期望
+                    services = []
+                    for svc in result['services']:
+                        services.append({
+                            'service_name': svc.get('name', ''),
+                            'display_name': svc.get('display_name', svc.get('name', '')),
+                            'description': svc.get('description', ''),
+                            'port': svc.get('port'),
+                            'system_status': svc.get('status', 'unknown'),
+                            'pid': svc.get('pid'),
+                            'memory_mb': svc.get('memory_mb'),
+                            'cpu_percent': svc.get('cpu_percent'),
+                            'health_status': svc.get('health_status', 'unknown'),
+                            'health_latency_ms': svc.get('latency_ms'),
+                            'health_detail': svc.get('description', ''),
+                        })
                     return jsonify({
                         'success': True,
                         'services': services,
                         'source': 'bus',
+                        'bus_time_ms': bus_elapsed,
                     })
             except Exception as e:
-                log.debug('WARN', f'总线查询服务列表失败，降级到直接扫描: {e}')
+                bus_elapsed = (time.time() - bus_start) * 1000
+                log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
 
         # 降级：直接扫描（如果 servicemgrd 不可用）
         nssm_services = _scan_services()

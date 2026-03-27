@@ -69,6 +69,12 @@ _SERVICE_META = {
         'health_url': None,
         'port': None,
     },
+    'dplayer-servicemgr': {
+        'display_name': 'DPlayer 服务管理',
+        'description': '服务管理守护进程，定期扫描 dplayer-* 服务状态',
+        'health_url': None,
+        'port': None,
+    },
     'dplayer-thumbnail': {
         'display_name': 'DPlayer 缩略图服务',
         'description': '视频缩略图生成微服务（通过服务总线）',

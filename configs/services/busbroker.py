@@ -16,11 +16,13 @@ BusBroker - 服务总线代理进程
 import os
 import sys
 import signal
+import time
 
 # 路径设置
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
-sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src'))
+# configs/services/ → configs/ → Dplayer2.0/（项目根目录）
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src'))  # src/ → 可 import servicebus
 
 from servicebus import BusRouter
 
@@ -53,7 +55,10 @@ def main():
 
     router.start()
     print("[BusBroker] 服务总线已启动 (Ctrl+C 退出)")
-    router.wait()
+
+    # 使用 time.sleep 等待信号，Windows 兼容
+    while True:
+        time.sleep(86400)
 
 
 if __name__ == '__main__':
