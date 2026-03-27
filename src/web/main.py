@@ -63,8 +63,16 @@ try:
         rpc_port=15555,
         pub_port=15556
     )
+    # 连接总线调用 servicemgr
+    svc_mgr_bus = BusClient(
+        'web',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
 except Exception as e:
     thumbnail_bus = None
+    svc_mgr_bus = None
     print(f"[WARNING] 总线客户端初始化失败: {e}")
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
@@ -3500,6 +3508,12 @@ _SERVICE_META = {
         'health_url': None,  # 无 HTTP，纯后台
         'port': None,         # 无 HTTP 端口，纯总线通信
     },
+    'dplayer-servicemgr': {
+        'display_name': 'DPlayer 服务管理',
+        'description': '服务管理守护进程，定期扫描 dplayer-* 服务状态',
+        'health_url': None,  # 无 HTTP，纯后台
+        'port': None,         # 无 HTTP 端口，纯总线通信
+    },
     'dplayer-thumbnail': {
         'display_name': 'DPlayer 缩略图服务',
         'description': '视频缩略图生成微服务（通过服务总线）',
@@ -3707,8 +3721,28 @@ def _check_service_health(service_name: str) -> dict:
 @app.route('/api/admin/services', methods=['GET'])
 @admin_required
 def get_services():
-    """获取所有 dplayer 服务的状态"""
+    """获取所有 dplayer 服务的状态（通过 servicemgrd 总线查询）"""
     try:
+        # 优先通过总线查询（异步获取，不阻塞）
+        if svc_mgr_bus:
+            try:
+                result = svc_mgr_bus.call_method(
+                    'com.dplayer.servicemgr',
+                    'com.dplayer.ServiceMgr',
+                    'ListServices',
+                    {}
+                )
+                if result and 'services' in result:
+                    services = result['services']
+                    return jsonify({
+                        'success': True,
+                        'services': services,
+                        'source': 'bus',
+                    })
+            except Exception as e:
+                log.debug('WARN', f'总线查询服务列表失败，降级到直接扫描: {e}')
+
+        # 降级：直接扫描（如果 servicemgrd 不可用）
         nssm_services = _scan_services()
         services = []
 
@@ -3724,12 +3758,10 @@ def get_services():
                 'display_name': meta.get('display_name', svc_name),
                 'description': meta.get('description', ''),
                 'port': meta.get('port'),
-                # 系统层状态
                 'system_status': sys_status['status'],
                 'pid': sys_status['pid'],
                 'memory_mb': sys_status['memory_mb'],
                 'cpu_percent': sys_status['cpu_percent'],
-                # 服务层健康
                 'health_status': svc_health['status'],
                 'health_latency_ms': svc_health['latency_ms'],
                 'health_detail': svc_health['detail'],
@@ -3738,6 +3770,7 @@ def get_services():
         return jsonify({
             'success': True,
             'services': services,
+            'source': 'direct',
         })
     except Exception as e:
         log.debug('ERROR', f'获取服务列表失败: {e}')
@@ -3747,7 +3780,7 @@ def get_services():
 @app.route('/api/admin/services/<service_name>/control', methods=['POST'])
 @admin_required
 def control_service(service_name):
-    """控制服务：start / stop / restart"""
+    """控制服务：start / stop / restart（通过 servicemgrd 总线）"""
     try:
         data = request.get_json()
         action = data.get('action', '').lower()
@@ -3767,9 +3800,31 @@ def control_service(service_name):
             return jsonify({'success': False, 'message': '该服务正在操作中，请稍后再试'}), 409
 
         try:
-            import win32service
-
             display_name = _SERVICE_META.get(service_name, {}).get('display_name', service_name)
+            action_text = {'start': '启动', 'stop': '停止', 'restart': '重启'}
+
+            # 优先通过总线调用 servicemgrd
+            if svc_mgr_bus:
+                try:
+                    method_name = f'{action.capitalize()}Service'
+                    result = svc_mgr_bus.call_method(
+                        'com.dplayer.servicemgr',
+                        'com.dplayer.ServiceMgr',
+                        method_name,
+                        {'name': service_name}
+                    )
+                    if result:
+                        log.maintenance('INFO', f'服务 {service_name} {action} via bus: {result}')
+                        return jsonify({
+                            'success': result.get('success', False),
+                            'message': result.get('message', ''),
+                            'action': action,
+                        })
+                except Exception as bus_err:
+                    log.debug('WARN', f'总线控制服务失败，降级到直接调用: {bus_err}')
+
+            # 降级：直接调用 win32service
+            import win32service
 
             scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
             svc = win32service.OpenService(scm, service_name, win32service.SERVICE_ALL_ACCESS)
@@ -3780,11 +3835,9 @@ def control_service(service_name):
                 elif action == 'stop':
                     win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
                 elif action == 'restart':
-                    # 先停止
                     status = win32service.QueryServiceStatus(svc)
                     if status[1] == win32service.SERVICE_RUNNING:
                         win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
-                        # 等待停止完成（最多30秒）
                         for _ in range(30):
                             time.sleep(1)
                             status = win32service.QueryServiceStatus(svc)
@@ -3796,14 +3849,12 @@ def control_service(service_name):
                                 break
                         else:
                             raise RuntimeError('停止服务超时（30秒）')
-                    # 再启动
                     win32service.StartService(svc, None)
             finally:
                 win32service.CloseServiceHandle(svc)
                 win32service.CloseServiceHandle(scm)
 
-            action_text = {'start': '启动', 'stop': '停止', 'restart': '重启'}
-            log.maintenance('INFO', f'服务 {service_name} {action} 成功')
+            log.maintenance('INFO', f'服务 {service_name} {action} 成功（直接调用）')
             return jsonify({
                 'success': True,
                 'message': f'{display_name} {action_text[action]}成功',

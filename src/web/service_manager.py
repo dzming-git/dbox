@@ -92,6 +92,14 @@ SERVICES = {
         'pid_file': os.path.join(BASEDIR, 'instance', 'busbroker.pid'),
         'service_name': 'DPlayer-Bus',  # Windows服务名
     },
+    'servicemgr': {
+        'name': 'DPlayer-ServiceMgr',
+        'display_name': 'Service Manager',
+        'port': None,  # 无 HTTP 端口，纯总线通信
+        'script': os.path.join(BASEDIR, 'services', 'servicemgrd.py'),
+        'pid_file': os.path.join(BASEDIR, 'instance', 'servicemgr.pid'),
+        'service_name': 'DPlayer-ServiceMgr',  # Windows服务名
+    },
     'webui': {
         'name': 'DPlayer-WebUI (Vue3)',
         'display_name': 'WebUI Frontend Service',

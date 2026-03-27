@@ -48,6 +48,8 @@ from .service_base import BaseDBusService
 from .client import BusClient
 from .router import BusRouter
 from .protocol import BusMessage, MessageType
+from .service_mgr_adapter import BusServiceMgrAdapter
+from .thumbnail_adapter import BusThumbnailAdapter
 
 __all__ = [
     'ServiceBus',
@@ -56,4 +58,6 @@ __all__ = [
     'BusRouter',
     'BusMessage',
     'MessageType',
+    'BusServiceMgrAdapter',
+    'BusThumbnailAdapter',
 ]
