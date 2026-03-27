@@ -70,9 +70,33 @@ try:
         rpc_port=15555,
         pub_port=15556
     )
+    # 连接总线调用 historyd (播放历史服务)
+    history_bus = BusClient(
+        'web-history',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
+    # 连接总线调用 collectiond (收藏夹服务)
+    collection_bus = BusClient(
+        'web-collection',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
+    # 连接总线调用 searchd (搜索服务)
+    search_bus = BusClient(
+        'web-search',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
 except Exception as e:
     thumbnail_bus = None
     svc_mgr_bus = None
+    history_bus = None
+    collection_bus = None
+    search_bus = None
     print(f"[WARNING] 总线客户端初始化失败: {e}")
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
@@ -87,6 +111,9 @@ from auth_service import AuthService, init_root_user
 from api.auth_api import auth_bp
 from api.playlist_api import playlist_bp
 from api.system_api import system_bp
+from api.history_api import history_bp, init_history_api
+from api.collection_api import collection_bp, init_collection_api
+from api.search_api import search_bp, init_search_api
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
 
@@ -120,7 +147,16 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(auth_v2_bp)  # v2版本JWT认证API
 app.register_blueprint(playlist_bp)
 app.register_blueprint(system_bp)
+app.register_blueprint(history_bp)  # 播放历史API
+app.register_blueprint(collection_bp)  # 收藏夹API
+app.register_blueprint(search_bp)  # 搜索API
 app.register_blueprint(shared_watch_bp)  # 共享观看API
+
+# ============ 初始化 API 总线客户端 ============
+init_history_api(history_bus)
+init_collection_api(collection_bus)
+init_search_api(search_bus)
+print("[DEBUG] Service bus clients initialized for APIs")
 
 # ============ 认证装饰器 ============
 def auth_required(f):
@@ -1722,140 +1758,24 @@ def get_thumbnail(video_hash):
 
 @app.route('/api/thumbnail/status/<video_hash>', methods=['GET'])
 def get_thumbnail_status(video_hash):
-    """检查缩略图生成状态，返回进度信息"""
+    """检查缩略图是否存在（已简化，不触发生成，由后端自动生成）"""
     thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
 
     # 检查文件是否存在
     for ext in ['gif', 'jpg', 'png']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
-            # 返回不带扩展名的URL，由前端添加token或后端处理
             return jsonify({
                 'success': True,
                 'status': 'ready',
-                'progress': 100,
                 'url': f'/thumbnail/{video_hash}',
                 'format': ext
             })
 
-    # 文件不存在，查询缩略图服务任务状态
-    if thumbnail_bus:
-        try:
-            # 查询任务状态
-            result = thumbnail_bus.call_method(
-                service='com.dplayer.thumbnaild',
-                interface='com.dplayer.Thumbnaild',
-                method='GetStatus',
-                params={'video_hash': video_hash}
-            )
-            if result and result.get('success'):
-                # 缩略图服务返回的数据格式: {success: true, task_id: ..., status: ..., progress: ...}
-                task_status = result.get('status', 'unknown')
-                progress = result.get('progress', 0)
-
-                # 映射状态
-                status_map = {
-                    'pending': 'pending',
-                    'processing': 'processing',
-                    'completed': 'ready',
-                    'failed': 'failed'
-                }
-                mapped_status = status_map.get(task_status, task_status)
-
-                # 如果是已完成，添加URL
-                response_data = {
-                    'success': True,
-                    'status': mapped_status,
-                    'progress': progress
-                }
-                if mapped_status == 'ready':
-                    # 从缩略图服务获取格式信息
-                    thumb_format = result.get('format', 'gif')
-                    response_data['url'] = f'/thumbnail/{video_hash}'
-                    response_data['format'] = thumb_format
-                else:
-                    response_data['message'] = f'缩略图生成中 ({progress}%)'
-
-                return jsonify(response_data)
-        except Exception as e:
-            log.debug('ERROR', f"查询缩略图任务状态失败: {e}")
-
-    # 没有找到任务，尝试自动触发生成
-    try:
-        video = Video.query.filter_by(hash=video_hash).first()
-        if video and video.local_path and thumbnail_bus:
-            # 检查权限
-            has_permission = True
-            if video.library_id:
-                user_id = None
-                user_role = 0
-                
-                # 从 Authorization header 获取 token
-                auth_header = request.headers.get('Authorization', '')
-                if auth_header.startswith('Bearer '):
-                    try:
-                        token = auth_header.replace('Bearer ', '')
-                        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-                        user_id = payload.get('user_id')
-                        user_role = payload.get('role', 0)
-                    except:
-                        pass
-                
-                # 从 session 获取
-                if user_id is None:
-                    user_id = session.get('user_id')
-                    user_role = session.get('role', 0)
-                
-                # 权限检查
-                if user_role < 2 and user_id:  # 非管理员
-                    from models import LibraryPermission, LibraryUserGroupMember
-                    has_perm = LibraryPermission.query.filter_by(
-                        library_id=video.library_id, user_id=user_id
-                    ).first()
-                    if not has_perm:
-                        user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
-                        has_group_perm = False
-                        for ugm in user_groups:
-                            group_perm = LibraryPermission.query.filter_by(
-                                library_id=video.library_id, group_id=ugm.group_id
-                            ).first()
-                            if group_perm:
-                                has_group_perm = True
-                                break
-                        if not has_group_perm:
-                            has_permission = False
-            
-            if has_permission and thumbnail_bus:
-                # 提交生成任务（后台线程，不阻塞请求）
-                _vp = video.local_path
-                _vh = video_hash
-
-                def _async_gen(vp, vh):
-                    try:
-                        thumbnail_bus.call_method(
-                            service='com.dplayer.thumbnaild',
-                            interface='com.dplayer.Thumbnaild',
-                            method='Generate',
-                            params={'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
-                        )
-                    except Exception as e:
-                        log.debug('ERROR', f"后台封面生成失败: {e}")
-
-                threading.Thread(target=_async_gen, args=(_vp, _vh), daemon=True).start()
-
-                return jsonify({
-                    'success': True,
-                    'status': 'pending',
-                    'progress': 0,
-                    'message': '缩略图生成任务已提交'
-                })
-    except Exception as e:
-        log.debug('ERROR', f"自动触发生成缩略图失败: {e}")
-    
+    # 缩略图不存在
     return jsonify({
         'success': False,
         'status': 'not_found',
-        'progress': 0,
         'message': '缩略图尚未生成'
     })
 
@@ -2134,6 +2054,7 @@ def scan_videos():
                             tag = Tag.query.filter_by(name=tag_name).first()
                             if not tag:
                                 tag = Tag(name=tag_name, category='类型')
+                                tag.path = f'/{tag_name}'  # 计算完整路径
                                 db.session.add(tag)
                                 db.session.flush()
                             db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
@@ -2664,6 +2585,7 @@ def import_videos():
                     tag = Tag.query.filter_by(name=tag_name).first()
                     if not tag:
                         tag = Tag(name=tag_name, category='类型')
+                        tag.path = f'/{tag_name}'  # 计算完整路径
                         db.session.add(tag)
                         db.session.flush()
                     db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
@@ -3565,8 +3487,10 @@ def _open_scm():
 
 def _scan_services() -> list:
     """
-    扫描 dplayer- 前缀的 Windows 服务（通过 win32service API）
+    扫描 dplayer- 前缀的 Windows 服务
+    优先使用 win32service API，失败时 fallback 到 sc query 命令
     """
+    # 方法1: 通过 win32service API（需要足够的权限）
     try:
         import win32service
 
@@ -3579,8 +3503,57 @@ def _scan_services() -> list:
         finally:
             win32service.CloseServiceHandle(scm)
     except Exception as e:
-        log.debug('DEBUG', f'[服务管理] 扫描服务异常: {type(e).__name__}: {e}')
-        return []
+        log.debug('DEBUG', f'[服务管理] win32service 扫描失败: {type(e).__name__}: {e}')
+
+    # 方法2: fallback 到 sc query 命令（权限要求较低）
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['sc', 'query', 'type=', 'service', 'state=', 'all'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            # 解析 sc query 输出，查找 dplayer- 前缀的服务
+            dplayer_svcs = []
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith('SERVICE_NAME:'):
+                    svc_name = line.split(':', 1)[1].strip()
+                    if svc_name.startswith('dplayer-'):
+                        dplayer_svcs.append(svc_name)
+            if dplayer_svcs:
+                log.debug('DEBUG', f'[服务管理] sc query fallback 找到 {len(dplayer_svcs)} 个服务')
+                return dplayer_svcs
+    except Exception as e2:
+        log.debug('DEBUG', f'[服务管理] sc query fallback 也失败: {type(e2).__name__}: {e2}')
+
+    # 方法3: 直接查询已知的服务名（基于 install.py 的定义）
+    known_services = [
+        'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
+        'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
+        'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
+    ]
+    verified = []
+    try:
+        import win32service
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        for svc_name in known_services:
+            try:
+                hs = win32service.OpenService(scm, svc_name, win32service.SERVICE_QUERY_STATUS)
+                win32service.CloseServiceHandle(hs)
+                verified.append(svc_name)
+            except Exception:
+                pass
+        win32service.CloseServiceHandle(scm)
+    except Exception:
+        pass
+
+    if verified:
+        log.debug('DEBUG', f'[服务管理] 逐个探测找到 {len(verified)} 个服务: {verified}')
+        return verified
+
+    log.debug('DEBUG', '[服务管理] 扫描服务失败: 所有方法均无法获取服务列表')
+    return []
 
 
 def _get_service_status(service_name: str) -> dict:
