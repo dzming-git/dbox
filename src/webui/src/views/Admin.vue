@@ -4999,6 +4999,8 @@ input:checked + .slider:before {
 
 .log-table-wrapper {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 500px;
 }
 
 .log-table {
@@ -5032,7 +5034,7 @@ input:checked + .slider:before {
 }
 
 .log-col-level {
-  width: 80px;
+  width: 90px;
   white-space: nowrap;
 }
 
