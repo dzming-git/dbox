@@ -73,6 +73,14 @@ NSSM_SERVICES = {
         'port': 5173,
         'log_prefix': 'webui',
     },
+    'resource': {
+        'service_name': 'dplayer-resource',
+        'display_name': 'DPlayer 资源管理服务',
+        'description': 'DPlayer 资源管理微服务 - 负责资源库扫描、文件监控、索引管理',
+        'entry': 'src/resource/main.py',
+        'port': None,
+        'log_prefix': 'resource',
+    },
 }
 
 # ============================================================
