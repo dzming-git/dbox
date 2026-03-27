@@ -13,6 +13,9 @@ const loading = computed(() => videoStore.loading)
 const videos = computed(() => videoStore.videos)
 const tags = computed(() => videoStore.tags)
 const selectedTagId = computed(() => videoStore.selectedTagId)
+
+// 标签区域折叠状态
+const showTagsSection = ref(false)
 const searchQuery = computed({
   get: () => videoStore.searchQuery,
   set: (val) => videoStore.searchQuery = val
@@ -109,27 +112,6 @@ const formatDuration = (seconds?: number): string => {
 
 <template>
   <div class="home-container">
-    <!-- 标签区域 - 移到最顶部 -->
-    <div class="tags-section">
-      <div class="tags-header">
-        <h3>标签筛选</h3>
-      </div>
-      <div class="tags-container">
-        <TagBadge
-          :tag="{ id: 0, name: '全部', video_count: 0 }"
-          :active="selectedTagId === null"
-          @click="() => videoStore.filterByTag(null)"
-        />
-        <TagBadge
-          v-for="tag in tags"
-          :key="tag.id"
-          :tag="tag"
-          :active="selectedTagId === tag.id"
-          @click="handleTagClick(tag)"
-        />
-      </div>
-    </div>
-
     <!-- 操作栏 - 移到顶部 -->
     <div class="action-bar">
       <div class="search-box">
@@ -177,6 +159,38 @@ const formatDuration = (seconds?: number): string => {
       </div>
       <div v-if="searchQuery" class="search-status">
         搜索: "{{ searchQuery }}" ({{ videos.length }} 个结果)
+      </div>
+    </div>
+
+    <!-- 标签筛选按钮 -->
+    <div class="tags-toggle-bar">
+      <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+          <line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>
+        {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
+        <span v-if="selectedTagId" class="selected-tag-name">
+          ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
+        </span>
+      </button>
+    </div>
+
+    <!-- 标签区域 - 可折叠 -->
+    <div v-if="showTagsSection" class="tags-section">
+      <div class="tags-container">
+        <TagBadge
+          :tag="{ id: 0, name: '全部', video_count: 0 }"
+          :active="selectedTagId === null"
+          @click="() => videoStore.filterByTag(null)"
+        />
+        <TagBadge
+          v-for="tag in tags"
+          :key="tag.id"
+          :tag="tag"
+          :active="selectedTagId === tag.id"
+          @click="handleTagClick(tag)"
+        />
       </div>
     </div>
 
@@ -248,6 +262,36 @@ const formatDuration = (seconds?: number): string => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 标签筛选折叠按钮 */
+.tags-toggle-bar {
+  margin-bottom: 16px;
+}
+
+.tags-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tags-toggle-btn:hover {
+  background: #333;
+  color: #fff;
+  border-color: #444;
+}
+
+.selected-tag-name {
+  color: #2196F3;
+  font-weight: 500;
 }
 
 /* 操作栏 */

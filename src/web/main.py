@@ -483,9 +483,15 @@ def get_videos():
         if search:
             query = query.filter(Video.title.ilike(f'%{search}%'))
 
-        # 标签筛选
+        # 标签筛选 - 支持父子标签继承（选择父标签时同时显示子标签的视频）
         if tag_id:
-            query = query.join(VideoTag).filter(VideoTag.tag_id == tag_id)
+            # 获取该标签及其所有子标签的ID
+            selected_tag = Tag.query.get(tag_id)
+            if selected_tag:
+                tag_ids = selected_tag.get_all_child_ids()
+                query = query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+            else:
+                query = query.join(VideoTag).filter(VideoTag.tag_id == tag_id)
 
         # ============ 重要：total 统计必须在权限过滤之后 ============
         # 获取总数（已应用权限过滤）
