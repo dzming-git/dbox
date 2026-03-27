@@ -12,7 +12,7 @@ const videoStore = useVideoStore()
 // 检查当前用户是否为管理员
 const isAdmin = computed(() => {
   const role = localStorage.getItem('userRole')
-  return role === '2' || role === '3'  // ADMIN=2, ROOT=3
+  return role === '1' || role === '0'  // ADMIN=1, ROOT=0
 })
 
 const video = ref<Video | null>(null)

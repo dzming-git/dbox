@@ -35,13 +35,16 @@ export const useVideoStore = defineStore('video', () => {
   
   const fetchVideos = async (reset = false) => {
     // 节流：如果最近刚获取过且不是强制刷新，跳过
-    if (reset && hasFetchedRecently()) return
+    // 注意：reset=true 时强制刷新，不受冷却时间限制
+    if (!reset && hasFetchedRecently()) return
     _lastFetchTime = Date.now()
     loading.value = true
     try {
       const params: any = {
         limit: pagination.value.limit,
-        offset: reset ? 0 : pagination.value.offset + 1,
+        // reset=true: 从头开始 (offset=0)
+        // reset=false: 继续加载 (使用当前 offset，不 +1)
+        offset: reset ? 0 : pagination.value.offset,
       }
       
       if (selectedTagId.value) {
