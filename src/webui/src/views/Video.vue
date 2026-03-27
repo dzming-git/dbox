@@ -1157,7 +1157,6 @@ const handleDelete = async () => {
               </button>
             </div>
           </div>
-        </template>
       </div>
 
       <!-- 标签编辑器对话框 -->
