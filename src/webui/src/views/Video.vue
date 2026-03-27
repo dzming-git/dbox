@@ -692,19 +692,34 @@ onUnmounted(() => {
   stopSyncLoop()
 })
 
-// 编辑视频
-const isEditing = ref(false)
-const editTitle = ref('')
-const editDescription = ref('')
-const editPriority = ref(0)
-const editTags = ref('')
-
-// 标签智能提示
-const tagSuggestions = ref<Tag[]>([])
-const showTagSuggestions = ref(false)
+// ============ 标签编辑器 ============
+const showTagEditor = ref(false)  // 是否显示标签编辑器
+const tagInput = ref('')  // 当前输入的标签
+const tagSuggestions = ref<Tag[]>([])  // 标签建议列表
+const showTagSuggestions = ref(false)  // 是否显示建议下拉框
 const tagInputRef = ref<HTMLInputElement | null>(null)
+const editingTagId = ref<number | null>(null)  // 正在编辑的标签ID
+const editingTagPath = ref('')  // 正在编辑的标签路径
 
-// 搜索标签 - 根据视频所在视频库筛选
+// 打开标签编辑器
+const openTagEditor = () => {
+  showTagEditor.value = true
+  tagInput.value = ''
+  tagSuggestions.value = []
+  showTagSuggestions.value = false
+}
+
+// 关闭标签编辑器
+const closeTagEditor = () => {
+  showTagEditor.value = false
+  tagInput.value = ''
+  tagSuggestions.value = []
+  showTagSuggestions.value = false
+  editingTagId.value = null
+  editingTagPath.value = ''
+}
+
+// 搜索标签 - 根据输入关键词匹配（支持从任意层级匹配）
 const searchTags = async (keyword: string) => {
   if (!keyword.trim()) {
     tagSuggestions.value = []
@@ -712,11 +727,9 @@ const searchTags = async (keyword: string) => {
   }
 
   try {
-    // 传递视频的 library_id 来筛选该视频库的标签
     const libraryId = video.value?.library_id
     const response = await tagApi.searchTags(keyword, libraryId || undefined) as any
     if (response.success) {
-      // 只显示与当前视频同一视频库的标签
       tagSuggestions.value = response.tags || []
     }
   } catch (e) {
@@ -729,12 +742,19 @@ const onTagInput = (event: Event) => {
   const target = event.target as HTMLInputElement
   const value = target.value
 
-  // 获取最后一个标签（当前正在输入的）
-  const tags = value.split(',').map(t => t.trim()).filter(t => t)
-  const currentTag = tags[tags.length - 1]
+  // 如果正在编辑某个标签
+  if (editingTagId.value !== null) {
+    editingTagPath.value = value
+    // 编辑模式下也支持搜索建议
+    searchTags(value)
+    showTagSuggestions.value = value.trim().length > 0
+    return
+  }
 
-  if (currentTag) {
-    searchTags(currentTag)
+  tagInput.value = value
+
+  if (value.trim()) {
+    searchTags(value)
     showTagSuggestions.value = true
   } else {
     tagSuggestions.value = []
@@ -744,11 +764,17 @@ const onTagInput = (event: Event) => {
 
 // 选择标签建议
 const selectTagSuggestion = (tag: Tag) => {
-  const tags = editTags.value.split(',').map(t => t.trim()).filter(t => t)
-  tags[tags.length - 1] = tag.path  // 使用完整路径
-  editTags.value = tags.join(', ')
-  showTagSuggestions.value = false
-  tagSuggestions.value = []
+  if (editingTagId.value !== null) {
+    // 编辑模式：更新标签路径
+    editingTagPath.value = tag.path
+    tagSuggestions.value = []
+    showTagSuggestions.value = false
+  } else {
+    // 添加模式：添加到列表
+    tagInput.value = tag.path
+    tagSuggestions.value = []
+    showTagSuggestions.value = false
+  }
 }
 
 // 隐藏建议框
@@ -758,58 +784,125 @@ const hideTagSuggestions = () => {
   }, 200)
 }
 
-const startEdit = () => {
-  if (!video.value) return
-  editTitle.value = video.value.title
-  editDescription.value = video.value.description || ''
-  editPriority.value = video.value.priority || 0
-  // 使用完整路径作为标签值
-  editTags.value = video.value.tags?.map(t => t.path || t.name).join(', ') || ''
-  isEditing.value = true
-}
-
-const cancelEdit = () => {
-  isEditing.value = false
-  tagSuggestions.value = []
+// 开始编辑标签
+const startEditTag = (tag: Tag) => {
+  editingTagId.value = tag.id
+  editingTagPath.value = tag.path || tag.name
   showTagSuggestions.value = false
 }
 
-const saveEdit = async () => {
+// 取消编辑标签
+const cancelEditTag = () => {
+  editingTagId.value = null
+  editingTagPath.value = ''
+}
+
+// 保存标签编辑
+const saveTagEdit = async () => {
+  if (!video.value || editingTagId.value === null) return
+
+  const newPath = editingTagPath.value.trim()
+  if (!newPath) {
+    cancelEditTag()
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    // 获取当前所有标签路径，替换正在编辑的标签
+    const currentTags = video.value.tags?.map(t => t.path || t.name) || []
+    const tagIndex = currentTags.findIndex((t: string) => t === video.value!.tags?.find(vt => vt.id === editingTagId.value)?.path)
+    if (tagIndex !== -1) {
+      currentTags[tagIndex] = newPath
+    }
+
+    const response = await fetch(`/api/video/${video.value.hash}/tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ tags: currentTags })
+    })
+
+    if (response.ok) {
+      // 重新获取视频信息
+      await refreshVideo()
+    }
+
+    cancelEditTag()
+  } catch (e) {
+    console.error('保存标签失败:', e)
+  }
+}
+
+// 删除标签
+const deleteTag = async (tag: Tag) => {
   if (!video.value) return
 
   try {
-    // 先保存基本信息
-    await videoStore.updateVideo(video.value.hash, {
-      title: editTitle.value,
-      description: editDescription.value,
-      priority: editPriority.value
+    const token = localStorage.getItem('token')
+    const response = await fetch(`/api/video/${video.value.hash}/tags`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ tag_path: tag.path || tag.name })
     })
 
-    // 保存标签 - 解析输入的标签路径
-    const tagPaths = editTags.value.split(',').map(t => t.trim()).filter(t => t)
-
-    // 调用专门的标签设置 API
-    const token = localStorage.getItem('token')
-    if (token && tagPaths.length > 0) {
-      await fetch(`/api/video/${video.value.hash}/tags`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ tags: tagPaths })
-      })
+    if (response.ok) {
+      // 重新获取视频信息
+      await refreshVideo()
     }
-
-    // 重新获取视频信息以更新标签显示
-    const response = await videoStore.fetchVideo(video.value.hash)
-    if (response && response.video) {
-      video.value = response.video
-    }
-
-    isEditing.value = false
   } catch (e) {
-    alert('保存失败')
+    console.error('删除标签失败:', e)
+  }
+}
+
+// 确认添加标签（输入框回车或点击添加按钮）
+const confirmAddTag = async () => {
+  if (!video.value) return
+
+  const newTag = tagInput.value.trim()
+  if (!newTag) {
+    // 空输入取消操作
+    tagInput.value = ''
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    // 获取当前所有标签路径，添加新标签
+    const currentTags = video.value.tags?.map(t => t.path || t.name) || []
+    if (!currentTags.includes(newTag)) {
+      currentTags.push(newTag)
+    }
+
+    const response = await fetch(`/api/video/${video.value.hash}/tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ tags: currentTags })
+    })
+
+    if (response.ok) {
+      tagInput.value = ''
+      await refreshVideo()
+    }
+  } catch (e) {
+    console.error('添加标签失败:', e)
+  }
+}
+
+// 重新获取视频信息
+const refreshVideo = async () => {
+  if (!video.value) return
+  const response = await videoStore.fetchVideo(video.value.hash)
+  if (response && response.video) {
+    video.value = response.video
   }
 }
 
@@ -919,90 +1012,37 @@ const handleDelete = async () => {
 
       <!-- 视频信息区域 -->
       <div class="video-info-section">
-        <!-- 编辑模式 -->
-        <div v-if="isEditing" class="edit-form" data-testid="video-edit-form">
-          <div class="form-group">
-            <label>视频标题</label>
-            <input 
-              v-model="editTitle" 
-              type="text" 
-              data-testid="video-title-input"
-              placeholder="输入视频标题"
-            />
-          </div>
-          <div class="form-group">
-            <label>视频描述</label>
-            <textarea 
-              v-model="editDescription" 
-              rows="4"
-              data-testid="video-description-input"
-              placeholder="输入视频描述"
-            ></textarea>
-          </div>
-          <div class="form-group">
-            <label>优先级 (0-100)</label>
-            <input 
-              v-model.number="editPriority" 
-              type="number" 
-              min="0" 
-              max="100"
-              data-testid="video-priority-input"
-            />
-          </div>
-          <div class="form-group">
-            <label>标签 (用逗号分隔，输入时自动匹配已有标签)</label>
-            <div class="tag-input-wrapper">
-              <input
-                ref="tagInputRef"
-                v-model="editTags"
-                type="text"
-                data-testid="tag-selector"
-                placeholder="输入标签关键词，系统会自动匹配该视频库中的已有标签"
-                @input="onTagInput"
-                @blur="hideTagSuggestions"
-              />
-              <!-- 标签智能提示下拉框 -->
-              <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
-                <div
-                  v-for="tag in tagSuggestions"
-                  :key="tag.id"
-                  class="tag-suggestion-item"
-                  @mousedown="selectTagSuggestion(tag)"
-                >
-                  <span class="suggestion-path">{{ tag.path }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="form-actions">
-            <button class="btn-secondary" @click="cancelEdit" data-testid="cancel-button">取消</button>
-            <button class="btn-primary" @click="saveEdit" data-testid="save-button">保存</button>
-          </div>
+        <!-- 查看模式 -->
+        <div class="video-title-row">
+          <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
         </div>
 
-        <!-- 查看模式 -->
-        <template v-else>
-          <div class="video-title-row">
-            <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
-          </div>
+        <div class="video-meta">
+          <span class="meta-item" data-testid="view-count">{{ video.view_count }} 次观看</span>
+          <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
+          <span class="meta-item" v-if="video.created_at">{{ new Date(video.created_at).toLocaleDateString() }}</span>
+          <span class="meta-item" v-if="video.priority > 0">优先级: {{ video.priority }}</span>
+        </div>
 
-          <div class="video-meta">
-            <span class="meta-item" data-testid="view-count">{{ video.view_count }} 次观看</span>
-            <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
-            <span class="meta-item" v-if="video.created_at">{{ new Date(video.created_at).toLocaleDateString() }}</span>
-            <span class="meta-item" v-if="video.priority > 0">优先级: {{ video.priority }}</span>
-          </div>
+        <p class="video-description" data-testid="video-description">
+          {{ video.description || '暂无描述' }}
+        </p>
 
-          <p class="video-description" data-testid="video-description">
-            {{ video.description || '暂无描述' }}
-          </p>
-
-          <!-- 标签 -->
+        <!-- 标签区域 -->
+        <div class="video-tags-section">
           <div class="video-tags" data-testid="video-tags" v-if="video.tags && video.tags.length > 0">
             <span v-for="tag in video.tags" :key="tag.id" class="tag-badge">
               {{ tag.name }}
             </span>
           </div>
+          <!-- 管理员：添加标签按钮 -->
+          <button v-if="isAdmin" class="tag-add-btn" @click="openTagEditor" title="添加标签">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
 
           <!-- 视频下方交互按钮 -->
           <div class="interaction-bar">
@@ -1107,13 +1147,6 @@ const handleDelete = async () => {
 
             <!-- 第二行：管理按钮 - 仅管理员可见 -->
             <div v-if="isAdmin" class="action-buttons">
-              <button class="action-btn edit-btn" @click="startEdit" data-testid="edit-button" title="编辑">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </button>
-
               <button class="action-btn delete-btn" @click="confirmDelete" data-testid="delete-button" title="删除">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="3 6 5 6 21 6"/>
@@ -1125,6 +1158,108 @@ const handleDelete = async () => {
             </div>
           </div>
         </template>
+      </div>
+
+      <!-- 标签编辑器对话框 -->
+      <div v-if="showTagEditor" class="dialog-overlay" @click.self="closeTagEditor">
+        <div class="dialog tag-editor-dialog">
+          <div class="dialog-header">
+            <h3>管理标签</h3>
+            <button class="close-btn" @click="closeTagEditor">&times;</button>
+          </div>
+
+          <div class="dialog-body">
+            <!-- 当前标签列表 -->
+            <div class="current-tags" v-if="video.tags && video.tags.length > 0">
+              <div v-for="tag in video.tags" :key="tag.id" class="tag-item">
+                <template v-if="editingTagId === tag.id">
+                  <!-- 编辑模式 -->
+                  <div class="tag-edit-row">
+                    <input
+                      ref="tagInputRef"
+                      v-model="editingTagPath"
+                      type="text"
+                      class="tag-edit-input"
+                      placeholder="输入标签路径，如：/动物/狗"
+                      @input="onTagInput"
+                      @keydown.enter="saveTagEdit"
+                      @keydown.escape="cancelEditTag"
+                    />
+                    <!-- 标签建议下拉框 -->
+                    <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
+                      <div
+                        v-for="sTag in tagSuggestions"
+                        :key="sTag.id"
+                        class="tag-suggestion-item"
+                        @mousedown="selectTagSuggestion(sTag)"
+                      >
+                        <span class="suggestion-path">{{ sTag.path }}</span>
+                      </div>
+                    </div>
+                    <button class="btn-icon" @click="saveTagEdit" title="保存">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </button>
+                    <button class="btn-icon" @click="cancelEditTag" title="取消">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                </template>
+                <template v-else>
+                  <!-- 查看模式 -->
+                  <span class="tag-name">{{ tag.path || tag.name }}</span>
+                  <div class="tag-actions">
+                    <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </button>
+                    <button class="btn-icon" @click="deleteTag(tag)" title="删除">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      </svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <p v-else class="no-tags">暂无标签</p>
+
+            <!-- 添加新标签 -->
+            <div class="add-tag-section">
+              <div class="tag-input-row">
+                <input
+                  v-model="tagInput"
+                  type="text"
+                  class="tag-input"
+                  placeholder="输入标签路径，如：/动物/狗（支持多级标签）"
+                  @input="onTagInput"
+                  @keydown.enter="confirmAddTag"
+                  @blur="hideTagSuggestions"
+                />
+                <button class="btn-primary" @click="confirmAddTag">添加</button>
+              </div>
+              <!-- 标签建议下拉框 -->
+              <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
+                <div
+                  v-for="sTag in tagSuggestions"
+                  :key="sTag.id"
+                  class="tag-suggestion-item"
+                  @mousedown="selectTagSuggestion(sTag)"
+                >
+                  <span class="suggestion-path">{{ sTag.path }}</span>
+                </div>
+              </div>
+            </div>
+            <p class="tag-hint">提示：输入标签关键词自动匹配，支持多级路径如 "/动物/狗"</p>
+          </div>
+        </div>
       </div>
 
       <!-- 删除确认对话框 -->
@@ -1698,6 +1833,207 @@ const handleDelete = async () => {
 .suggestion-path {
   color: #fff;
   font-size: 14px;
+}
+
+/* 标签区域 */
+.video-tags-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.video-tags-section .video-tags {
+  margin-bottom: 0;
+}
+
+.tag-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #333;
+  border: 1px dashed #555;
+  border-radius: 50%;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-add-btn:hover {
+  background: #444;
+  border-color: #666;
+  color: #fff;
+}
+
+/* 标签编辑器对话框 */
+.tag-editor-dialog {
+  width: 480px;
+  max-width: 90vw;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #333;
+  margin-bottom: 16px;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #fff;
+}
+
+.dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* 当前标签列表 */
+.current-tags {
+  margin-bottom: 20px;
+}
+
+.tag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #252525;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.tag-item .tag-name {
+  flex: 1;
+  color: #ccc;
+  font-size: 14px;
+}
+
+.tag-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tag-item:hover .tag-actions {
+  opacity: 1;
+}
+
+.tag-edit-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.tag-edit-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.tag-edit-input:focus {
+  outline: none;
+  border-color: #2196F3;
+}
+
+.no-tags {
+  color: #666;
+  text-align: center;
+  padding: 20px;
+  font-size: 14px;
+}
+
+/* 添加标签区域 */
+.add-tag-section {
+  padding-top: 16px;
+  border-top: 1px solid #333;
+  position: relative;
+}
+
+.tag-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.tag-input {
+  flex: 1;
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.tag-input:focus {
+  outline: none;
+  border-color: #2196F3;
+}
+
+.tag-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+/* 标签编辑器中的通用按钮样式 */
+.tag-editor-dialog .btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-editor-dialog .btn-icon:hover {
+  background: #333;
+  color: #fff;
+}
+
+.tag-editor-dialog .btn-primary {
+  padding: 8px 16px;
+  background: #2196F3;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.tag-editor-dialog .btn-primary:hover {
+  background: #1976D2;
 }
 
 .form-group input,
