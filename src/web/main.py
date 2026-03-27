@@ -52,14 +52,20 @@ import random
 import re
 from functools import wraps
 
-# 导入缩略图服务客户端
+# 导入总线客户端（封面生成器）
 try:
-    sys.path.insert(0, os.path.join(_SRC_DIR, 'thumbnail'))
-    from thumbnail_service_client import ThumbnailServiceClient
-    thumbnail_client = ThumbnailServiceClient()
-except ImportError as e:
-    thumbnail_client = None
-    print(f"[WARNING] 缩略图客户端导入失败: {e}")
+    sys.path.insert(0, os.path.join(_SRC_DIR, 'servicebus'))
+    from servicebus import BusClient
+    # 连接总线调用 thumbnaild
+    thumbnail_bus = BusClient(
+        'web',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
+except Exception as e:
+    thumbnail_bus = None
+    print(f"[WARNING] 总线客户端初始化失败: {e}")
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
@@ -190,7 +196,7 @@ def load_config():
         "supported_formats": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"],
         "default_tags": ["本地视频"],
         "default_priority": 0,
-        "ports": {"web": 8080, "thumbnail": 5001}
+        "ports": {"web": 8080, "thumbnail": "bus://127.0.0.1:15555"}
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -1671,19 +1677,18 @@ def get_thumbnail(video_hash):
                     abort(403)
 
         # 调用缩略图服务异步生成（后台线程，不阻塞当前请求）
-        if thumbnail_client:
+        if thumbnail_bus:
             video_path = video.local_path
             _hash = video_hash
 
             def _async_generate(vp, vh):
                 try:
-                    thumbnail_client.generate_thumbnail(
-                        video_path=vp,
-                        video_hash=vh,
-                        output_format='gif'
+                    thumbnail_bus.call_method(
+                        'com.dplayer.Thumbnaild', 'Generate',
+                        {'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
                     )
                 except Exception as e:
-                    log.debug('ERROR', f"后台缩略图生成失败: {e}")
+                    log.debug('ERROR', f"后台封面生成失败: {e}")
 
             threading.Thread(target=_async_generate, args=(video_path, _hash), daemon=True).start()
 
@@ -1724,10 +1729,13 @@ def get_thumbnail_status(video_hash):
             })
 
     # 文件不存在，查询缩略图服务任务状态
-    if thumbnail_client:
+    if thumbnail_bus:
         try:
             # 查询任务状态
-            result = thumbnail_client.get_task_status_by_hash(video_hash)
+            result = thumbnail_bus.call_method(
+                'com.dplayer.Thumbnaild', 'GetStatus',
+                {'video_hash': video_hash}
+            )
             if result and result.get('success'):
                 # 缩略图服务返回的数据格式: {success: true, task_id: ..., status: ..., progress: ...}
                 task_status = result.get('status', 'unknown')
@@ -1763,7 +1771,7 @@ def get_thumbnail_status(video_hash):
     # 没有找到任务，尝试自动触发生成
     try:
         video = Video.query.filter_by(hash=video_hash).first()
-        if video and video.local_path and thumbnail_client:
+        if video and video.local_path and thumbnail_bus:
             # 检查权限
             has_permission = True
             if video.library_id:
@@ -1805,20 +1813,19 @@ def get_thumbnail_status(video_hash):
                         if not has_group_perm:
                             has_permission = False
             
-            if has_permission:
+            if has_permission and thumbnail_bus:
                 # 提交生成任务（后台线程，不阻塞请求）
                 _vp = video.local_path
                 _vh = video_hash
 
                 def _async_gen(vp, vh):
                     try:
-                        thumbnail_client.generate_thumbnail(
-                            video_path=vp,
-                            video_hash=vh,
-                            output_format='gif'
+                        thumbnail_bus.call_method(
+                            'com.dplayer.Thumbnaild', 'Generate',
+                            {'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
                         )
                     except Exception as e:
-                        log.debug('ERROR', f"后台缩略图生成失败: {e}")
+                        log.debug('ERROR', f"后台封面生成失败: {e}")
 
                 threading.Thread(target=_async_gen, args=(_vp, _vh), daemon=True).start()
 
@@ -1880,12 +1887,11 @@ def regenerate_thumbnail(video_hash):
         return jsonify({'success': False, 'message': '视频不存在或无本地路径'}), 404
 
     # 调用缩略图服务重新生成
-    if thumbnail_client:
+    if thumbnail_bus:
         try:
-            result = thumbnail_client.generate_thumbnail(
-                video_path=video.local_path,
-                video_hash=video_hash,
-                output_format='gif'
+            result = thumbnail_bus.call_method(
+                'com.dplayer.Thumbnaild', 'Generate',
+                {'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'gif'}
             )
             if result and result.get('success'):
                 return jsonify({
@@ -3253,12 +3259,12 @@ def get_thumbnail_config():
         # 获取缩略图服务状态
         thumb_service_status = 'unknown'
         thumb_service_stats = None
-        if thumbnail_client:
+        if thumbnail_bus:
             try:
-                import requests as req
-                resp = req.get(f'{thumbnail_client.service_url}/metrics', timeout=3)
-                if resp.status_code == 200:
-                    thumb_service_stats = resp.json()
+                thumb_service_stats = thumbnail_bus.call_method(
+                    'com.dplayer.Thumbnaild', 'GetMetrics', {}
+                )
+                if thumb_service_stats:
                     thumb_service_status = 'running'
                 else:
                     thumb_service_status = 'error'
@@ -3381,16 +3387,15 @@ def _generate_missing_thumbnails(config=None):
 
     log.maintenance('INFO', f'发现 {len(missing_videos)} 个视频缺少缩略图，开始批量生成（并发数: {max_workers}，间隔: {task_interval}秒）')
 
-    if thumbnail_client:
-        # 使用缩略图微服务批量提交
+    if thumbnail_bus:
+        # 使用封面生成器批量提交
         import concurrent.futures
 
         def _submit_one(video):
             try:
-                thumbnail_client.generate_thumbnail(
-                    video_path=video.local_path,
-                    video_hash=video.hash,
-                    output_format='gif'
+                thumbnail_bus.call_method(
+                    'com.dplayer.Thumbnaild', 'Generate',
+                    {'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'gif'}
                 )
                 return (video.hash, True, None)
             except Exception as e:
@@ -3489,11 +3494,17 @@ _SERVICE_META = {
         'health_url': None,  # 自己就是 web 服务，特殊处理
         'port': 8080,
     },
+    'dplayer-bus': {
+        'display_name': 'DPlayer 服务总线',
+        'description': '服务总线代理，所有内部服务通信中枢',
+        'health_url': None,  # 无 HTTP，纯后台
+        'port': None,         # 无 HTTP 端口，纯总线通信
+    },
     'dplayer-thumbnail': {
         'display_name': 'DPlayer 缩略图服务',
-        'description': '视频缩略图生成微服务',
-        'health_url': 'http://localhost:5001/health',
-        'port': 5001,
+        'description': '视频缩略图生成微服务（通过服务总线）',
+        'health_url': None,  # 通过 ServiceBus 总线检查，不暴露 HTTP
+        'port': None,         # 无 HTTP 端口，纯总线通信
     },
     'dplayer-webui': {
         'display_name': 'DPlayer WebUI服务',

@@ -79,10 +79,18 @@ SERVICES = {
     'thumbnail': {
         'name': 'DPlayer-Thumbnail',
         'display_name': 'Thumbnail Service',
-        'port': config.get('ports', {}).get('thumbnail', 5001),
-        'script': os.path.join(BASEDIR, 'services', 'thumbnail_service.py'),
+        'port': None,  # 无 HTTP 端口，纯总线通信
+        'script': os.path.join(BASEDIR, 'services', 'thumbnaild.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'thumbnail_app.pid'),
         'service_name': 'DPlayer-Thumbnail',  # Windows服务名
+    },
+    'bus': {
+        'name': 'DPlayer-Bus',
+        'display_name': 'Bus Service',
+        'port': None,  # 无 HTTP 端口，纯总线通信
+        'script': os.path.join(BASEDIR, 'services', 'busbroker.py'),
+        'pid_file': os.path.join(BASEDIR, 'instance', 'busbroker.pid'),
+        'service_name': 'DPlayer-Bus',  # Windows服务名
     },
     'webui': {
         'name': 'DPlayer-WebUI (Vue3)',

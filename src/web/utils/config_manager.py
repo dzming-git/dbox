@@ -159,7 +159,7 @@ class ConfigManager:
             'max_content_length': 500 * 1024 * 1024,
             'thumbnail_service': {
                 'enabled': True,
-                'url': 'http://localhost:5001',
+                'url': 'bus://127.0.0.1:15555',  # 通过 ServiceBus 总线通信，无 HTTP
                 'fallback_enabled': True
             },
             'git': {
@@ -320,7 +320,7 @@ class ConfigManager:
         """获取缩略图服务配置"""
         return {
             'enabled': self.get('thumbnail_service.enabled', True),
-            'url': self.get('thumbnail_service.url', 'http://localhost:5001'),
+            'url': self.get('thumbnail_service.url', 'bus://127.0.0.1:15555'),
             'fallback_enabled': self.get('thumbnail_service.fallback_enabled', True)
         }
 

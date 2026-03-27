@@ -25,7 +25,7 @@ Dplayer2.0/
 ├── static/
 │   └── thumbnails/          # 缩略图存储
 ├── web.py                   # Web服务入口
-└── thumbnail_service.py     # 缩略图服务入口
+└── thumbnail_service.py     # 缩略图服务入口（已废弃，使用 configs/services/thumbnaild.py）
 ```
 
 ## 服务
@@ -36,7 +36,7 @@ Dplayer2.0/
 - 用户认证 API
 - 配置管理 API
 
-### 缩略图服务 (端口: 5001)
+### 缩略图服务（通过 ServiceBus 总线）
 - 缩略图生成
 - 缩略图查询
 - 任务队列管理
@@ -50,11 +50,17 @@ nssm set dplayer-web AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
 nssm set dplayer-web DisplayName "DPlayer Web服务"
 nssm set dplayer-web Start SERVICE_AUTO_START
 
-# 安装缩略图服务
-nssm install dplayer-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\thumbnail_service.py"
+# 安装缩略图服务（通过 ServiceBus 总线）
+nssm install dplayer-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\thumbnaild.py"
 nssm set dplayer-thumbnail AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
 nssm set dplayer-thumbnail DisplayName "DPlayer 缩略图服务"
 nssm set dplayer-thumbnail Start SERVICE_AUTO_START
+
+# 安装服务总线代理
+nssm install dplayer-bus "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\busbroker.py"
+nssm set dplayer-bus AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
+nssm set dplayer-bus DisplayName "DPlayer 服务总线"
+nssm set dplayer-bus Start SERVICE_AUTO_START
 
 # 启动服务
 nssm start dplayer-web
@@ -66,7 +72,6 @@ nssm start dplayer-thumbnail
 ```bash
 # 健康检查
 curl http://localhost:8080/health
-curl http://localhost:5001/health
 
 # 获取视频列表
 curl http://localhost:8080/api/videos
