@@ -1179,7 +1179,7 @@ const handleDelete = async () => {
                       v-model="editingTagPath"
                       type="text"
                       class="tag-edit-input"
-                      placeholder="输入标签路径，如：/动物/狗"
+                      placeholder="输入标签路径"
                       @input="onTagInput"
                       @keydown.enter="saveTagEdit"
                       @keydown.escape="cancelEditTag"
@@ -1237,7 +1237,7 @@ const handleDelete = async () => {
                   v-model="tagInput"
                   type="text"
                   class="tag-input"
-                  placeholder="输入标签路径，如：/动物/狗（支持多级标签）"
+                  placeholder="输入标签路径"
                   @input="onTagInput"
                   @keydown.enter="confirmAddTag"
                   @blur="hideTagSuggestions"
@@ -1837,7 +1837,8 @@ const handleDelete = async () => {
 /* 标签区域 */
 .video-tags-section {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 20px;
 }
@@ -1858,6 +1859,7 @@ const handleDelete = async () => {
   color: #888;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .tag-add-btn:hover {
