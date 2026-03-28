@@ -241,10 +241,10 @@ const formatDuration = (seconds?: number): string => {
 
 /* 标签区域 */
 .tags-section {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   background: #1a1a1a;
   border-radius: 12px;
-  padding: 16px;
+  padding: 12px 16px;
 }
 
 .tags-header {
@@ -260,8 +260,29 @@ const formatDuration = (seconds?: number): string => {
 
 .tags-container {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: 8px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tags-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tags-container::-webkit-scrollbar-track {
+  background: #252525;
+  border-radius: 2px;
+}
+
+.tags-container::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 2px;
+}
+
+.tags-container::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 /* 标签筛选折叠按钮 */
