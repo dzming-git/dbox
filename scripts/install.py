@@ -89,6 +89,38 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'user',
     },
+    'system': {
+        'service_name': 'dplayer-systemd',
+        'display_name': 'DPlayer 系统监控服务',
+        'description': 'DPlayer 系统监控服务 - 监控 CPU、内存、磁盘等系统资源',
+        'entry': 'src/system/main.py',
+        'port': None,
+        'log_prefix': 'system',
+    },
+    'history': {
+        'service_name': 'dplayer-historyd',
+        'display_name': 'DPlayer 播放历史服务',
+        'description': 'DPlayer 播放历史服务 - 记录播放进度、支持断点续播',
+        'entry': 'src/history/main.py',
+        'port': None,
+        'log_prefix': 'history',
+    },
+    'collection': {
+        'service_name': 'dplayer-collectiond',
+        'display_name': 'DPlayer 收藏夹服务',
+        'description': 'DPlayer 收藏夹服务 - 用户收藏视频、组织播放列表',
+        'entry': 'src/collection/main.py',
+        'port': None,
+        'log_prefix': 'collection',
+    },
+    'search': {
+        'service_name': 'dplayer-searchd',
+        'display_name': 'DPlayer 搜索服务',
+        'description': 'DPlayer 搜索服务 - 全文搜索、视频标签和描述检索',
+        'entry': 'src/search/main.py',
+        'port': None,
+        'log_prefix': 'search',
+    },
 }
 
 # ============================================================

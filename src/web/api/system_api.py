@@ -6,10 +6,10 @@ from flask import Blueprint, jsonify, current_app
 from datetime import datetime
 import os
 import sys
-from liblog import get_module_logger
+from liblog import get_service_logger
 from core.models import db, Video, Tag, User
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 # 创建蓝图
 system_bp = Blueprint('system', __name__, url_prefix='/api/system')
@@ -328,5 +328,180 @@ def trigger_sync():
         }), 500
 
 
-# 导入 logging
-from liblog import get_module_logger
+# ==================== 系统监控接口 ====================
+
+# 全局系统监控器（延迟初始化）
+_system_monitor = None
+
+
+def _get_system_monitor():
+    """获取系统监控器实例"""
+    global _system_monitor
+    if _system_monitor is None:
+        try:
+            # 添加 src 目录到 path
+            import sys as _sys
+            _src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if _src_dir not in _sys.path:
+                _sys.path.insert(0, _src_dir)
+
+            from system.monitor import SystemMonitor
+            _system_monitor = SystemMonitor(interval=2.0)
+            _system_monitor.start()
+            log.runtime('INFO', '系统监控器已初始化')
+        except ImportError as e:
+            log.debug('ERROR', f'无法导入系统监控模块: {e}')
+            return None
+        except Exception as e:
+            log.debug('ERROR', f'系统监控器初始化失败: {e}')
+            return None
+    return _system_monitor
+
+
+@system_bp.route('/metrics', methods=['GET'])
+def system_metrics():
+    """获取系统监控指标"""
+    try:
+        monitor = _get_system_monitor()
+        if monitor is None:
+            return jsonify({
+                'success': False,
+                'message': '系统监控模块不可用'
+            }), 503
+
+        metrics = monitor.get_current_metrics()
+        return jsonify({
+            'success': True,
+            'metrics': metrics.to_dict()
+        })
+    except Exception as e:
+        log.debug('ERROR', f"获取系统监控指标失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取系统监控指标失败: {str(e)}'
+        }), 500
+
+
+@system_bp.route('/metrics/cpu', methods=['GET'])
+def cpu_info():
+    """获取 CPU 信息"""
+    try:
+        monitor = _get_system_monitor()
+        if monitor is None:
+            return jsonify({
+                'success': False,
+                'message': '系统监控模块不可用'
+            }), 503
+
+        metrics = monitor.get_current_metrics()
+        cpu = metrics.cpu
+        return jsonify({
+            'success': True,
+            'cpu': {
+                'count': cpu.count,
+                'usage_percent': round(cpu.usage_percent, 1),
+                'per_core_usage': [round(u, 1) for u in cpu.per_core_usage],
+                'freq_current': cpu.freq_current,
+                'freq_max': cpu.freq_max,
+            }
+        })
+    except Exception as e:
+        log.debug('ERROR', f"获取CPU信息失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取CPU信息失败: {str(e)}'
+        }), 500
+
+
+@system_bp.route('/metrics/memory', methods=['GET'])
+def memory_info():
+    """获取内存信息"""
+    try:
+        monitor = _get_system_monitor()
+        if monitor is None:
+            return jsonify({
+                'success': False,
+                'message': '系统监控模块不可用'
+            }), 503
+
+        metrics = monitor.get_current_metrics()
+        mem = metrics.memory
+        return jsonify({
+            'success': True,
+            'memory': {
+                'total': mem.total,
+                'available': mem.available,
+                'used': mem.used,
+                'usage_percent': round(mem.usage_percent, 1),
+                'cached': mem.cached,
+            }
+        })
+    except Exception as e:
+        log.debug('ERROR', f"获取内存信息失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取内存信息失败: {str(e)}'
+        }), 500
+
+
+@system_bp.route('/metrics/disk', methods=['GET'])
+def disk_info():
+    """获取磁盘信息"""
+    try:
+        monitor = _get_system_monitor()
+        if monitor is None:
+            return jsonify({
+                'success': False,
+                'message': '系统监控模块不可用'
+            }), 503
+
+        metrics = monitor.get_current_metrics()
+        disks = [
+            {
+                'device': d.device,
+                'mount_point': d.mount_point,
+                'total': d.total,
+                'used': d.used,
+                'free': d.free,
+                'usage_percent': round(d.usage_percent, 1),
+                'fs_type': d.fs_type,
+            }
+            for d in metrics.disks
+        ]
+        return jsonify({
+            'success': True,
+            'disks': disks
+        })
+    except Exception as e:
+        log.debug('ERROR', f"获取磁盘信息失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取磁盘信息失败: {str(e)}'
+        }), 500
+
+
+@system_bp.route('/metrics/history', methods=['GET'])
+def metrics_history():
+    """获取监控历史数据"""
+    try:
+        limit = int(request.args.get('limit', 60))
+        monitor = _get_system_monitor()
+        if monitor is None:
+            return jsonify({
+                'success': False,
+                'message': '系统监控模块不可用'
+            }), 503
+
+        history = monitor.get_history(limit=limit)
+        return jsonify({
+            'success': True,
+            'history': [m.to_dict() for m in history],
+            'count': len(history)
+        })
+    except Exception as e:
+        log.debug('ERROR', f"获取监控历史失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取监控历史失败: {str(e)}'
+        }), 500
+

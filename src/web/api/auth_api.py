@@ -6,8 +6,8 @@ from flask import Blueprint, request, jsonify, session
 from core.models import db, User, UserRole, ROLE_NAMES
 from auth_service import AuthService
 from functools import wraps
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 # 创建蓝图
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')

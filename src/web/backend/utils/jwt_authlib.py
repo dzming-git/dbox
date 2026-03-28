@@ -5,8 +5,8 @@ import os
 from functools import wraps
 from flask import request, jsonify, g
 from typing import Optional, Dict, Any
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 # JWT配置 - 从环境变量读取，生产环境必须设置 DPLAYER_JWT_SECRET
 _DEFAULT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'

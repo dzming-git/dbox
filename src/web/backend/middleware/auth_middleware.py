@@ -3,8 +3,8 @@
 # 命中白名单的路由直接放行，其余 /api/* 路由需要有效的 Bearer Token。
 
 from flask import request, jsonify, g
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 # ──────────────────────────────────────────────
 # 白名单：匹配这些前缀/路径的请求直接放行，不需要鉴权

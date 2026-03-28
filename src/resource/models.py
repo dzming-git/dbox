@@ -26,6 +26,11 @@ class ScanMode(str, Enum):
     REALTIME = "realtime"
 
 
+class PathType(str, Enum):
+    FOLDER = "folder"
+    FILE = "file"
+
+
 # 数据库路径（主数据库）
 _DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'databases')
 _DB_PATH = os.path.join(_DB_DIR, 'resource.db')
@@ -89,10 +94,60 @@ class ResourceLibrary:
 
 
 @dataclass
+class ResourceFolder:
+    """文件夹/文件模型 - 视频库的下一级"""
+    id: Optional[int] = None
+    library_id: int = 0
+    name: str = ""
+    path: str = ""
+    path_type: PathType = PathType.FOLDER  # folder 或 file
+    is_active: bool = True
+    scan_mode: ScanMode = ScanMode.MANUAL
+    scan_interval: int = 60  # 分钟
+    last_scan_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'library_id': self.library_id,
+            'name': self.name,
+            'path': self.path,
+            'path_type': self.path_type.value if isinstance(self.path_type, Enum) else self.path_type,
+            'is_active': self.is_active,
+            'scan_mode': self.scan_mode.value if isinstance(self.scan_mode, Enum) else self.scan_mode,
+            'scan_interval': self.scan_interval,
+            'last_scan_at': self.last_scan_at.isoformat() if self.last_scan_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'ResourceFolder':
+        pt = d.get('path_type', 'folder')
+        sm = d.get('scan_mode', 'manual')
+        return cls(
+            id=d.get('id'),
+            library_id=d.get('library_id', 0),
+            name=d.get('name', ''),
+            path=d.get('path', ''),
+            path_type=PathType(pt) if isinstance(pt, str) else pt,
+            is_active=d.get('is_active', True),
+            scan_mode=ScanMode(sm) if isinstance(sm, str) else sm,
+            scan_interval=d.get('scan_interval', 60),
+            last_scan_at=datetime.fromisoformat(d['last_scan_at']) if d.get('last_scan_at') else None,
+            created_at=datetime.fromisoformat(d['created_at']) if d.get('created_at') else datetime.utcnow(),
+            updated_at=datetime.fromisoformat(d['updated_at']) if d.get('updated_at') else datetime.utcnow(),
+        )
+
+
+@dataclass
 class ResourceItem:
     """资源条目模型 - 以 hash 为索引"""
     id: Optional[int] = None
     library_id: int = 0
+    folder_id: Optional[int] = None  # 所属文件夹 ID
     hash: str = ""  # 文件内容 hash，作为唯一索引
     file_path: str = ""  # 文件相对路径（相对于库文件夹）
     file_name: str = ""  # 文件名
@@ -111,6 +166,7 @@ class ResourceItem:
         return {
             'id': self.id,
             'library_id': self.library_id,
+            'folder_id': self.folder_id,
             'hash': self.hash,
             'file_path': self.file_path,
             'file_name': self.file_name,
@@ -131,6 +187,7 @@ class ResourceItem:
         return cls(
             id=d.get('id'),
             library_id=d.get('library_id', 0),
+            folder_id=d.get('folder_id'),
             hash=d.get('hash', ''),
             file_path=d.get('file_path', ''),
             file_name=d.get('file_name', ''),
@@ -198,11 +255,30 @@ class Database:
                 )
             ''')
 
+            # 文件夹/文件表（中间层）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS resource_folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    library_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    path_type TEXT NOT NULL DEFAULT 'folder',
+                    is_active INTEGER DEFAULT 1,
+                    scan_mode TEXT DEFAULT 'manual',
+                    scan_interval INTEGER DEFAULT 60,
+                    last_scan_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (library_id) REFERENCES resource_libraries(id) ON DELETE CASCADE
+                )
+            ''')
+
             # 资源条目表（hash 为索引）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS resource_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     library_id INTEGER NOT NULL,
+                    folder_id INTEGER,
                     hash TEXT NOT NULL,
                     file_path TEXT NOT NULL,
                     file_name TEXT NOT NULL,
@@ -217,6 +293,7 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (library_id) REFERENCES resource_libraries(id) ON DELETE CASCADE,
+                    FOREIGN KEY (folder_id) REFERENCES resource_folders(id) ON DELETE SET NULL,
                     UNIQUE(library_id, hash)
                 )
             ''')
@@ -231,6 +308,18 @@ class Database:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_resource_items_library
                 ON resource_items(library_id)
+            ''')
+
+            # 创建 folder_id 索引
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_resource_items_folder
+                ON resource_items(folder_id)
+            ''')
+
+            # 创建 folders library_id 索引
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_resource_folders_library
+                ON resource_folders(library_id)
             ''')
 
 
@@ -368,6 +457,131 @@ class ResourceLibraryDB:
                     updated_at=datetime.fromisoformat(row['updated_at']),
                 )
             return None
+
+
+class ResourceFolderDB:
+    """文件夹数据库操作"""
+
+    @staticmethod
+    def create(folder: ResourceFolder) -> int:
+        """创建文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('''
+                INSERT INTO resource_folders
+                (library_id, name, path, path_type, is_active, scan_mode, scan_interval, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                folder.library_id,
+                folder.name,
+                folder.path,
+                folder.path_type.value if isinstance(folder.path_type, Enum) else folder.path_type,
+                1 if folder.is_active else 0,
+                folder.scan_mode.value if isinstance(folder.scan_mode, Enum) else folder.scan_mode,
+                folder.scan_interval,
+                folder.created_at.isoformat(),
+                folder.updated_at.isoformat(),
+            ))
+            return cursor.lastrowid
+
+    @staticmethod
+    def get_by_id(folder_id: int) -> Optional[ResourceFolder]:
+        """根据 ID 获取文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('SELECT * FROM resource_folders WHERE id = ?', (folder_id,))
+            row = cursor.fetchone()
+            if row:
+                return ResourceFolderDB._row_to_folder(row)
+            return None
+
+    @staticmethod
+    def get_by_library(library_id: int) -> List[ResourceFolder]:
+        """获取库的所有文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute(
+                'SELECT * FROM resource_folders WHERE library_id = ? ORDER BY name',
+                (library_id,)
+            )
+            rows = cursor.fetchall()
+            return [ResourceFolderDB._row_to_folder(row) for row in rows]
+
+    @staticmethod
+    def get_by_path(path: str, library_id: int = None) -> Optional[ResourceFolder]:
+        """根据路径获取文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            if library_id:
+                cursor.execute(
+                    'SELECT * FROM resource_folders WHERE path = ? AND library_id = ?',
+                    (path, library_id)
+                )
+            else:
+                cursor.execute('SELECT * FROM resource_folders WHERE path = ?', (path,))
+            row = cursor.fetchone()
+            if row:
+                return ResourceFolderDB._row_to_folder(row)
+            return None
+
+    @staticmethod
+    def update(folder: ResourceFolder) -> bool:
+        """更新文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('''
+                UPDATE resource_folders SET
+                    name = ?, path = ?, path_type = ?, is_active = ?,
+                    scan_mode = ?, scan_interval = ?, last_scan_at = ?, updated_at = ?
+                WHERE id = ?
+            ''', (
+                folder.name,
+                folder.path,
+                folder.path_type.value if isinstance(folder.path_type, Enum) else folder.path_type,
+                1 if folder.is_active else 0,
+                folder.scan_mode.value if isinstance(folder.scan_mode, Enum) else folder.scan_mode,
+                folder.scan_interval,
+                folder.last_scan_at.isoformat() if folder.last_scan_at else None,
+                datetime.utcnow().isoformat(),
+                folder.id,
+            ))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def delete(folder_id: int) -> bool:
+        """删除文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('DELETE FROM resource_folders WHERE id = ?', (folder_id,))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def get_item_count(folder_id: int) -> int:
+        """统计文件夹的资源数量"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute(
+                'SELECT COUNT(*) as cnt FROM resource_items WHERE folder_id = ? AND is_deleted = 0',
+                (folder_id,)
+            )
+            return cursor.fetchone()['cnt']
+
+    @staticmethod
+    def _row_to_folder(row: sqlite3.Row) -> ResourceFolder:
+        """将数据库行转换为 ResourceFolder 对象"""
+        return ResourceFolder(
+            id=row['id'],
+            library_id=row['library_id'],
+            name=row['name'],
+            path=row['path'],
+            path_type=row['path_type'],
+            is_active=bool(row['is_active']),
+            scan_mode=row['scan_mode'],
+            scan_interval=row['scan_interval'],
+            last_scan_at=datetime.fromisoformat(row['last_scan_at']) if row['last_scan_at'] else None,
+            created_at=datetime.fromisoformat(row['created_at']),
+            updated_at=datetime.fromisoformat(row['updated_at']),
+        )
 
 
 class ResourceItemDB:

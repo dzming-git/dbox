@@ -7,11 +7,11 @@ Dplayer 挂载配置管理模块
 
 import os
 import json
-from liblog import get_module_logger
+from liblog import get_service_logger
 from pathlib import Path
 from typing import Dict, List, Optional
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 
 class MountConfig:

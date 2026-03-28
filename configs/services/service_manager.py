@@ -14,7 +14,6 @@ import sys
 import json
 import time
 import subprocess
-from liblog import get_module_logger
 from pathlib import Path
 from datetime import datetime
 
@@ -55,8 +54,9 @@ LOG_DIR = os.path.join(BASEDIR, 'logs')
 
 # 配置日志
 os.makedirs(LOG_DIR, exist_ok=True)
-log = get_module_logger()if not logger.handlers:
-    handler =
+from liblog import get_service_logger, register_service
+register_service('dplayer-servicemgr')
+log = get_service_logger('dplayer-servicemgr')
 # Windows特定导入
 IS_WINDOWS = os.name == 'nt'
 if IS_WINDOWS:

@@ -44,8 +44,8 @@ from datetime import datetime, timedelta
 from urllib.parse import quote, unquote
 import json
 import threading
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 import time
 import hashlib
 import random
@@ -3022,10 +3022,12 @@ def get_system_logs():
     
     参数:
     - type: 日志类型 (maintenance/runtime/debug/operation)，默认 maintenance
+    - service: 服务名筛选（可选），如 'dplayer-web'
     - page: 页码，默认 1
     - limit: 每页条数，默认 20
     """
     log_type = request.args.get('type', 'maintenance').strip().lower()
+    service = request.args.get('service', '').strip() or None
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 20, type=int)
     
@@ -3050,7 +3052,9 @@ def get_system_logs():
             'page': page,
             'limit': limit,
             'total_pages': 0,
-            'type': log_type
+            'type': log_type,
+            'service': service,
+            'services': []
         })
     
     # 读取并解析日志文件
@@ -3065,6 +3069,7 @@ def get_system_logs():
         
         # 解析日志行
         parsed_logs = []
+        services_set = set()
         for line in lines:
             line = line.strip()
             if not line:
@@ -3072,7 +3077,13 @@ def get_system_logs():
             
             parsed = parse_log_line(line, log_type)
             if parsed:
+                # 按服务名筛选
+                if service and parsed.get('service') != service:
+                    continue
                 parsed_logs.append(parsed)
+                # 收集所有服务名
+                if parsed.get('service'):
+                    services_set.add(parsed['service'])
         
         # 倒序排列（最新在前）
         parsed_logs.reverse()
@@ -3091,7 +3102,9 @@ def get_system_logs():
             'page': page,
             'limit': limit,
             'total_pages': total_pages,
-            'type': log_type
+            'type': log_type,
+            'service': service,
+            'services': sorted(services_set)
         })
     
     except Exception as e:
@@ -3104,8 +3117,8 @@ def parse_log_line(line: str, log_type: str) -> dict | None:
     解析单行日志
     
     格式:
-    - maintenance/runtime/debug: [时间] | [等级] | [模块] | [内容]
-    - operation: [时间] | [IP] | [模块] | [内容]
+    - maintenance/runtime/debug: [时间] | [等级] | [服务] | [内容]
+    - operation: [时间] | [IP] | [服务] | [内容]
     """
     import re
     
@@ -3116,14 +3129,14 @@ def parse_log_line(line: str, log_type: str) -> dict | None:
     
     timestamp = match.group(1).strip()
     field2 = match.group(2).strip()  # 等级（或 IP）
-    module = match.group(3).strip()
+    service = match.group(3).strip()
     content = match.group(4).strip()
     
     return {
         'timestamp': timestamp,
         'level': field2 if log_type != 'operation' else '',
         'source': field2 if log_type == 'operation' else '',
-        'module': module,
+        'service': service,
         'content': content,
         'type': log_type
     }
@@ -3514,9 +3527,10 @@ def _scan_services() -> list:
     # 方法2: fallback 到 sc query 命令（权限要求较低）
     try:
         import subprocess
+        # Windows 上 sc 是 cmd 内置命令，需要 shell=True 才能正确执行
         result = subprocess.run(
-            ['sc', 'query', 'type=', 'service', 'state=', 'all'],
-            capture_output=True, text=True, timeout=30
+            'sc query type= service state= all',
+            capture_output=True, text=True, timeout=30, shell=True
         )
         if result.returncode == 0:
             # 解析 sc query 输出，查找 dplayer- 前缀的服务
@@ -3637,7 +3651,13 @@ def _get_service_status(service_name: str) -> dict:
                 proc = psutil.Process(info['pid'])
                 mem_info = proc.memory_info()
                 info['memory_mb'] = round(mem_info.rss / (1024 * 1024), 1)
-                info['cpu_percent'] = proc.cpu_percent(interval=0.5)
+                # 注意：cpu_percent() 不再使用 interval 参数避免阻塞
+                # 使用上一次的值（如果可用），否则设为 None
+                # 如果需要实时 CPU，需要单独的后台任务采集
+                try:
+                    info['cpu_percent'] = proc.cpu_percent(interval=None)
+                except Exception:
+                    info['cpu_percent'] = None
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 info['pid'] = None
     except ImportError:
@@ -3671,7 +3691,8 @@ def _check_service_health(service_name: str) -> dict:
     try:
         import requests
         start = time.time()
-        resp = requests.get(health_url, timeout=3)
+        # 减小超时到 1.5 秒，避免阻塞太久
+        resp = requests.get(health_url, timeout=1.5)
         latency = (time.time() - start) * 1000
 
         result['latency_ms'] = round(latency, 1)
@@ -3699,7 +3720,7 @@ def _check_service_health(service_name: str) -> dict:
             result['detail'] = f"HTTP {resp.status_code}"
     except requests.exceptions.Timeout:
         result['status'] = 'unhealthy'
-        result['detail'] = '超时（>3s）'
+        result['detail'] = '超时（>1.5s）'
     except requests.exceptions.ConnectionError:
         result['status'] = 'unhealthy'
         result['detail'] = '连接失败'
@@ -3713,83 +3734,89 @@ def _check_service_health(service_name: str) -> dict:
 @app.route('/api/admin/services', methods=['GET'])
 @admin_required
 def get_services():
-    """获取所有 dplayer 服务的状态（通过 servicemgrd 总线查询）"""
+    """
+    获取所有 dplayer 服务的状态。
+
+    架构说明：
+    - 优先通过总线向 servicemgrd 查询缓存的服务状态
+    - servicemgrd 后台每 5 秒扫描一次，API 请求不应重复扫描
+    - 如果总线不可用，返回静态服务列表（不调用 Windows API）
+    - 注意：每个请求创建独立的 BusClient，避免多线程共享 zmq socket 的问题
+    """
     import time
-    total_start = time.time()
+    bus_start = time.time()
+
+    # 1. 优先通过总线查询 servicemgrd 缓存的状态
+    # 注意：由于 zmq socket 不是线程安全的，每个请求创建独立的 BusClient
     try:
-        # 优先通过总线查询（异步获取，不阻塞）
-        if svc_mgr_bus:
-            bus_start = time.time()
-            try:
-                result = svc_mgr_bus.call_method(
-                    'com.dplayer.servicemgr',
-                    'com.dplayer.ServiceMgr',
-                    'ListServices',
-                    {},
-                    timeout=3000  # 3秒超时
-                )
-                bus_elapsed = (time.time() - bus_start) * 1000
-                log.debug('INFO', f'总线调用耗时: {bus_elapsed:.0f}ms, result={result is not None}')
-                if result and 'services' in result:
-                    # 转换总线返回的字段名以匹配前端期望
-                    services = []
-                    for svc in result['services']:
-                        services.append({
-                            'service_name': svc.get('name', ''),
-                            'display_name': svc.get('display_name', svc.get('name', '')),
-                            'description': svc.get('description', ''),
-                            'port': svc.get('port'),
-                            'system_status': svc.get('status', 'unknown'),
-                            'pid': svc.get('pid'),
-                            'memory_mb': svc.get('memory_mb'),
-                            'cpu_percent': svc.get('cpu_percent'),
-                            'health_status': svc.get('health_status', 'unknown'),
-                            'health_latency_ms': svc.get('latency_ms'),
-                            'health_detail': svc.get('description', ''),
-                        })
-                    return jsonify({
-                        'success': True,
-                        'services': services,
-                        'source': 'bus',
-                        'bus_time_ms': bus_elapsed,
-                    })
-            except Exception as e:
-                bus_elapsed = (time.time() - bus_start) * 1000
-                log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
+        from servicebus import BusClient
+        _svc_bus = BusClient(
+            f'web-svc-req-{id(time.time())}',
+            host='127.0.0.1',
+            rpc_port=15555,
+            pub_port=15556
+        )
+        result = _svc_bus.call_method(
+            'com.dplayer.servicemgr',
+            'com.dplayer.ServiceMgr',
+            'ListServices',
+            {},
+            timeout=3000  # 3秒超时，给 servicemgrd 足够的响应时间
+        )
+        bus_elapsed = (time.time() - bus_start) * 1000
 
-        # 降级：直接扫描（如果 servicemgrd 不可用）
-        nssm_services = _scan_services()
-        services = []
-
-        for svc_name in nssm_services:
-            sys_status = _get_service_status(svc_name)
-            svc_health = _check_service_health(svc_name) if sys_status['status'] in ('RUNNING', 'PAUSED') else {
-                'status': 'unknown', 'latency_ms': None, 'detail': '服务未运行'
-            }
-
-            meta = _SERVICE_META.get(svc_name, {})
-            services.append({
-                'service_name': svc_name,
-                'display_name': meta.get('display_name', svc_name),
-                'description': meta.get('description', ''),
-                'port': meta.get('port'),
-                'system_status': sys_status['status'],
-                'pid': sys_status['pid'],
-                'memory_mb': sys_status['memory_mb'],
-                'cpu_percent': sys_status['cpu_percent'],
-                'health_status': svc_health['status'],
-                'health_latency_ms': svc_health['latency_ms'],
-                'health_detail': svc_health['detail'],
+        if result and 'services' in result:
+            # 转换总线返回的字段名以匹配前端期望
+            services = []
+            for svc in result['services']:
+                services.append({
+                    'service_name': svc.get('name', ''),
+                    'display_name': svc.get('display_name', svc.get('name', '')),
+                    'description': svc.get('description', ''),
+                    'port': svc.get('port'),
+                    'system_status': svc.get('status', 'unknown'),
+                    'pid': svc.get('pid'),
+                    'memory_mb': svc.get('memory_mb'),
+                    'cpu_percent': svc.get('cpu_percent'),
+                    'health_status': svc.get('health_status', 'unknown'),
+                    'health_latency_ms': svc.get('latency_ms'),
+                    'health_detail': svc.get('description', ''),
+                })
+            return jsonify({
+                'success': True,
+                'services': services,
+                'source': 'bus',
+                'bus_time_ms': round(bus_elapsed, 1),
             })
-
-        return jsonify({
-            'success': True,
-            'services': services,
-            'source': 'direct',
-        })
     except Exception as e:
-        log.debug('ERROR', f'获取服务列表失败: {e}')
-        return jsonify({'success': False, 'message': str(e)}), 500
+        bus_elapsed = (time.time() - bus_start) * 1000
+        log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
+
+    # 2. Fallback：如果总线不可用，返回静态服务列表（不调用 Windows API 扫描）
+    # 这是正确的架构：不应该在 API 请求时重新扫描服务，应该信任 servicemgrd 的缓存
+    log.debug('WARN', 'servicemgrd 不可用，返回静态服务列表')
+    services = []
+    for svc_name, meta in _SERVICE_META.items():
+        services.append({
+            'service_name': svc_name,
+            'display_name': meta.get('display_name', svc_name),
+            'description': meta.get('description', ''),
+            'port': meta.get('port'),
+            'system_status': 'unknown',  # 静态列表不知道运行时状态
+            'pid': None,
+            'memory_mb': None,
+            'cpu_percent': None,
+            'health_status': 'unknown',
+            'health_latency_ms': None,
+            'health_detail': '服务管理器不可用',
+        })
+
+    return jsonify({
+        'success': True,
+        'services': services,
+        'source': 'static',  # 明确标识这是静态列表，不是实时扫描
+        'warning': 'servicemgrd 不可用，状态可能不是最新的',
+    })
 
 
 @app.route('/api/admin/services/<service_name>/control', methods=['POST'])
@@ -3895,11 +3922,12 @@ if __name__ == '__main__':
     port = app_config.get('ports', {}).get('web', 8080)
     
     if is_dev_mode:
-        print(f"[DEV MODE] Starting DPlayer Web service on port {port} with hot reload")
+        print(f"[DEV MODE] Starting DPlayer Web service on port {port}")
         print(f"[DEV MODE] Access at: http://localhost:{port}")
         log.runtime('INFO', f'DPlayer Web 服务（开发模式）启动于端口 {port}')
-        # 开发模式：启用 debug 和 use_reloader
-        app.run(host='0.0.0.0', port=port, debug=True, use_reloader=True, threaded=True)
+        # 注意：禁用 use_reloader，因为 zmq socket 与 Flask reloader 不兼容
+        # 代码变化后需要手动重启服务
+        app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False, threaded=True)
     else:
         print(f"[PRODUCTION] Starting DPlayer Web service on port {port}")
         log.runtime('INFO', f'DPlayer Web 服务启动于端口 {port}')

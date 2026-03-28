@@ -1,13 +1,13 @@
 # 前端API适配层 - 统一API接口
 from flask import Blueprint, request, jsonify, g
 from core.models import db, Video, Tag, VideoTag
-from liblog import get_module_logger
+from liblog import get_service_logger
 from functools import wraps
 import os
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 frontend_bp = Blueprint('frontend', __name__, url_prefix='/api')
 
@@ -257,11 +257,8 @@ def upload_video():
                 tag = Tag.query.filter_by(name=tag_name).first()
                 if not tag:
                     # 创建新标签
-                    tag = Tag(
-                        name=tag_name,
-                        color=get_random_color(),
-                        description=''
-                    )
+                    tag = Tag(name=tag_name, category='类型')
+                    tag.path = f'/{tag_name}'  # 计算完整路径
                     db.session.add(tag)
                     db.session.flush()
 
@@ -363,7 +360,8 @@ def update_video(video_id):
                     # 查找或创建标签
                     tag = Tag.query.filter_by(name=tag_name).first()
                     if not tag:
-                        tag = Tag(name=tag_name)
+                        tag = Tag(name=tag_name, category='类型')
+                        tag.path = f'/{tag_name}'  # 计算完整路径
                         db.session.add(tag)
                         db.session.flush()  # 获取tag.id
 

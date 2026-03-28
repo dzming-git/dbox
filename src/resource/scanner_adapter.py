@@ -57,15 +57,17 @@ if _SRC_DIR not in sys.path:
 # 支持直接运行和模块导入
 try:
     from .models import (
-        ResourceLibrary, ResourceLibraryDB, ResourceItem, ResourceItemDB,
-        ResourceType, ScanMode, Database
+        ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
+        ResourceItem, ResourceItemDB,
+        ResourceType, ScanMode, PathType, Database
     )
     from .indexer import MediaIndexer
     from .watcher import LibraryWatcher
 except ImportError:
     from resource.models import (
-        ResourceLibrary, ResourceLibraryDB, ResourceItem, ResourceItemDB,
-        ResourceType, ScanMode, Database
+        ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
+        ResourceItem, ResourceItemDB,
+        ResourceType, ScanMode, PathType, Database
     )
     from resource.indexer import MediaIndexer
     from resource.watcher import LibraryWatcher
@@ -179,6 +181,223 @@ class BusResourceAdapter(BaseDBusService):
 
             ResourceLibraryDB.update(library)
             return {'success': True, 'library': library.to_dict()}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    # ============ 文件夹管理 ============
+
+    def on_method_list_folders(self, params: Dict[str, Any]) -> Dict:
+        """列出资源库的所有文件夹"""
+        try:
+            library_id = params.get('library_id')
+            if not library_id:
+                return {'success': False, 'error': '缺少 library_id'}
+
+            folders = ResourceFolderDB.get_by_library(library_id)
+
+            # 为每个文件夹添加资源数量
+            result = []
+            for folder in folders:
+                folder_dict = folder.to_dict()
+                folder_dict['item_count'] = ResourceFolderDB.get_item_count(folder.id)
+                result.append(folder_dict)
+
+            return {
+                'success': True,
+                'folders': result,
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_add_folder(self, params: Dict[str, Any]) -> Dict:
+        """添加文件夹/文件到资源库"""
+        try:
+            library_id = params.get('library_id')
+            name = params.get('name', '').strip()
+            path = params.get('path', '').strip()
+            path_type = params.get('path_type', 'folder')
+
+            if not library_id:
+                return {'success': False, 'error': '缺少 library_id'}
+            if not name or not path:
+                return {'success': False, 'error': '名称和路径不能为空'}
+
+            # 检查库是否存在
+            library = ResourceLibraryDB.get_by_id(library_id)
+            if not library:
+                return {'success': False, 'error': '库不存在'}
+
+            # 检查路径是否存在
+            if path_type == 'folder' and not os.path.isdir(path):
+                return {'success': False, 'error': '文件夹路径不存在'}
+            if path_type == 'file' and not os.path.isfile(path):
+                return {'success': False, 'error': '文件路径不存在'}
+
+            # 检查是否已存在同名文件夹
+            existing = ResourceFolderDB.get_by_path(path, library_id)
+            if existing:
+                return {'success': False, 'error': '该路径已添加'}
+
+            folder = ResourceFolder(
+                library_id=library_id,
+                name=name,
+                path=path,
+                path_type=PathType(path_type),
+            )
+            folder_id = ResourceFolderDB.create(folder)
+
+            return {
+                'success': True,
+                'folder_id': folder_id,
+                'folder': folder.to_dict(),
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_remove_folder(self, params: Dict[str, Any]) -> Dict:
+        """从资源库移除文件夹"""
+        try:
+            folder_id = params.get('folder_id')
+            if not folder_id:
+                return {'success': False, 'error': '缺少 folder_id'}
+
+            folder = ResourceFolderDB.get_by_id(folder_id)
+            if not folder:
+                return {'success': False, 'error': '文件夹不存在'}
+
+            success = ResourceFolderDB.delete(folder_id)
+            return {'success': success}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_update_folder(self, params: Dict[str, Any]) -> Dict:
+        """更新文件夹配置"""
+        try:
+            folder_id = params.get('folder_id')
+            if not folder_id:
+                return {'success': False, 'error': '缺少 folder_id'}
+
+            folder = ResourceFolderDB.get_by_id(folder_id)
+            if not folder:
+                return {'success': False, 'error': '文件夹不存在'}
+
+            if 'name' in params:
+                folder.name = params['name'].strip()
+            if 'path' in params:
+                folder.path = params['path'].strip()
+            if 'is_active' in params:
+                folder.is_active = params['is_active']
+            if 'scan_mode' in params:
+                folder.scan_mode = ScanMode(params['scan_mode'])
+            if 'scan_interval' in params:
+                folder.scan_interval = params['scan_interval']
+
+            ResourceFolderDB.update(folder)
+            return {'success': True, 'folder': folder.to_dict()}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_scan_folder(self, params: Dict[str, Any]) -> Dict:
+        """扫描单个文件夹"""
+        try:
+            folder_id = params.get('folder_id')
+            if not folder_id:
+                return {'success': False, 'error': '缺少 folder_id'}
+
+            folder = ResourceFolderDB.get_by_id(folder_id)
+            if not folder:
+                return {'success': False, 'error': '文件夹不存在'}
+
+            if folder.path_type == 'file':
+                if not os.path.isfile(folder.path):
+                    return {'success': False, 'error': '文件不存在'}
+                # 单文件扫描
+                result = self._scan_single_file(folder)
+            else:
+                if not os.path.isdir(folder.path):
+                    return {'success': False, 'error': '文件夹不存在'}
+                # 文件夹扫描
+                result = self._scan_folder(folder)
+
+            # 更新文件夹扫描时间
+            folder.last_scan_at = datetime.utcnow()
+            ResourceFolderDB.update(folder)
+
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def _scan_single_file(self, folder: ResourceFolder) -> Dict:
+        """扫描单个文件"""
+        try:
+            indexer = MediaIndexer()
+            result = indexer.scan_file(folder.path, folder.library_id, folder.id)
+
+            if result.get('hash'):
+                item = ResourceItem(
+                    library_id=folder.library_id,
+                    folder_id=folder.id,
+                    hash=result['hash'],
+                    file_path=result['file_path'],
+                    file_name=result['file_name'],
+                    file_ext=result['file_ext'],
+                    file_size=result['file_size'],
+                    mime_type=result.get('mime_type', ''),
+                    width=result.get('width'),
+                    height=result.get('height'),
+                    duration=result.get('duration'),
+                    metadata=result.get('metadata', {}),
+                )
+                ResourceItemDB.upsert(item)
+                return {
+                    'success': True,
+                    'stats': {
+                        'total': 1,
+                        'videos': 1 if item.file_ext.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.wmv'] else 0,
+                        'images': 1 if item.file_ext.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'] else 0,
+                        'items_added': 1,
+                    }
+                }
+            return {'success': True, 'stats': {'total': 0, 'items_added': 0}}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def _scan_folder(self, folder: ResourceFolder) -> Dict:
+        """扫描文件夹"""
+        try:
+            indexer = MediaIndexer()
+            result = indexer.scan_directory(folder.path, folder.library_id, folder.id)
+
+            items_added = 0
+            for item_info in result.get('items', []):
+                item = ResourceItem(
+                    library_id=folder.library_id,
+                    folder_id=folder.id,
+                    hash=item_info['hash'],
+                    file_path=item_info['file_path'],
+                    file_name=item_info['file_name'],
+                    file_ext=item_info['file_ext'],
+                    file_size=item_info['file_size'],
+                    mime_type=item_info['mime_type'],
+                    width=item_info.get('width'),
+                    height=item_info.get('height'),
+                    duration=item_info.get('duration'),
+                    metadata=item_info.get('metadata', {}),
+                )
+                ResourceItemDB.upsert(item)
+                items_added += 1
+
+            return {
+                'success': True,
+                'stats': {
+                    'total': result['total'],
+                    'videos': result['videos'],
+                    'images': result['images'],
+                    'galleries': result['galleries'],
+                    'unknown': result['unknown'],
+                    'items_added': items_added,
+                }
+            }
         except Exception as e:
             return {'success': False, 'error': str(e)}
 

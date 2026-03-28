@@ -12,13 +12,13 @@
 
 import os
 import sys
-from liblog import get_module_logger
+from liblog import get_service_logger
 import subprocess
 import socket
 import platform
 
 # 创建日志记录器
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 
 class SystemOptimizer:

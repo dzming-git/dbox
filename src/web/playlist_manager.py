@@ -4,13 +4,13 @@
 播放列表管理模块
 """
 
-from liblog import get_module_logger
+from liblog import get_service_logger
 from datetime import datetime
 from typing import List, Optional, Dict
 from core.models import db, Playlist, PlaylistItem, Video
 from sqlalchemy import desc, asc
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 
 class PlaylistManager:

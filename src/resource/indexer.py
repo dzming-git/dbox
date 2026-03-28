@@ -120,7 +120,7 @@ class MediaIndexer:
         return None
 
     @classmethod
-    def index_file(cls, file_path: str, library_id: int) -> Optional[Dict[str, Any]]:
+    def index_file(cls, file_path: str, library_id: int, folder_id: int = None) -> Optional[Dict[str, Any]]:
         """为单个文件建立索引"""
         if not os.path.isfile(file_path):
             return None
@@ -137,6 +137,7 @@ class MediaIndexer:
 
         return {
             'library_id': library_id,
+            'folder_id': folder_id,
             'hash': file_hash,
             'file_path': file_path,
             'file_name': os.path.basename(file_path),
@@ -151,7 +152,12 @@ class MediaIndexer:
         }
 
     @classmethod
-    def scan_directory(cls, directory: str, library_id: int) -> Dict[str, Any]:
+    def scan_file(cls, file_path: str, library_id: int, folder_id: int = None) -> Optional[Dict[str, Any]]:
+        """扫描单个文件"""
+        return cls.index_file(file_path, library_id, folder_id)
+
+    @classmethod
+    def scan_directory(cls, directory: str, library_id: int, folder_id: int = None) -> Dict[str, Any]:
         """扫描目录，返回所有文件的索引信息"""
         stats = {'total': 0, 'videos': 0, 'images': 0, 'galleries': 0, 'unknown': 0}
         items = []
@@ -160,7 +166,7 @@ class MediaIndexer:
             for filename in files:
                 file_path = os.path.join(root, filename)
                 try:
-                    info = cls.index_file(file_path, library_id)
+                    info = cls.index_file(file_path, library_id, folder_id)
                     if info:
                         stats['total'] += 1
                         rtype = info['resource_type']

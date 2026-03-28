@@ -82,8 +82,8 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 # ========== 日志配置 ==========
 
 # 配置日志（使用 liblog 统一日志）
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-thumbnail')
 logger = log
 error_log = log
 debug_log = log

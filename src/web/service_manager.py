@@ -6,7 +6,7 @@ import os
 import sys
 import time
 import subprocess
-from liblog import get_module_logger
+from liblog import get_service_logger
 from pathlib import Path
 from datetime import datetime
 
@@ -36,7 +36,7 @@ BASEDIR = str(PROJECT_DIR)
 LOG_DIR = os.path.join(BASEDIR, 'logs')
 
 # 配置日志（使用 liblog 统一日志）
-log = get_module_logger()
+log = get_service_logger('dplayer-servicemgr')
 
 
 # ============================================================

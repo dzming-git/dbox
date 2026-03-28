@@ -8,8 +8,8 @@
 from flask import Blueprint, jsonify, request, abort
 from core.models import db, Playlist, PlaylistItem, Video
 from datetime import datetime
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 playlist_bp = Blueprint('playlist', __name__, url_prefix='/api/playlist')
 

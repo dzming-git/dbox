@@ -5,8 +5,8 @@ from backend.utils.jwt_authlib import create_access_token, create_refresh_token,
 from backend.utils.validators import validate_username, validate_password, validate_email
 from authlib.common.security import generate_token
 import datetime
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 auth_v2_bp = Blueprint('auth_v2', __name__, url_prefix='/api/v2/auth')
 

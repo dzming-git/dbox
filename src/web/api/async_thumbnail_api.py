@@ -10,8 +10,8 @@ from core.models import db, Video
 from config.tasks import generate_thumbnail, batch_generate_thumbnails, regenerate_thumbnail, check_thumbnail_status
 from celery.result import AsyncResult
 from datetime import datetime
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 async_thumbnail_bp = Blueprint('async_thumbnail', __name__, url_prefix='/api/thumbnail')
 

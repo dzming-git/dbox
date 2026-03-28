@@ -13,10 +13,10 @@
 import requests
 import os
 import time
-from liblog import get_module_logger
+from liblog import get_service_logger
 from datetime import datetime
 
-log = get_module_logger()
+log = get_service_logger('dplayer-thumbnail')
 
 
 class ThumbnailServiceClient:

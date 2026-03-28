@@ -4,8 +4,8 @@
 """
 import psutil
 import socket
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 
 def is_port_in_use(port):

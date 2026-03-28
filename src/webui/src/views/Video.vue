@@ -707,6 +707,10 @@ const tagBreadcrumbs = ref<any[]>([])  // 面包屑导航
 
 // 打开标签编辑器
 const openTagEditor = async () => {
+  // 暂停视频播放，防止视频覆盖对话框
+  if (videoPlayer.value) {
+    videoPlayer.value.pause()
+  }
   showTagEditor.value = true
   tagInput.value = ''
   tagSuggestions.value = []
@@ -717,6 +721,8 @@ const openTagEditor = async () => {
   tagBreadcrumbs.value = []
   // 加载所有标签树
   await loadAllTagsTree()
+  // 锁定背景滚动，防止手机端可以滑动页面
+  document.body.style.overflow = 'hidden'
 }
 
 // 关闭标签编辑器
@@ -729,6 +735,8 @@ const closeTagEditor = () => {
   editingTagPath.value = ''
   selectedTagPath.value = ''
   tagBreadcrumbs.value = []
+  // 恢复背景滚动
+  document.body.style.overflow = ''
 }
 
 // 加载所有标签构建树形结构
@@ -898,6 +906,16 @@ const hideTagSuggestions = () => {
   setTimeout(() => {
     showTagSuggestions.value = false
   }, 200)
+}
+
+// 处理输入框失去焦点
+const onTagInputFocusOut = (event: FocusEvent) => {
+  const relatedTarget = event.relatedTarget as HTMLElement
+  // 如果焦点转移到推荐框或slash按钮，不隐藏推荐框
+  if (relatedTarget && (relatedTarget.classList.contains('tag-suggestion-item') || relatedTarget.classList.contains('slash-btn'))) {
+    return
+  }
+  showTagSuggestions.value = false
 }
 
 // 开始编辑标签
@@ -1358,7 +1376,7 @@ const handleDelete = async () => {
                   placeholder="输入标签名称"
                   @input="onTagInput"
                   @keydown.enter="confirmAddTag"
-                  @blur="hideTagSuggestions"
+                  @focusout="onTagInputFocusOut"
                 />
                 <button class="slash-btn" @click="insertSlash" title="插入分级符">/</button>
               </div>
@@ -1369,7 +1387,7 @@ const handleDelete = async () => {
                   v-for="sTag in tagSuggestions"
                   :key="sTag.id"
                   class="tag-suggestion-item"
-                  @mousedown="selectTagSuggestion(sTag)"
+                  @click="selectTagSuggestion(sTag)"
                 >
                   <span class="suggestion-path">{{ sTag.path }}</span>
                 </div>
@@ -1382,51 +1400,56 @@ const handleDelete = async () => {
               </div>
 
               <!-- 当前视频的标签列表（可编辑） -->
-              <div class="video-tags-list" v-if="video.tags && video.tags.length > 0">
+              <div class="video-tags-list">
                 <div class="video-tags-list-header">视频标签</div>
-                <div v-for="tag in video.tags" :key="tag.id" class="tag-item">
-                  <template v-if="editingTagId === tag.id">
-                    <div class="tag-edit-row">
-                      <input
-                        ref="tagInputRef"
-                        v-model="editingTagPath"
-                        type="text"
-                        class="tag-edit-input"
-                        placeholder="输入标签路径"
-                        @input="onTagInput"
-                        @keydown.enter="saveTagEdit"
-                        @keydown.escape="cancelEditTag"
-                      />
-                      <button class="btn-icon" @click="saveTagEdit" title="保存">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                      </button>
-                      <button class="btn-icon" @click="cancelEditTag" title="取消">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <line x1="18" y1="6" x2="6" y2="18"/>
-                          <line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <span class="tag-name">{{ tag.path || tag.name }}</span>
-                    <div class="tag-actions">
-                      <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button class="btn-icon" @click="deleteTag(tag)" title="删除">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </template>
+                <div v-if="video.tags && video.tags.length > 0">
+                  <div v-for="tag in video.tags" :key="tag.id" class="tag-item">
+                    <template v-if="editingTagId === tag.id">
+                      <div class="tag-edit-row">
+                        <input
+                          ref="tagInputRef"
+                          v-model="editingTagPath"
+                          type="text"
+                          class="tag-edit-input"
+                          placeholder="输入标签路径"
+                          @input="onTagInput"
+                          @keydown.enter="saveTagEdit"
+                          @keydown.escape="cancelEditTag"
+                        />
+                        <button class="btn-icon" @click="saveTagEdit" title="保存">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        </button>
+                        <button class="btn-icon" @click="cancelEditTag" title="取消">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span class="tag-name">{{ tag.path || tag.name }}</span>
+                      <div class="tag-actions" v-if="isAdmin">
+                        <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                          </svg>
+                        </button>
+                        <button class="btn-icon" @click="deleteTag(tag)" title="删除">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <div v-else class="no-video-tags">
+                  <span>该视频暂无标签</span>
                 </div>
               </div>
             </div>
@@ -1578,6 +1601,8 @@ const handleDelete = async () => {
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
+  isolation: isolate;
+  z-index: 1;
 }
 
 .video-element {
@@ -1980,7 +2005,7 @@ const handleDelete = async () => {
   border-radius: 0 0 8px 8px;
   max-height: 200px;
   overflow-y: auto;
-  z-index: 100;
+  z-index: 10001;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -2043,9 +2068,9 @@ const handleDelete = async () => {
 
 /* 标签编辑器对话框 */
 .tag-editor-dialog {
-  width: 640px;
+  width: 800px;
   max-width: 95vw;
-  max-height: 80vh;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
 }
@@ -2551,7 +2576,7 @@ const handleDelete = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 10000;
 }
 
 .dialog {
@@ -2793,10 +2818,19 @@ const handleDelete = async () => {
   .tag-editor-dialog {
     width: 100vw;
     max-width: 100vw;
-    height: 90vh;
-    max-height: 90vh;
+    height: 85vh;
+    max-height: 85vh;
     margin: 0;
     border-radius: 0;
+    z-index: 100001;
+    position: fixed;
+    top: 0;
+    left: 0;
+  }
+
+  /* 移动端：对话框打开时隐藏视频，防止 video 元素提升层级覆盖对话框 */
+  .video-page:has(.tag-editor-dialog) .video-player-container {
+    visibility: hidden;
   }
 
   .tag-editor-body {
@@ -2809,7 +2843,7 @@ const handleDelete = async () => {
     border-bottom: 1px solid #333;
     padding-right: 0;
     padding-bottom: 12px;
-    max-height: 30vh;
+    max-height: 20vh;
   }
 
   .tag-tree-container {
@@ -2841,7 +2875,7 @@ const handleDelete = async () => {
   }
 
   .video-tags-list {
-    max-height: 25vh;
+    max-height: 20vh;
   }
 }
 </style>

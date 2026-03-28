@@ -22,14 +22,17 @@ for _p in [_SRC_DIR, _CONFIGS_DIR]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from liblog import get_module_logger
+from liblog import get_service_logger, register_service
 from launcher_guard import check_service_launch
 check_service_launch('DPlayer WebUI Service', 'configs/services/webui_service.py')
+
+# 注册服务
+register_service('dplayer-webui')
 
 # 配置日志
 LOG_DIR = os.path.join(_DATA_DIR, 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
-log = get_module_logger()
+log = get_service_logger('dplayer-webui')
 
 # 前端目录
 FRONTEND_DIR = os.path.join(_SRC_DIR, 'webui')

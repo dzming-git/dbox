@@ -110,3 +110,19 @@ _archived/
 .workbuddy/
 .playwright-cli/
 .codebuddy/
+
+# ============================================
+# 测试文件和临时脚本
+# ============================================
+test_*.py
+check_*.py
+run_check.bat
+scripts/migrate_*.py
+scripts/fix_*.py
+scripts/verify_*.py
+scripts/init_*.py
+scripts/demo_*.py
+scripts/export_*.py
+scripts/backup_*.py
+scripts/restore_*.py
+scripts/clean_*.py

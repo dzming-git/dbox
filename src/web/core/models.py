@@ -425,15 +425,22 @@ class VideoLibrary(db.Model):
     def full_db_path(self):
         """获取完整的数据库文件绝对路径（运行时动态拼接，不依赖存储的绝对路径）"""
         import os
-        # 优先从环境变量获取 data 目录，其次用相对 main.py 的标准路径
+        # 优先从环境变量获取 data 目录
         data_dir = os.environ.get('DPLAYER_DATA_DIR')
         if not data_dir:
-            # main.py 位于 src/web/，data/ 位于项目根目录
-            _src_web = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(os.path.dirname(_src_web)), 'data')
-        # db_path 可能是绝对路径（旧数据），也可能是相对路径（新数据），统一处理
+            # 兼容旧数据：db_path 可能是绝对路径
+            # db_path = 'C:\\...' 表示旧数据，直接使用
+            # db_path = 'libraries' 表示新数据，相对路径
+            if os.path.isabs(self.db_path):
+                return os.path.join(self.db_path, self.db_file)
+            # db_path = 'libraries' 相对路径：相对于项目根目录的 data/
+            # 正确计算：main.py 在 src/web/，向上两级到项目根目录
+            _src_web = os.path.dirname(os.path.abspath(__file__))  # src/web/core
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(_src_web)))  # Dplayer2.0/
+            data_dir = os.path.join(project_root, 'data')
+            return os.path.join(data_dir, self.db_path, self.db_file)
+        # 环境变量方式
         if os.path.isabs(self.db_path):
-            # 兼容旧数据：绝对路径只取最后一级目录名（如 "libraries"），然后拼到 data_dir 下
             sub = os.path.basename(self.db_path.rstrip('/\\'))
             return os.path.join(data_dir, sub, self.db_file)
         else:

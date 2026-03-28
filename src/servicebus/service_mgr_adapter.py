@@ -158,19 +158,73 @@ class BusServiceMgrAdapter(BaseDBusService):
             pass
 
     def _scan_nssm_services(self) -> List[str]:
-        """扫描所有 dplayer- 前缀的 Windows 服务"""
+        """
+        扫描所有 dplayer- 前缀的 Windows 服务
+        优先使用 win32service API，失败时 fallback 到 sc query 命令
+        """
+        # 方法1: win32service API（需要足够的权限）
         try:
             import win32service
-            scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ENUMERATE_SERVICE)
+            scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ALL_ACCESS)
             try:
                 services = win32service.EnumServicesStatus(
                     scm, win32service.SERVICE_WIN32, win32service.SERVICE_STATE_ALL
                 )
-                return [s[0] for s in services if s[0].startswith('dplayer-')]
+                result = [s[0] for s in services if s[0].startswith('dplayer-')]
+                if result:
+                    return result
             finally:
                 win32service.CloseServiceHandle(scm)
         except Exception:
-            return list(self._cached_services.keys())
+            pass
+
+        # 方法2: sc query 命令（权限要求较低）
+        try:
+            import subprocess
+            # Windows 上 sc 是 cmd 内置命令，需要 shell=True 才能正确执行
+            result = subprocess.run(
+                'sc query type= service state= all',
+                capture_output=True, text=True, timeout=30, shell=True
+            )
+            if result.returncode == 0:
+                dplayer_svcs = []
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith('SERVICE_NAME:'):
+                        svc_name = line.split(':', 1)[1].strip()
+                        if svc_name.startswith('dplayer-'):
+                            dplayer_svcs.append(svc_name)
+                if dplayer_svcs:
+                    return dplayer_svcs
+        except Exception:
+            pass
+
+        # 方法3: 直接探测已知服务名
+        known_services = [
+            'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
+            'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
+            'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
+        ]
+        verified = []
+        try:
+            import win32service
+            scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+            for svc_name in known_services:
+                try:
+                    hs = win32service.OpenService(scm, svc_name, win32service.SERVICE_QUERY_STATUS)
+                    win32service.CloseServiceHandle(hs)
+                    verified.append(svc_name)
+                except Exception:
+                    pass
+            win32service.CloseServiceHandle(scm)
+        except Exception:
+            pass
+
+        if verified:
+            return verified
+
+        # 最终 fallback: 返回缓存的服务列表
+        return list(self._cached_services.keys())
 
     def _get_service_info(self, service_name: str) -> Dict[str, Any]:
         """获取单个服务的详细信息"""
@@ -245,7 +299,12 @@ class BusServiceMgrAdapter(BaseDBusService):
                 proc = psutil.Process(info['pid'])
                 mem_info = proc.memory_info()
                 info['memory_mb'] = round(mem_info.rss / (1024 * 1024), 1)
-                info['cpu_percent'] = proc.cpu_percent(interval=0.3)
+                # 使用 interval=None 非阻塞模式，避免每个服务阻塞 0.3 秒
+                # CPU 使用率会在下一次调用时计算（基于时间差）
+                try:
+                    info['cpu_percent'] = proc.cpu_percent(interval=None)
+                except Exception:
+                    info['cpu_percent'] = None
             except Exception:
                 info['pid'] = None
 
@@ -263,11 +322,13 @@ class BusServiceMgrAdapter(BaseDBusService):
         import requests
         try:
             start = time.time()
-            resp = requests.get(url, timeout=3)
+            resp = requests.get(url, timeout=1.5)  # 1.5秒超时，加快降级
             latency = (time.time() - start) * 1000
             if resp.status_code == 200:
                 return ('healthy', round(latency, 1))
             return ('unhealthy', round(latency, 1))
+        except requests.exceptions.Timeout:
+            return ('timeout', None)
         except Exception:
             return ('offline', None)
 

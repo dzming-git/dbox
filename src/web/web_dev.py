@@ -32,8 +32,8 @@ from datetime import datetime, timedelta
 from urllib.parse import quote, unquote
 import json
 import threading
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 import time
 import hashlib
 import random

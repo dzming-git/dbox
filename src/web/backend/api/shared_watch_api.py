@@ -10,9 +10,9 @@ import string
 from functools import wraps
 
 from core.models import db, Video, User, SharedWatchSession, UserRole
-from liblog import get_module_logger
+from liblog import get_service_logger
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 shared_watch_bp = Blueprint('shared_watch', __name__)
 

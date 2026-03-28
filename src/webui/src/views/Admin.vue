@@ -1344,6 +1344,8 @@ const logLimit = ref(20)
 const logTotal = ref(0)
 const logTotalPages = ref(0)
 const logType = ref('maintenance')
+const logService = ref('')
+const logServices = ref<string[]>([])
 const logLoading = ref(false)
 
 const logTypes = [
@@ -1364,11 +1366,18 @@ const fetchLogs = async (resetPage = true) => {
     }
     params.page = logPage.value
     params.limit = logLimit.value
+    if (logService.value) {
+      params.service = logService.value
+    }
     const res = await logApi.getLogs(params) as any
     if (res.success) {
       logEntries.value = res.logs || []
       logTotal.value = res.total || 0
       logTotalPages.value = res.total_pages || 0
+      // 更新服务列表
+      if (res.services) {
+        logServices.value = res.services
+      }
     }
   } catch (error) {
     console.error('获取日志失败:', error)
@@ -1380,6 +1389,12 @@ const fetchLogs = async (resetPage = true) => {
 
 const switchLogType = (type: string) => {
   logType.value = type
+  logService.value = ''  // 切换类型时清空服务筛选
+  fetchLogs(true)
+}
+
+const switchLogService = (service: string) => {
+  logService.value = service
   fetchLogs(true)
 }
 
@@ -1388,6 +1403,74 @@ const changeLogPage = (page: number) => {
   // 换页不触发刷新，直接从已加载的数据取
   // 需要重新请求因为分页在服务端
   fetchLogs(false)
+}
+
+// ============ 系统监控 ============
+const monitorMetrics = ref<any>(null)
+const monitorHistory = ref<any[]>([])
+const monitorLoading = ref(false)
+let monitorPollingTimer: number | null = null
+
+const fetchMonitorMetrics = async () => {
+  monitorLoading.value = true
+  try {
+    const res = await api.get('/api/system/metrics') as any
+    if (res.success) {
+      monitorMetrics.value = res.metrics
+      // 更新历史
+      if (res.metrics && monitorHistory.value.length < 60) {
+        monitorHistory.value.push(res.metrics)
+      }
+    }
+  } catch (error) {
+    console.error('获取系统监控数据失败:', error)
+  } finally {
+    monitorLoading.value = false
+  }
+}
+
+const startMonitorPolling = () => {
+  stopMonitorPolling()
+  fetchMonitorMetrics()
+  monitorPollingTimer = window.setInterval(() => {
+    fetchMonitorMetrics()
+  }, 3000)
+}
+
+const stopMonitorPolling = () => {
+  if (monitorPollingTimer !== null) {
+    clearInterval(monitorPollingTimer)
+    monitorPollingTimer = null
+  }
+}
+
+// 格式化字节为人类可读
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+// 根据使用率返回样式类
+const getUsageClass = (percent: number | undefined): string => {
+  if (percent === undefined) return ''
+  if (percent >= 90) return 'danger'
+  if (percent >= 70) return 'warning'
+  return 'normal'
+}
+
+// 格式化运行时间
+const formatUptime = (seconds: number): string => {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days} 天`)
+  if (hours > 0) parts.push(`${hours} 小时`)
+  if (minutes > 0) parts.push(`${minutes} 分钟`)
+  return parts.join(' ') || '不到 1 分钟'
 }
 
 const changeLogLimit = () => {
@@ -1402,6 +1485,7 @@ const switchTab = (tab: string) => {
   if (tab === 'config') fetchSystemConfig()
   if (tab === 'thumbnail') fetchThumbnailConfig()
   if (tab === 'services') { fetchServices(); startServicePolling() }
+  if (tab === 'monitor') { fetchMonitorMetrics(); startMonitorPolling() }
   if (tab === 'libraries') {
     fetchLibraries()
     fetchUserGroups()
@@ -1414,6 +1498,8 @@ const switchTab = (tab: string) => {
   }
   // 离开服务管理页时停止轮询
   if (tab !== 'services') stopServicePolling()
+  // 离开监控页时停止轮询
+  if (tab !== 'monitor') stopMonitorPolling()
 }
 
 onMounted(() => {
@@ -1428,6 +1514,7 @@ onMounted(() => {
   else if (restoredTab === 'config') fetchSystemConfig()
   else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
+  else if (restoredTab === 'monitor') { fetchMonitorMetrics(); startMonitorPolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
   else if (restoredTab === 'import') fetchLibraries()
   else if (restoredTab === 'logs') fetchLogs()
@@ -1496,6 +1583,13 @@ onUnmounted(() => {
         v-if="userStore.isRoot"
       >
         🔧 服务管理
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'monitor' }"
+        @click="switchTab('monitor')"
+      >
+        📈 系统监控
       </button>
       <button
         class="tab-btn"
@@ -2515,6 +2609,15 @@ onUnmounted(() => {
           </button>
         </div>
 
+        <!-- 服务筛选 -->
+        <div class="log-service-filter" v-if="logServices.length > 0">
+          <span class="filter-label">服务筛选:</span>
+          <select v-model="logService" @change="switchLogService(logService)" class="service-select">
+            <option value="">全部服务</option>
+            <option v-for="svc in logServices" :key="svc" :value="svc">{{ svc }}</option>
+          </select>
+        </div>
+
         <!-- 日志表格 -->
         <div class="log-container">
           <div v-if="logLoading" class="loading-text">加载中...</div>
@@ -2527,7 +2630,7 @@ onUnmounted(() => {
                   <tr>
                     <th class="log-col-time">时间</th>
                     <th class="log-col-level">{{ logType === 'operation' ? '来源' : '等级' }}</th>
-                    <th class="log-col-module">模块</th>
+                    <th class="log-col-module">服务</th>
                     <th class="log-col-content">内容</th>
                   </tr>
                 </thead>
@@ -2540,7 +2643,7 @@ onUnmounted(() => {
                         {{ entry.level }}
                       </span>
                     </td>
-                    <td class="log-col-module log-mono">{{ entry.module }}</td>
+                    <td class="log-col-module log-mono">{{ entry.service }}</td>
                     <td class="log-col-content">{{ entry.content }}</td>
                   </tr>
                 </tbody>
@@ -2555,7 +2658,7 @@ onUnmounted(() => {
                   <span v-else class="log-badge" :class="'log-level-' + entry.level.toLowerCase()">
                     {{ entry.level }}
                   </span>
-                  <span class="log-card-module log-mono">{{ entry.module }}</span>
+                  <span class="log-card-module log-mono">{{ entry.service }}</span>
                 </div>
                 <div class="log-card-content">{{ entry.content }}</div>
                 <div class="log-card-time log-mono">{{ entry.timestamp }}</div>
@@ -2590,6 +2693,112 @@ onUnmounted(() => {
               </div>
             </div>
           </template>
+        </div>
+      </div>
+
+      <!-- 系统监控标签页 -->
+      <div v-if="activeTab === 'monitor'" class="tab-content">
+        <div class="section-header">
+          <h3>📈 系统监控</h3>
+          <div class="section-actions">
+            <button class="action-btn primary" @click="fetchMonitorMetrics" :disabled="monitorLoading">
+              {{ monitorLoading ? '加载中...' : '🔄 刷新' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 概览卡片 -->
+        <div class="monitor-overview">
+          <!-- CPU 卡片 -->
+          <div class="monitor-card cpu-card">
+            <div class="monitor-card-header">
+              <span class="monitor-icon">🖥️</span>
+              <span class="monitor-title">CPU 使用率</span>
+            </div>
+            <div class="monitor-card-body">
+              <div class="monitor-value" :class="getUsageClass(monitorMetrics?.cpu?.usage_percent)">
+                {{ monitorMetrics?.cpu?.usage_percent?.toFixed(1) || '0' }}%
+              </div>
+              <div class="monitor-bar-container">
+                <div class="monitor-bar" :style="{ width: (monitorMetrics?.cpu?.usage_percent || 0) + '%' }"
+                     :class="getUsageClass(monitorMetrics?.cpu?.usage_percent)"></div>
+              </div>
+              <div class="monitor-detail">
+                <span>{{ monitorMetrics?.cpu?.count || 0 }} 核心</span>
+                <span v-if="monitorMetrics?.cpu?.freq_current">
+                  {{ monitorMetrics?.cpu?.freq_current?.toFixed(0) }} MHz
+                </span>
+              </div>
+              <!-- 每核心使用率 -->
+              <div class="core-usage" v-if="monitorMetrics?.cpu?.per_core_usage">
+                <div class="core-usage-item"
+                     v-for="(usage, idx) in monitorMetrics.cpu.per_core_usage"
+                     :key="idx">
+                  <span class="core-label">核心 {{ idx + 1 }}</span>
+                  <div class="monitor-bar-container small">
+                    <div class="monitor-bar" :style="{ width: usage + '%' }"
+                         :class="getUsageClass(usage)"></div>
+                  </div>
+                  <span class="core-value">{{ usage.toFixed(1) }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 内存卡片 -->
+          <div class="monitor-card memory-card">
+            <div class="monitor-card-header">
+              <span class="monitor-icon">💾</span>
+              <span class="monitor-title">内存使用</span>
+            </div>
+            <div class="monitor-card-body">
+              <div class="monitor-value" :class="getUsageClass(monitorMetrics?.memory?.usage_percent)">
+                {{ monitorMetrics?.memory?.usage_percent?.toFixed(1) || '0' }}%
+              </div>
+              <div class="monitor-bar-container">
+                <div class="monitor-bar" :style="{ width: (monitorMetrics?.memory?.usage_percent || 0) + '%' }"
+                     :class="getUsageClass(monitorMetrics?.memory?.usage_percent)"></div>
+              </div>
+              <div class="monitor-detail">
+                <span>已用: {{ formatBytes(monitorMetrics?.memory?.used || 0) }}</span>
+                <span>总计: {{ formatBytes(monitorMetrics?.memory?.total || 0) }}</span>
+              </div>
+              <div class="monitor-detail">
+                <span>可用: {{ formatBytes(monitorMetrics?.memory?.available || 0) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 磁盘卡片 -->
+          <div class="monitor-card disk-card" v-for="disk in monitorMetrics?.disks" :key="disk.device">
+            <div class="monitor-card-header">
+              <span class="monitor-icon">💿</span>
+              <span class="monitor-title">{{ disk.device || disk.mount_point }}</span>
+            </div>
+            <div class="monitor-card-body">
+              <div class="monitor-value" :class="getUsageClass(disk.usage_percent)">
+                {{ disk.usage_percent?.toFixed(1) || '0' }}%
+              </div>
+              <div class="monitor-bar-container">
+                <div class="monitor-bar" :style="{ width: (disk.usage_percent || 0) + '%' }"
+                     :class="getUsageClass(disk.usage_percent)"></div>
+              </div>
+              <div class="monitor-detail">
+                <span>已用: {{ formatBytes(disk.used || 0) }}</span>
+                <span>总计: {{ formatBytes(disk.total || 0) }}</span>
+              </div>
+              <div class="monitor-detail">
+                <span>可用: {{ formatBytes(disk.free || 0) }}</span>
+                <span class="fs-type">{{ disk.fs_type }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 运行时间 -->
+        <div class="monitor-uptime" v-if="monitorMetrics?.uptime">
+          <span class="uptime-label">系统运行时间:</span>
+          <span class="uptime-value">{{ formatUptime(monitorMetrics.uptime) }}</span>
         </div>
       </div>
     </div>
@@ -4993,6 +5202,36 @@ input:checked + .slider:before {
   border-color: #1976D2;
 }
 
+/* 服务筛选样式 */
+.log-service-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.log-service-filter .filter-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.log-service-filter .service-select {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.log-service-filter .service-select:focus {
+  outline: none;
+  border-color: #1976D2;
+}
+
 .log-container {
   background: #fff;
   border-radius: 8px;
@@ -5217,6 +5456,149 @@ input:checked + .slider:before {
 
   .log-page-btns {
     justify-content: center;
+  }
+}
+
+/* ============ 系统监控样式 ============ */
+.monitor-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.monitor-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.monitor-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.monitor-icon {
+  font-size: 20px;
+}
+
+.monitor-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.monitor-card-body {
+  padding: 20px;
+}
+
+.monitor-value {
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.monitor-value.normal { color: #22c55e; }
+.monitor-value.warning { color: #f59e0b; }
+.monitor-value.danger { color: #ef4444; }
+
+.monitor-bar-container {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.monitor-bar-container.small {
+  height: 4px;
+  flex: 1;
+}
+
+.monitor-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.monitor-bar.normal { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.monitor-bar.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.monitor-bar.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+.monitor-detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.monitor-detail:last-child {
+  margin-bottom: 0;
+}
+
+.fs-type {
+  color: #888;
+  font-size: 12px;
+}
+
+.core-usage {
+  margin-top: 16px;
+  border-top: 1px solid #eee;
+  padding-top: 12px;
+}
+
+.core-usage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.core-usage-item:last-child {
+  margin-bottom: 0;
+}
+
+.core-label {
+  font-size: 11px;
+  color: #888;
+  width: 45px;
+}
+
+.core-value {
+  font-size: 11px;
+  color: #666;
+  width: 40px;
+  text-align: right;
+}
+
+.monitor-uptime {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.uptime-label {
+  color: #666;
+}
+
+.uptime-value {
+  color: #333;
+  font-weight: 500;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .monitor-overview {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -1,8 +1,8 @@
 # 错误处理中间件
 from flask import jsonify
 import traceback
-from liblog import get_module_logger
-log = get_module_logger()
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 def setup_error_handlers(app):
     """配置错误处理"""

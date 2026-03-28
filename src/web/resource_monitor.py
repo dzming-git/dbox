@@ -9,12 +9,12 @@ import os
 import psutil
 import time
 import threading
-from liblog import get_module_logger
+from liblog import get_service_logger
 from typing import Callable, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-log = get_module_logger()
+log = get_service_logger('dplayer-web')
 
 
 class ResourceType(Enum):

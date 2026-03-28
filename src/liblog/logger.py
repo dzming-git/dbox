@@ -17,7 +17,6 @@
 
 import os
 import re
-import inspect
 import threading
 import queue
 import time
@@ -62,82 +61,6 @@ def filter_content(content: str) -> str:
     content = re.sub(r'\s+', ' ', content).strip()
 
     return content
-
-
-def get_caller_module() -> str:
-    """
-    自动获取调用者的模块名
-    
-    从调用栈中提取调用者信息，生成简洁的模块标识。
-    例如：'api.auth_api'、'core.models'、'thumbnail_service'
-    """
-    try:
-        # 跳过：当前帧 -> log函数 -> 便捷函数 -> 调用者
-        stack = inspect.stack()
-        
-        # 从栈中找到调用者（跳过内部调用）
-        # 0: get_caller_module
-        # 1: UnifiedLogger.log
-        # 2: log / log_maintenance / log_runtime / log_debug / log_operation
-        # 3: 实际调用者
-        # 4: 如果通过 ModuleLogger 调用，实际调用者在更深层
-        
-        caller_frame = None
-        for i, frame_info in enumerate(stack):
-            # 跳过本文件内的所有调用
-            if frame_info.filename == __file__:
-                continue
-            # 找到第一个不在本文件的帧，就是调用者
-            caller_frame = frame_info
-            break
-        
-        if not caller_frame:
-            return 'unknown'
-        
-        filepath = caller_frame.filename
-        
-        # 从文件路径提取模块名
-        # 尝试相对于项目 src/ 目录的路径
-        # 例如: src/web/api/auth_api.py -> web.api.auth_api
-        
-        # 标准化路径
-        filepath = os.path.normpath(filepath)
-        
-        # 尝试匹配 src/ 下的路径
-        src_match = re.search(r'[\\/]src[\\/](.+?)[\\/]([^\\/]+)\.py$', filepath)
-        if src_match:
-            relative = src_match.group(1).replace(os.sep, '.').replace('/', '.')
-            module_name = src_match.group(2)
-            return f"{relative}.{module_name}" if relative else module_name
-        
-        # 尝试匹配 configs/ 下的路径
-        configs_match = re.search(r'[\\/]configs[\\/](.+?)[\\/]([^\\/]+)\.py$', filepath)
-        if configs_match:
-            relative = configs_match.group(1).replace(os.sep, '.').replace('/', '.')
-            module_name = configs_match.group(2)
-            return f"configs.{relative}.{module_name}" if relative else f"configs.{module_name}"
-        
-        # 尝试匹配 scripts/ 下的路径
-        scripts_match = re.search(r'[\\/]scripts[\\/]([^\\/]+)\.py$', filepath)
-        if scripts_match:
-            return f"scripts.{scripts_match.group(1)}"
-        
-        # 兜底：使用文件名（去掉 .py）
-        basename = os.path.basename(filepath)
-        if basename.endswith('.py'):
-            return basename[:-3]
-        return basename
-        
-    except Exception:
-        return 'unknown'
-
-
-def format_log_message(timestamp: str, level: str, module: str, content: str) -> str:
-    """
-    格式化日志消息
-    格式: [时间戳] | [等级] | [模块] | [内容]
-    """
-    return f"[{timestamp}] | [{level}] | [{module}] | [{content}]"
 
 
 def get_timestamp() -> str:
@@ -269,14 +192,14 @@ class UnifiedLogger:
         category_level = self._category_levels.get(category, 'DEBUG')
         return LOG_LEVELS.index(level) <= LOG_LEVELS.index(category_level)
     
-    def log(self, category: str, level: str, module: Optional[str], content: str, source_ip: str = None):
+    def log(self, category: str, level: str, service: Optional[str], content: str, source_ip: str = None):
         """
         记录日志 - 主接口
         
         参数:
             category: 日志分类 (maintenance|runtime|debug|operation)
             level: 日志等级 (FATAL|ERROR|WARN|INFO|DEBUG)
-            module: 应用模块标识（为 None 时自动获取）
+            service: 服务名（如 'dplayer-web'，为 None 时自动获取或使用注册的服务名）
             content: 日志内容
             source_ip: 来源IP，仅操作日志有效
         
@@ -290,12 +213,14 @@ class UnifiedLogger:
         if level not in LOG_LEVELS:
             level = 'INFO'
         
-        # 自动获取模块名
-        if module is None:
-            module = get_caller_module()
+        # 自动获取服务名：优先使用传入的 service，其次注册表
+        if service is None:
+            service = get_registered_service()
+        if service is None:
+            service = 'unknown'
         
         # 过滤内容
-        module = filter_content(module)
+        service = filter_content(service)
         content = filter_content(content)
         
         # 格式化时间戳
@@ -303,12 +228,12 @@ class UnifiedLogger:
         
         # 构造日志消息
         if category == 'operation':
-            # 操作日志格式: [时间戳] | [来源IP] | [模块] | [内容]
+            # 操作日志格式: [时间戳] | [来源IP] | [服务] | [内容]
             ip = filter_content(source_ip or 'unknown')
-            message = f"[{timestamp}] | [{ip}] | [{module}] | [{content}]"
+            message = f"[{timestamp}] | [{ip}] | [{service}] | [{content}]"
         else:
-            # 其他日志格式: [时间戳] | [等级] | [模块] | [内容]
-            message = f"[{timestamp}] | [{level}] | [{module}] | [{content}]"
+            # 其他日志格式: [时间戳] | [等级] | [服务] | [内容]
+            message = f"[{timestamp}] | [{level}] | [{service}] | [{content}]"
         
         # 检查日志等级
         if not self._should_log(category, level):
@@ -334,25 +259,55 @@ class UnifiedLogger:
         self._writers.clear()
 
 
-# ========== ModuleLogger 工厂 ==========
-class ModuleLogger:
+# ========== 服务日志注册表 ==========
+# 全局服务名注册表（进程级别）
+_service_registry: dict = {}
+
+
+def register_service(name: str) -> str:
     """
-    绑定模块名的日志器
+    注册当前进程的服务名（供日志使用）
     
-    在模块顶层创建一次，后续调用无需重复传入 module。
+    Args:
+        name: 服务名，如 'dplayer-web', 'dplayer-thumbnail' 等
+        
+    Returns:
+        注册的服务名
+    """
+    _service_registry['current_service'] = name
+    return name
+
+
+def get_registered_service() -> str | None:
+    """获取当前进程注册的服务名"""
+    return _service_registry.get('current_service')
+
+
+# ========== ServiceLogger 工厂 ==========
+class ServiceLogger:
+    """
+    绑定服务名的日志器（推荐方式）
+    
+    在服务入口创建一次，后续调用自动带上服务标识。
+    支持日志聚合视图，可按服务名筛选日志（类似 journalctl -u）。
     
     用法:
-        from liblog import get_module_logger
-        log = get_module_logger()
-        log.maintenance('INFO', '用户登录成功')
-        log.debug('DEBUG', '查询参数: %s', params)
+        # 方式一：自动获取服务名（需要在进程启动时调用 register_service）
+        from liblog import get_service_logger
+        log = get_service_logger()
+        log.maintenance('INFO', '服务启动成功')
+        
+        # 方式二：显式指定服务名
+        log = get_service_logger('dplayer-web')
+        log.maintenance('INFO', '服务启动成功')
     """
     
-    def __init__(self, module_name: str):
-        self._module = module_name
+    def __init__(self, service_name: str = None):
+        # 如果未指定服务名，尝试从注册表获取
+        self._service = service_name or get_registered_service() or 'unknown'
     
     def _call(self, category: str, level: str, content: str, **kwargs):
-        return get_logger().log(category, level, self._module, content, **kwargs)
+        return get_logger().log(category, level, self._service, content, **kwargs)
     
     def maintenance(self, level: str, content: str):
         """维护日志：关键操作、状态变更"""
@@ -383,6 +338,28 @@ class ModuleLogger:
         return self._call(category, 'WARN', content)
 
 
+def get_service_logger(service_name: str = None) -> ServiceLogger:
+    """
+    创建绑定服务名的日志器（推荐方式）
+    
+    Args:
+        service_name: 服务名，如 'dplayer-web'。如果为 None，自动使用注册的服务名。
+        
+    用法:
+        from liblog import get_service_logger, register_service
+        
+        # 方式一：在服务入口注册服务名（推荐）
+        register_service('dplayer-web')
+        log = get_service_logger()  # 自动使用 'dplayer-web'
+        
+        # 方式二：直接指定服务名
+        log = get_service_logger('dplayer-thumbnail')
+    """
+    if service_name is None:
+        service_name = get_registered_service() or 'unknown'
+    return ServiceLogger(service_name)
+
+
 # ========== 便捷接口函数 ==========
 _logger = None
 _logger_lock = threading.Lock()
@@ -398,19 +375,7 @@ def get_logger() -> UnifiedLogger:
     return _logger
 
 
-def get_module_logger() -> ModuleLogger:
-    """
-    创建绑定当前模块的日志器
-    
-    在模块顶层调用一次即可，module 会自动获取。
-    
-    用法:
-        from liblog import get_module_logger
-        log = get_module_logger()
-        log.maintenance('INFO', '服务启动')
-    """
-    module = get_caller_module()
-    return ModuleLogger(module)
+
 
 
 def log(category: str, level: str, module: Optional[str] = None, content: str = '', source_ip: str = None) -> bool:
@@ -480,43 +445,40 @@ if __name__ == '__main__':
     print("=" * 60)
     print("统一日志接口库测试")
     print("=" * 60)
-    
-    # 测试 module 自动获取
-    print("\n[1] Module 自动获取测试:")
-    print(f"  get_caller_module() = {get_caller_module()}")
-    
-    # 测试 ModuleLogger 工厂
-    print("\n[2] ModuleLogger 测试:")
-    mlog = get_module_logger()
-    print(f"  ModuleLogger.module = {mlog._module}")
-    
+
+    # 测试 ServiceLogger 工厂
+    print("\n[1] ServiceLogger 测试:")
+    register_service('test-service')
+    slog = get_service_logger()
+    print(f"  ServiceLogger.service = {slog._service}")
+
     # 测试各类日志
-    print("\n[3] 日志记录测试:")
-    
-    mlog.maintenance('INFO', '服务启动成功')
+    print("\n[2] 日志记录测试:")
+
+    slog.maintenance('INFO', '服务启动成功')
     print("  维护日志: OK")
-    
-    mlog.runtime('INFO', '缩略图任务创建: hash=test123')
+
+    slog.runtime('INFO', '缩略图任务创建: hash=test123')
     print("  运行日志: OK")
-    
-    mlog.debug('DEBUG', '查询参数: page=1, size=20')
+
+    slog.debug('DEBUG', '查询参数: page=1, size=20')
     print("  调试日志: OK")
-    
-    mlog.operation('用户登录', '203.0.113.7')
+
+    slog.operation('用户登录', '203.0.113.7')
     print("  操作日志: OK")
-    
-    # 测试 module 自动获取的便捷函数
+
+    # 测试便捷函数
     log_maintenance('INFO', '便捷函数测试 - 维护日志')
     log_runtime('INFO', '便捷函数测试 - 运行日志')
     log_debug('DEBUG', '便捷函数测试 - 调试日志')
     log_operation('便捷函数测试 - 操作日志')
     print("  便捷函数: OK")
-    
+
     # 等待写入
     time.sleep(1)
     get_logger().flush()
-    
-    print("\n[4] 日志文件输出:")
+
+    print("\n[3] 日志文件输出:")
     for category, filename in LOG_CATEGORIES.items():
         path = os.path.join(LOG_BASE_DIR, filename)
         print(f"  {category}: {path}")
@@ -526,5 +488,5 @@ if __name__ == '__main__':
                 print(f"    行数: {len(lines)}")
                 if lines:
                     print(f"    最后一行: {lines[-1].strip()}")
-    
+
     print("\n测试完成!")
