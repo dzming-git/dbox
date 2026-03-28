@@ -702,6 +702,8 @@ const editingTagId = ref<number | null>(null)  // 正在编辑的标签ID
 const editingTagPath = ref('')  // 正在编辑的标签路径
 const selectedTagPath = ref('')  // 从树中选择的标签路径前缀
 const allTagsTree = ref<any[]>([])  // 所有标签的树形结构
+const currentTagLevel = ref<any[]>([])  // 当前显示的标签层级
+const tagBreadcrumbs = ref<any[]>([])  // 面包屑导航
 
 // 打开标签编辑器
 const openTagEditor = async () => {
@@ -712,6 +714,7 @@ const openTagEditor = async () => {
   selectedTagPath.value = ''
   editingTagId.value = null
   editingTagPath.value = ''
+  tagBreadcrumbs.value = []
   // 加载所有标签树
   await loadAllTagsTree()
 }
@@ -725,6 +728,7 @@ const closeTagEditor = () => {
   editingTagId.value = null
   editingTagPath.value = ''
   selectedTagPath.value = ''
+  tagBreadcrumbs.value = []
 }
 
 // 加载所有标签构建树形结构
@@ -737,6 +741,8 @@ const loadAllTagsTree = async () => {
     const data = await response.json()
     if (data.tags) {
       allTagsTree.value = buildTagTree(data.tags)
+      // 初始显示根级别
+      currentTagLevel.value = allTagsTree.value
     }
   } catch (e) {
     console.error('加载标签树失败:', e)
@@ -766,10 +772,51 @@ const buildTagTree = (tags: Tag[]): any[] => {
   return rootTags
 }
 
-// 从树中选择标签
+// 从树中选择标签（进入子层级或选中）
 const selectTagFromTree = (tag: any) => {
-  selectedTagPath.value = tag.path || tag.name
-  tagInput.value = ''
+  if (tag.children && tag.children.length > 0) {
+    // 有子标签，进入该层级
+    currentTagLevel.value = tag.children
+    // 添加到面包屑
+    tagBreadcrumbs.value.push({ id: tag.id, name: tag.name, path: tag.path || tag.name })
+  } else {
+    // 没有子标签，选中该标签
+    selectedTagPath.value = tag.path || tag.name
+    tagInput.value = ''
+  }
+}
+
+// 返回上一级
+const goBackTagLevel = () => {
+  if (tagBreadcrumbs.value.length > 0) {
+    tagBreadcrumbs.value.pop()
+    if (tagBreadcrumbs.value.length === 0) {
+      currentTagLevel.value = allTagsTree.value
+    } else {
+      // 找到上一级的子标签
+      const parentPath = tagBreadcrumbs.value.map(b => b.name).join('/')
+      const findLevel = (tags: any[], path: string): any[] => {
+        for (const tag of tags) {
+          if ((tag.path || tag.name) === path && tag.children) {
+            return tag.children
+          }
+          if (tag.children) {
+            const found = findLevel(tag.children, path)
+            if (found) return found
+          }
+        }
+        return null
+      }
+      const level = findLevel(allTagsTree.value, parentPath)
+      currentTagLevel.value = level || allTagsTree.value
+    }
+  }
+}
+
+// 返回根级别
+const goToRootLevel = () => {
+  tagBreadcrumbs.value = []
+  currentTagLevel.value = allTagsTree.value
 }
 
 // 插入分隔符
@@ -1252,20 +1299,38 @@ const handleDelete = async () => {
             <!-- 左侧：已有标签树 -->
             <div class="tag-tree-panel">
               <div class="panel-title">已有标签</div>
+
+              <!-- 面包屑导航 -->
+              <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0">
+                <span class="breadcrumb-root" @click="goToRootLevel">根</span>
+                <template v-for="(crumb, idx) in tagBreadcrumbs" :key="crumb.id">
+                  <span class="breadcrumb-sep">/</span>
+                  <span
+                    class="breadcrumb-item"
+                    :class="{ active: idx === tagBreadcrumbs.length - 1 }"
+                    @click="goBackTagLevel"
+                  >{{ crumb.name }}</span>
+                </template>
+                <button class="breadcrumb-back" @click="goBackTagLevel" title="返回上级">‹</button>
+              </div>
+
               <div class="tag-tree-container">
-                <!-- 根级别标签 -->
+                <!-- 当前层级的标签 -->
                 <div
-                  v-for="tag in allTagsTree"
+                  v-for="tag in currentTagLevel"
                   :key="tag.id"
                   class="tag-tree-item"
                   :class="{ active: selectedTagPath === tag.path }"
                   @click="selectTagFromTree(tag)"
                 >
-                  <span class="tag-tree-arrow">›</span>
                   <span class="tag-tree-name">{{ tag.name }}</span>
-                  <span v-if="tag.children && tag.children.length > 0" class="tag-tree-count">{{ tag.children.length }}</span>
+                  <span v-if="tag.children && tag.children.length > 0" class="tag-tree-badge">
+                    {{ tag.children.length }}
+                    <span class="tag-tree-arrow">›</span>
+                  </span>
+                  <span v-else class="tag-tree-leaf">✓</span>
                 </div>
-                <p v-if="allTagsTree.length === 0" class="no-tags">暂无标签</p>
+                <p v-if="currentTagLevel.length === 0" class="no-tags">该分类下暂无标签</p>
               </div>
             </div>
 
@@ -2049,11 +2114,11 @@ const handleDelete = async () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.2s;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .tag-tree-item:hover {
@@ -2062,16 +2127,6 @@ const handleDelete = async () => {
 
 .tag-tree-item.active {
   background: #2196F3;
-}
-
-.tag-tree-arrow {
-  color: #666;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.tag-tree-item.active .tag-tree-arrow {
-  color: #fff;
 }
 
 .tag-tree-name {
@@ -2087,13 +2142,96 @@ const handleDelete = async () => {
   color: #fff;
 }
 
-.tag-tree-count {
+.tag-tree-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: #666;
   background: #333;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
+}
+
+.tag-tree-arrow {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.tag-tree-leaf {
+  font-size: 12px;
+  color: #4CAF50;
+  flex-shrink: 0;
+}
+
+/* 面包屑导航 */
+.tag-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.breadcrumb-root {
+  color: #4FC3F7;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.breadcrumb-root:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: #555;
+  flex-shrink: 0;
+}
+
+.breadcrumb-item {
+  color: #ccc;
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb-item:hover {
+  color: #fff;
+}
+
+.breadcrumb-item.active {
+  color: #4FC3F7;
+  cursor: default;
+}
+
+.breadcrumb-back {
+  margin-left: auto;
+  background: #333;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.breadcrumb-back:hover {
+  background: #444;
+  color: #fff;
 }
 
 /* 右侧输入面板 */
@@ -2685,6 +2823,16 @@ const handleDelete = async () => {
     margin-bottom: 0;
     background: #252525;
     padding: 6px 12px;
+  }
+
+  .tag-breadcrumb {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tag-breadcrumb::-webkit-scrollbar {
+    display: none;
   }
 
   .tag-input-panel {
