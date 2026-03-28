@@ -700,13 +700,20 @@ const showTagSuggestions = ref(false)  // 是否显示建议下拉框
 const tagInputRef = ref<HTMLInputElement | null>(null)
 const editingTagId = ref<number | null>(null)  // 正在编辑的标签ID
 const editingTagPath = ref('')  // 正在编辑的标签路径
+const selectedTagPath = ref('')  // 从树中选择的标签路径前缀
+const allTagsTree = ref<any[]>([])  // 所有标签的树形结构
 
 // 打开标签编辑器
-const openTagEditor = () => {
+const openTagEditor = async () => {
   showTagEditor.value = true
   tagInput.value = ''
   tagSuggestions.value = []
   showTagSuggestions.value = false
+  selectedTagPath.value = ''
+  editingTagId.value = null
+  editingTagPath.value = ''
+  // 加载所有标签树
+  await loadAllTagsTree()
 }
 
 // 关闭标签编辑器
@@ -717,6 +724,67 @@ const closeTagEditor = () => {
   showTagSuggestions.value = false
   editingTagId.value = null
   editingTagPath.value = ''
+  selectedTagPath.value = ''
+}
+
+// 加载所有标签构建树形结构
+const loadAllTagsTree = async () => {
+  try {
+    const libraryId = video.value?.library_id
+    const params = new URLSearchParams()
+    if (libraryId) params.append('library_id', String(libraryId))
+    const response = await fetch(`/api/tags/all?${params}`)
+    const data = await response.json()
+    if (data.tags) {
+      allTagsTree.value = buildTagTree(data.tags)
+    }
+  } catch (e) {
+    console.error('加载标签树失败:', e)
+  }
+}
+
+// 构建标签树形结构
+const buildTagTree = (tags: Tag[]): any[] => {
+  const tagMap = new Map<number, any>()
+  const rootTags: any[] = []
+
+  // 先创建所有节点
+  tags.forEach(tag => {
+    tagMap.set(tag.id, { ...tag, children: [] })
+  })
+
+  // 构建树形结构
+  tags.forEach(tag => {
+    const node = tagMap.get(tag.id)!
+    if (tag.parent_id && tagMap.has(tag.parent_id)) {
+      tagMap.get(tag.parent_id)!.children.push(node)
+    } else {
+      rootTags.push(node)
+    }
+  })
+
+  return rootTags
+}
+
+// 从树中选择标签
+const selectTagFromTree = (tag: any) => {
+  selectedTagPath.value = tag.path || tag.name
+  tagInput.value = ''
+}
+
+// 插入分隔符
+const insertSlash = () => {
+  if (editingTagId.value !== null) {
+    editingTagPath.value += '/'
+  } else {
+    tagInput.value += '/'
+  }
+}
+
+// 渲染路径分隔符（返回路径各部分）
+const renderPathParts = (path: string): string[] => {
+  if (!path) return []
+  return path.split('/').filter(p => p.trim())
 }
 
 // 搜索标签 - 根据输入关键词匹配（支持从任意层级匹配）
@@ -770,8 +838,9 @@ const selectTagSuggestion = (tag: Tag) => {
     tagSuggestions.value = []
     showTagSuggestions.value = false
   } else {
-    // 添加模式：添加到列表
-    tagInput.value = tag.path
+    // 添加模式：设置为当前路径前缀
+    selectedTagPath.value = tag.path || tag.name
+    tagInput.value = ''
     tagSuggestions.value = []
     showTagSuggestions.value = false
   }
@@ -854,6 +923,8 @@ const deleteTag = async (tag: Tag) => {
     if (response.ok) {
       // 重新获取视频信息
       await refreshVideo()
+      // 刷新标签树
+      await loadAllTagsTree()
     }
   } catch (e) {
     console.error('删除标签失败:', e)
@@ -864,7 +935,14 @@ const deleteTag = async (tag: Tag) => {
 const confirmAddTag = async () => {
   if (!video.value) return
 
-  const newTag = tagInput.value.trim()
+  // 组合完整路径：selectedTagPath + tagInput
+  let newTag = ''
+  if (selectedTagPath.value) {
+    newTag = selectedTagPath.value + (tagInput.value.trim() ? '/' + tagInput.value.trim() : '')
+  } else {
+    newTag = tagInput.value.trim()
+  }
+
   if (!newTag) {
     // 空输入取消操作
     tagInput.value = ''
@@ -890,7 +968,10 @@ const confirmAddTag = async () => {
 
     if (response.ok) {
       tagInput.value = ''
+      selectedTagPath.value = ''
       await refreshVideo()
+      // 刷新标签树
+      await loadAllTagsTree()
     }
   } catch (e) {
     console.error('添加标签失败:', e)
@@ -1167,83 +1248,56 @@ const handleDelete = async () => {
             <button class="close-btn" @click="closeTagEditor">&times;</button>
           </div>
 
-          <div class="dialog-body">
-            <!-- 当前标签列表 -->
-            <div class="current-tags" v-if="video.tags && video.tags.length > 0">
-              <div v-for="tag in video.tags" :key="tag.id" class="tag-item">
-                <template v-if="editingTagId === tag.id">
-                  <!-- 编辑模式 -->
-                  <div class="tag-edit-row">
-                    <input
-                      ref="tagInputRef"
-                      v-model="editingTagPath"
-                      type="text"
-                      class="tag-edit-input"
-                      placeholder="输入标签路径"
-                      @input="onTagInput"
-                      @keydown.enter="saveTagEdit"
-                      @keydown.escape="cancelEditTag"
-                    />
-                    <!-- 标签建议下拉框 -->
-                    <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
-                      <div
-                        v-for="sTag in tagSuggestions"
-                        :key="sTag.id"
-                        class="tag-suggestion-item"
-                        @mousedown="selectTagSuggestion(sTag)"
-                      >
-                        <span class="suggestion-path">{{ sTag.path }}</span>
-                      </div>
-                    </div>
-                    <button class="btn-icon" @click="saveTagEdit" title="保存">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    </button>
-                    <button class="btn-icon" @click="cancelEditTag" title="取消">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                      </svg>
-                    </button>
-                  </div>
-                </template>
-                <template v-else>
-                  <!-- 查看模式 -->
-                  <span class="tag-name">{{ tag.path || tag.name }}</span>
-                  <div class="tag-actions">
-                    <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
-                    </button>
-                    <button class="btn-icon" @click="deleteTag(tag)" title="删除">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      </svg>
-                    </button>
-                  </div>
-                </template>
+          <div class="tag-editor-body">
+            <!-- 左侧：已有标签树 -->
+            <div class="tag-tree-panel">
+              <div class="panel-title">已有标签</div>
+              <div class="tag-tree-container">
+                <!-- 根级别标签 -->
+                <div
+                  v-for="tag in allTagsTree"
+                  :key="tag.id"
+                  class="tag-tree-item"
+                  :class="{ active: selectedTagPath === tag.path }"
+                  @click="selectTagFromTree(tag)"
+                >
+                  <span class="tag-tree-arrow">›</span>
+                  <span class="tag-tree-name">{{ tag.name }}</span>
+                  <span v-if="tag.children && tag.children.length > 0" class="tag-tree-count">{{ tag.children.length }}</span>
+                </div>
+                <p v-if="allTagsTree.length === 0" class="no-tags">暂无标签</p>
               </div>
             </div>
-            <p v-else class="no-tags">暂无标签</p>
 
-            <!-- 添加新标签 -->
-            <div class="add-tag-section">
-              <div class="tag-input-row">
+            <!-- 右侧：输入区域 -->
+            <div class="tag-input-panel">
+              <!-- 当前路径显示 -->
+              <div class="current-path-display">
+                <span class="path-label">当前路径：</span>
+                <span class="path-value" v-if="selectedTagPath || tagInput">
+                  <template v-for="(part, idx) in renderPathParts(selectedTagPath + tagInput)" :key="idx">
+                    <span v-if="idx > 0" class="path-separator">/</span>
+                    <span class="path-part">{{ part }}</span>
+                  </template>
+                </span>
+                <span v-else class="path-placeholder">选择左侧标签或输入新路径</span>
+              </div>
+
+              <!-- 输入框区域 -->
+              <div class="tag-input-wrapper">
                 <input
+                  ref="tagInputRef"
                   v-model="tagInput"
                   type="text"
                   class="tag-input"
-                  placeholder="输入标签路径"
+                  placeholder="输入标签名称"
                   @input="onTagInput"
                   @keydown.enter="confirmAddTag"
                   @blur="hideTagSuggestions"
                 />
-                <button class="btn-primary" @click="confirmAddTag">添加</button>
+                <button class="slash-btn" @click="insertSlash" title="插入分级符">/</button>
               </div>
+
               <!-- 标签建议下拉框 -->
               <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
                 <div
@@ -1255,8 +1309,62 @@ const handleDelete = async () => {
                   <span class="suggestion-path">{{ sTag.path }}</span>
                 </div>
               </div>
+
+              <!-- 操作按钮 -->
+              <div class="tag-input-actions">
+                <button class="btn-secondary" @click="closeTagEditor">取消</button>
+                <button class="btn-primary" @click="confirmAddTag">添加</button>
+              </div>
+
+              <!-- 当前视频的标签列表（可编辑） -->
+              <div class="video-tags-list" v-if="video.tags && video.tags.length > 0">
+                <div class="video-tags-list-header">视频标签</div>
+                <div v-for="tag in video.tags" :key="tag.id" class="tag-item">
+                  <template v-if="editingTagId === tag.id">
+                    <div class="tag-edit-row">
+                      <input
+                        ref="tagInputRef"
+                        v-model="editingTagPath"
+                        type="text"
+                        class="tag-edit-input"
+                        placeholder="输入标签路径"
+                        @input="onTagInput"
+                        @keydown.enter="saveTagEdit"
+                        @keydown.escape="cancelEditTag"
+                      />
+                      <button class="btn-icon" @click="saveTagEdit" title="保存">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      </button>
+                      <button class="btn-icon" @click="cancelEditTag" title="取消">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <line x1="18" y1="6" x2="6" y2="18"/>
+                          <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <span class="tag-name">{{ tag.path || tag.name }}</span>
+                    <div class="tag-actions">
+                      <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                      </button>
+                      <button class="btn-icon" @click="deleteTag(tag)" title="删除">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
-            <p class="tag-hint">提示：输入标签关键词自动匹配，支持多级路径如 "/动物/狗"</p>
           </div>
         </div>
       </div>
@@ -1870,8 +1978,11 @@ const handleDelete = async () => {
 
 /* 标签编辑器对话框 */
 .tag-editor-dialog {
-  width: 480px;
-  max-width: 90vw;
+  width: 640px;
+  max-width: 95vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .dialog-header {
@@ -1880,7 +1991,7 @@ const handleDelete = async () => {
   align-items: center;
   padding-bottom: 16px;
   border-bottom: 1px solid #333;
-  margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .dialog-header h3 {
@@ -1902,9 +2013,181 @@ const handleDelete = async () => {
   color: #fff;
 }
 
-.dialog-body {
-  max-height: 60vh;
+/* 标签编辑器主体：左右分栏 */
+.tag-editor-body {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 16px;
+}
+
+/* 左侧标签树面板 */
+.tag-tree-panel {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #333;
+  padding-right: 16px;
+}
+
+.panel-title {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.tag-tree-container {
+  flex: 1;
   overflow-y: auto;
+  min-height: 100px;
+}
+
+.tag-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 2px;
+}
+
+.tag-tree-item:hover {
+  background: #2a2a2a;
+}
+
+.tag-tree-item.active {
+  background: #2196F3;
+}
+
+.tag-tree-arrow {
+  color: #666;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.tag-tree-item.active .tag-tree-arrow {
+  color: #fff;
+}
+
+.tag-tree-name {
+  flex: 1;
+  font-size: 14px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-tree-item.active .tag-tree-name {
+  color: #fff;
+}
+
+.tag-tree-count {
+  font-size: 11px;
+  color: #666;
+  background: #333;
+  padding: 2px 6px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* 右侧输入面板 */
+.tag-input-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 当前路径显示 */
+.current-path-display {
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.path-label {
+  color: #666;
+}
+
+.path-value {
+  color: #fff;
+}
+
+.path-part {
+  color: #4FC3F7;
+}
+
+.path-separator {
+  color: #888;
+  margin: 0 2px;
+}
+
+.path-placeholder {
+  color: #555;
+}
+
+/* 输入框包装 */
+.tag-input-wrapper {
+  display: flex;
+  gap: 8px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tag-input-wrapper .tag-input {
+  flex: 1;
+}
+
+.slash-btn {
+  width: 36px;
+  height: 40px;
+  background: #333;
+  border: 1px dashed #555;
+  border-radius: 8px;
+  color: #888;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.slash-btn:hover {
+  background: #444;
+  border-color: #666;
+  color: #fff;
+}
+
+/* 输入区域操作按钮 */
+.tag-input-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* 视频标签列表 */
+.video-tags-list {
+  border-top: 1px solid #333;
+  padding-top: 12px;
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.video-tags-list-header {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 10px;
 }
 
 /* 当前标签列表 */
