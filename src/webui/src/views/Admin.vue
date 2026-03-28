@@ -203,6 +203,7 @@ const permissionForm = ref({
 // 文件夹管理
 const libraryFolders = ref<any[]>([])
 const showFolderModal = ref(false)
+const showFolderBrowser = ref(false)  // 文件夹浏览器（选择文件或文件夹）
 const editingFolder = ref<any>(null)
 const folderForm = ref({
   name: '',
@@ -212,6 +213,7 @@ const folderForm = ref({
 })
 const selectedLibraryForFolder = ref<number | null>(null)
 const managingFoldersFor = ref<number | null>(null)
+const browserMode = ref<'folder' | 'file'>('folder')  // browser mode for folder selection
 
 // 获取库的文件夹列表
 const fetchLibraryFolders = async (libraryId: number) => {
@@ -631,22 +633,32 @@ const openImportModal = () => {
 
 // ============ 文件夹浏览器功能 ============
 
-// 打开文件夹浏览器
+// 打开文件夹浏览器（用于导入扫描）
 const openFolderBrowser = async () => {
   showFolderBrowser.value = true
   browserPath.value = ''
   browserHistory.value = []
-  await loadFolderList('')
+  browserMode.value = 'folder'
+  await loadFolderList('', false)
+}
+
+// 打开文件夹浏览器（用于添加库文件夹，可选择文件或文件夹）
+const openFolderBrowserForAdd = async () => {
+  showFolderBrowser.value = true
+  browserPath.value = ''
+  browserHistory.value = []
+  browserMode.value = 'file'  // show files too
+  await loadFolderList('', true)
 }
 
 // 加载文件夹列表
-const loadFolderList = async (path: string) => {
+const loadFolderList = async (path: string, showFiles: boolean = false) => {
   browserLoading.value = true
   try {
     const res = await api.get('/api/admin/browse-folders', {
-      params: { path, show_files: false }
+      params: { path, show_files: showFiles }
     }) as any
-    
+
     if (res.success) {
       browserPath.value = res.data.current_path
       browserFolders.value = res.data.folders
@@ -666,7 +678,7 @@ const enterFolder = (folder: any) => {
   // 支持 folder 和 drive 两种类型
   if (folder.type === 'folder' || folder.type === 'drive') {
     browserHistory.value.push(browserPath.value)
-    loadFolderList(folder.path)
+    loadFolderList(folder.path, browserMode.value === 'file')
   }
 }
 
@@ -674,13 +686,37 @@ const enterFolder = (folder: any) => {
 const goBack = () => {
   if (browserHistory.value.length > 0) {
     const previousPath = browserHistory.value.pop()!
-    loadFolderList(previousPath)
+    loadFolderList(previousPath, browserMode.value === 'file')
   }
 }
 
-// 选择当前文件夹
+// 选择当前文件夹（用于导入扫描）
 const selectCurrentFolder = () => {
   importFolder.value = browserPath.value
+  showFolderBrowser.value = false
+}
+
+// 从浏览器选择路径（用于添加库文件夹）
+const selectPathFromBrowser = () => {
+  if (!browserPath.value) return
+  // 自动从路径提取名称
+  const parts = browserPath.value.replace(/\\/g, '/').split('/')
+  const folderName = parts[parts.length - 1] || parts[parts.length - 2] || '未命名'
+  folderForm.value.name = folderName
+  folderForm.value.path = browserPath.value
+  // 根据是否在浏览文件模式决定类型（实际上路径本身就能判断）
+  folderForm.value.path_type = 'folder'
+  showFolderBrowser.value = false
+}
+
+// 从浏览器选择文件（用于添加库文件夹 - 直接点击文件时）
+const selectFileFromBrowser = (item: any) => {
+  // 自动从文件名提取名称
+  const fileName = item.name || item.display || '未命名'
+  const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '')  // 去掉扩展名
+  folderForm.value.name = nameWithoutExt
+  folderForm.value.path = item.path
+  folderForm.value.path_type = 'file'
   showFolderBrowser.value = false
 }
 
@@ -3143,22 +3179,19 @@ onUnmounted(() => {
           <!-- 添加文件夹表单 -->
           <div class="folder-form card">
             <h4>添加文件夹</h4>
-            <div class="form-row">
-              <div class="form-group">
-                <label>名称 <span class="required">*</span></label>
-                <input v-model="folderForm.name" type="text" placeholder="例如：高清电影" />
-              </div>
-              <div class="form-group">
-                <label>类型</label>
-                <select v-model="folderForm.path_type">
-                  <option value="folder">文件夹</option>
-                  <option value="file">单个文件</option>
-                </select>
-              </div>
-            </div>
             <div class="form-group">
               <label>路径 <span class="required">*</span></label>
-              <input v-model="folderForm.path" type="text" placeholder="例如：D:\Movies\HD" />
+              <div class="input-with-button">
+                <input v-model="folderForm.path" type="text" placeholder="点击浏览选择文件或文件夹" readonly />
+                <button class="action-btn" @click="openFolderBrowserForAdd">📂 浏览...</button>
+              </div>
+              <small v-if="folderForm.path" class="form-hint">
+                类型: {{ folderForm.path_type === 'file' ? '文件' : '文件夹' }}
+              </small>
+            </div>
+            <div class="form-group">
+              <label>名称（自动生成）</label>
+              <input v-model="folderForm.name" type="text" placeholder="自动从路径提取" />
             </div>
             <div class="form-group">
               <label class="checkbox-label">
@@ -3167,7 +3200,7 @@ onUnmounted(() => {
               </label>
             </div>
             <div class="form-actions">
-              <button class="action-btn primary" @click="addLibraryFolder">添加</button>
+              <button class="action-btn primary" @click="addLibraryFolder" :disabled="!folderForm.path">添加</button>
             </div>
           </div>
 
@@ -3261,32 +3294,43 @@ onUnmounted(() => {
             </div>
 
             <div v-else class="folder-list">
-              <div 
-                v-for="item in browserFolders" 
+              <div
+                v-for="item in browserFolders"
                 :key="item.path"
-                class="folder-item"
-                @click="enterFolder(item)"
+                :class="['folder-item', { 'folder-item-file': item.type === 'file' }]"
+                @click="item.type === 'file' ? selectFileFromBrowser(item) : enterFolder(item)"
               >
                 <div class="folder-icon">
-                  {{ item.type === 'drive' ? '💿' : '📁' }}
+                  {{ item.type === 'drive' ? '💿' : item.type === 'file' ? '📄' : '📁' }}
                 </div>
                 <div class="folder-info">
                   <div class="folder-name">{{ item.display || item.name }}</div>
-                  <div class="folder-type">{{ item.type === 'drive' ? '驱动器' : '文件夹' }}</div>
+                  <div class="folder-type">
+                    {{ item.type === 'drive' ? '驱动器' : item.type === 'file' ? '文件' : '文件夹' }}
+                  </div>
                 </div>
-                <div class="folder-arrow">▶</div>
+                <div class="folder-arrow">{{ item.type === 'file' ? '' : '▶' }}</div>
               </div>
             </div>
           </div>
         </div>
         <div class="modal-footer">
           <button class="action-btn" @click="showFolderBrowser = false">取消</button>
-          <button 
-            class="action-btn primary" 
+          <button
+            v-if="browserMode === 'folder'"
+            class="action-btn primary"
             @click="selectCurrentFolder"
             :disabled="!browserPath"
           >
             选择此文件夹
+          </button>
+          <button
+            v-else
+            class="action-btn primary"
+            @click="selectPathFromBrowser"
+            :disabled="!browserPath"
+          >
+            选择此路径
           </button>
         </div>
       </div>
@@ -5214,6 +5258,23 @@ input:checked + .slider:before {
 .folder-form h4 {
   margin: 0 0 16px 0;
   color: #333;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+.input-with-button input {
+  flex: 1;
+}
+
+.folder-item-file {
+  opacity: 0.85;
+}
+
+.folder-item-file:hover {
+  background: #f0f7ff;
 }
 
 .folder-list-section h4 {
