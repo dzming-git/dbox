@@ -3177,7 +3177,7 @@ onUnmounted(() => {
         <div class="modal-body">
           <!-- 添加文件夹表单 -->
           <div class="folder-form card">
-            <h4>添加文件夹</h4>
+            <h4>添加扫描路径</h4>
             <div class="form-group">
               <label>路径 <span class="required">*</span></label>
               <div class="input-with-button">
@@ -3185,12 +3185,8 @@ onUnmounted(() => {
                 <button class="action-btn" @click="openFolderBrowserForAdd">📂 浏览...</button>
               </div>
               <small v-if="folderForm.path" class="form-hint">
-                类型: {{ folderForm.path_type === 'file' ? '文件' : '文件夹' }}
+                {{ folderForm.path_type === 'file' ? '📄 文件' : '📁 文件夹' }}
               </small>
-            </div>
-            <div class="form-group">
-              <label>名称（自动生成）</label>
-              <input v-model="folderForm.name" type="text" placeholder="自动从路径提取" />
             </div>
             <div class="form-group">
               <label class="checkbox-label">
@@ -3214,12 +3210,12 @@ onUnmounted(() => {
                 <div class="folder-info">
                   <div class="folder-name">
                     <span v-if="folder.is_default" class="default-badge">默认</span>
-                    {{ folder.name }}
+                    <span class="folder-type-icon">{{ folder.path_type === 'file' ? '📄' : '📁' }}</span>
+                    {{ folder.path }}
                   </div>
-                  <div class="folder-path">{{ folder.path }}</div>
                   <div class="folder-meta">
-                    <span>类型: {{ folder.path_type === 'folder' ? '文件夹' : '文件' }}</span>
-                    <span v-if="folder.last_scan_at">最后扫描: {{ folder.last_scan_at }}</span>
+                    <span>扫描: {{ folder.item_count || 0 }} 个</span>
+                    <span v-if="folder.last_scan_at">最后: {{ folder.last_scan_at }}</span>
                   </div>
                 </div>
                 <div class="folder-actions">
@@ -5304,6 +5300,11 @@ input:checked + .slider:before {
   font-weight: 500;
   color: #333;
   margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.folder-type-icon {
+  margin-right: 4px;
 }
 
 .default-badge {

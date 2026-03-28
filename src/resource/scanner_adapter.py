@@ -244,8 +244,15 @@ class BusResourceAdapter(BaseDBusService):
 
             if not library_id:
                 return {'success': False, 'error': '缺少 library_id'}
-            if not name or not path:
-                return {'success': False, 'error': '名称和路径不能为空'}
+            if not path:
+                return {'success': False, 'error': '路径不能为空'}
+
+            # 自动生成名称（从路径提取）
+            if not name:
+                import os
+                name = os.path.basename(path.rstrip('/\\'))
+                if not name:
+                    name = path
 
             # 检查库是否存在
             library = ResourceLibraryDB.get_by_id(library_id)
