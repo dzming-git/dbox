@@ -2650,5 +2650,50 @@ const handleDelete = async () => {
   .volume-control {
     display: none;
   }
+
+  /* 移动端标签编辑器 - 上下布局，输入区域触手可及 */
+  .tag-editor-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    height: 90vh;
+    max-height: 90vh;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .tag-editor-body {
+    flex-direction: column;
+  }
+
+  .tag-tree-panel {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #333;
+    padding-right: 0;
+    padding-bottom: 12px;
+    max-height: 30vh;
+  }
+
+  .tag-tree-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow-y: visible;
+  }
+
+  .tag-tree-item {
+    margin-bottom: 0;
+    background: #252525;
+    padding: 6px 12px;
+  }
+
+  .tag-input-panel {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .video-tags-list {
+    max-height: 25vh;
+  }
 }
 </style>
