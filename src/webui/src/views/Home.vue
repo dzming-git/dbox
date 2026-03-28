@@ -21,6 +21,108 @@ const searchQuery = computed({
   set: (val) => videoStore.searchQuery = val
 })
 
+// 标签树导航
+const allTagsTree = ref<any[]>([])
+const currentTagLevel = ref<any[]>([])
+const tagBreadcrumbs = ref<any[]>([])
+
+// 构建标签树
+const buildTagTree = (tags: any[]): any[] => {
+  const tagMap = new Map<number, any>()
+  const rootTags: any[] = []
+
+  tags.forEach(tag => {
+    tagMap.set(tag.id, { ...tag, children: [] })
+  })
+
+  tags.forEach(tag => {
+    const node = tagMap.get(tag.id)!
+    if (tag.parent_id && tagMap.has(tag.parent_id)) {
+      tagMap.get(tag.parent_id)!.children.push(node)
+    } else {
+      rootTags.push(node)
+    }
+  })
+
+  return rootTags
+}
+
+// 初始化标签树
+const initTagTree = async () => {
+  if (tags.value.length > 0 && allTagsTree.value.length === 0) {
+    allTagsTree.value = buildTagTree(tags.value)
+    currentTagLevel.value = allTagsTree.value
+  }
+}
+
+// 进入标签层级
+const enterTagLevel = (tag: any) => {
+  if (tag.children && tag.children.length > 0) {
+    currentTagLevel.value = tag.children
+    tagBreadcrumbs.value.push({ id: tag.id, name: tag.name, path: tag.path || tag.name })
+  }
+}
+
+// 返回上级
+const goBackTagLevel = () => {
+  if (tagBreadcrumbs.value.length === 0) return
+
+  tagBreadcrumbs.value.pop()
+  if (tagBreadcrumbs.value.length === 0) {
+    currentTagLevel.value = allTagsTree.value
+  } else {
+    const parentPath = tagBreadcrumbs.value.map(b => b.name).join('/')
+    const findLevel = (nodes: any[], path: string): any[] => {
+      for (const node of nodes) {
+        if ((node.path || node.name) === path && node.children) {
+          return node.children
+        }
+        if (node.children) {
+          const found = findLevel(node.children, path)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const level = findLevel(allTagsTree.value, parentPath)
+    currentTagLevel.value = level || allTagsTree.value
+  }
+}
+
+// 返回根级别
+const goToRootLevel = () => {
+  tagBreadcrumbs.value = []
+  currentTagLevel.value = allTagsTree.value
+}
+
+// 点击标签
+const handleTagClick = (tag: any) => {
+  // 如果有子标签，进入子层级
+  if (tag.children && tag.children.length > 0) {
+    enterTagLevel(tag)
+  } else {
+    // 否则选中该标签
+    videoStore.filterByTag(tag.id)
+    showTagsSection.value = false
+  }
+}
+
+// 点击"全部"标签
+const handleClearTag = () => {
+  videoStore.filterByTag(null)
+  showTagsSection.value = false
+}
+
+// 监听 showTagsSection 变化，初始化树
+watch(showTagsSection, (newVal) => {
+  if (newVal) {
+    // 每次展开时重新初始化
+    allTagsTree.value = buildTagTree(tags.value)
+    currentTagLevel.value = allTagsTree.value
+    tagBreadcrumbs.value = []
+  }
+})
+
 // 排序选项
 const sortOptions = [
   { value: 'recommended', label: '推荐' },
@@ -178,19 +280,58 @@ const formatDuration = (seconds?: number): string => {
 
     <!-- 标签区域 - 可折叠 -->
     <div v-if="showTagsSection" class="tags-section">
+      <!-- 面包屑导航 -->
+      <div class="tag-tree-nav">
+        <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0">
+          <span class="breadcrumb-root" @click="goToRootLevel">根</span>
+          <template v-for="(crumb, idx) in tagBreadcrumbs" :key="crumb.id">
+            <span class="breadcrumb-sep">/</span>
+            <span
+              class="breadcrumb-item"
+              :class="{ active: idx === tagBreadcrumbs.length - 1 }"
+              @click="goBackTagLevel"
+            >{{ crumb.name }}</span>
+          </template>
+        </div>
+
+        <!-- 返回按钮 -->
+        <button
+          v-if="tagBreadcrumbs.length > 0"
+          class="nav-back-btn"
+          @click="goBackTagLevel"
+          title="返回上级"
+        >
+          ‹ 返回
+        </button>
+      </div>
+
+      <!-- 标签列表 -->
       <div class="tags-container">
-        <TagBadge
-          :tag="{ id: 0, name: '全部', video_count: 0 }"
-          :active="selectedTagId === null"
-          @click="() => videoStore.filterByTag(null)"
-        />
-        <TagBadge
-          v-for="tag in tags"
+        <!-- 全部按钮 -->
+        <div
+          class="tag-nav-item all-tag"
+          :class="{ active: selectedTagId === null }"
+          @click="handleClearTag"
+        >
+          <span class="tag-nav-name">全部</span>
+        </div>
+
+        <!-- 当前层级的标签 -->
+        <div
+          v-for="tag in currentTagLevel"
           :key="tag.id"
-          :tag="tag"
-          :active="selectedTagId === tag.id"
+          class="tag-nav-item"
+          :class="{ active: selectedTagId === tag.id }"
           @click="handleTagClick(tag)"
-        />
+        >
+          <span class="tag-nav-name">{{ tag.name }}</span>
+          <span v-if="tag.children && tag.children.length > 0" class="tag-nav-badge">
+            {{ tag.children.length }}
+            <span class="tag-nav-arrow">›</span>
+          </span>
+        </div>
+
+        <p v-if="currentTagLevel.length === 0" class="no-tags">该分类下暂无标签</p>
       </div>
     </div>
 
@@ -258,31 +399,130 @@ const formatDuration = (seconds?: number): string => {
   margin: 0;
 }
 
+/* 标签树导航 */
+.tag-tree-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.tag-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.breadcrumb-root {
+  color: #4FC3F7;
+  cursor: pointer;
+}
+
+.breadcrumb-root:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: #555;
+}
+
+.breadcrumb-item {
+  color: #ccc;
+  cursor: pointer;
+}
+
+.breadcrumb-item:hover {
+  color: #fff;
+}
+
+.breadcrumb-item.active {
+  color: #4FC3F7;
+  cursor: default;
+}
+
+.nav-back-btn {
+  background: #333;
+  border: none;
+  color: #888;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-back-btn:hover {
+  background: #444;
+  color: #fff;
+}
+
 .tags-container {
   display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  flex-wrap: wrap;
   gap: 8px;
-  padding-bottom: 4px;
-  -webkit-overflow-scrolling: touch;
 }
 
-.tags-container::-webkit-scrollbar {
-  height: 4px;
-}
-
-.tags-container::-webkit-scrollbar-track {
+/* 标签导航项 */
+.tag-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
   background: #252525;
-  border-radius: 2px;
+  border: 1px solid #333;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.tags-container::-webkit-scrollbar-thumb {
-  background: #444;
-  border-radius: 2px;
+.tag-nav-item:hover {
+  background: #333;
+  border-color: #444;
 }
 
-.tags-container::-webkit-scrollbar-thumb:hover {
-  background: #555;
+.tag-nav-item.active {
+  background: #2196F3;
+  border-color: #2196F3;
+}
+
+.tag-nav-item.all-tag {
+  background: #333;
+}
+
+.tag-nav-name {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.tag-nav-item.active .tag-nav-name {
+  color: #fff;
+}
+
+.tag-nav-badge {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: #888;
+  background: #1a1a1a;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.tag-nav-arrow {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.no-tags {
+  color: #666;
+  font-size: 13px;
+  text-align: center;
+  padding: 12px;
+  width: 100%;
 }
 
 /* 标签筛选折叠按钮 */
