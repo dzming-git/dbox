@@ -168,14 +168,6 @@ const clearSearch = () => {
   videoStore.clearSearch()
 }
 
-const handleTagClick = async (tag: Tag) => {
-  if (selectedTagId.value === tag.id) {
-    await videoStore.filterByTag(null)
-  } else {
-    await videoStore.filterByTag(tag.id)
-  }
-}
-
 const handleVideoClick = (video: Video) => {
   router.push({ name: 'Video', params: { hash: video.hash } })
 }
