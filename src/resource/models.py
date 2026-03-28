@@ -41,12 +41,23 @@ def _ensure_db_dir():
     os.makedirs(_DB_DIR, exist_ok=True)
 
 
+def get_db_dir() -> str:
+    """获取数据库目录路径"""
+    return _DB_DIR
+
+
+def get_db_path(db_file: str) -> str:
+    """获取数据库文件完整路径"""
+    return os.path.join(_DB_DIR, db_file)
+
+
 @dataclass
 class ResourceLibrary:
     """资源库模型"""
     id: Optional[int] = None
     name: str = ""
-    path: str = ""  # 文件夹路径
+    db_file: str = ""  # 数据库文件名（与 name 一一对应，如 "porn.db"）
+    path: str = ""  # 主文件夹路径（兼容旧字段）
     resource_type: ResourceType = ResourceType.VIDEO
     scan_mode: ScanMode = ScanMode.MANUAL
     scan_interval: int = 60  # 分钟
@@ -61,6 +72,7 @@ class ResourceLibrary:
         return {
             'id': self.id,
             'name': self.name,
+            'db_file': self.db_file,
             'path': self.path,
             'resource_type': self.resource_type.value if isinstance(self.resource_type, Enum) else self.resource_type,
             'scan_mode': self.scan_mode.value if isinstance(self.scan_mode, Enum) else self.scan_mode,
@@ -80,6 +92,7 @@ class ResourceLibrary:
         return cls(
             id=d.get('id'),
             name=d.get('name', ''),
+            db_file=d.get('db_file', ''),
             path=d.get('path', ''),
             resource_type=ResourceType(rt) if isinstance(rt, str) else rt,
             scan_mode=ScanMode(sm) if isinstance(sm, str) else sm,
@@ -102,6 +115,7 @@ class ResourceFolder:
     path: str = ""
     path_type: PathType = PathType.FOLDER  # folder 或 file
     is_active: bool = True
+    is_default: bool = False  # 是否为默认上传路径
     scan_mode: ScanMode = ScanMode.MANUAL
     scan_interval: int = 60  # 分钟
     last_scan_at: Optional[datetime] = None
@@ -116,6 +130,7 @@ class ResourceFolder:
             'path': self.path,
             'path_type': self.path_type.value if isinstance(self.path_type, Enum) else self.path_type,
             'is_active': self.is_active,
+            'is_default': self.is_default,
             'scan_mode': self.scan_mode.value if isinstance(self.scan_mode, Enum) else self.scan_mode,
             'scan_interval': self.scan_interval,
             'last_scan_at': self.last_scan_at.isoformat() if self.last_scan_at else None,
@@ -134,6 +149,7 @@ class ResourceFolder:
             path=d.get('path', ''),
             path_type=PathType(pt) if isinstance(pt, str) else pt,
             is_active=d.get('is_active', True),
+            is_default=d.get('is_default', False),
             scan_mode=ScanMode(sm) if isinstance(sm, str) else sm,
             scan_interval=d.get('scan_interval', 60),
             last_scan_at=datetime.fromisoformat(d['last_scan_at']) if d.get('last_scan_at') else None,
@@ -242,6 +258,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS resource_libraries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
+                    db_file TEXT NOT NULL DEFAULT '',
                     path TEXT NOT NULL,
                     resource_type TEXT NOT NULL DEFAULT 'video',
                     scan_mode TEXT NOT NULL DEFAULT 'manual',
@@ -255,6 +272,12 @@ class Database:
                 )
             ''')
 
+            # 迁移：为已有记录添加 db_file 字段
+            cursor.execute("PRAGMA table_info(resource_libraries)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'db_file' not in columns:
+                cursor.execute("ALTER TABLE resource_libraries ADD COLUMN db_file TEXT NOT NULL DEFAULT ''")
+
             # 文件夹/文件表（中间层）
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS resource_folders (
@@ -264,6 +287,7 @@ class Database:
                     path TEXT NOT NULL,
                     path_type TEXT NOT NULL DEFAULT 'folder',
                     is_active INTEGER DEFAULT 1,
+                    is_default INTEGER DEFAULT 0,
                     scan_mode TEXT DEFAULT 'manual',
                     scan_interval INTEGER DEFAULT 60,
                     last_scan_at TEXT,
@@ -272,6 +296,12 @@ class Database:
                     FOREIGN KEY (library_id) REFERENCES resource_libraries(id) ON DELETE CASCADE
                 )
             ''')
+
+            # 迁移：为已有记录添加 is_default 字段
+            cursor.execute("PRAGMA table_info(resource_folders)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'is_default' not in columns:
+                cursor.execute("ALTER TABLE resource_folders ADD COLUMN is_default INTEGER DEFAULT 0")
 
             # 资源条目表（hash 为索引）
             cursor.execute('''
@@ -359,6 +389,7 @@ class ResourceLibraryDB:
                 return ResourceLibrary(
                     id=row['id'],
                     name=row['name'],
+                    db_file=row.get('db_file', ''),
                     path=row['path'],
                     resource_type=row['resource_type'],
                     scan_mode=row['scan_mode'],
@@ -383,6 +414,7 @@ class ResourceLibraryDB:
                 ResourceLibrary(
                     id=row['id'],
                     name=row['name'],
+                    db_file=row.get('db_file', ''),
                     path=row['path'],
                     resource_type=row['resource_type'],
                     scan_mode=row['scan_mode'],
@@ -404,12 +436,13 @@ class ResourceLibraryDB:
         with Database.get_cursor() as cursor:
             cursor.execute('''
                 UPDATE resource_libraries SET
-                    name = ?, path = ?, resource_type = ?, scan_mode = ?,
+                    name = ?, db_file = ?, path = ?, resource_type = ?, scan_mode = ?,
                     scan_interval = ?, is_active = ?, is_watching = ?,
                     last_scan_at = ?, last_watch_at = ?, updated_at = ?
                 WHERE id = ?
             ''', (
                 library.name,
+                library.db_file,
                 library.path,
                 library.resource_type.value if isinstance(library.resource_type, Enum) else library.resource_type,
                 library.scan_mode.value if isinstance(library.scan_mode, Enum) else library.scan_mode,
@@ -420,6 +453,33 @@ class ResourceLibraryDB:
                 library.last_watch_at.isoformat() if library.last_watch_at else None,
                 datetime.utcnow().isoformat(),
                 library.id,
+            ))
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def rename_library(library_id: int, new_name: str, new_db_file: str) -> bool:
+        """
+        重命名资源库，同时更新数据库文件名
+
+        Args:
+            library_id: 库 ID
+            new_name: 新名称
+            new_db_file: 新数据库文件名
+
+        Returns:
+            bool: 是否成功
+        """
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('''
+                UPDATE resource_libraries SET
+                    name = ?, db_file = ?, updated_at = ?
+                WHERE id = ?
+            ''', (
+                new_name,
+                new_db_file,
+                datetime.utcnow().isoformat(),
+                library_id,
             ))
             return cursor.rowcount > 0
 
@@ -466,17 +526,23 @@ class ResourceFolderDB:
     def create(folder: ResourceFolder) -> int:
         """创建文件夹"""
         Database.init_db()
+
+        # 如果设置为默认，先取消该库其他文件夹的默认状态
+        if folder.is_default:
+            ResourceFolderDB._clear_default(folder.library_id)
+
         with Database.get_cursor() as cursor:
             cursor.execute('''
                 INSERT INTO resource_folders
-                (library_id, name, path, path_type, is_active, scan_mode, scan_interval, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (library_id, name, path, path_type, is_active, is_default, scan_mode, scan_interval, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 folder.library_id,
                 folder.name,
                 folder.path,
                 folder.path_type.value if isinstance(folder.path_type, Enum) else folder.path_type,
                 1 if folder.is_active else 0,
+                1 if folder.is_default else 0,
                 folder.scan_mode.value if isinstance(folder.scan_mode, Enum) else folder.scan_mode,
                 folder.scan_interval,
                 folder.created_at.isoformat(),
@@ -501,7 +567,7 @@ class ResourceFolderDB:
         Database.init_db()
         with Database.get_cursor() as cursor:
             cursor.execute(
-                'SELECT * FROM resource_folders WHERE library_id = ? ORDER BY name',
+                'SELECT * FROM resource_folders WHERE library_id = ? ORDER BY is_default DESC, name',
                 (library_id,)
             )
             rows = cursor.fetchall()
@@ -525,13 +591,57 @@ class ResourceFolderDB:
             return None
 
     @staticmethod
+    def get_default_folder(library_id: int) -> Optional[ResourceFolder]:
+        """获取库的默认文件夹"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute(
+                'SELECT * FROM resource_folders WHERE library_id = ? AND is_default = 1',
+                (library_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return ResourceFolderDB._row_to_folder(row)
+            return None
+
+    @staticmethod
+    def set_default(folder_id: int) -> bool:
+        """设置文件夹为默认上传路径"""
+        Database.init_db()
+        folder = ResourceFolderDB.get_by_id(folder_id)
+        if not folder:
+            return False
+
+        # 清除该库其他文件夹的默认状态
+        ResourceFolderDB._clear_default(folder.library_id)
+
+        # 设置新的默认
+        folder.is_default = True
+        return ResourceFolderDB.update(folder)
+
+    @staticmethod
+    def _clear_default(library_id: int):
+        """清除库的默认路径设置"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute(
+                'UPDATE resource_folders SET is_default = 0 WHERE library_id = ? AND is_default = 1',
+                (library_id,)
+            )
+
+    @staticmethod
     def update(folder: ResourceFolder) -> bool:
         """更新文件夹"""
         Database.init_db()
+
+        # 如果设置为默认，先取消该库其他文件夹的默认状态
+        if folder.is_default:
+            ResourceFolderDB._clear_default(folder.library_id)
+
         with Database.get_cursor() as cursor:
             cursor.execute('''
                 UPDATE resource_folders SET
-                    name = ?, path = ?, path_type = ?, is_active = ?,
+                    name = ?, path = ?, path_type = ?, is_active = ?, is_default = ?,
                     scan_mode = ?, scan_interval = ?, last_scan_at = ?, updated_at = ?
                 WHERE id = ?
             ''', (
@@ -539,6 +649,7 @@ class ResourceFolderDB:
                 folder.path,
                 folder.path_type.value if isinstance(folder.path_type, Enum) else folder.path_type,
                 1 if folder.is_active else 0,
+                1 if folder.is_default else 0,
                 folder.scan_mode.value if isinstance(folder.scan_mode, Enum) else folder.scan_mode,
                 folder.scan_interval,
                 folder.last_scan_at.isoformat() if folder.last_scan_at else None,
@@ -576,6 +687,7 @@ class ResourceFolderDB:
             path=row['path'],
             path_type=row['path_type'],
             is_active=bool(row['is_active']),
+            is_default=bool(row.get('is_default', False)),
             scan_mode=row['scan_mode'],
             scan_interval=row['scan_interval'],
             last_scan_at=datetime.fromisoformat(row['last_scan_at']) if row['last_scan_at'] else None,

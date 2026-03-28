@@ -91,12 +91,20 @@ try:
         rpc_port=15555,
         pub_port=15556
     )
+    # 连接总线调用 resourced (资源管理服务)
+    resource_bus = BusClient(
+        'web-resource',
+        host='127.0.0.1',
+        rpc_port=15555,
+        pub_port=15556
+    )
 except Exception as e:
     thumbnail_bus = None
     svc_mgr_bus = None
     history_bus = None
     collection_bus = None
     search_bus = None
+    resource_bus = None
     print(f"[WARNING] 总线客户端初始化失败: {e}")
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
@@ -1877,36 +1885,62 @@ def upload_video():
     try:
         if 'video' not in request.files:
             return jsonify({'success': False, 'message': '未找到视频文件'}), 400
-        
+
         file = request.files['video']
         if file.filename == '':
             return jsonify({'success': False, 'message': '未选择文件'}), 400
-        
+
         # 检查文件格式
         allowed_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv'}
         ext = os.path.splitext(file.filename)[1].lower()
         if ext not in allowed_extensions:
             return jsonify({
-                'success': False, 
+                'success': False,
                 'message': f'不支持的文件格式，请上传 {", ".join(allowed_extensions)} 格式的视频'
             }), 400
-        
-        # 创建上传目录
-        upload_dir = os.path.join(_DATA_DIR, 'uploads')
+
+        # 获取表单数据
+        title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
+        description = request.form.get('description', '').strip()
+        library_id = request.form.get('library_id')
+
+        # 确定上传目录
+        upload_dir = os.path.join(_DATA_DIR, 'uploads')  # 默认上传目录
+
+        # 如果指定了 library_id，尝试获取该库的默认上传路径
+        if library_id:
+            try:
+                library_id = int(library_id)
+                # 通过总线查询 resourced 服务的默认路径
+                if resource_bus:
+                    result = resource_bus.call_method(
+                        'com.dplayer.resourced',
+                        'com.dplayer.Resourced',
+                        'GetDefaultUploadPath',
+                        {'library_id': library_id},
+                        timeout=3000
+                    )
+                    if result and result.get('success') and result.get('path'):
+                        upload_dir = result['path']
+                        log.debug('INFO', f'使用库 {library_id} 的默认上传路径: {upload_dir}')
+            except Exception as e:
+                log.debug('WARN', f'获取库默认路径失败，使用默认上传目录: {e}')
+
+        # 确保上传目录存在
         os.makedirs(upload_dir, exist_ok=True)
-        
+
         # 生成唯一文件名
         import uuid
         unique_id = str(uuid.uuid4())[:8]
         safe_filename = f"{unique_id}_{file.filename}"
         file_path = os.path.join(upload_dir, safe_filename)
-        
+
         # 保存文件
         file.save(file_path)
-        
+
         # 生成视频hash
         video_hash = Video.generate_hash(file_path)
-        
+
         # 检查是否已存在
         existing = Video.query.filter_by(hash=video_hash).first()
         if existing:
@@ -1916,23 +1950,17 @@ def upload_video():
                 'message': '该视频已存在',
                 'video': existing.to_dict()
             }), 409
-        
+
         # 获取文件大小
         file_size = os.path.getsize(file_path)
-        
-        # 获取表单数据
-        title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
-        description = request.form.get('description', '').strip()
-        library_id = request.form.get('library_id')
-        
+
         # 检查视频集权限（仅管理员可上传到任意视频集）
         if library_id:
-            library_id = int(library_id)
             library = VideoLibrary.query.get(library_id)
             if not library:
                 os.remove(file_path)
                 return jsonify({'success': False, 'message': '视频集不存在'}), 400
-            
+
             # 检查权限 - ROOT 和管理员可以上传到任意视频库
             if g.role not in [UserRole.ADMIN, UserRole.ROOT]:
                 # 检查直接权限
@@ -1952,13 +1980,13 @@ def upload_video():
                         if group_perm and group_perm.access_level in ['full', 'write']:
                             has_permission = True
                             break
-                
+
                 if not has_permission:
                     os.remove(file_path)
                     return jsonify({'success': False, 'message': '无权上传到该视频集'}), 403
         else:
             library_id = None
-        
+
         # 创建视频记录
         video = Video(
             hash=video_hash,
@@ -1971,22 +1999,23 @@ def upload_video():
             thumbnail=f'/thumbnail/{video_hash}',
             library_id=library_id
         )
-        
+
         db.session.add(video)
         db.session.commit()
-        log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size})")
-        
+        log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size}, 路径: {file_path})")
+
         # 异步生成缩略图（这里简化处理）
         # TODO: 调用缩略图服务生成真实缩略图
-        
+
         return jsonify({
             'success': True,
             'message': '上传成功',
             'video': video.to_dict()
         })
-        
+
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f'上传视频失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # --- 状态 API ---

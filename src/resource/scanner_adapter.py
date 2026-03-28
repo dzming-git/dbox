@@ -59,7 +59,8 @@ try:
     from .models import (
         ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
         ResourceItem, ResourceItemDB,
-        ResourceType, ScanMode, PathType, Database
+        ResourceType, ScanMode, PathType, Database,
+        get_db_dir
     )
     from .indexer import MediaIndexer
     from .watcher import LibraryWatcher
@@ -67,12 +68,16 @@ except ImportError:
     from resource.models import (
         ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
         ResourceItem, ResourceItemDB,
-        ResourceType, ScanMode, PathType, Database
+        ResourceType, ScanMode, PathType, Database,
+        get_db_dir
     )
     from resource.indexer import MediaIndexer
     from resource.watcher import LibraryWatcher
 
 from servicebus.service_base import BaseDBusService
+
+# 数据库目录
+_DB_DIR = get_db_dir()
 
 
 class BusResourceAdapter(BaseDBusService):
@@ -165,21 +170,40 @@ class BusResourceAdapter(BaseDBusService):
             if not library:
                 return {'success': False, 'error': '库不存在'}
 
-            # 更新字段
-            if 'name' in params:
-                library.name = params['name'].strip()
-            if 'path' in params:
-                library.path = params['path'].strip()
-            if 'resource_type' in params:
-                library.resource_type = ResourceType(params['resource_type'])
-            if 'scan_mode' in params:
-                library.scan_mode = ScanMode(params['scan_mode'])
-            if 'scan_interval' in params:
-                library.scan_interval = params['scan_interval']
-            if 'is_active' in params:
-                library.is_active = params['is_active']
+            # 检查是否是重命名操作
+            new_name = params.get('name', '').strip()
+            if new_name and new_name != library.name:
+                # 重命名：同时更新库名和数据库文件名
+                new_db_file = f"{new_name}.db"
+                old_db_file = library.db_file
 
-            ResourceLibraryDB.update(library)
+                # 更新数据库记录
+                ResourceLibraryDB.rename_library(library_id, new_name, new_db_file)
+
+                # 重命名数据库文件
+                if old_db_file:
+                    old_path = os.path.join(_DB_DIR, old_db_file)
+                    new_path = os.path.join(_DB_DIR, new_db_file)
+                    if os.path.exists(old_path) and not os.path.exists(new_path):
+                        os.rename(old_path, new_path)
+
+                library.name = new_name
+                library.db_file = new_db_file
+            else:
+                # 普通更新
+                if 'path' in params:
+                    library.path = params['path'].strip()
+                if 'resource_type' in params:
+                    library.resource_type = ResourceType(params['resource_type'])
+                if 'scan_mode' in params:
+                    library.scan_mode = ScanMode(params['scan_mode'])
+                if 'scan_interval' in params:
+                    library.scan_interval = params['scan_interval']
+                if 'is_active' in params:
+                    library.is_active = params['is_active']
+
+                ResourceLibraryDB.update(library)
+
             return {'success': True, 'library': library.to_dict()}
         except Exception as e:
             return {'success': False, 'error': str(e)}
@@ -216,6 +240,7 @@ class BusResourceAdapter(BaseDBusService):
             name = params.get('name', '').strip()
             path = params.get('path', '').strip()
             path_type = params.get('path_type', 'folder')
+            is_default = params.get('is_default', False)
 
             if not library_id:
                 return {'success': False, 'error': '缺少 library_id'}
@@ -238,13 +263,17 @@ class BusResourceAdapter(BaseDBusService):
             if existing:
                 return {'success': False, 'error': '该路径已添加'}
 
+            # 如果设置为默认，且该库还没有默认路径，则直接设置
+            # 如果设置为默认，但已有默认路径，会在 create 时自动替换
             folder = ResourceFolder(
                 library_id=library_id,
                 name=name,
                 path=path,
                 path_type=PathType(path_type),
+                is_default=is_default,
             )
             folder_id = ResourceFolderDB.create(folder)
+            folder.id = folder_id
 
             return {
                 'success': True,
@@ -287,6 +316,8 @@ class BusResourceAdapter(BaseDBusService):
                 folder.path = params['path'].strip()
             if 'is_active' in params:
                 folder.is_active = params['is_active']
+            if 'is_default' in params:
+                folder.is_default = params['is_default']
             if 'scan_mode' in params:
                 folder.scan_mode = ScanMode(params['scan_mode'])
             if 'scan_interval' in params:
@@ -294,6 +325,55 @@ class BusResourceAdapter(BaseDBusService):
 
             ResourceFolderDB.update(folder)
             return {'success': True, 'folder': folder.to_dict()}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_set_default_folder(self, params: Dict[str, Any]) -> Dict:
+        """设置文件夹为默认上传路径"""
+        try:
+            folder_id = params.get('folder_id')
+            if not folder_id:
+                return {'success': False, 'error': '缺少 folder_id'}
+
+            success = ResourceFolderDB.set_default(folder_id)
+            if success:
+                folder = ResourceFolderDB.get_by_id(folder_id)
+                return {'success': True, 'folder': folder.to_dict()}
+            return {'success': False, 'error': '设置默认路径失败'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_get_default_folder(self, params: Dict[str, Any]) -> Dict:
+        """获取库的默认上传路径"""
+        try:
+            library_id = params.get('library_id')
+            if not library_id:
+                return {'success': False, 'error': '缺少 library_id'}
+
+            folder = ResourceFolderDB.get_default_folder(library_id)
+            if folder:
+                return {'success': True, 'folder': folder.to_dict()}
+            return {'success': True, 'folder': None, 'message': '没有设置默认路径'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def on_method_get_default_upload_path(self, params: Dict[str, Any]) -> Dict:
+        """获取库的默认上传路径（返回路径字符串）"""
+        try:
+            library_id = params.get('library_id')
+            if not library_id:
+                return {'success': False, 'error': '缺少 library_id'}
+
+            folder = ResourceFolderDB.get_default_folder(library_id)
+            if folder:
+                return {'success': True, 'path': folder.path}
+
+            # 如果没有设置默认文件夹，返回库的主路径
+            library = ResourceLibraryDB.get_by_id(library_id)
+            if library and library.path:
+                return {'success': True, 'path': library.path}
+
+            return {'success': False, 'error': '该库没有配置上传路径'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
