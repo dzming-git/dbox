@@ -249,7 +249,6 @@ class BusResourceAdapter(BaseDBusService):
 
             # 自动生成名称（从路径提取）
             if not name:
-                import os
                 name = os.path.basename(path.rstrip('/\\'))
                 if not name:
                     name = path

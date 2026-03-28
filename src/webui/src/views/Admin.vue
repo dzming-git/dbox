@@ -229,8 +229,8 @@ const fetchLibraryFolders = async (libraryId: number) => {
 // 添加文件夹
 const addLibraryFolder = async () => {
   if (!selectedLibraryForFolder.value) return
-  if (!folderForm.value.name.trim() || !folderForm.value.path.trim()) {
-    showToast('名称和路径不能为空')
+  if (!folderForm.value.path.trim()) {
+    showToast('请先选择文件夹')
     return
   }
   try {

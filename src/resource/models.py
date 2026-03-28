@@ -389,7 +389,7 @@ class ResourceLibraryDB:
                 return ResourceLibrary(
                     id=row['id'],
                     name=row['name'],
-                    db_file=row.get('db_file', ''),
+                    db_file=row['db_file'],
                     path=row['path'],
                     resource_type=row['resource_type'],
                     scan_mode=row['scan_mode'],
@@ -414,7 +414,7 @@ class ResourceLibraryDB:
                 ResourceLibrary(
                     id=row['id'],
                     name=row['name'],
-                    db_file=row.get('db_file', ''),
+                    db_file=row['db_file'],
                     path=row['path'],
                     resource_type=row['resource_type'],
                     scan_mode=row['scan_mode'],
@@ -687,7 +687,7 @@ class ResourceFolderDB:
             path=row['path'],
             path_type=row['path_type'],
             is_active=bool(row['is_active']),
-            is_default=bool(row.get('is_default', False)),
+            is_default=bool(row['is_default']),
             scan_mode=row['scan_mode'],
             scan_interval=row['scan_interval'],
             last_scan_at=datetime.fromisoformat(row['last_scan_at']) if row['last_scan_at'] else None,

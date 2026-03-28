@@ -2338,11 +2338,41 @@ def get_library_folders(library_id):
             {'library_id': library_id},
             timeout=3000
         )
-        if result and result.get('success'):
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
             return jsonify({'success': True, 'data': result.get('folders', [])})
         return jsonify({'success': False, 'message': result.get('error', '获取文件夹列表失败')}), 500
     except Exception as e:
         log.debug('ERROR', f'获取文件夹列表失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# 测试端点 - 不需要认证
+@app.route('/api/test/add-folder', methods=['POST'])
+def test_add_folder():
+    """测试添加文件夹"""
+    try:
+        data = request.get_json()
+        log.debug('INFO', f'Test add folder: {data}')
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'AddFolder',
+            data,
+            timeout=5000
+        )
+        log.debug('INFO', f'AddFolder result: {result}')
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
+            return jsonify({'success': True, 'data': result.get('folder')})
+        return jsonify({'success': False, 'message': result.get('error', '添加文件夹失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'添加文件夹失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -2376,7 +2406,9 @@ def add_library_folder(library_id):
             },
             timeout=3000
         )
-        if result and result.get('success'):
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
             return jsonify({'success': True, 'data': result.get('folder')})
         return jsonify({'success': False, 'message': result.get('error', '添加文件夹失败')}), 500
     except Exception as e:
@@ -2401,7 +2433,9 @@ def update_folder(folder_id):
             {'folder_id': folder_id, **data},
             timeout=3000
         )
-        if result and result.get('success'):
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
             return jsonify({'success': True, 'data': result.get('folder')})
         return jsonify({'success': False, 'message': result.get('error', '更新文件夹失败')}), 500
     except Exception as e:
@@ -2424,7 +2458,9 @@ def delete_folder(folder_id):
             {'folder_id': folder_id},
             timeout=3000
         )
-        if result and result.get('success'):
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
             return jsonify({'success': True, 'message': '文件夹已删除'})
         return jsonify({'success': False, 'message': result.get('error', '删除文件夹失败')}), 500
     except Exception as e:
@@ -2447,7 +2483,9 @@ def set_default_folder(folder_id):
             {'folder_id': folder_id},
             timeout=3000
         )
-        if result and result.get('success'):
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
             return jsonify({'success': True, 'data': result.get('folder')})
         return jsonify({'success': False, 'message': result.get('error', '设置默认路径失败')}), 500
     except Exception as e:
