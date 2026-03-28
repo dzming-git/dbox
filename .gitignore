@@ -63,6 +63,7 @@ src/webui/dist/
 src/webui/node_modules/
 src/webui/.vite/
 static/dist/
+src/static/dist/
 
 # ============================================
 # 上传文件和缓存
