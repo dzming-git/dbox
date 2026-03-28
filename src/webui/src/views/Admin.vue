@@ -200,6 +200,96 @@ const permissionForm = ref({
   permissions: [] as string[]
 })
 
+// 文件夹管理
+const libraryFolders = ref<any[]>([])
+const showFolderModal = ref(false)
+const editingFolder = ref<any>(null)
+const folderForm = ref({
+  name: '',
+  path: '',
+  path_type: 'folder',
+  is_default: false
+})
+const selectedLibraryForFolder = ref<number | null>(null)
+const managingFoldersFor = ref<number | null>(null)
+
+// 获取库的文件夹列表
+const fetchLibraryFolders = async (libraryId: number) => {
+  try {
+    const res = await api.get(`/api/admin/libraries/${libraryId}/folders`) as any
+    if (res.success) {
+      libraryFolders.value = res.data || []
+    }
+  } catch (error) {
+    console.error('获取文件夹列表失败:', error)
+  }
+}
+
+// 添加文件夹
+const addLibraryFolder = async () => {
+  if (!selectedLibraryForFolder.value) return
+  if (!folderForm.value.name.trim() || !folderForm.value.path.trim()) {
+    showToast('名称和路径不能为空')
+    return
+  }
+  try {
+    const res = await api.post(`/api/admin/libraries/${selectedLibraryForFolder.value}/folders`, folderForm.value) as any
+    if (res.success) {
+      showToast('文件夹添加成功')
+      showFolderModal.value = false
+      folderForm.value = { name: '', path: '', path_type: 'folder', is_default: false }
+      fetchLibraryFolders(selectedLibraryForFolder.value)
+    } else {
+      showToast(res.message || '添加失败')
+    }
+  } catch (error) {
+    console.error('添加文件夹失败:', error)
+  }
+}
+
+// 删除文件夹
+const deleteLibraryFolder = async (folderId: number) => {
+  if (!confirm('确定要删除该文件夹吗？')) return
+  try {
+    const res = await api.delete(`/api/admin/folders/${folderId}`) as any
+    if (res.success) {
+      showToast('文件夹已删除')
+      if (managingFoldersFor.value) {
+        fetchLibraryFolders(managingFoldersFor.value)
+      }
+    } else {
+      showToast(res.message || '删除失败')
+    }
+  } catch (error) {
+    console.error('删除文件夹失败:', error)
+  }
+}
+
+// 设置默认上传路径
+const setAsDefaultFolder = async (folderId: number) => {
+  try {
+    const res = await api.post(`/api/admin/folders/${folderId}/set-default`) as any
+    if (res.success) {
+      showToast('已设为默认上传路径')
+      if (managingFoldersFor.value) {
+        fetchLibraryFolders(managingFoldersFor.value)
+      }
+    } else {
+      showToast(res.message || '设置失败')
+    }
+  } catch (error) {
+    console.error('设置默认路径失败:', error)
+  }
+}
+
+// 打开文件夹管理
+const manageFolders = (lib: any) => {
+  managingFoldersFor.value = lib.id
+  selectedLibraryForFolder.value = lib.id
+  fetchLibraryFolders(lib.id)
+  showFolderModal.value = true
+}
+
 // 用户组
 const userGroups = ref<any[]>([])
 
@@ -2414,6 +2504,7 @@ onUnmounted(() => {
             <div class="library-card-actions">
               <button class="action-btn" @click="editLibrary(lib)">编辑</button>
               <button class="action-btn" @click="fetchLibraryPermissions(lib.id); showPermissionModal = true">权限</button>
+              <button class="action-btn" @click="manageFolders(lib)">文件夹</button>
               <button class="action-btn danger" @click="deleteLibrary(lib.id)">删除</button>
             </div>
           </div>
@@ -3037,6 +3128,90 @@ onUnmounted(() => {
         </div>
         <div class="modal-footer">
           <button class="action-btn" @click="showPermissionModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文件夹管理弹窗 -->
+    <div v-if="showFolderModal" class="modal-overlay" @click="showFolderModal = false">
+      <div class="modal-content modal-large" @click.stop>
+        <div class="modal-header">
+          <h3>📁 文件夹管理</h3>
+          <button class="close-btn" @click="showFolderModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <!-- 添加文件夹表单 -->
+          <div class="folder-form card">
+            <h4>添加文件夹</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>名称 <span class="required">*</span></label>
+                <input v-model="folderForm.name" type="text" placeholder="例如：高清电影" />
+              </div>
+              <div class="form-group">
+                <label>类型</label>
+                <select v-model="folderForm.path_type">
+                  <option value="folder">文件夹</option>
+                  <option value="file">单个文件</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>路径 <span class="required">*</span></label>
+              <input v-model="folderForm.path" type="text" placeholder="例如：D:\Movies\HD" />
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input v-model="folderForm.is_default" type="checkbox" />
+                设为默认上传路径
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="action-btn primary" @click="addLibraryFolder">添加</button>
+            </div>
+          </div>
+
+          <!-- 文件夹列表 -->
+          <div class="folder-list-section">
+            <h4>已配置的文件夹</h4>
+            <div v-if="libraryFolders.length === 0" class="empty-state">
+              <p>暂无文件夹，请添加扫描路径</p>
+            </div>
+            <div v-else class="folder-items">
+              <div v-for="folder in libraryFolders" :key="folder.id" class="folder-item card">
+                <div class="folder-info">
+                  <div class="folder-name">
+                    <span v-if="folder.is_default" class="default-badge">默认</span>
+                    {{ folder.name }}
+                  </div>
+                  <div class="folder-path">{{ folder.path }}</div>
+                  <div class="folder-meta">
+                    <span>类型: {{ folder.path_type === 'folder' ? '文件夹' : '文件' }}</span>
+                    <span v-if="folder.last_scan_at">最后扫描: {{ folder.last_scan_at }}</span>
+                  </div>
+                </div>
+                <div class="folder-actions">
+                  <button
+                    v-if="!folder.is_default"
+                    class="action-btn"
+                    @click="setAsDefaultFolder(folder.id)"
+                    title="设为默认上传路径"
+                  >
+                    ⭐设为默认
+                  </button>
+                  <button
+                    class="action-btn danger"
+                    @click="deleteLibraryFolder(folder.id)"
+                  >
+                    🗑️删除
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" @click="showFolderModal = false">关闭</button>
         </div>
       </div>
     </div>
@@ -5028,6 +5203,79 @@ input:checked + .slider:before {
   flex: 1;
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* 文件夹管理样式 */
+.folder-form {
+  margin-bottom: 24px;
+  padding: 16px;
+}
+
+.folder-form h4 {
+  margin: 0 0 16px 0;
+  color: #333;
+}
+
+.folder-list-section h4 {
+  margin: 0 0 16px 0;
+  color: #333;
+}
+
+.folder-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 16px;
+}
+
+.folder-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-name {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.default-badge {
+  display: inline-block;
+  background: #4caf50;
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+}
+
+.folder-path {
+  color: #666;
+  font-size: 13px;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.folder-meta {
+  font-size: 12px;
+  color: #999;
+}
+
+.folder-meta span {
+  margin-right: 16px;
+}
+
+.folder-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* 权限配置样式 */

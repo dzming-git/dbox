@@ -2294,6 +2294,140 @@ def delete_library(library_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# ============ 文件夹管理 API（调用 resourced 服务） =================
+
+@app.route('/api/admin/libraries/<int:library_id>/folders', methods=['GET'])
+@admin_required
+def get_library_folders(library_id):
+    """获取视频库的所有文件夹"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'ListFolders',
+            {'library_id': library_id},
+            timeout=3000
+        )
+        if result and result.get('success'):
+            return jsonify({'success': True, 'data': result.get('folders', [])})
+        return jsonify({'success': False, 'message': result.get('error', '获取文件夹列表失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'获取文件夹列表失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>/folders', methods=['POST'])
+@admin_required
+def add_library_folder(library_id):
+    """添加文件夹到视频库"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        path = data.get('path', '').strip()
+        path_type = data.get('path_type', 'folder')
+        is_default = data.get('is_default', False)
+
+        if not name or not path:
+            return jsonify({'success': False, 'message': '名称和路径不能为空'}), 400
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'AddFolder',
+            {
+                'library_id': library_id,
+                'name': name,
+                'path': path,
+                'path_type': path_type,
+                'is_default': is_default
+            },
+            timeout=3000
+        )
+        if result and result.get('success'):
+            return jsonify({'success': True, 'data': result.get('folder')})
+        return jsonify({'success': False, 'message': result.get('error', '添加文件夹失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'添加文件夹失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/folders/<int:folder_id>', methods=['PUT'])
+@admin_required
+def update_folder(folder_id):
+    """更新文件夹"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        data = request.get_json()
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'UpdateFolder',
+            {'folder_id': folder_id, **data},
+            timeout=3000
+        )
+        if result and result.get('success'):
+            return jsonify({'success': True, 'data': result.get('folder')})
+        return jsonify({'success': False, 'message': result.get('error', '更新文件夹失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'更新文件夹失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/folders/<int:folder_id>', methods=['DELETE'])
+@admin_required
+def delete_folder(folder_id):
+    """删除文件夹"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'RemoveFolder',
+            {'folder_id': folder_id},
+            timeout=3000
+        )
+        if result and result.get('success'):
+            return jsonify({'success': True, 'message': '文件夹已删除'})
+        return jsonify({'success': False, 'message': result.get('error', '删除文件夹失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'删除文件夹失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/folders/<int:folder_id>/set-default', methods=['POST'])
+@admin_required
+def set_default_folder(folder_id):
+    """设置文件夹为默认上传路径"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'SetDefaultFolder',
+            {'folder_id': folder_id},
+            timeout=3000
+        )
+        if result and result.get('success'):
+            return jsonify({'success': True, 'data': result.get('folder')})
+        return jsonify({'success': False, 'message': result.get('error', '设置默认路径失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'设置默认路径失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 # ============ 用户权限管理 API =================
 
 @app.route('/api/admin/libraries/<int:library_id>/permissions', methods=['GET'])
