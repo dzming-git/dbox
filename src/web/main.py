@@ -2360,8 +2360,8 @@ def add_library_folder(library_id):
         path_type = data.get('path_type', 'folder')
         is_default = data.get('is_default', False)
 
-        if not name or not path:
-            return jsonify({'success': False, 'message': '名称和路径不能为空'}), 400
+        if not path:
+            return jsonify({'success': False, 'message': '路径不能为空'}), 400
 
         result = resource_bus.call_method(
             'com.dplayer.resourced',
