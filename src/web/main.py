@@ -2178,8 +2178,7 @@ def create_library():
         name = data.get('name', '').strip()
         description = data.get('description', '').strip()
         
-        # 自动生成数据库文件名：库名拼音或时间戳
-        import time
+        # 自动生成数据库文件名：直接使用库名
         import re
         if not name:
             return jsonify({'success': False, 'message': '请输入视频库名称'}), 400
@@ -2188,13 +2187,16 @@ def create_library():
         if VideoLibrary.query.filter_by(name=name).first():
             return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
 
-        # 自动生成数据库文件名（使用时间戳确保唯一性）
+        # 直接使用库名作为数据库文件名（保留中文、英文、数字、下划线）
         safe_name = re.sub(r'[^\w\u4e00-\u9fff]', '_', name)  # 保留中文、字母、数字、下划线
-        db_file = f"{safe_name}_{int(time.time())}.db"
-        
-        # 确保文件名唯一
+        db_file = f"{safe_name}.db"
+
+        # 确保文件名唯一（如果已存在则追加序号）
+        base_db_file = db_file
+        counter = 1
         while VideoLibrary.query.filter_by(db_file=db_file).first():
-            db_file = f"{safe_name}_{int(time.time())}_{random.randint(1000,9999)}.db"
+            db_file = f"{base_db_file.rstrip('.db')}_{counter}.db"
+            counter += 1
 
         # 创建视频库
         library = VideoLibrary(
@@ -2250,13 +2252,37 @@ def update_library(library_id):
     try:
         library = VideoLibrary.query.get_or_404(library_id)
         data = request.get_json()
+        import re
 
         if 'name' in data:
             # 检查名称重复
-            existing = VideoLibrary.query.filter(VideoLibrary.name == data['name'], VideoLibrary.id != library_id).first()
+            new_name = data['name'].strip()
+            existing = VideoLibrary.query.filter(VideoLibrary.name == new_name, VideoLibrary.id != library_id).first()
             if existing:
                 return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
-            library.name = data['name'].strip()
+
+            old_name = library.name
+            library.name = new_name
+
+            # 如果库名改变了，同步修改数据库文件名
+            if old_name != new_name:
+                old_db_file = library.db_file
+                safe_name = re.sub(r'[^\w\u4e00-\u9fff]', '_', new_name)
+                new_db_file = f"{safe_name}.db"
+
+                # 确保新文件名不冲突
+                while VideoLibrary.query.filter(VideoLibrary.db_file == new_db_file, VideoLibrary.id != library_id).first():
+                    new_db_file = f"{safe_name}_{random.randint(1,999)}.db"
+
+                # 重命名数据库文件
+                old_path = library.full_db_path
+                library.db_file = new_db_file
+                new_path = library.full_db_path
+
+                # 执行文件重命名
+                if os.path.exists(old_path) and old_path != new_path:
+                    os.rename(old_path, new_path)
+                    log.debug('INFO', f'重命名数据库文件: {old_db_file} -> {new_db_file}')
 
         if 'description' in data:
             library.description = data['description'].strip()
@@ -2271,6 +2297,7 @@ def update_library(library_id):
         return jsonify({'success': True, 'data': library.to_dict()})
     except Exception as e:
         db.session.rollback()
+        log.debug('ERROR', f'更新视频库失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
