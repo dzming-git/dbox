@@ -203,7 +203,6 @@ const permissionForm = ref({
 // 文件夹管理
 const libraryFolders = ref<any[]>([])
 const showFolderModal = ref(false)
-const showFolderBrowser = ref(false)  // 文件夹浏览器（选择文件或文件夹）
 const editingFolder = ref<any>(null)
 const folderForm = ref({
   name: '',
