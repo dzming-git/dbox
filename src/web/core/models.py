@@ -150,6 +150,7 @@ class Video(db.Model):
     file_size = db.Column(db.BigInteger)  # 文件大小(字节)
     view_count = db.Column(db.Integer, default=0)  # 播放次数
     like_count = db.Column(db.Integer, default=0)  # 点赞数
+    favorite_count = db.Column(db.Integer, default=0)  # 收藏数
     download_count = db.Column(db.Integer, default=0)  # 下载次数
     priority = db.Column(db.Integer, default=0)  # 优先级，数值越大优先级越高
     min_role = db.Column(db.Integer, default=UserRole.GUEST, nullable=False)  # 最低访问权限要求
@@ -184,6 +185,7 @@ class Video(db.Model):
             'file_size': self.file_size,
             'view_count': self.view_count,
             'like_count': self.like_count,
+            'favorite_count': self.favorite_count,
             'download_count': self.download_count,
             'priority': self.priority,
             'min_role': self.min_role,
