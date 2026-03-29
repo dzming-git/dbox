@@ -233,23 +233,21 @@ const incrementViewCount = async () => {
 
 const handleLike = async () => {
   if (!video.value) return
-  isLiked.value = !isLiked.value
-  if (isLiked.value) {
-    video.value.like_count++
-  } else {
-    video.value.like_count--
+  const response = await videoStore.likeVideo(video.value.hash) as any
+  if (response && response.like_count !== undefined) {
+    video.value.like_count = response.like_count
+    isLiked.value = response.liked
+    saveLikeStatus()
   }
-  saveLikeStatus()
-  await videoStore.likeVideo(video.value.hash)
 }
 
 const handleFavorite = async () => {
   if (!video.value) return
-  isFavorited.value = !isFavorited.value
-  saveFavoriteStatus()
   const response = await videoStore.favoriteVideo(video.value.hash) as any
   if (response && response.favorite_count !== undefined) {
     video.value.favorite_count = response.favorite_count
+    isFavorited.value = response.favorited
+    saveFavoriteStatus()
   }
   // 显示提示
   const message = isFavorited.value ? '已添加到收藏' : '已取消收藏'

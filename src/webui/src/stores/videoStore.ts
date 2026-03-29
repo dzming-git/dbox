@@ -135,7 +135,15 @@ export const useVideoStore = defineStore('video', () => {
   
   const likeVideo = async (hash: string) => {
     try {
-      await videoApi.likeVideo(hash)
+      const response = await videoApi.likeVideo(hash) as any
+      if (response.success) {
+        // 更新视频列表中对应视频的点赞数量
+        const index = videos.value.findIndex(v => v.hash === hash)
+        if (index !== -1) {
+          videos.value[index] = { ...videos.value[index], like_count: response.like_count }
+        }
+      }
+      return response
     } catch (e) {
       console.error('点赞失败:', e)
     }
