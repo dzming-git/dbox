@@ -26,11 +26,11 @@ export const useVideoStore = defineStore('video', () => {
   
   // 刷新节流：记录最后获取时间，避免短时间内重复请求
   let _lastFetchTime = 0
-  const FETCH_COOLDOWN = 30 * 1000  // 30 秒冷却
+  const FETCH_COOLDOWN = 3 * 1000  // 3 秒冷却（缩短冷却时间）
   const hasFetchedRecently = () => Date.now() - _lastFetchTime < FETCH_COOLDOWN
   
   const hasMore = computed(() => 
-    pagination.value.offset + videos.value.length < pagination.value.total
+    videos.value.length < pagination.value.total
   )
   
   const fetchVideos = async (reset = false) => {
@@ -40,11 +40,12 @@ export const useVideoStore = defineStore('video', () => {
     _lastFetchTime = Date.now()
     loading.value = true
     try {
+      // reset=true: 从头开始 (offset=0)
+      // reset=false: 继续加载 (offset = 已加载的视频数量)
+      const currentOffset = reset ? 0 : videos.value.length
       const params: any = {
         limit: pagination.value.limit,
-        // reset=true: 从头开始 (offset=0)
-        // reset=false: 继续加载 (使用当前 offset，不 +1)
-        offset: reset ? 0 : pagination.value.offset,
+        offset: currentOffset,
       }
       
       if (selectedTagId.value) {
@@ -79,13 +80,49 @@ export const useVideoStore = defineStore('video', () => {
     searchQuery.value = query
     await fetchVideos(true)
   }
-  
+
   // 清除搜索
   const clearSearch = async () => {
     searchQuery.value = ''
     await fetchVideos(true)
   }
-  
+
+  // 根据 offset 获取视频（用于分页）
+  const fetchVideosByOffset = async (offset: number) => {
+    _lastFetchTime = Date.now()
+    loading.value = true
+    try {
+      const params: any = {
+        limit: pagination.value.limit,
+        offset: offset,
+      }
+
+      if (selectedTagId.value) {
+        params.tag_id = selectedTagId.value
+      }
+
+      if (searchQuery.value.trim()) {
+        params.search = searchQuery.value.trim()
+      }
+
+      if (sortBy.value) {
+        params.sort = sortBy.value
+      }
+      if (sortOrder.value) {
+        params.order = sortOrder.value
+      }
+
+      const response = await videoApi.getVideos(params) as any
+      videos.value = response.videos
+      pagination.value.total = response.total
+      pagination.value.offset = offset
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '获取视频失败'
+    } finally {
+      loading.value = false
+    }
+  }
+
   const fetchVideo = async (hash: string) => {
     try {
       const response = await videoApi.getVideo(hash) as any
@@ -278,7 +315,7 @@ export const useVideoStore = defineStore('video', () => {
     sortOrder,
     hasMore,
     fetchVideos,
-    loadMore: () => fetchVideos(false),
+    fetchVideosByOffset,
     fetchVideo,
     likeVideo,
     favoriteVideo,

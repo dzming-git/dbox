@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import VideoCard from '../components/VideoCard.vue'
@@ -172,9 +172,68 @@ const handleVideoClick = (video: Video) => {
   router.push({ name: 'Video', params: { hash: video.hash } })
 }
 
-const loadMore = async () => {
-  await videoStore.loadMore()
+// ============ 分页相关 ============
+const currentPage = computed(() => {
+  return Math.floor(videoStore.pagination.offset / videoStore.pagination.limit) + 1
+})
+
+const totalPages = computed(() => {
+  return Math.ceil(videoStore.pagination.total / videoStore.pagination.limit) || 1
+})
+
+const goToPage = async (page: number) => {
+  if (page < 1 || page > totalPages.value) return
+  const offset = (page - 1) * videoStore.pagination.limit
+  await videoStore.fetchVideosByOffset(offset)
 }
+
+const prevPage = async () => {
+  if (currentPage.value > 1) {
+    await goToPage(currentPage.value - 1)
+  }
+}
+
+const nextPage = async () => {
+  if (currentPage.value < totalPages.value) {
+    await goToPage(currentPage.value + 1)
+  }
+}
+
+// 页码显示范围（确保首页和末页常驻）
+const pageRange = computed(() => {
+  const current = currentPage.value
+  const total = totalPages.value
+  const range: (number | null)[] = []
+
+  if (total <= 7) {
+    // 总页数 <= 7，直接显示所有页码
+    for (let i = 1; i <= total; i++) {
+      range.push(i)
+    }
+  } else {
+    // 总页数 > 7，显示 [1, ..., start, ..., end, ..., total]
+    const start = Math.max(2, current - 1)
+    const end = Math.min(total - 1, current + 1)
+
+    range.push(1) // 首页
+
+    if (start > 2) {
+      range.push(null) // 省略号
+    }
+
+    for (let i = start; i <= end; i++) {
+      range.push(i)
+    }
+
+    if (end < total - 1) {
+      range.push(null) // 省略号
+    }
+
+    range.push(total) // 末页
+  }
+
+  return range
+})
 
 const shuffling = ref(false)
 
@@ -355,9 +414,32 @@ const formatDuration = (seconds?: number): string => {
         <p>暂无视频</p>
       </div>
 
-      <!-- 加载更多 -->
-      <div v-if="videos.length > 0 && videoStore.hasMore" class="load-more">
-        <button @click="loadMore" class="load-more-btn">加载更多</button>
+      <!-- 分页组件 -->
+      <div v-if="totalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="currentPage === 1" @click="goToPage(1)">
+          首页
+        </button>
+        <button class="page-btn" :disabled="currentPage === 1" @click="prevPage">
+          ‹ 上一页
+        </button>
+        <template v-for="page in pageRange" :key="page">
+          <button
+            v-if="page"
+            class="page-btn"
+            :class="{ active: page === currentPage }"
+            @click="goToPage(page)"
+          >
+            {{ page }}
+          </button>
+          <span v-else class="page-ellipsis">...</span>
+        </template>
+        <button class="page-btn" :disabled="currentPage === totalPages" @click="nextPage">
+          下一页 ›
+        </button>
+        <button class="page-btn" :disabled="currentPage === totalPages" @click="goToPage(totalPages)">
+          末页
+        </button>
+        <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
     </template>
   </div>
@@ -820,28 +902,81 @@ const formatDuration = (seconds?: number): string => {
   font-size: 16px;
 }
 
-/* 加载更多 */
-.load-more {
+
+/* 滚动自动加载提示 */
+.loading-more {
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin-top: 32px;
+  gap: 12px;
+  padding: 20px;
+  color: #888;
 }
 
-.load-more-btn {
-  padding: 14px 48px;
-  background: transparent;
-  color: #2196F3;
-  border: 2px solid #2196F3;
-  border-radius: 12px;
+.loading-more p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.spinner-small {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333;
+  border-top-color: #2196F3;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 分页组件 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 0;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  padding: 8px 14px;
+  background: #2a2a2a;
+  color: #ccc;
+  border: 1px solid #444;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 14px;
   transition: all 0.2s;
 }
 
-.load-more-btn:hover {
+.page-btn:hover:not(:disabled) {
+  background: #3a3a3a;
+  color: #fff;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-btn.active {
   background: #2196F3;
   color: #fff;
+  border-color: #2196F3;
+}
+
+.page-ellipsis {
+  color: #666;
+  padding: 0 4px;
+}
+
+.page-info {
+  color: #888;
+  font-size: 13px;
+  margin-left: 12px;
 }
 
 /* 响应式 */
