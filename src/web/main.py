@@ -987,6 +987,7 @@ def get_all_tags():
             result.append({
                 'id': tag.id,
                 'name': tag.name,
+                'path': tag.path,  # 添加完整路径
                 'category': tag.category,
                 'parent_id': tag.parent_id,
                 'video_count': tag.video_count()
