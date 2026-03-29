@@ -704,7 +704,9 @@ const editingTagPath = ref('')  // 正在编辑的标签路径
 const selectedTagPath = ref('')  // 从树中选择的标签路径前缀
 const allTagsTree = ref<any[]>([])  // 所有标签的树形结构
 const currentTagLevel = ref<any[]>([])  // 当前显示的标签层级
+const filteredTagLevel = ref<any[]>([])  // 过滤后的标签层级（输入时使用）
 const tagBreadcrumbs = ref<any[]>([])  // 面包屑导航
+const isTagFiltered = ref(false)  // 是否处于过滤状态
 
 // 打开标签编辑器
 const openTagEditor = async () => {
@@ -923,6 +925,47 @@ const searchTags = async (keyword: string) => {
   }
 }
 
+// 从标签树中过滤匹配的标签（扁平列表，不保留树状结构）
+const filterTagTreeLocally = (keyword: string): Tag[] => {
+  if (!keyword.trim() || allTagsTree.value.length === 0) {
+    return []
+  }
+  const lowerKeyword = keyword.toLowerCase()
+  const result: Tag[] = []
+  const seen = new Set<string>()
+
+  // 递归收集所有匹配的标签路径
+  const collectMatches = (nodes: any[]) => {
+    for (const node of nodes) {
+      const nameMatch = node.name.toLowerCase().includes(lowerKeyword)
+      const pathMatch = (node.path || '').toLowerCase().includes(lowerKeyword)
+
+      if (nameMatch || pathMatch) {
+        const path = node.path || node.name
+        if (!seen.has(path)) {
+          seen.add(path)
+          result.push({
+            id: node.id,
+            name: node.name,
+            path: path,
+            category: node.category || '',
+            parent_id: node.parent_id,
+            library_id: node.library_id
+          })
+        }
+      }
+
+      // 继续搜索子节点
+      if (node.children) {
+        collectMatches(node.children)
+      }
+    }
+  }
+
+  collectMatches(allTagsTree.value)
+  return result
+}
+
 // 标签输入处理
 const onTagInput = (event: Event) => {
   const target = event.target as HTMLInputElement
@@ -940,9 +983,17 @@ const onTagInput = (event: Event) => {
   tagInput.value = value
 
   if (value.trim()) {
+    // 过滤左侧标签树
+    const filtered = filterTagTreeLocally(value)
+    filteredTagLevel.value = filtered
+    isTagFiltered.value = filtered.length > 0
+
     searchTags(value)
     showTagSuggestions.value = true
   } else {
+    // 恢复原始标签树
+    filteredTagLevel.value = []
+    isTagFiltered.value = false
     tagSuggestions.value = []
     showTagSuggestions.value = false
   }
@@ -964,11 +1015,31 @@ const selectTagSuggestion = (tag: Tag) => {
   }
 }
 
+// 选择过滤结果中的标签（填入输入框，方便继续编辑）
+const selectFilteredTag = (tag: Tag) => {
+  // 将完整路径填入输入框，方便用户继续编辑
+  tagInput.value = tag.path || tag.name
+  selectedTagPath.value = ''
+  // 保持过滤状态，让用户可以继续修改
+  searchTags(tagInput.value)
+}
+
 // 隐藏建议框
 const hideTagSuggestions = () => {
   setTimeout(() => {
     showTagSuggestions.value = false
   }, 200)
+}
+
+// 清除标签过滤，恢复原始标签树
+const clearTagFilter = () => {
+  tagInput.value = ''
+  filteredTagLevel.value = []
+  isTagFiltered.value = false
+  tagSuggestions.value = []
+  showTagSuggestions.value = false
+  currentTagLevel.value = allTagsTree.value
+  tagBreadcrumbs.value = []
 }
 
 // 处理输入框失去焦点
@@ -1381,8 +1452,8 @@ const handleDelete = async () => {
             <div class="tag-tree-panel">
               <div class="panel-title">已有标签</div>
 
-              <!-- 面包屑导航 -->
-              <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0">
+              <!-- 面包屑导航（非过滤状态才显示） -->
+              <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0 && !isTagFiltered">
                 <span class="breadcrumb-root" @click="goToRootLevel">根</span>
                 <template v-for="(crumb, idx) in tagBreadcrumbs" :key="crumb.id">
                   <span class="breadcrumb-sep">/</span>
@@ -1396,22 +1467,44 @@ const handleDelete = async () => {
               </div>
 
               <div class="tag-tree-container">
-                <!-- 当前层级的标签 -->
-                <div
-                  v-for="tag in currentTagLevel"
-                  :key="tag.id"
-                  class="tag-tree-item"
-                  :class="{ active: selectedTagPath === tag.path }"
-                  @click="selectTagFromTree(tag)"
-                >
-                  <span class="tag-tree-name">{{ tag.name }}</span>
-                  <span v-if="tag.children && tag.children.length > 0" class="tag-tree-badge">
-                    {{ tag.children.length }}
-                    <span class="tag-tree-arrow">›</span>
-                  </span>
-                  <span v-else class="tag-tree-leaf">✓</span>
+                <!-- 过滤状态提示 -->
+                <div v-if="isTagFiltered" class="filter-hint">
+                  搜索结果：{{ filteredTagLevel.length }} 个匹配标签
+                  <button class="clear-filter" @click="clearTagFilter">清除</button>
                 </div>
-                <p v-if="currentTagLevel.length === 0" class="no-tags">该分类下暂无标签</p>
+
+                <!-- 过滤状态：显示扁平列表（直接显示完整路径） -->
+                <div v-if="isTagFiltered">
+                  <div
+                    v-for="tag in filteredTagLevel"
+                    :key="tag.id"
+                    class="tag-flat-item"
+                    :class="{ active: selectedTagPath === tag.path }"
+                    @click="selectFilteredTag(tag)"
+                  >
+                    <span class="tag-flat-path">{{ tag.path }}</span>
+                    <span class="tag-flat-check">✓</span>
+                  </div>
+                </div>
+
+                <!-- 非过滤状态：显示树状层级 -->
+                <div v-if="!isTagFiltered">
+                  <div
+                    v-for="tag in currentTagLevel"
+                    :key="tag.id"
+                    class="tag-tree-item"
+                    :class="{ active: selectedTagPath === tag.path }"
+                    @click="selectTagFromTree(tag)"
+                  >
+                    <span class="tag-tree-name">{{ tag.name }}</span>
+                    <span v-if="tag.children && tag.children.length > 0" class="tag-tree-badge">
+                      {{ tag.children.length }}
+                      <span class="tag-tree-arrow">›</span>
+                    </span>
+                    <span v-else class="tag-tree-leaf">✓</span>
+                  </div>
+                  <p v-if="currentTagLevel.length === 0" class="no-tags">该分类下暂无标签</p>
+                </div>
               </div>
             </div>
 
@@ -2131,11 +2224,37 @@ const handleDelete = async () => {
 
 /* 标签编辑器对话框 */
 .tag-editor-dialog {
-  width: 800px;
-  max-width: 95vw;
+  width: 90vw;
+  max-width: 1200px;
+  min-width: 600px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
+}
+
+/* 大屏幕（>1400px）更宽 */
+@media (min-width: 1400px) {
+  .tag-editor-dialog {
+    width: 85vw;
+    max-width: 1400px;
+  }
+}
+
+/* 中等屏幕（1024px-1400px） */
+@media (min-width: 1024px) and (max-width: 1399px) {
+  .tag-editor-dialog {
+    width: 90vw;
+    max-width: 1100px;
+  }
+}
+
+/* 小屏幕（768px-1024px） */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .tag-editor-dialog {
+    width: 95vw;
+    max-width: 900px;
+    min-width: 500px;
+  }
 }
 
 .dialog-header {
@@ -2476,6 +2595,87 @@ const handleDelete = async () => {
   text-align: center;
   padding: 20px;
   font-size: 14px;
+}
+
+/* 过滤状态提示 */
+.filter-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #888;
+}
+
+.clear-filter {
+  background: none;
+  border: 1px solid #444;
+  color: #888;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.clear-filter:hover {
+  background: #333;
+  color: #fff;
+  border-color: #555;
+}
+
+/* 扁平标签列表（过滤状态） */
+.tag-flat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+}
+
+.tag-flat-item:hover {
+  background: #2a2a2a;
+  border-color: #444;
+}
+
+.tag-flat-item.active {
+  background: #2196F3;
+  border-color: #1976D2;
+}
+
+.tag-flat-path {
+  font-size: 14px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tag-flat-item:hover .tag-flat-path {
+  color: #fff;
+}
+
+.tag-flat-item.active .tag-flat-path {
+  color: #fff;
+}
+
+.tag-flat-check {
+  font-size: 12px;
+  color: #4CAF50;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.tag-flat-item.active .tag-flat-check {
+  color: #fff;
 }
 
 /* 添加标签区域 */
