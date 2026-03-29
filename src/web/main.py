@@ -617,11 +617,35 @@ def get_video(video_hash):
 def like_video(video_hash):
     try:
         video = Video.query.filter_by(hash=video_hash).first_or_404()
-        video.like_count += 1
-        record_interaction(video.id, get_user_session(), 'like', 2.0)
+        user_session = get_user_session()
+
+        interaction = UserInteraction.query.filter_by(
+            video_id=video.id, user_session=user_session, interaction_type='like'
+        ).first()
+
+        if interaction:
+            db.session.delete(interaction)
+            liked = False
+        else:
+            interaction = UserInteraction(
+                video_id=video.id, user_session=user_session,
+                interaction_type='like', interaction_score=2.0
+            )
+            db.session.add(interaction)
+            liked = True
+
+        # 计算新的点赞数量
+        like_count = UserInteraction.query.filter_by(
+            video_id=video.id, interaction_type='like'
+        ).count()
+        video.like_count = like_count
         db.session.commit()
-        return jsonify({'success': True, 'like_count': video.like_count})
+
+        log.operation('WEB', f"{'点赞' if liked else '取消点赞'}视频: {video.title}")
+        return jsonify({'success': True, 'liked': liked, 'like_count': like_count})
     except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"点赞操作失败: {video_hash}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/video/<video_hash>/favorite', methods=['POST'])
