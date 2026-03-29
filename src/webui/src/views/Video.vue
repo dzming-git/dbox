@@ -247,7 +247,10 @@ const handleFavorite = async () => {
   if (!video.value) return
   isFavorited.value = !isFavorited.value
   saveFavoriteStatus()
-  await videoStore.favoriteVideo(video.value.hash)
+  const response = await videoStore.favoriteVideo(video.value.hash) as any
+  if (response && response.favorite_count !== undefined) {
+    video.value.favorite_count = response.favorite_count
+  }
   // 显示提示
   const message = isFavorited.value ? '已添加到收藏' : '已取消收藏'
   showToast(message)

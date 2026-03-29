@@ -143,7 +143,15 @@ export const useVideoStore = defineStore('video', () => {
   
   const favoriteVideo = async (hash: string) => {
     try {
-      await videoApi.favoriteVideo(hash)
+      const response = await videoApi.favoriteVideo(hash) as any
+      if (response.success) {
+        // 更新视频列表中对应视频的收藏数量
+        const index = videos.value.findIndex(v => v.hash === hash)
+        if (index !== -1) {
+          videos.value[index] = { ...videos.value[index], favorite_count: response.favorite_count }
+        }
+        return response
+      }
     } catch (e) {
       console.error('收藏失败:', e)
     }

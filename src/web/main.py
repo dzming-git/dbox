@@ -645,9 +645,15 @@ def toggle_favorite(video_hash):
             db.session.add(interaction)
             favorited = True
         
+        # 计算新的收藏数量
+        favorite_count = UserInteraction.query.filter_by(
+            video_id=video.id, interaction_type='favorite'
+        ).count()
+        video.favorite_count = favorite_count
         db.session.commit()
+        
         log.operation('WEB', f"{'收藏' if favorited else '取消收藏'}视频: {video.title}")
-        return jsonify({'success': True, 'favorited': favorited})
+        return jsonify({'success': True, 'favorited': favorited, 'favorite_count': favorite_count})
     except Exception as e:
         db.session.rollback()
         log.debug('ERROR', f"收藏操作失败: {video_hash}, {e}")
