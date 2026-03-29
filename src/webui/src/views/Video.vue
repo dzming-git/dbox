@@ -844,20 +844,82 @@ const renderPathParts = (path: string): string[] => {
 }
 
 // 搜索标签 - 根据输入关键词匹配（支持从任意层级匹配）
+// 从标签树中提取所有标签路径（扁平化）
+const flattenTags = (tree: any[]): string[] => {
+  const paths: string[] = []
+  const traverse = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.path) {
+        paths.push(node.path)
+      }
+      if (node.children && node.children.length > 0) {
+        traverse(node.children)
+      }
+    }
+  }
+  traverse(tree)
+  return paths
+}
+
+// 从 allTagsTree 中过滤匹配的标签（本地过滤）
+const filterTagsLocally = (keyword: string): Tag[] => {
+  if (!keyword.trim() || allTagsTree.value.length === 0) {
+    return []
+  }
+  const lowerKeyword = keyword.toLowerCase()
+  const allPaths = flattenTags(allTagsTree.value)
+  const matchedPaths = allPaths.filter(path =>
+    path.toLowerCase().includes(lowerKeyword)
+  )
+  // 去重并构建 Tag 对象
+  const seen = new Set<string>()
+  const result: Tag[] = []
+  for (const path of matchedPaths) {
+    if (!seen.has(path)) {
+      seen.add(path)
+      result.push({
+        id: 0,
+        name: path.split('/').pop() || path,
+        path: path,
+        category: '',
+        parent_id: null,
+        library_id: null
+      })
+    }
+  }
+  return result
+}
+
+// 搜索标签（本地 + 后端API）
 const searchTags = async (keyword: string) => {
   if (!keyword.trim()) {
     tagSuggestions.value = []
     return
   }
 
+  // 先尝试本地过滤（基于已加载的标签树）
+  const localResults = filterTagsLocally(keyword)
+  if (localResults.length > 0) {
+    tagSuggestions.value = localResults
+  }
+
+  // 同时调用后端API获取更多结果
   try {
     const libraryId = video.value?.library_id
     const response = await tagApi.searchTags(keyword, libraryId || undefined) as any
-    if (response.success) {
-      tagSuggestions.value = response.tags || []
+    if (response.success && response.tags) {
+      // 合并结果，去重
+      const existingPaths = new Set(tagSuggestions.value.map((t: Tag) => t.path))
+      for (const tag of response.tags) {
+        if (!existingPaths.has(tag.path)) {
+          tagSuggestions.value.push(tag)
+          existingPaths.add(tag.path)
+        }
+      }
     }
   } catch (e) {
-    console.error('搜索标签失败:', e)
+    // API失败时只依赖本地结果
+    console.error('搜索标签API失败:', e)
   }
 }
 
