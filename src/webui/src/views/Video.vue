@@ -22,9 +22,6 @@ const isDisliked = ref(false)
 const isWatchLater = ref(false)
 const videoPlayer = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref(false)
-const currentTime = ref(0)
-const duration = ref(0)
-const volume = ref(1)
 const isFullscreen = ref(false)
 
 const videoHash = computed(() => route.params.hash as string)
@@ -204,18 +201,6 @@ const addToHistory = () => {
   localStorage.setItem('watchHistory', JSON.stringify(history))
 }
 
-// 定期保存观看进度
-const saveWatchProgress = () => {
-  if (!video.value || !videoPlayer.value) return
-  const history = JSON.parse(localStorage.getItem('watchHistory') || '[]')
-  const index = history.findIndex((h: any) => h.hash === video.value!.hash)
-  if (index > -1) {
-    history[index].progress = videoPlayer.value.currentTime
-    history[index].duration = videoPlayer.value.duration || video.value.duration
-    localStorage.setItem('watchHistory', JSON.stringify(history))
-  }
-}
-
 // 增加观看次数
 const incrementViewCount = async () => {
   try {
@@ -293,23 +278,13 @@ const goBack = () => {
   router.back()
 }
 
-// 播放控制
-const togglePlay = () => {
-  if (!videoPlayer.value) return
-  if (isPlaying.value) {
-    videoPlayer.value.pause()
-  } else {
-    videoPlayer.value.play()
-  }
-}
-
+// 播放事件 - 用于共享观看同步
 const onPlay = () => {
   isPlaying.value = true
   // 共享模式下立即同步播放状态
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = true
     lastSyncedTime.value = videoPlayer.value.currentTime
-    // 立即同步，强制发送
     syncPlaybackState(true)
   }
 }
@@ -320,73 +295,16 @@ const onPause = () => {
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = false
     lastSyncedTime.value = videoPlayer.value.currentTime
-    // 立即同步，强制发送
     syncPlaybackState(true)
   }
 }
 
 const onSeeked = () => {
-  // 用户拖动进度条或键盘操作后立即同步
+  // 用户拖动进度条后立即同步
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedTime.value = videoPlayer.value.currentTime
     lastSyncedPlaying.value = isPlaying.value
-    // 立即同步，强制发送
     syncPlaybackState(true)
-  }
-}
-
-const onTimeUpdate = () => {
-  if (!videoPlayer.value) return
-  currentTime.value = videoPlayer.value.currentTime
-  // 每5秒保存一次观看进度
-  if (Math.floor(currentTime.value) % 5 === 0) {
-    saveWatchProgress()
-  }
-}
-
-const onLoadedMetadata = () => {
-  if (!videoPlayer.value) return
-  // 多种方式获取duration，确保兼容性
-  if (videoPlayer.value.duration && !isNaN(videoPlayer.value.duration) && videoPlayer.value.duration !== Infinity) {
-    duration.value = videoPlayer.value.duration
-  }
-}
-
-// 额外监听durationchange事件，解决部分移动端兼容性问题
-const onDurationChange = () => {
-  if (!videoPlayer.value) return
-  if (videoPlayer.value.duration && !isNaN(videoPlayer.value.duration) && videoPlayer.value.duration !== Infinity) {
-    duration.value = videoPlayer.value.duration
-  }
-}
-
-const seek = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (videoPlayer.value) {
-    videoPlayer.value.currentTime = parseFloat(target.value)
-    // 共享模式下同步播放进度
-    if (isSharedMode.value && shareCode.value) {
-      syncPlaybackState()
-    }
-  }
-}
-
-const setVolume = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  volume.value = parseFloat(target.value)
-  if (videoPlayer.value) {
-    videoPlayer.value.volume = volume.value
-  }
-}
-
-const toggleFullscreen = () => {
-  if (!videoPlayer.value) return
-  if (!document.fullscreenElement) {
-    videoPlayer.value.requestFullscreen()
-    isFullscreen.value = true
-  } else {
-    document.exitFullscreen()
-    isFullscreen.value = false
   }
 }
 
@@ -1235,58 +1153,9 @@ const handleDelete = async () => {
             @play="onPlay"
             @pause="onPause"
             @seeked="onSeeked"
-            @timeupdate="onTimeUpdate"
-            @loadedmetadata="onLoadedMetadata"
-            @durationchange="onDurationChange"
             preload="metadata"
             controls
           ></video>
-        </div>
-
-        <!-- 播放器控制栏 -->
-        <div class="player-controls">
-          <button class="control-btn" @click="togglePlay" data-testid="play-pause-btn">
-            <svg v-if="!isPlaying" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z"/>
-            </svg>
-            <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-            </svg>
-          </button>
-
-          <div class="progress-bar">
-            <span class="time">{{ formatDuration(currentTime) }}</span>
-            <input
-              type="range"
-              :value="currentTime"
-              :max="duration"
-              @input="seek"
-              class="seek-slider"
-              data-testid="progress-bar"
-            />
-            <span class="time">{{ formatDuration(duration) }}</span>
-          </div>
-
-          <div class="volume-control" data-testid="volume-control">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-            <input
-              type="range"
-              :value="volume"
-              min="0"
-              max="1"
-              step="0.1"
-              @input="setVolume"
-              class="volume-slider"
-            />
-          </div>
-
-          <button class="control-btn" @click="toggleFullscreen" data-testid="fullscreen-button">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -1765,92 +1634,6 @@ const handleDelete = async () => {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-.player-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  background: #1a1a1a;
-}
-
-.control-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: transparent;
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-
-.control-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.progress-bar {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.time {
-  font-size: 13px;
-  color: #999;
-  min-width: 45px;
-  text-align: center;
-}
-
-.seek-slider {
-  flex: 1;
-  height: 4px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #444;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-.seek-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 12px;
-  height: 12px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.volume-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.volume-slider {
-  width: 80px;
-  height: 4px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #444;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-.volume-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  background: #fff;
-  border-radius: 50%;
-  cursor: pointer;
 }
 
 .video-info-section {
@@ -3066,15 +2849,6 @@ const handleDelete = async () => {
 
   .action-btn .btn-label {
     font-size: 10px;
-  }
-
-  .player-controls {
-    gap: 8px;
-    padding: 8px 12px;
-  }
-
-  .volume-control {
-    display: none;
   }
 
   /* 移动端标签编辑器 - 上下布局，输入区域触手可及 */
