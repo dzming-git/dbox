@@ -122,6 +122,7 @@ from api.system_api import system_bp
 from api.history_api import history_bp, init_history_api
 from api.collection_api import collection_bp, init_collection_api
 from api.search_api import search_bp, init_search_api
+from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
 
@@ -158,6 +159,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(history_bp)  # 播放历史API
 app.register_blueprint(collection_bp)  # 收藏夹API
 app.register_blueprint(search_bp)  # 搜索API
+app.register_blueprint(suggestion_bp)  # 建议反馈API
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 
 # ============ 初始化 API 总线客户端 ============
@@ -774,29 +776,43 @@ def play_video(video_id):
         
         range_header = request.headers.get('Range', None)
         file_size = os.path.getsize(video_path)
-        
+
+        # 优化：使用更大的缓冲区提升视频流传输性能
+        CHUNK_SIZE = 1024 * 1024  # 1MB 块大小
+
         if range_header:
-            match = re.search('bytes=(\d+)-(\d*)', range_header)
+            match = re.search(r'bytes=(\d+)-(\d*)', range_header)
             byte1 = int(match.group(1)) if match else 0
             byte2 = int(match.group(2)) if match and match.group(2) else file_size - 1
             length = byte2 - byte1 + 1
-            
+
             def generate():
                 with open(video_path, 'rb') as f:
                     f.seek(byte1)
-                    yield f.read(length)
-            
-            resp = Response(generate(), 206, mimetype='video/mp4', direct_passthrough=True)
+                    remaining = length
+                    while remaining > 0:
+                        # 分块读取，避免一次性加载大Range到内存
+                        chunk_size = min(CHUNK_SIZE, remaining)
+                        data = f.read(chunk_size)
+                        if not data:
+                            break
+                        yield data
+                        remaining -= len(data)
+
+            resp = Response(generate(), 206, mimetype='video/mp4')
             resp.headers.add('Content-Range', f'bytes {byte1}-{byte2}/{file_size}')
             resp.headers.add('Content-Length', str(length))
+            # 允许浏览器缓存视频范围
+            resp.headers.add('Accept-Ranges', 'bytes')
         else:
             def generate():
                 with open(video_path, 'rb') as f:
-                    while data := f.read(8192):
+                    while data := f.read(CHUNK_SIZE):
                         yield data
-            resp = Response(generate(), 200, mimetype='video/mp4', direct_passthrough=True)
+            resp = Response(generate(), 200, mimetype='video/mp4')
             resp.headers.add('Content-Length', str(file_size))
-        
+            resp.headers.add('Accept-Ranges', 'bytes')
+
         return resp
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

@@ -2,6 +2,7 @@
 import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
 import { ref, onMounted, computed } from 'vue'
+import { submitSuggestion } from './api/suggestion'
 
 const router = useRouter()
 const route = useRoute()
@@ -12,6 +13,14 @@ const isLoginPage = computed(() => route.path === '/login')
 
 // 用户下拉菜单状态
 const showUserDropdown = ref(false)
+
+// 建议对话框状态
+const showSuggestionDialog = ref(false)
+const suggestionContent = ref('')
+const suggestionContact = ref('')
+const suggestionSubmitting = ref(false)
+const suggestionMessage = ref('')
+const suggestionSuccess = ref(false)
 
 onMounted(() => {
   document.addEventListener('click', closeUserDropdown)
@@ -28,6 +37,58 @@ const closeUserDropdown = (event: MouseEvent) => {
   const target = event.target as HTMLElement
   if (!target.closest('.user-avatar-wrapper')) {
     showUserDropdown.value = false
+  }
+}
+
+// 打开建议对话框
+const openSuggestionDialog = () => {
+  showUserDropdown.value = false
+  showSuggestionDialog.value = true
+  suggestionContent.value = ''
+  suggestionContact.value = ''
+  suggestionMessage.value = ''
+  suggestionSuccess.value = false
+}
+
+// 关闭建议对话框
+const closeSuggestionDialog = () => {
+  showSuggestionDialog.value = false
+}
+
+// 提交建议
+const handleSubmitSuggestion = async () => {
+  if (!suggestionContent.value.trim()) {
+    suggestionMessage.value = '请输入建议内容'
+    return
+  }
+
+  if (suggestionContent.value.trim().length < 5) {
+    suggestionMessage.value = '建议内容太短，请详细描述'
+    return
+  }
+
+  suggestionSubmitting.value = true
+  suggestionMessage.value = ''
+
+  try {
+    const result = await submitSuggestion(
+      suggestionContent.value.trim(),
+      suggestionContact.value.trim() || undefined
+    )
+
+    if (result.success) {
+      suggestionSuccess.value = true
+      suggestionMessage.value = result.message || '感谢您的建议！'
+      setTimeout(() => {
+        closeSuggestionDialog()
+      }, 1500)
+    } else {
+      suggestionMessage.value = result.error || '提交失败，请重试'
+    }
+  } catch (e) {
+    suggestionMessage.value = '网络错误，请重试'
+  } finally {
+    suggestionSubmitting.value = false
   }
 }
 </script>
@@ -97,6 +158,12 @@ const closeUserDropdown = (event: MouseEvent) => {
               </svg>
               设置
             </RouterLink>
+            <div class="dropdown-item" @click="openSuggestionDialog">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+              </svg>
+              意见建议
+            </div>
             <div class="dropdown-divider"></div>
             <div class="dropdown-item logout" @click="handleLogout">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -111,6 +178,51 @@ const closeUserDropdown = (event: MouseEvent) => {
     <main class="main-content" :class="{ 'no-nav': isLoginPage }">
       <RouterView />
     </main>
+
+    <!-- 意见建议对话框 -->
+    <div v-if="showSuggestionDialog" class="dialog-overlay" @click.self="closeSuggestionDialog">
+      <div class="dialog suggestion-dialog">
+        <div class="dialog-header">
+          <h3>意见建议</h3>
+          <button class="close-btn" @click="closeSuggestionDialog">&times;</button>
+        </div>
+        <div class="dialog-body">
+          <p class="suggestion-desc">如果您有任何功能建议、Bug反馈或改进意见，欢迎告诉我们！</p>
+          <div class="form-group">
+            <label>建议内容 <span class="required">*</span></label>
+            <textarea
+              v-model="suggestionContent"
+              class="suggestion-textarea"
+              placeholder="请详细描述您的建议..."
+              rows="6"
+              :disabled="suggestionSubmitting"
+            ></textarea>
+            <div class="char-count">{{ suggestionContent.length }}/2000</div>
+          </div>
+          <div class="form-group">
+            <label>联系方式（选填）</label>
+            <input
+              v-model="suggestionContact"
+              type="text"
+              class="suggestion-input"
+              placeholder="邮箱或联系方式，方便我们回复您"
+              :disabled="suggestionSubmitting"
+            />
+          </div>
+          <div v-if="suggestionMessage" class="suggestion-message" :class="{ success: suggestionSuccess }">
+            {{ suggestionMessage }}
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn-secondary" @click="closeSuggestionDialog" :disabled="suggestionSubmitting">
+            取消
+          </button>
+          <button class="btn-primary" @click="handleSubmitSuggestion" :disabled="suggestionSubmitting">
+            {{ suggestionSubmitting ? '提交中...' : '提交建议' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -314,6 +426,56 @@ body {
   color: #ff6b6b;
 }
 
+/* 对话框样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.dialog {
+  background: #2a2a2a;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.dialog-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #fff;
+}
+
 .role-badge {
   font-size: 11px;
   padding: 3px 8px;
@@ -398,5 +560,136 @@ body {
     padding: 8px 12px;
     font-size: 13px;
   }
+}
+
+/* 建议对话框样式 */
+.suggestion-dialog {
+  width: 500px;
+  max-width: 90vw;
+}
+
+.suggestion-dialog .dialog-body {
+  padding: 20px 0;
+}
+
+.suggestion-desc {
+  color: #888;
+  font-size: 14px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.suggestion-textarea {
+  width: 100%;
+  padding: 12px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 120px;
+  font-family: inherit;
+}
+
+.suggestion-textarea:focus {
+  outline: none;
+  border-color: #2196F3;
+}
+
+.suggestion-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.suggestion-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.suggestion-input:focus {
+  outline: none;
+  border-color: #2196F3;
+}
+
+.suggestion-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.char-count {
+  text-align: right;
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.suggestion-message {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-top: 12px;
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.suggestion-message.success {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #444;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  background: #2196F3;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1976D2;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
