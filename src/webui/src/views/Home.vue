@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
+const route = useRoute()
 const videoStore = useVideoStore()
 
 const loading = computed(() => videoStore.loading)
@@ -104,6 +105,7 @@ const handleTagClick = (tag: any) => {
     // 否则选中该标签
     videoStore.filterByTag(tag.id)
     showTagsSection.value = false
+    updateUrl()
   }
 }
 
@@ -111,6 +113,7 @@ const handleTagClick = (tag: any) => {
 const handleClearTag = () => {
   videoStore.filterByTag(null)
   showTagsSection.value = false
+  updateUrl()
 }
 
 // 监听 showTagsSection 变化，初始化树
@@ -122,6 +125,23 @@ watch(showTagsSection, (newVal) => {
     tagBreadcrumbs.value = []
   }
 })
+
+// 监听路由 query 变化（处理浏览器后退/URL直接访问场景）
+watch(() => route.query, async (newQuery) => {
+  // 跳过空 query
+  if (Object.keys(newQuery).length === 0) return
+  // 如果 query 包含 from，说明是从视频页返回，不需要重新初始化
+  if (newQuery.from) return
+  // 从 URL 恢复状态
+  await videoStore.initFromQuery(newQuery as Record<string, string>)
+}, { immediate: false })
+
+// 更新 URL query 参数（不产生历史记录）
+const updateUrl = () => {
+  const query = videoStore.toQuery()
+  // 使用 replace 避免产生过多历史记录
+  router.replace({ path: '/', query })
+}
 
 // 排序选项
 const sortOptions = [
@@ -140,18 +160,28 @@ const currentOrder = computed(() => videoStore.sortOrder)
 const handleSortChange = (event: Event) => {
   const target = event.target as HTMLSelectElement
   videoStore.setSortBy(target.value)
+  updateUrl()
 }
 
 const handleOrderChange = (event: Event) => {
   const target = event.target as HTMLSelectElement
   videoStore.setSortOrder(target.value)
+  updateUrl()
 }
 
 onMounted(async () => {
-  await Promise.all([
-    videoStore.fetchVideos(true),
-    videoStore.fetchTags()
-  ])
+  // 如果 URL 有 query 参数，从其中恢复状态
+  if (Object.keys(route.query).length > 0) {
+    await Promise.all([
+      videoStore.initFromQuery(route.query as Record<string, string>),
+      videoStore.fetchTags()
+    ])
+  } else {
+    await Promise.all([
+      videoStore.fetchVideos(true),
+      videoStore.fetchTags()
+    ])
+  }
 })
 
 // 搜索防抖
@@ -160,16 +190,24 @@ watch(() => videoStore.searchQuery, (newQuery) => {
   if (searchTimeout) clearTimeout(searchTimeout)
   searchTimeout = window.setTimeout(() => {
     videoStore.searchVideos(newQuery)
+    updateUrl()
   }, 500)
 })
 
 // 清除搜索
 const clearSearch = () => {
   videoStore.clearSearch()
+  updateUrl()
 }
 
 const handleVideoClick = (video: Video) => {
-  router.push({ name: 'Video', params: { hash: video.hash } })
+  // 把当前首页状态编码为 from 参数，视频页返回时使用
+  const homeQuery = videoStore.toQuery()
+  const fromQuery: Record<string, string> = {}
+  if (Object.keys(homeQuery).length > 0) {
+    fromQuery.from = btoa(JSON.stringify(homeQuery))
+  }
+  router.push({ name: 'Video', params: { hash: video.hash }, query: fromQuery })
 }
 
 // ============ 分页相关 ============
@@ -185,6 +223,7 @@ const goToPage = async (page: number) => {
   if (page < 1 || page > totalPages.value) return
   const offset = (page - 1) * videoStore.pagination.limit
   await videoStore.fetchVideosByOffset(offset)
+  updateUrl()
 }
 
 const prevPage = async () => {

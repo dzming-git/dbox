@@ -302,6 +302,52 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
 
+  // 将当前状态转换为 URL query 参数
+  const toQuery = () => {
+    const query: Record<string, string> = {}
+    if (selectedTagId.value) {
+      query.tag = String(selectedTagId.value)
+    }
+    if (searchQuery.value) {
+      query.search = searchQuery.value
+    }
+    if (sortBy.value && sortBy.value !== 'recommended') {
+      query.sort = sortBy.value
+    }
+    if (sortOrder.value && sortOrder.value !== 'desc') {
+      query.order = sortOrder.value
+    }
+    if (pagination.value.offset > 0) {
+      query.page = String(Math.floor(pagination.value.offset / pagination.value.limit) + 1)
+    }
+    return query
+  }
+
+  // 从 URL query 参数恢复状态
+  const initFromQuery = async (query: Record<string, string>) => {
+    if (query.tag) {
+      selectedTagId.value = parseInt(query.tag) || null
+    } else {
+      selectedTagId.value = null
+    }
+    if (query.search) {
+      searchQuery.value = query.search
+    }
+    if (query.sort) {
+      sortBy.value = query.sort
+    }
+    if (query.order) {
+      sortOrder.value = query.order
+    }
+    // 根据 page 参数计算 offset
+    if (query.page) {
+      const page = parseInt(query.page) || 1
+      pagination.value.offset = (page - 1) * pagination.value.limit
+    }
+    // 重新获取视频列表
+    await fetchVideos(true)
+  }
+
   const scanVideos = async () => {
     loading.value = true
     try {
@@ -350,6 +396,8 @@ export const useVideoStore = defineStore('video', () => {
     previousVideos,
     scanVideos,
     searchVideos,
-    clearSearch
+    clearSearch,
+    toQuery,
+    initFromQuery
   }
 })

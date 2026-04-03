@@ -275,7 +275,18 @@ const showToast = (message: string) => {
 }
 
 const goBack = () => {
-  router.back()
+  // 优先使用 from 参数回到正确的首页状态
+  if (route.query.from) {
+    try {
+      const homeQuery = JSON.parse(atob(route.query.from as string))
+      router.push({ name: 'Home', query: homeQuery })
+    } catch {
+      // 解码失败，直接回首页
+      router.push({ name: 'Home' })
+    }
+  } else {
+    router.push({ name: 'Home' })
+  }
 }
 
 // 播放事件 - 用于共享观看同步
