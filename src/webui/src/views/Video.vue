@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { tagApi } from '../api'
+import { tagApi, videoApi } from '../api'
 import type { Video, Tag } from '../types'
 
 const route = useRoute()
@@ -25,6 +25,10 @@ const isPlaying = ref(false)
 const isFullscreen = ref(false)
 
 const videoHash = computed(() => route.params.hash as string)
+
+// 推荐视频相关状态
+const recommendedVideos = ref<Video[]>([])
+const recommendedLoading = ref(false)
 
 // 共享观看相关状态
 const shareCode = ref<string>('')
@@ -59,6 +63,8 @@ onMounted(async () => {
         await addToHistory()
         // 从localStorage加载点赞和收藏状态
         loadUserInteractions()
+        // 获取推荐视频
+        fetchRecommendedVideos()
       }
     } catch (error) {
       console.error('Failed to load video:', error)
@@ -79,6 +85,37 @@ const loadUserInteractions = () => {
   isDisliked.value = dislikedVideos.includes(video.value.hash)
   isFavorited.value = favoritedVideos.includes(video.value.hash)
   isWatchLater.value = watchLaterVideos.includes(video.value.hash)
+}
+
+// 获取推荐视频
+const fetchRecommendedVideos = async () => {
+  recommendedLoading.value = true
+  try {
+    const params: any = { limit: 8, sort: 'recommended' }
+    const response = await videoApi.getVideos(params) as any
+    // 过滤掉当前视频
+    recommendedVideos.value = response.videos.filter((v: Video) => v.hash !== videoHash.value)
+  } catch (e) {
+    console.error('获取推荐视频失败:', e)
+  } finally {
+    recommendedLoading.value = false
+  }
+}
+
+// 换一批推荐
+const shuffleRecommendations = async () => {
+  await fetchRecommendedVideos()
+}
+
+// 点击推荐视频
+const handleRecommendationClick = (targetVideo: Video) => {
+  // 携带当前视频的 from 参数，以便返回时恢复状态
+  const currentQuery = route.query
+  const fromQuery: Record<string, string> = {}
+  if (Object.keys(currentQuery).length > 0 && currentQuery.from) {
+    fromQuery.from = currentQuery.from as string
+  }
+  router.push({ name: 'Video', params: { hash: targetVideo.hash }, query: fromQuery })
 }
 
 // 保存点赞状态到localStorage
@@ -642,6 +679,11 @@ const openTagEditor = async () => {
   // 暂停视频播放，防止视频覆盖对话框
   if (videoPlayer.value) {
     videoPlayer.value.pause()
+    // 移除视频src，防止夸克等浏览器劫持视频导致覆盖对话框
+    const originalSrc = videoPlayer.value.src
+    videoPlayer.value.dataset.originalSrc = originalSrc
+    videoPlayer.value.src = ''
+    videoPlayer.value.dataset.restoreSrc = originalSrc
   }
   showTagEditor.value = true
   tagInput.value = ''
@@ -659,6 +701,10 @@ const openTagEditor = async () => {
 
 // 关闭标签编辑器
 const closeTagEditor = () => {
+  // 恢复视频src
+  if (videoPlayer.value && videoPlayer.value.dataset.restoreSrc) {
+    videoPlayer.value.src = videoPlayer.value.dataset.restoreSrc
+  }
   showTagEditor.value = false
   tagInput.value = ''
   tagSuggestions.value = []
@@ -1154,24 +1200,30 @@ const handleDelete = async () => {
 
     <!-- 视频内容 -->
     <div v-else-if="video" class="video-content">
-      <!-- 视频播放器区域 -->
-      <div class="player-section">
-        <div class="video-player-container" data-testid="video-player">
-          <video
-            ref="videoPlayer"
-            :src="videoUrl"
-            class="video-element"
-            @play="onPlay"
-            @pause="onPause"
-            @seeked="onSeeked"
-            preload="metadata"
-            controls
-          ></video>
+      <div class="main-content">
+        <!-- 视频播放器区域 -->
+        <div class="player-section">
+          <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
+            <video
+              ref="videoPlayer"
+              :src="videoUrl"
+              class="video-element"
+              playsinline
+              webkit-playsinline
+              x5-playsinline
+              x5-video-player-type="h5-page"
+              x5-video-player-fullscreen="true"
+              @play="onPlay"
+              @pause="onPause"
+              @seeked="onSeeked"
+              preload="metadata"
+              controls
+            ></video>
+          </div>
         </div>
-      </div>
 
-      <!-- 视频信息区域 -->
-      <div class="video-info-section">
+        <!-- 视频信息区域 -->
+        <div class="video-info-section">
         <!-- 查看模式 -->
         <div class="video-title-row">
           <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
@@ -1493,6 +1545,47 @@ const handleDelete = async () => {
         </div>
       </div>
 
+      <!-- 推荐视频区域 -->
+      <div class="recommendations-section">
+        <div class="recommendations-header">
+          <span class="recommendations-title">推荐视频</span>
+          <button class="shuffle-btn" @click="shuffleRecommendations" :disabled="recommendedLoading">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            换一批
+          </button>
+        </div>
+        <div v-if="recommendedLoading" class="recommendations-loading">
+          <div class="spinner-small"></div>
+          <span>加载中...</span>
+        </div>
+        <div v-else class="recommendations-list">
+          <div
+            v-for="rec in recommendedVideos"
+            :key="rec.hash"
+            class="rec-item"
+            @click="handleRecommendationClick(rec)"
+          >
+            <div class="rec-thumbnail-wrapper">
+              <img
+                :src="'/thumbnail/' + rec.hash"
+                :alt="rec.name"
+                class="rec-thumbnail"
+                @error="($event.target as HTMLImageElement).src = '/placeholder.jpg'"
+              />
+              <span v-if="rec.duration" class="rec-duration">{{ formatDuration(rec.duration) }}</span>
+            </div>
+            <div class="rec-info">
+              <div class="rec-title">{{ rec.name }}</div>
+              <div class="rec-meta">{{ rec.view_count || 0 }}播放</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
       <!-- 删除确认对话框 -->
       <div v-if="showDeleteConfirm" class="dialog-overlay" data-testid="delete-confirm-dialog">
         <div class="dialog">
@@ -1620,9 +1713,156 @@ const handleDelete = async () => {
 }
 
 .video-content {
-  max-width: 1400px;
+  max-width: 2000px;
   margin: 0 auto;
   padding: 0 24px 40px;
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  box-sizing: border-box;
+}
+
+.main-content {
+  flex: 0 1 calc(100% - 374px);
+  min-width: 300px;
+}
+
+/* 推荐视频区域 */
+.recommendations-section {
+  width: 350px;
+  flex-shrink: 0;
+  background: #181818;
+  border-radius: 12px;
+  padding: 16px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  position: sticky;
+  top: 80px;
+  align-self: flex-start;
+}
+
+.recommendations-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.recommendations-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.shuffle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.shuffle-btn:hover:not(:disabled) {
+  background: #333;
+  color: #fff;
+}
+
+.shuffle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recommendations-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #888;
+  font-size: 13px;
+}
+
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #333;
+  border-top-color: #2196F3;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.recommendations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rec-item {
+  display: flex;
+  gap: 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+  padding: 4px;
+}
+
+.rec-item:hover {
+  background: #252525;
+}
+
+.rec-thumbnail-wrapper {
+  position: relative;
+  width: 120px;
+  height: 68px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #333;
+}
+
+.rec-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rec-duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.rec-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.rec-title {
+  font-size: 13px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-meta {
+  font-size: 12px;
+  color: #888;
 }
 
 .player-section {
@@ -2801,10 +3041,6 @@ const handleDelete = async () => {
 }
 
 @media (max-width: 768px) {
-  .video-content {
-    padding: 0 16px 32px;
-  }
-
   .video-title {
     font-size: 18px;
   }
@@ -2877,8 +3113,10 @@ const handleDelete = async () => {
   }
 
   /* 移动端：对话框打开时隐藏视频，防止 video 元素提升层级覆盖对话框 */
-  .video-page:has(.tag-editor-dialog) .video-player-container {
-    visibility: hidden;
+  .video-player-container.hide-on-mobile,
+  .video-player-container.hide-on-mobile * {
+    display: none !important;
+    visibility: hidden !important;
   }
 
   .tag-editor-body {
@@ -2924,6 +3162,50 @@ const handleDelete = async () => {
 
   .video-tags-list {
     max-height: 20vh;
+  }
+}
+
+/* 移动端：推荐视频显示在视频下方 */
+@media (max-width: 1024px) {
+  .video-content {
+    flex-direction: column;
+    padding: 0 16px;
+  }
+
+  .recommendations-section {
+    width: 100%;
+    max-height: none;
+    position: static;
+    margin-top: 16px;
+  }
+
+  .recommendations-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .rec-item {
+    flex-direction: column;
+  }
+
+  .rec-thumbnail-wrapper {
+    width: 100%;
+    height: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .recommendations-section {
+    padding: 12px;
+  }
+
+  .recommendations-list {
+    grid-template-columns: 1fr;
+  }
+
+  .rec-thumbnail-wrapper {
+    height: 140px;
   }
 }
 </style>
