@@ -3137,12 +3137,46 @@ const handleDelete = async () => {
     flex-wrap: wrap;
     gap: 8px;
     overflow-y: visible;
+    max-height: none;
   }
 
   .tag-tree-item {
     margin-bottom: 0;
     background: #252525;
     padding: 6px 12px;
+    flex-shrink: 0;
+  }
+
+  /* 移动端标签建议下拉框适配 */
+  .tag-suggestions {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    max-height: 40vh;
+    z-index: 100002;
+  }
+
+  /* 视频标签列表移动端适配 */
+  .video-tags-list {
+    max-height: 25vh;
+    overflow-y: auto;
+  }
+
+  /* 移动端标签编辑区域确保不被遮挡 */
+  .tag-input-panel {
+    flex-shrink: 0;
+  }
+
+  /* 移动端视频标签横向换行显示 */
+  .video-tags-list {
+    max-height: 25vh;
+    overflow-y: auto;
+  }
+
+  .video-tags-list .tag-item {
+    display: inline-flex;
+    margin-bottom: 0;
+    flex-shrink: 0;
   }
 
   .tag-breadcrumb {
