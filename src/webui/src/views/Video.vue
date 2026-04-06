@@ -3121,6 +3121,7 @@ const handleDelete = async () => {
 
   .tag-editor-body {
     flex-direction: column;
+    overflow: visible;
   }
 
   .tag-tree-panel {
@@ -3129,22 +3130,22 @@ const handleDelete = async () => {
     border-bottom: 1px solid #333;
     padding-right: 0;
     padding-bottom: 12px;
-    max-height: 20vh;
+    max-height: none;
+    overflow: visible;
   }
 
   .tag-tree-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    overflow-y: visible;
+    display: block;
+    overflow: visible;
     max-height: none;
+    min-height: 0;
   }
 
   .tag-tree-item {
-    margin-bottom: 0;
+    display: inline-block;
+    margin-bottom: 4px;
     background: #252525;
     padding: 6px 12px;
-    flex-shrink: 0;
   }
 
   /* 移动端标签建议下拉框适配 */
@@ -3158,25 +3159,21 @@ const handleDelete = async () => {
 
   /* 视频标签列表移动端适配 */
   .video-tags-list {
-    max-height: 25vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   /* 移动端标签编辑区域确保不被遮挡 */
   .tag-input-panel {
     flex-shrink: 0;
+    width: 100%;
   }
 
   /* 移动端视频标签横向换行显示 */
-  .video-tags-list {
-    max-height: 25vh;
-    overflow-y: auto;
-  }
-
   .video-tags-list .tag-item {
-    display: inline-flex;
-    margin-bottom: 0;
-    flex-shrink: 0;
+    display: inline-block;
+    margin-bottom: 4px;
+    margin-right: 4px;
   }
 
   .tag-breadcrumb {
