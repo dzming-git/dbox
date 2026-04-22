@@ -291,6 +291,66 @@ const manageFolders = (lib: any) => {
   showFolderModal.value = true
 }
 
+// 视频库扫描
+const scanningLibrary = ref<number | null>(null)  // 正在扫描的库 ID
+const libraryScanStats = ref<any>(null)  // 扫描统计信息
+
+// 扫描视频库
+const scanLibrary = async (lib: any) => {
+  if (scanningLibrary.value === lib.id) return  // 已经在扫描
+  
+  if (!confirm(`确定要扫描视频库 "${lib.name}" 吗？这将重新扫描所有关联的文件和文件夹。`)) return
+  
+  scanningLibrary.value = lib.id
+  libraryScanStats.value = null
+  
+  try {
+    const res = await api.post(`/api/admin/libraries/${lib.id}/scan`) as any
+    
+    if (res.success) {
+      libraryScanStats.value = res.data
+      showToast(`扫描完成：发现 ${res.data.total || 0} 个资源`)
+      
+      // 刷新视频列表
+      if (activeTab.value === 'videos') {
+        await fetchVideos()
+      }
+      
+      // 刷新视频库统计
+      fetchLibraries()
+    } else {
+      showToast(res.message || '扫描失败')
+    }
+  } catch (error: any) {
+    console.error('扫描失败:', error)
+    let errorMsg = '扫描失败'
+    if (error.response) {
+      errorMsg = error.response.data?.message || error.response.data?.error || `服务器错误 (${error.response.status})`
+    } else if (error.request) {
+      errorMsg = '无法连接到服务器'
+    } else if (error.message) {
+      errorMsg = error.message
+    }
+    showToast(errorMsg)
+  } finally {
+    scanningLibrary.value = null
+  }
+}
+
+// 扫描当前选定的视频库（用于视频管理页面）
+const scanCurrentLibrary = async () => {
+  if (!videoLibraryFilter.value) {
+    showToast('请先在左上角选择一个视频库')
+    return
+  }
+
+  // 找到选中的库对象
+  const lib = libraries.value.find(l => l.id === videoLibraryFilter.value)
+  if (lib) {
+    await scanLibrary(lib)
+  }
+}
+
 // 用户组
 const userGroups = ref<any[]>([])
 
@@ -1833,13 +1893,13 @@ onUnmounted(() => {
                 <span class="value">{{ syncStatus?.watch_mode ? '已启用' : '未启用' }}</span>
               </div>
               <div class="sync-actions">
-                <button 
-                  class="sync-btn" 
+                <button
+                  class="sync-btn"
                   :class="{ syncing: isSyncing }"
                   @click="triggerFullSync"
                   :disabled="isSyncing"
                 >
-                  <span class="btn-icon">🔄</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
                   {{ isSyncing ? '同步中...' : '立即全量同步' }}
                 </button>
               </div>
@@ -1924,12 +1984,23 @@ onUnmounted(() => {
               class="search-input"
             />
             <button class="action-btn" @click="fetchVideos()">搜索</button>
+            <!-- 刷新索引按钮 -->
+            <button
+              class="action-btn"
+              @click="scanCurrentLibrary"
+              :disabled="scanningLibrary !== null"
+              title="刷新当前视频库的索引"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+              {{ scanningLibrary !== null ? '刷新中...' : '刷新索引' }}
+            </button>
             <!-- 批量操作 -->
             <button
               class="action-btn"
               @click="showPriorityModal = true"
               :disabled="selectedVideos.length === 0"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
               批量设置优先级 ({{ selectedVideos.length }})
             </button>
             <button
@@ -1937,6 +2008,7 @@ onUnmounted(() => {
               @click="openThumbnailModal"
               :disabled="selectedVideos.length === 0"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               缩略图操作 ({{ selectedVideos.length }})
             </button>
             <button
@@ -1944,6 +2016,7 @@ onUnmounted(() => {
               @click="openBatchDeleteConfirm"
               :disabled="selectedVideos.length === 0"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               批量删除 ({{ selectedVideos.length }})
             </button>
           </div>
@@ -2499,7 +2572,8 @@ onUnmounted(() => {
                   @click="controlService(svc.service_name, 'restart')"
                   :disabled="isOperating(svc.service_name)"
                 >
-                  🔄 重启
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                  重启
                 </button>
               </template>
             </div>
@@ -2537,10 +2611,26 @@ onUnmounted(() => {
               <p class="library-path">路径: {{ lib.db_path }}/{{ lib.db_file }}</p>
             </div>
             <div class="library-card-actions">
-              <button class="action-btn" @click="editLibrary(lib)">编辑</button>
-              <button class="action-btn" @click="fetchLibraryPermissions(lib.id); showPermissionModal = true">权限</button>
-              <button class="action-btn" @click="manageFolders(lib)">文件夹</button>
-              <button class="action-btn danger" @click="deleteLibrary(lib.id)">删除</button>
+              <button class="action-btn" @click="scanLibrary(lib)" :disabled="scanningLibrary === lib.id" title="刷新索引">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                {{ scanningLibrary === lib.id ? '刷新中...' : '刷新索引' }}
+              </button>
+              <button class="action-btn" @click="editLibrary(lib)" title="编辑">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                编辑
+              </button>
+              <button class="action-btn" @click="fetchLibraryPermissions(lib.id); showPermissionModal = true" title="权限设置">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                权限
+              </button>
+              <button class="action-btn" @click="manageFolders(lib)" title="管理文件夹">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                文件夹
+              </button>
+              <button class="action-btn danger" @click="deleteLibrary(lib.id)" title="删除">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                删除
+              </button>
             </div>
           </div>
         </div>
@@ -2553,7 +2643,7 @@ onUnmounted(() => {
       <!-- 批量导入标签页 -->
       <div v-if="activeTab === 'import'" class="tab-content">
         <div class="section-header">
-          <h3>📥 批量导入视频</h3>
+          <h3>批量导入视频</h3>
         </div>
 
         <div class="import-container">
@@ -2584,7 +2674,8 @@ onUnmounted(() => {
                 @click="scanFolder"
                 :disabled="scanning || !importFolder.trim()"
               >
-                {{ scanning ? '扫描中...' : '🔍 扫描文件夹' }}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {{ scanning ? '扫描中...' : '扫描文件夹' }}
               </button>
             </div>
 
@@ -2716,9 +2807,10 @@ onUnmounted(() => {
             <select v-model="logLimit" @change="changeLogLimit" class="page-size-select">
               <option v-for="n in logLimitOptions" :key="n" :value="n">{{ n }} 条/页</option>
             </select>
-            <button class="action-btn primary" @click="fetchLogs(true)" :disabled="logLoading">
-              {{ logLoading ? '加载中...' : '🔄 刷新' }}
-            </button>
+<button class="action-btn primary" @click="fetchLogs(true)" :disabled="logLoading">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                {{ logLoading ? '加载中...' : '刷新' }}
+              </button>
           </div>
         </div>
 
@@ -2827,9 +2919,10 @@ onUnmounted(() => {
         <div class="section-header">
           <h3>📈 系统监控</h3>
           <div class="section-actions">
-            <button class="action-btn primary" @click="fetchMonitorMetrics" :disabled="monitorLoading">
-              {{ monitorLoading ? '加载中...' : '🔄 刷新' }}
-            </button>
+<button class="action-btn primary" @click="fetchMonitorMetrics" :disabled="monitorLoading">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                {{ monitorLoading ? '加载中...' : '刷新' }}
+              </button>
           </div>
         </div>
 
@@ -4126,6 +4219,9 @@ onUnmounted(() => {
 
 /* 操作按钮 */
 .action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 16px;
   background: #f0f0f0;
   border: none;
@@ -4133,6 +4229,10 @@ onUnmounted(() => {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.3s ease;
+}
+
+.action-btn svg {
+  flex-shrink: 0;
 }
 
 .action-btn:hover {

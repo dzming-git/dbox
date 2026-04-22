@@ -2540,6 +2540,77 @@ def set_default_folder(folder_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# ============ 视频库扫描 API =================
+
+@app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
+@admin_required
+def scan_library(library_id):
+    """扫描视频库的所有关联文件夹，重新建立索引
+    
+    请求参数:
+    - rescan: 是否重新扫描已存在的资源（默认false，只扫描新增）
+    
+    返回:
+    - success: 是否成功
+    - stats: 扫描统计信息
+    """
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        data = request.get_json() or {}
+        rescan = data.get('rescan', False)
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'ScanLibrary',
+            {'library_id': library_id, 'rescan': rescan},
+            timeout=300000  # 5分钟超时
+        )
+
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
+            return jsonify({
+                'success': True,
+                'data': result.get('stats', {}),
+                'message': f"扫描完成：发现 {result.get('stats', {}).get('total', 0)} 个资源"
+            })
+        # 资源服务返回的错误（路径不存在等）- 返回 400 而不是 500
+        error_msg = result.get('error', '扫描失败')
+        return jsonify({'success': False, 'message': error_msg}), 400
+    except Exception as e:
+        log.debug('ERROR', f'扫描视频库失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/<int:library_id>/scan-status', methods=['GET'])
+@admin_required
+def get_library_scan_status(library_id):
+    """获取视频库的扫描状态"""
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+
+        result = resource_bus.call_method(
+            'com.dplayer.resourced',
+            'com.dplayer.Resourced',
+            'GetLibraryStatus',
+            {'library_id': library_id},
+            timeout=5000
+        )
+
+        if result is None:
+            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
+        if result.get('success'):
+            return jsonify({'success': True, 'data': result.get('stats', {})})
+        return jsonify({'success': False, 'message': result.get('error', '获取状态失败')}), 500
+    except Exception as e:
+        log.debug('ERROR', f'获取扫描状态失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 # ============ 用户权限管理 API =================
 
 @app.route('/api/admin/libraries/<int:library_id>/permissions', methods=['GET'])
