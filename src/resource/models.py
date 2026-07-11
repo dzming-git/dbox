@@ -770,6 +770,17 @@ class ResourceItemDB:
             return cursor.rowcount > 0
 
     @staticmethod
+    def delete_by_hash(hash_value: str, library_id: int) -> bool:
+        """删除指定库中的资源条目（物理删除，用于扫描时清理已删除的文件）"""
+        Database.init_db()
+        with Database.get_cursor() as cursor:
+            cursor.execute('''
+                DELETE FROM resource_items
+                WHERE hash = ? AND library_id = ?
+            ''', (hash_value, library_id))
+            return cursor.rowcount > 0
+
+    @staticmethod
     def get_by_library(library_id: int, include_deleted: bool = False) -> List[ResourceItem]:
         """获取库的所有资源条目"""
         Database.init_db()

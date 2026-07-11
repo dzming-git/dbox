@@ -63,7 +63,7 @@ export const videoApi = {
     api.post(`/api/videos/${hash}/update`, data),
   
   scanVideos: () =>
-    api.post('/api/scan'),
+    api.post('/api/scan', {}),
   
   getStatus: () =>
     api.get('/api/status')
@@ -164,6 +164,9 @@ export const libraryApi = {
   // 切换当前视频库
   switchLibrary: (libraryId: number) => api.post('/api/user/libraries/switch', { library_id: libraryId }),
 
+  // 启动扫描（异步）
+  scanLibrary: (libraryId: number) => api.post(`/api/admin/libraries/${libraryId}/scan`, {}),
+
   // 获取用户组列表
   getUserGroups: () => api.get('/api/admin/user-groups'),
 
@@ -183,7 +186,10 @@ export const libraryApi = {
     api.delete(`/api/admin/user-groups/${groupId}/members/${userId}`),
 
   // 获取审计日志
-  getAuditLogs: (libraryId: number) => api.get(`/api/admin/libraries/${libraryId}/audit-logs`)
+  getAuditLogs: (libraryId: number) => api.get(`/api/admin/libraries/${libraryId}/audit-logs`),
+
+  // 获取扫描进度（轮询）
+  getScanProgress: (libraryId: number) => api.get(`/api/admin/libraries/${libraryId}/scan-status`),
 }
 
 // 系统日志 API

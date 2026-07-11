@@ -46,6 +46,7 @@ D-Bus 对应关系：
 
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List
 
 import zmq
@@ -90,6 +91,10 @@ class BaseDBusService:
         self._recv_thread: Optional[threading.Thread] = None
         self._publisher: Optional[zmq.Socket] = None
         self._pub_port_actual: Optional[int] = None
+        # 线程池：用于异步执行耗时的方法 handler，避免阻塞接收循环
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix=f"svc-{self.BUS_NAME}")
+        # ZMQ socket 发送锁（socket 非线程安全）
+        self._send_lock = threading.Lock()
 
     def start(self, block: bool = False):
         """
@@ -128,6 +133,7 @@ class BaseDBusService:
     def stop(self):
         """停止服务"""
         self._running = False
+        self._executor.shutdown(wait=False)
         if self._dealer:
             self._dealer.close(linger=0)
         if self._publisher:
@@ -235,17 +241,13 @@ class BaseDBusService:
             handler_name = f"on_method_{_to_snake_case(msg.member)}"
             handler = getattr(self, handler_name, None)
             if handler:
-                try:
-                    result = handler(msg.params)
-                    reply = BusMessage.method_reply(msg, result or {})
-                    self._dealer.send(reply.to_json())
-                except Exception as e:
-                    error_reply = BusMessage.error_reply(msg, str(e))
-                    self._dealer.send(error_reply.to_json())
+                # 在线程池中异步执行，避免耗时 handler 阻塞接收循环
+                self._executor.submit(self._execute_handler, handler, msg)
             else:
                 error_reply = BusMessage.error_reply(
                     msg, f"未知方法: {msg.member}")
-                self._dealer.send(error_reply.to_json())
+                with self._send_lock:
+                    self._dealer.send(error_reply.to_json())
 
         elif msg.type == MessageType.SIGNAL:
             # 信号 → 查找 on_signal_xxx 处理器
@@ -260,6 +262,21 @@ class BaseDBusService:
         elif msg.type == MessageType.METHOD_REPLY or msg.type == MessageType.ERROR:
             # 回复消息 → 由 call_method 的 poll 处理
             pass
+
+    def _execute_handler(self, handler, msg: BusMessage):
+        """在线程池中执行方法 handler 并发送回复"""
+        try:
+            result = handler(msg.params)
+            reply = BusMessage.method_reply(msg, result or {})
+            with self._send_lock:
+                self._dealer.send(reply.to_json())
+        except Exception as e:
+            try:
+                error_reply = BusMessage.error_reply(msg, str(e))
+                with self._send_lock:
+                    self._dealer.send(error_reply.to_json())
+            except Exception:
+                pass
 
 
 def _to_snake_case(name: str) -> str:

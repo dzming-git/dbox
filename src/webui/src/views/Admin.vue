@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
-import { thumbnailApi, logApi } from '../api'
+import { thumbnailApi, logApi, libraryApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
 
@@ -291,41 +291,106 @@ const manageFolders = (lib: any) => {
   showFolderModal.value = true
 }
 
-// 视频库扫描
-const scanningLibrary = ref<number | null>(null)  // 正在扫描的库 ID
-const libraryScanStats = ref<any>(null)  // 扫描统计信息
+// 视频库扫描：使用批量导入接口，一键扫描所有关联文件夹并自动导入新视频
+const isScanning = ref<number | null>(null)  // 正在扫描的库ID
 
-// 扫描视频库
 const scanLibrary = async (lib: any) => {
-  if (scanningLibrary.value === lib.id) return  // 已经在扫描
-  
-  if (!confirm(`确定要扫描视频库 "${lib.name}" 吗？这将重新扫描所有关联的文件和文件夹。`)) return
-  
-  scanningLibrary.value = lib.id
-  libraryScanStats.value = null
-  
+  if (isScanning.value !== null) {
+    showToast('正在扫描中，请勿重复点击')
+    return
+  }
+
+  isScanning.value = lib.id
+
   try {
-    const res = await api.post(`/api/admin/libraries/${lib.id}/scan`) as any
-    
-    if (res.success) {
-      libraryScanStats.value = res.data
-      showToast(`扫描完成：发现 ${res.data.total || 0} 个资源`)
+    // 1. 获取库的文件夹列表
+    const foldersRes = await api.get('/api/admin/libraries/' + lib.id + '/folders') as any
+    if (!foldersRes.success || !foldersRes.data || foldersRes.data.length === 0) {
+      showToast('该视频库没有关联文件夹，请先添加文件夹')
+      return
+    }
+
+    const folders = foldersRes.data
+    const seenPaths = new Set<string>()
+    const allVideos: any[] = []
+
+    // 2. 逐个扫描每个文件夹
+    showToast('正在扫描 ' + folders.length + ' 个文件夹...')
+    for (const folder of folders) {
+      const folderPath = folder.path
+      if (!folderPath || !folderPath.trim()) continue
       
-      // 刷新视频列表
+      try {
+        const scanRes = await api.post('/api/admin/scan-folder', {
+          folder_path: folderPath,
+          recursive: true
+        }) as any
+        
+        if (scanRes.success && scanRes.data?.videos) {
+          for (const v of scanRes.data.videos) {
+            if (!seenPaths.has(v.path)) {
+              seenPaths.add(v.path)
+              allVideos.push(v)
+            }
+          }
+        }
+      } catch (e) {
+        console.error('扫描文件夹失败: ' + folderPath, e)
+      }
+    }
+
+    const newVideos = allVideos.filter((v: any) => !v.exists)
+    
+    if (allVideos.length === 0) {
+      showToast('扫描完成：未发现视频文件')
+      return
+    }
+
+    if (newVideos.length === 0) {
+      showToast('扫描完成：共 ' + allVideos.length + ' 个视频，全部已存在，无需导入')
+      return
+    }
+
+    // 3. 自动导入所有新视频
+    showToast('发现 ' + newVideos.length + ' 个新视频，正在导入...')
+    const videosToImport = newVideos.map((v: any) => ({
+      path: v.path,
+      title: v.title,
+      tags: [] as string[]
+    }))
+
+    const importRes = await api.post('/api/admin/import-videos', {
+      library_id: lib.id,
+      videos: videosToImport,
+      skip_existing: true,
+      default_tags: ['本地视频']
+    }) as any
+
+    if (importRes.success) {
+      const total = allVideos.length
+      const imported = importRes.data?.imported || 0
+      const skipped = importRes.data?.skipped || 0
+      const failed = importRes.data?.failed || 0
+      
+      let msg = '扫描完成：共 ' + total + ' 个视频'
+      if (imported > 0) msg += '，新增 ' + imported + ' 个'
+      if (skipped > 0) msg += '，跳过 ' + skipped + ' 个'
+      if (failed > 0) msg += '，失败 ' + failed + ' 个'
+      showToast(msg)
+
+      // 刷新视频列表和库统计
       if (activeTab.value === 'videos') {
         await fetchVideos()
       }
-      
-      // 刷新视频库统计
       fetchLibraries()
     } else {
-      showToast(res.message || '扫描失败')
+      showToast(importRes.message || '导入失败')
     }
   } catch (error: any) {
-    console.error('扫描失败:', error)
-    let errorMsg = '扫描失败'
+    console.error('扫描导入失败:', error)
+    let errorMsg = '操作失败'
     if (error.response) {
-      errorMsg = error.response.data?.message || error.response.data?.error || `服务器错误 (${error.response.status})`
+      errorMsg = error.response.data?.message || error.response.data?.error || '服务器错误 (' + error.response.status + ')'
     } else if (error.request) {
       errorMsg = '无法连接到服务器'
     } else if (error.message) {
@@ -333,21 +398,212 @@ const scanLibrary = async (lib: any) => {
     }
     showToast(errorMsg)
   } finally {
-    scanningLibrary.value = null
+    isScanning.value = null
   }
 }
 
-// 扫描当前选定的视频库（用于视频管理页面）
-const scanCurrentLibrary = async () => {
-  if (!videoLibraryFilter.value) {
-    showToast('请先在左上角选择一个视频库')
+// ============ 视频库详情展开视图（在"视频库管理"标签页中使用） ============
+const expandedLibraryId = ref<number | null>(null)
+const libraryDetailFolders = ref<any[]>([])
+const libraryDetailFolderKey = ref('__all__')       // '__all__' = 所有文件夹
+const libraryDetailFileCache = ref<Record<string, any[]>>({})
+const libraryDetailScanning = ref(false)
+const libraryDetailSelectedFiles = ref<string[]>([])
+const libraryDetailImporting = ref(false)
+const libraryDetailImportProgress = ref({ imported: 0, skipped: 0, failed: 0 })
+const libraryDetailImportErrors = ref<string[]>([])
+
+// 当前展开的视频库对象
+const currentLibrary = computed(() => {
+  return libraries.value.find(l => l.id === expandedLibraryId.value) || null
+})
+
+// 当前文件夹下待展示的文件列表
+const libraryDetailCurrentFiles = computed(() => {
+  return libraryDetailFileCache.value[libraryDetailFolderKey.value] || []
+})
+
+// 展开视频库详情
+const enterLibraryDetail = async (lib: any) => {
+  expandedLibraryId.value = lib.id
+
+  // 获取关联文件夹
+  try {
+    const res = await api.get(`/api/admin/libraries/${lib.id}/folders`) as any
+    if (res.success && res.data) {
+      libraryDetailFolders.value = res.data
+    } else {
+      libraryDetailFolders.value = []
+    }
+  } catch (e) {
+    console.error('获取文件夹列表失败:', e)
+    libraryDetailFolders.value = []
+  }
+
+  libraryDetailFolderKey.value = '__all__'
+}
+
+// 收起视频库详情
+const leaveLibraryDetail = () => {
+  expandedLibraryId.value = null
+  libraryDetailFileCache.value = {}
+  libraryDetailSelectedFiles.value = []
+  libraryDetailImporting.value = false
+}
+
+// 扫描文件夹
+const scanDetailFolder = async (folderKey?: string) => {
+  const lib = currentLibrary.value
+  if (!lib) return
+
+  const key = folderKey || libraryDetailFolderKey.value
+  libraryDetailScanning.value = true
+
+  try {
+    const foldersToScan = key === '__all__'
+      ? libraryDetailFolders.value
+      : libraryDetailFolders.value.filter((f: any) => getFolderKey(f) === key)
+
+    if (foldersToScan.length === 0) {
+      showToast('没有可扫描的文件夹')
+      libraryDetailScanning.value = false
+      return
+    }
+
+    const seenPaths = new Set<string>()
+    const allResults: any[] = []
+    const folderResults: Record<string, any[]> = {}
+
+    for (const folder of foldersToScan) {
+      const folderPath = folder.path
+      if (!folderPath || !folderPath.trim()) continue
+
+      try {
+        const scanRes = await api.post('/api/admin/scan-folder', {
+          folder_path: folderPath,
+          recursive: true
+        }) as any
+
+        if (scanRes.success && scanRes.data?.videos) {
+          const fKey = getFolderKey(folder)
+          if (!folderResults[fKey]) folderResults[fKey] = []
+
+          for (const v of scanRes.data.videos) {
+            if (!seenPaths.has(v.path)) {
+              seenPaths.add(v.path)
+              allResults.push(v)
+              folderResults[fKey].push(v)
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`扫描文件夹失败: ${folderPath}`, e)
+      }
+    }
+
+    // 更新各文件夹缓存
+    for (const [fKey, videos] of Object.entries(folderResults)) {
+      libraryDetailFileCache.value[fKey] = videos
+    }
+    libraryDetailFileCache.value['__all__'] = allResults
+
+    const newCount = allResults.filter((v: any) => !v.exists).length
+    const existCount = allResults.filter((v: any) => v.exists).length
+
+    if (allResults.length === 0) {
+      showToast('扫描完成：未发现视频文件')
+    } else {
+      showToast(`扫描完成：共 ${allResults.length} 个视频（${newCount} 个新视频，${existCount} 个已存在）`)
+    }
+  } catch (error: any) {
+    console.error('扫描失败:', error)
+    showToast(error.response?.data?.message || error.message || '扫描失败')
+  } finally {
+    libraryDetailScanning.value = false
+  }
+}
+
+// 文件夹唯一Key
+const getFolderKey = (folder: any) => {
+  return folder.path || `folder_${folder.id}`
+}
+
+// 文件夹显示名（取最后一级目录名）
+const getFolderLabel = (folder: any) => {
+  if (folder.name) return folder.name
+  const path = folder.path || ''
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts[parts.length - 1] || path || '(未知)'
+}
+
+// 全选/取消全选
+const detailToggleSelectAll = () => {
+  const files = libraryDetailCurrentFiles.value.filter((v: any) => !v.exists)
+  if (libraryDetailSelectedFiles.value.length === files.length) {
+    libraryDetailSelectedFiles.value = []
+  } else {
+    libraryDetailSelectedFiles.value = files.map((v: any) => v.path)
+  }
+}
+
+// 切换单个文件选择
+const detailToggleFile = (path: string) => {
+  const idx = libraryDetailSelectedFiles.value.indexOf(path)
+  if (idx > -1) {
+    libraryDetailSelectedFiles.value.splice(idx, 1)
+  } else {
+    libraryDetailSelectedFiles.value.push(path)
+  }
+}
+
+// 导入选中视频
+const detailImportVideos = async () => {
+  const lib = currentLibrary.value
+  if (!lib) return
+  if (libraryDetailSelectedFiles.value.length === 0) {
+    showToast('请选择要导入的视频')
     return
   }
 
-  // 找到选中的库对象
-  const lib = libraries.value.find(l => l.id === videoLibraryFilter.value)
-  if (lib) {
-    await scanLibrary(lib)
+  libraryDetailImporting.value = true
+  libraryDetailImportProgress.value = { imported: 0, skipped: 0, failed: 0 }
+  libraryDetailImportErrors.value = []
+
+  try {
+    const currentFiles = libraryDetailCurrentFiles.value
+    const videosToImport = currentFiles
+      .filter((v: any) => libraryDetailSelectedFiles.value.includes(v.path))
+      .map((v: any) => ({ path: v.path, title: v.title, tags: [] as string[] }))
+
+    const res = await api.post('/api/admin/import-videos', {
+      library_id: lib.id,
+      videos: videosToImport,
+      skip_existing: true,
+      default_tags: ['本地视频']
+    }) as any
+
+    if (res.success) {
+      libraryDetailImportProgress.value = res.data
+      libraryDetailImportErrors.value = res.data.errors || []
+      showToast(res.message)
+      await fetchVideos()
+
+      // 更新缓存：标记已导入的视频为"已存在"
+      const importedPaths = new Set(videosToImport.map((v: any) => v.path))
+      for (const key of Object.keys(libraryDetailFileCache.value)) {
+        libraryDetailFileCache.value[key] = libraryDetailFileCache.value[key].map((v: any) => ({
+          ...v,
+          exists: v.exists || importedPaths.has(v.path)
+        }))
+      }
+    } else {
+      showToast(res.message || '导入失败')
+    }
+  } catch (error: any) {
+    console.error('导入失败:', error)
+    showToast(error.response?.data?.message || error.message || '导入失败')
+  } finally {
+    libraryDetailImporting.value = false
   }
 }
 
@@ -1984,16 +2240,6 @@ onUnmounted(() => {
               class="search-input"
             />
             <button class="action-btn" @click="fetchVideos()">搜索</button>
-            <!-- 刷新索引按钮 -->
-            <button
-              class="action-btn"
-              @click="scanCurrentLibrary"
-              :disabled="scanningLibrary !== null"
-              title="刷新当前视频库的索引"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-              {{ scanningLibrary !== null ? '刷新中...' : '刷新索引' }}
-            </button>
             <!-- 批量操作 -->
             <button
               class="action-btn"
@@ -2611,9 +2857,13 @@ onUnmounted(() => {
               <p class="library-path">路径: {{ lib.db_path }}/{{ lib.db_file }}</p>
             </div>
             <div class="library-card-actions">
-              <button class="action-btn" @click="scanLibrary(lib)" :disabled="scanningLibrary === lib.id" title="刷新索引">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                {{ scanningLibrary === lib.id ? '刷新中...' : '刷新索引' }}
+              <button
+                :class="['action-btn', 'primary', { active: expandedLibraryId === lib.id }]"
+                @click="expandedLibraryId === lib.id ? leaveLibraryDetail() : enterLibraryDetail(lib)"
+                :title="expandedLibraryId === lib.id ? '收起详情' : '展开查看视频库详情、关联文件夹与文件列表'"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                详情
               </button>
               <button class="action-btn" @click="editLibrary(lib)" title="编辑">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -2637,6 +2887,162 @@ onUnmounted(() => {
 
         <div v-if="libraries.length === 0 && !loading.libraries" class="empty-state">
           <p>暂无视频库，请创建一个</p>
+        </div>
+
+        <!-- ============ 展开的视频库详情视图 ============ -->
+        <div v-if="expandedLibraryId" class="library-detail-view">
+          <!-- 顶部：库信息 + 扫描 -->
+          <div class="detail-header">
+            <div class="detail-title">
+              <h3>{{ currentLibrary?.name || '视频库详情' }}</h3>
+              <p class="detail-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
+            </div>
+            <button
+              class="action-btn primary"
+              @click="scanDetailFolder()"
+              :disabled="libraryDetailScanning || libraryDetailFolders.length === 0"
+              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '扫描当前选中的文件夹'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {{ libraryDetailScanning ? '扫描中...' : '扫描' }}
+            </button>
+          </div>
+
+          <!-- 关联文件夹标签页 -->
+          <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
+            <h4>关联文件夹</h4>
+            <div class="folder-tabs">
+              <button
+                :class="['folder-tab', { active: libraryDetailFolderKey === '__all__' }]"
+                @click="libraryDetailFolderKey = '__all__'"
+              >
+                所有
+                <span class="tab-count" v-if="libraryDetailFileCache['__all__']">
+                  {{ libraryDetailFileCache['__all__'].length }}
+                </span>
+              </button>
+              <button
+                v-for="folder in libraryDetailFolders"
+                :key="getFolderKey(folder)"
+                :class="['folder-tab', { active: libraryDetailFolderKey === getFolderKey(folder) }]"
+                @click="libraryDetailFolderKey = getFolderKey(folder)"
+              >
+                {{ getFolderLabel(folder) }}
+                <span class="tab-count" v-if="libraryDetailFileCache[getFolderKey(folder)]">
+                  {{ libraryDetailFileCache[getFolderKey(folder)].length }}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 无关联文件夹 -->
+          <div v-else class="empty-state">
+            <div class="empty-icon">📁</div>
+            <div class="empty-text">该视频库没有关联文件夹</div>
+            <div class="empty-hint">请点击上方"文件夹"按钮为视频库添加上传文件夹</div>
+          </div>
+
+          <!-- 扫描中 -->
+          <div v-if="libraryDetailScanning && !libraryDetailCurrentFiles.length" class="loading-state">
+            <div class="loading-spinner"></div>
+            <span>正在扫描文件夹...</span>
+          </div>
+
+          <!-- 扫描结果 / 文件列表 -->
+          <div v-if="libraryDetailCurrentFiles.length > 0" class="scan-results card">
+            <div class="results-header">
+              <h4>{{ libraryDetailScanning ? '正在扫描...' : `文件列表 (${libraryDetailCurrentFiles.length} 个视频)` }}</h4>
+            </div>
+
+            <div class="results-toolbar">
+              <label class="checkbox-label select-all">
+                <input
+                  type="checkbox"
+                  :checked="libraryDetailSelectedFiles.length > 0 && libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length"
+                  @change="detailToggleSelectAll"
+                />
+                <span>{{ libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length ? '取消全选' : '全选' }}</span>
+              </label>
+              <span class="selected-count">
+                已选择 {{ libraryDetailSelectedFiles.length }} / {{ libraryDetailCurrentFiles.filter((v: any) => !v.exists).length }} 个新视频
+              </span>
+            </div>
+
+            <div class="video-list">
+              <div
+                v-for="video in libraryDetailCurrentFiles"
+                :key="video.path"
+                :class="['video-item', { selected: libraryDetailSelectedFiles.includes(video.path), existing: video.exists }]"
+                @click="!video.exists && detailToggleFile(video.path)"
+              >
+                <div class="video-checkbox">
+                  <input
+                    v-if="!video.exists"
+                    type="checkbox"
+                    :checked="libraryDetailSelectedFiles.includes(video.path)"
+                    @click.stop
+                    @change="detailToggleFile(video.path)"
+                  />
+                  <span v-else class="exists-badge">已存在</span>
+                </div>
+                <div class="video-info">
+                  <div class="video-title">{{ video.title }}</div>
+                  <div class="video-meta">
+                    <span>📁 {{ video.path }}</span>
+                    <span>💾 {{ video.size_mb }} MB</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="import-actions">
+              <button
+                class="action-btn primary large"
+                @click="detailImportVideos"
+                :disabled="libraryDetailImporting || libraryDetailSelectedFiles.length === 0"
+              >
+                {{ libraryDetailImporting ? '导入中...' : `导入 ${libraryDetailSelectedFiles.length} 个视频` }}
+              </button>
+            </div>
+
+            <!-- 导入进度 -->
+            <div v-if="libraryDetailImporting || libraryDetailImportProgress.imported > 0" class="import-progress">
+              <h4>导入进度</h4>
+              <div class="progress-stats">
+                <div class="stat-item success">
+                  <span class="stat-label">已导入</span>
+                  <span class="stat-value">{{ libraryDetailImportProgress.imported }}</span>
+                </div>
+                <div class="stat-item warning">
+                  <span class="stat-label">已跳过</span>
+                  <span class="stat-value">{{ libraryDetailImportProgress.skipped }}</span>
+                </div>
+                <div class="stat-item error">
+                  <span class="stat-label">失败</span>
+                  <span class="stat-value">{{ libraryDetailImportProgress.failed }}</span>
+                </div>
+              </div>
+              <div v-if="libraryDetailImportErrors.length > 0" class="import-errors">
+                <h5>错误信息</h5>
+                <ul>
+                  <li v-for="(error, idx) in libraryDetailImportErrors" :key="idx">{{ error }}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- 已扫描但无文件 -->
+          <div v-else-if="!libraryDetailScanning && libraryDetailFolders.length > 0 && libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
+            <div class="empty-icon">🔍</div>
+            <div class="empty-text">该文件夹中未发现视频文件</div>
+          </div>
+
+          <!-- 未扫描引导 -->
+          <div v-else-if="!libraryDetailScanning && libraryDetailFolders.length > 0 && !libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
+            <div class="empty-icon">📂</div>
+            <div class="empty-text">点击上方"扫描"按钮开始扫描</div>
+            <div class="empty-hint">将扫描 {{ libraryDetailFolderKey === '__all__' ? '所有关联文件夹' : '当前文件夹' }} 中的视频文件</div>
+          </div>
         </div>
       </div>
 
@@ -4797,6 +5203,113 @@ input:checked + .slider:before {
   gap: 24px;
 }
 
+/* ============ 视频库详情展开视图 ============ */
+.library-detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  flex-wrap: wrap;
+}
+
+.detail-title h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a1a);
+}
+
+.detail-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #888;
+}
+
+.detail-folders-section h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+}
+
+.folder-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.folder-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  background: var(--card-bg, #fff);
+  cursor: pointer;
+  font-size: 13px;
+  color: #555;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.folder-tab:hover {
+  border-color: var(--primary, #1890ff);
+  color: var(--primary, #1890ff);
+  background: rgba(24, 144, 255, 0.04);
+}
+
+.folder-tab.active {
+  background: var(--primary, #1890ff);
+  color: #fff;
+  border-color: var(--primary, #1890ff);
+}
+
+.folder-tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+}
+
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .folder-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .folder-tab {
+    flex-shrink: 0;
+  }
+}
+
 .import-config,
 .scan-results,
 .import-progress {
@@ -6489,4 +7002,6 @@ input:checked + .slider:before {
     justify-content: center;
   }
 }
+
+
 </style>

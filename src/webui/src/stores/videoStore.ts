@@ -339,13 +339,11 @@ export const useVideoStore = defineStore('video', () => {
     if (query.order) {
       sortOrder.value = query.order
     }
-    // 根据 page 参数计算 offset
-    if (query.page) {
-      const page = parseInt(query.page) || 1
-      pagination.value.offset = (page - 1) * pagination.value.limit
-    }
-    // 重新获取视频列表
-    await fetchVideos(true)
+    // 根据 page 参数计算 offset（不存在则回到第 1 页）
+    const page = query.page ? (parseInt(query.page) || 1) : 1
+    const offset = (page - 1) * pagination.value.limit
+    // 使用 offset 获取对应页数据，避免每次都重置到第 1 页
+    await fetchVideosByOffset(offset)
   }
 
   const scanVideos = async () => {

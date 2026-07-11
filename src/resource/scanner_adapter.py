@@ -47,7 +47,8 @@ import sys
 import threading
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
+from types import SimpleNamespace
 
 # 添加 src 目录到 path 以便导入 servicebus 和本地模块
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -93,7 +94,9 @@ class BusResourceAdapter(BaseDBusService):
         super().__init__(host, rpc_port, pub_port)
         self._watcher = LibraryWatcher()
         self._scan_lock = threading.Lock()
-        self._scanning_libraries = set()  # 正在扫描的库 ID
+        self._scanning_libraries = set()   # 正在扫描的库 ID
+        # 扫描进度：{library_id: {current, total, current_file, status, result}}
+        self._scan_progress: Dict[int, Dict] = {}
 
     # ============ 库管理 ============
 
@@ -490,49 +493,192 @@ class BusResourceAdapter(BaseDBusService):
     # ============ 扫描 ============
 
     def on_method_scan_library(self, params: Dict[str, Any]) -> Dict:
-        """扫描资源库"""
+        """扫描资源库（异步，立即返回，前端轮询进度）"""
         try:
             library_id = params.get('library_id')
             if not library_id:
                 return {'success': False, 'error': '缺少 library_id'}
 
-            # 检查是否正在扫描
-            if library_id in self._scanning_libraries:
-                return {'success': False, 'error': '扫描已在进行中'}
+            print(f"[scanner] ScanLibrary called, library_id={library_id}", flush=True)
+
+            # 自动清理已完成的扫描状态（防止残留导致无法再次扫描）
+            prog = self._scan_progress.get(library_id)
+            if prog and prog.get('status') in ('done', 'error'):
+                with self._scan_lock:
+                    self._scanning_libraries.discard(library_id)
+                del self._scan_progress[library_id]
+                prog = None
+                print(f"[scanner] cleaned stale scan state for library {library_id}", flush=True)
+            
+            # 额外清理：如果 library_id 在 _scanning_libraries 但不在 _scan_progress 中（孤立状态），也清理
+            if library_id in self._scanning_libraries and library_id not in self._scan_progress:
+                with self._scan_lock:
+                    self._scanning_libraries.discard(library_id)
+                print(f"[scanner] cleaned orphaned scan state for library {library_id}", flush=True)
+                print(f"[scanner]   reason: in _scanning_libraries but not in _scan_progress", flush=True)
+
+            with self._scan_lock:
+                if library_id in self._scanning_libraries:
+                    print(f"[scanner] scan already in progress for library {library_id}", flush=True)
+                    return {'success': False, 'error': '扫描已在进行中，请稍候...'}
+                self._scanning_libraries.add(library_id)
+            print(f"[scanner] scan lock acquired for library {library_id}", flush=True)
 
             library = ResourceLibraryDB.get_by_id(library_id)
             if not library:
+                with self._scan_lock:
+                    self._scanning_libraries.discard(library_id)
                 return {'success': False, 'error': '库不存在'}
 
             if not os.path.isdir(library.path):
+                with self._scan_lock:
+                    self._scanning_libraries.discard(library_id)
                 return {'success': False, 'error': '路径不存在'}
 
-            # 启动扫描线程
-            def scan():
-                with self._scan_lock:
-                    self._scanning_libraries.add(library_id)
+            # 初始化进度
+            self._scan_progress[library_id] = {
+                'library_id': library_id,
+                'current': 0,
+                'total': 0,
+                'current_file': '',
+                'status': 'scanning',
+                'result': None,
+                'error': None,
+            }
+
+            # 后台线程执行扫描
+            def _scan_thread():
+                # 进度回调：更新 self._scan_progress
+                def _progress(current: int, total: int, current_file: str):
+                    prog = self._scan_progress.get(library_id)
+                    if prog:
+                        prog['current'] = current
+                        prog['total'] = total
+                        prog['current_file'] = current_file
+
                 try:
-                    self._do_scan(library)
+                    result = self._do_scan(library, progress_callback=_progress)
+                    prog = self._scan_progress.get(library_id)
+                    if prog:
+                        prog['status'] = 'done'
+                        prog['result'] = result
+                except Exception as e:
+                    prog = self._scan_progress.get(library_id)
+                    if prog:
+                        prog['status'] = 'error'
+                        prog['error'] = str(e)
                 finally:
                     with self._scan_lock:
                         self._scanning_libraries.discard(library_id)
 
-            threading.Thread(target=scan, daemon=True).start()
+            threading.Thread(target=_scan_thread, daemon=True).start()
+            return {'success': True, 'started': True}
 
-            # 同步执行一次扫描（阻塞直到完成，返回结果）
-            return self._do_scan(library)
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def _do_scan(self, library: ResourceLibrary) -> Dict:
-        """执行实际扫描"""
-        try:
-            indexer = MediaIndexer()
-            result = indexer.scan_directory(library.path, library.id)
+    def on_method_get_scan_progress(self, params: Dict[str, Any]) -> Dict:
+        """获取扫描进度"""
+        library_id = params.get('library_id')
+        if not library_id:
+            return {'success': False, 'error': '缺少 library_id'}
+        prog = self._scan_progress.get(library_id)
+        if not prog:
+            return {'success': True, 'status': 'idle', 'message': '没有进行中的扫描'}
+        return {'success': True, **prog}
 
-            # 更新数据库
-            items_added = 0
-            for item_info in result.get('items', []):
+    def on_method_reset_scan(self, params: Dict[str, Any]) -> Dict:
+        """重置扫描状态（清除卡住的扫描状态）"""
+        library_id = params.get('library_id')
+        if not library_id:
+            return {'success': False, 'error': '缺少 library_id'}
+        with self._scan_lock:
+            self._scanning_libraries.discard(library_id)
+        self._scan_progress.pop(library_id, None)
+        return {'success': True, 'message': '扫描状态已重置'}
+
+    def _do_scan(self, library: ResourceLibrary, progress_callback: Callable = None) -> Dict:
+        """执行实际扫描，支持进度回调（扫描所有关联文件夹）"""
+        try:
+            # 扫描前：记录已有的 hash（用于检测删除的文件）
+            existing_items = ResourceItemDB.get_by_library(library.id)
+            existing_hashes = {item.hash for item in existing_items}
+            existing_map = {item.hash: item for item in existing_items}
+
+            # 获取库下所有文件夹
+            folders = ResourceFolderDB.get_by_library(library.id)
+            if not folders:
+                # 没有配置文件夹时，退回到扫描 library.path
+                from types import SimpleNamespace
+                folders = [SimpleNamespace(id=None, path=library.path)]
+
+            # 预扫：收集所有文件路径（用于进度计算）
+            indexer = MediaIndexer()
+            all_files = []  # [(folder_id, file_path), ...]
+            for folder in folders:
+                fpath = folder.path
+                if not os.path.isdir(fpath):
+                    print(f"[scanner] folder not found, skip: {fpath}", flush=True)
+                    continue
+                for root, dirs, files in os.walk(fpath):
+                    for filename in files:
+                        all_files.append((folder.id, os.path.join(root, filename)))
+
+            total = len(all_files)
+            print(f"[scanner] start scan, {total} files in {len(folders)} folder(s)", flush=True)
+
+            # 执行扫描
+            all_items = []
+            stats = {'total': 0, 'videos': 0, 'images': 0, 'galleries': 0, 'unknown': 0}
+
+            for idx, (folder_id, file_path) in enumerate(all_files, 1):
+                if progress_callback:
+                    progress_callback(idx, total, file_path)
+                try:
+                    info = indexer.index_file(file_path, library.id, folder_id)
+                    if info:
+                        stats['total'] += 1
+                        rtype = info['resource_type']
+                        stats[rtype + 's'] = stats.get(rtype + 's', 0) + 1
+                        all_items.append(info)
+                    else:
+                        stats['unknown'] += 1
+                except Exception as e:
+                    print(f"[scanner] index_file failed: {file_path}: {e}", flush=True)
+                    stats['unknown'] += 1
+
+            print(f"[scanner] scan done, {len(all_items)} items indexed, stats={stats}", flush=True)
+
+            # 分类处理结果
+            scanned_hashes = {item['hash'] for item in all_items}
+            added = []
+            updated = []
+
+            for item_info in all_items:
+                file_hash = item_info['hash']
+                if file_hash in existing_hashes:
+                    old = existing_map.get(file_hash)
+                    if old and old.file_path != item_info['file_path']:
+                        updated.append(item_info['file_path'])
+                else:
+                    added.append(item_info['file_path'])
+
+            print(f"[scanner] scanned={len(scanned_hashes)}, existing={len(existing_hashes)}, added={len(added)}, updated={len(updated)}", flush=True)
+
+            # 检测删除的文件（在 DB 中但不在磁盘上）
+            removed_hashes = existing_hashes - scanned_hashes
+            removed = []
+            for item in existing_items:
+                if item.hash in removed_hashes:
+                    removed.append(item.file_path)
+                    try:
+                        ResourceItemDB.delete_by_hash(item.hash, library.id)
+                    except Exception as e:
+                        print(f"[scanner] delete_by_hash failed: {e}", flush=True)
+
+            # 更新数据库（upsert）
+            items_added_count = 0
+            for item_info in all_items:
                 item = ResourceItem(
                     library_id=library.id,
                     hash=item_info['hash'],
@@ -547,7 +693,7 @@ class BusResourceAdapter(BaseDBusService):
                     metadata=item_info.get('metadata', {}),
                 )
                 ResourceItemDB.upsert(item)
-                items_added += 1
+                items_added_count += 1
 
             # 更新库的扫描时间
             library.last_scan_at = datetime.utcnow()
@@ -556,15 +702,19 @@ class BusResourceAdapter(BaseDBusService):
             return {
                 'success': True,
                 'stats': {
-                    'total': result['total'],
-                    'videos': result['videos'],
-                    'images': result['images'],
-                    'galleries': result['galleries'],
-                    'unknown': result['unknown'],
-                    'items_added': items_added,
-                }
+                    'total': stats['total'],
+                    'videos': stats['videos'],
+                    'images': stats['images'],
+                    'galleries': stats['galleries'],
+                    'unknown': stats['unknown'],
+                    'items_added': items_added_count,
+                },
+                'added': added,
+                'updated': updated,
+                'removed': removed,
             }
         except Exception as e:
+            print(f"[scanner] _do_scan error: {e}", flush=True)
             return {'success': False, 'error': str(e)}
 
     def on_method_get_library_status(self, params: Dict[str, Any]) -> Dict:

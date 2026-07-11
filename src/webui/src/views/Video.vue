@@ -3102,6 +3102,7 @@ const handleDelete = async () => {
   .tag-editor-dialog {
     width: 100vw;
     max-width: 100vw;
+    min-width: 0;
     height: 85vh;
     max-height: 85vh;
     margin: 0;

@@ -93,7 +93,7 @@ def submit_suggestion():
     suggestions.insert(0, suggestion)  # 新建议在前
 
     if save_suggestions(suggestions):
-        log.info(f'收到新建议 from {user_info or "游客"}: {content[:50]}...')
+        log.info('suggestion', f'收到新建议 from {user_info or "游客"}: {content[:50]}...')
         return jsonify({
             'success': True,
             'message': '感谢您的建议！',

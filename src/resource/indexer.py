@@ -8,7 +8,7 @@ import os
 import hashlib
 import mimetypes
 from datetime import datetime
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Callable, List
 
 # 视频文件扩展名
 VIDEO_EXTS = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp'}
@@ -123,33 +123,38 @@ class MediaIndexer:
     def index_file(cls, file_path: str, library_id: int, folder_id: int = None) -> Optional[Dict[str, Any]]:
         """为单个文件建立索引"""
         if not os.path.isfile(file_path):
+            print(f"[indexer] skip (not a file): {file_path}", flush=True)
             return None
 
-        file_hash = cls.get_file_hash(file_path)
-        file_size = cls.get_file_size(file_path)
-        mime_type = cls.get_mime_type(file_path)
-        file_ext = cls.get_file_ext(file_path)
-        resource_type = cls.detect_resource_type(file_path)
-        width, height = cls.get_dimensions(file_path, resource_type)
-        duration = None
-        if resource_type == 'video':
-            duration = cls.get_video_duration(file_path)
+        try:
+            file_hash = cls.get_file_hash(file_path)
+            file_size = cls.get_file_size(file_path)
+            mime_type = cls.get_mime_type(file_path)
+            file_ext = cls.get_file_ext(file_path)
+            resource_type = cls.detect_resource_type(file_path)
+            width, height = cls.get_dimensions(file_path, resource_type)
+            duration = None
+            if resource_type == 'video':
+                duration = cls.get_video_duration(file_path)
 
-        return {
-            'library_id': library_id,
-            'folder_id': folder_id,
-            'hash': file_hash,
-            'file_path': file_path,
-            'file_name': os.path.basename(file_path),
-            'file_ext': file_ext,
-            'file_size': file_size,
-            'mime_type': mime_type,
-            'resource_type': resource_type,
-            'width': width,
-            'height': height,
-            'duration': duration,
-            'metadata': {'indexed_at': datetime.utcnow().isoformat()},
-        }
+            return {
+                'library_id': library_id,
+                'folder_id': folder_id,
+                'hash': file_hash,
+                'file_path': file_path,
+                'file_name': os.path.basename(file_path),
+                'file_ext': file_ext,
+                'file_size': file_size,
+                'mime_type': mime_type,
+                'resource_type': resource_type,
+                'width': width,
+                'height': height,
+                'duration': duration,
+                'metadata': {'indexed_at': datetime.utcnow().isoformat()},
+            }
+        except Exception as e:
+            print(f"[indexer] index_file failed: {file_path}: {e}", flush=True)
+            return None
 
     @classmethod
     def scan_file(cls, file_path: str, library_id: int, folder_id: int = None) -> Optional[Dict[str, Any]]:
@@ -157,25 +162,43 @@ class MediaIndexer:
         return cls.index_file(file_path, library_id, folder_id)
 
     @classmethod
-    def scan_directory(cls, directory: str, library_id: int, folder_id: int = None) -> Dict[str, Any]:
-        """扫描目录，返回所有文件的索引信息"""
+    def scan_directory(cls, directory: str, library_id: int, folder_id: int = None,
+                      progress_callback: Callable = None) -> Dict[str, Any]:
+        """扫描目录，返回所有文件的索引信息
+
+        Args:
+            progress_callback: 回调函数，接收 (current, total, current_file_path)
+        """
+        print(f"[indexer] scan_directory: start scanning {directory}", flush=True)
         stats = {'total': 0, 'videos': 0, 'images': 0, 'galleries': 0, 'unknown': 0}
         items = []
+        added_files: List[str] = []
+        removed_files: List[str] = []
 
+        # 先收集所有文件（用于进度计算）
+        all_files = []
         for root, dirs, files in os.walk(directory):
             for filename in files:
-                file_path = os.path.join(root, filename)
-                try:
-                    info = cls.index_file(file_path, library_id, folder_id)
-                    if info:
-                        stats['total'] += 1
-                        rtype = info['resource_type']
-                        stats[rtype + 's'] = stats.get(rtype + 's', 0) + 1
-                        items.append(info)
-                    else:
-                        stats['unknown'] += 1
-                except Exception as e:
-                    print(f"索引文件失败 {file_path}: {e}")
-                    stats['unknown'] += 1
+                all_files.append(os.path.join(root, filename))
 
-        return {**stats, 'items': items}
+        total = len(all_files)
+        print(f"[indexer] scan_directory: found {total} files to scan", flush=True)
+        for idx, file_path in enumerate(all_files, 1):
+            if progress_callback:
+                progress_callback(idx, total, file_path)
+            try:
+                info = cls.index_file(file_path, library_id, folder_id)
+                if info:
+                    stats['total'] += 1
+                    rtype = info['resource_type']
+                    stats[rtype + 's'] = stats.get(rtype + 's', 0) + 1
+                    items.append(info)
+                    added_files.append(file_path)
+                else:
+                    stats['unknown'] += 1
+            except Exception as e:
+                print(f"索引文件失败 {file_path}: {e}")
+                stats['unknown'] += 1
+
+        print(f"[indexer] scan_directory: done, {len(items)} items indexed, stats={stats}", flush=True)
+        return {**stats, 'items': items, 'added_files': added_files, 'removed_files': removed_files}

@@ -115,6 +115,38 @@ from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreferenc
 from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from auth_service import AuthService, init_root_user
 
+# 导入资源管理模块的数据库操作（用于库 ID 映射）
+try:
+    sys.path.insert(0, os.path.join(_SRC_DIR, 'resource'))
+    from resource.models import ResourceLibraryDB, ResourceLibrary
+    _HAS_RESOURCE_DB = True
+except Exception:
+    _HAS_RESOURCE_DB = False
+
+def _resolve_resource_library_id(dplayer_library_id: int) -> int:
+    """
+    将 dplayer.db 的视频库 ID 映射为 resource.db 的资源库 ID
+    通过库名称匹配（库名称在两个系统中都唯一）
+    
+    Returns:
+        resource.db 中对应的库 ID，如果找不到则返回原始的 dplayer_library_id
+    """
+    if not _HAS_RESOURCE_DB:
+        return dplayer_library_id
+    
+    library = VideoLibrary.query.get(dplayer_library_id)
+    if not library:
+        return dplayer_library_id
+    
+    # 按名称在 resource.db 中查找匹配的库
+    all_resources = ResourceLibraryDB.get_all()
+    for res_lib in all_resources:
+        if res_lib.name == library.name:
+            return res_lib.id
+    
+    # 找不到匹配的，返回原始 ID（resourced 会返回"库不存在"错误）
+    return dplayer_library_id
+
 # 导入API蓝图
 from api.auth_api import auth_bp
 from api.playlist_api import playlist_bp
@@ -1958,13 +1990,15 @@ def upload_video():
         if library_id:
             try:
                 library_id = int(library_id)
+                # 使用 resource.db 中的库 ID
+                res_lib_id = _resolve_resource_library_id(library_id)
                 # 通过总线查询 resourced 服务的默认路径
                 if resource_bus:
                     result = resource_bus.call_method(
                         'com.dplayer.resourced',
                         'com.dplayer.Resourced',
                         'GetDefaultUploadPath',
-                        {'library_id': library_id},
+                        {'library_id': res_lib_id},
                         timeout=3000
                     )
                     if result and result.get('success') and result.get('path'):
@@ -2224,7 +2258,7 @@ def create_library():
         data = request.get_json()
         name = data.get('name', '').strip()
         description = data.get('description', '').strip()
-        
+
         # 自动生成数据库文件名：直接使用库名
         import re
         if not name:
@@ -2272,6 +2306,31 @@ def create_library():
 
         db.session.add(library)
         db.session.commit()
+
+        # 同步创建 resource.db 中的资源库（供 resourced 服务使用）
+        if resource_bus:
+            try:
+                # 库路径默认为空，用户可以后续添加文件夹
+                default_path = data.get('path', '')
+                result = resource_bus.call_method(
+                    'com.dplayer.resourced',
+                    'com.dplayer.Resourced',
+                    'AddLibrary',
+                    {
+                        'name': name,
+                        'path': default_path,
+                        'resource_type': 'video',
+                        'scan_mode': 'manual'
+                    },
+                    timeout=5000
+                )
+                if result and result.get('success'):
+                    log.debug('INFO', f'已同步创建 resource.db 资源库: {name} (ID: {result.get("library_id")})')
+                else:
+                    error = result.get('error') if result else '无响应'
+                    log.debug('WARN', f'同步创建 resource.db 资源库失败: {name}, {error}')
+            except Exception as sync_e:
+                log.debug('WARN', f'同步创建 resource.db 资源库异常: {sync_e}')
 
         return jsonify({'success': True, 'data': library.to_dict()})
     except Exception as e:
@@ -2378,11 +2437,14 @@ def get_library_folders(library_id):
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
+        # 使用 resource.db 中的库 ID（可能与 dplayer.db 的 ID 不同）
+        res_lib_id = _resolve_resource_library_id(library_id)
+
         result = resource_bus.call_method(
             'com.dplayer.resourced',
             'com.dplayer.Resourced',
             'ListFolders',
-            {'library_id': library_id},
+            {'library_id': res_lib_id},
             timeout=3000
         )
         if result is None:
@@ -2440,12 +2502,15 @@ def add_library_folder(library_id):
         if not path:
             return jsonify({'success': False, 'message': '路径不能为空'}), 400
 
+        # 使用 resource.db 中的库 ID（可能与 dplayer.db 的 ID 不同）
+        res_lib_id = _resolve_resource_library_id(library_id)
+
         result = resource_bus.call_method(
             'com.dplayer.resourced',
             'com.dplayer.Resourced',
             'AddFolder',
             {
-                'library_id': library_id,
+                'library_id': res_lib_id,
                 'name': name,
                 'path': path,
                 'path_type': path_type,
@@ -2545,66 +2610,78 @@ def set_default_folder(folder_id):
 @app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
 @admin_required
 def scan_library(library_id):
-    """扫描视频库的所有关联文件夹，重新建立索引
+    """启动视频库扫描（异步，立即返回）
     
-    请求参数:
-    - rescan: 是否重新扫描已存在的资源（默认false，只扫描新增）
-    
-    返回:
-    - success: 是否成功
-    - stats: 扫描统计信息
+    改进：无论状态如何，先强制重置再启动，彻底避免"扫描已在进行中"的问题
     """
     try:
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        data = request.get_json() or {}
-        rescan = data.get('rescan', False)
+        # 使用 resource.db 中的库 ID
+        res_lib_id = _resolve_resource_library_id(library_id)
 
+        # 强制重置扫描状态（清除可能卡住的状态）
+        print(f"[web] force-reset scan state for library {res_lib_id} before scan", flush=True)
+        try:
+            resource_bus.call_method(
+                'com.dplayer.resourced',
+                'com.dplayer.Resourced',
+                'ResetScan',
+                {'library_id': res_lib_id},
+                timeout=5000
+            )
+        except Exception as reset_e:
+            print(f"[web] reset scan state failed (ignored): {reset_e}", flush=True)
+
+        # 调用 ScanLibrary
+        print(f"[web] calling ScanLibrary for library {res_lib_id}", flush=True)
         result = resource_bus.call_method(
             'com.dplayer.resourced',
             'com.dplayer.Resourced',
             'ScanLibrary',
-            {'library_id': library_id, 'rescan': rescan},
-            timeout=300000  # 5分钟超时
+            {'library_id': res_lib_id},
+            timeout=5000
         )
+
+        print(f"[web] ScanLibrary result: {result}", flush=True)
 
         if result is None:
             return jsonify({'success': False, 'message': '资源服务无响应'}), 500
-        if result.get('success'):
-            return jsonify({
-                'success': True,
-                'data': result.get('stats', {}),
-                'message': f"扫描完成：发现 {result.get('stats', {}).get('total', 0)} 个资源"
-            })
-        # 资源服务返回的错误（路径不存在等）- 返回 400 而不是 500
-        error_msg = result.get('error', '扫描失败')
-        return jsonify({'success': False, 'message': error_msg}), 400
+        if result.get('started'):
+            return jsonify({'success': True, 'started': True, 'message': '扫描已启动'})
+        if not result.get('success'):
+            error_msg = result.get('error', '启动扫描失败')
+            return jsonify({'success': False, 'message': error_msg}), 400
+        return jsonify({'success': True, 'data': result})
     except Exception as e:
-        log.debug('ERROR', f'扫描视频库失败: {e}')
+        log.debug('ERROR', f'启动扫描失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/admin/libraries/<int:library_id>/scan-status', methods=['GET'])
 @admin_required
 def get_library_scan_status(library_id):
-    """获取视频库的扫描状态"""
+    """获取视频库扫描进度（轮询接口）"""
     try:
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
+        # 使用 resource.db 中的库 ID
+        res_lib_id = _resolve_resource_library_id(library_id)
+
         result = resource_bus.call_method(
             'com.dplayer.resourced',
             'com.dplayer.Resourced',
-            'GetLibraryStatus',
-            {'library_id': library_id},
+            'GetScanProgress',
+            {'library_id': res_lib_id},
             timeout=5000
         )
 
         if result is None:
             return jsonify({'success': False, 'message': '资源服务无响应'}), 500
         if result.get('success'):
-            return jsonify({'success': True, 'data': result.get('stats', {})})
+            return jsonify({'success': True, 'data': result})
         return jsonify({'success': False, 'message': result.get('error', '获取状态失败')}), 500
     except Exception as e:
         log.debug('ERROR', f'获取扫描状态失败: {e}')

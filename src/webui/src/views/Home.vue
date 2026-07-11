@@ -221,9 +221,14 @@ const totalPages = computed(() => {
 
 const goToPage = async (page: number) => {
   if (page < 1 || page > totalPages.value) return
-  const offset = (page - 1) * videoStore.pagination.limit
-  await videoStore.fetchVideosByOffset(offset)
-  updateUrl()
+  // 乐观更新高亮，避免等待请求期间页码跳动
+  videoStore.pagination.offset = (page - 1) * videoStore.pagination.limit
+  // 只更新 URL（page 写入 query），由 route.query 监听负责拉取对应页数据，
+  // 避免直接拉取与 updateUrl 触发 watcher 造成的重复请求与页码回退。
+  // 始终带上 page 参数，确保切换到第 1 页时 watcher 也能正确触发重新拉取。
+  const query = videoStore.toQuery()
+  query.page = String(page)
+  router.push({ path: '/', query })
 }
 
 const prevPage = async () => {
