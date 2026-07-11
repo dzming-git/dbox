@@ -156,6 +156,7 @@ class Video(db.Model):
     min_role = db.Column(db.Integer, default=UserRole.GUEST, nullable=False)  # 最低访问权限要求
     is_downloaded = db.Column(db.Boolean, default=False)  # 是否已下载到本地
     local_path = db.Column(db.String(500))  # 本地存储路径
+    file_name = db.Column(db.String(500))  # 文件名（仅作为属性，绝不作为视频唯一标识/key）
     library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'))  # 所属视频库，NULL表示主数据库
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -167,10 +168,32 @@ class Video(db.Model):
     def __repr__(self):
         return f'<Video {self.title}>'
 
+    # 用于内容指纹的采样块大小（4MB）
+    _HASH_CHUNK = 4 * 1024 * 1024
+
     @staticmethod
-    def generate_hash(video_url):
-        """生成视频唯一hash"""
-        return hashlib.sha256(video_url.encode('utf-8')).hexdigest()
+    def generate_hash(video_path):
+        """生成视频唯一指纹（与文件名/路径无关，仅依赖文件内容）。
+
+        采用 文件大小 + 头部4MB + 尾部4MB 的稳定指纹，避免读取整个
+        （可能数十 GB 的）视频文件。文件名只作为属性，绝不作为标识。
+        """
+        import os
+        try:
+            size = os.path.getsize(video_path)
+            h = hashlib.sha256()
+            h.update(str(size).encode('utf-8'))
+            with open(video_path, 'rb') as f:
+                h.update(f.read(Video._HASH_CHUNK))
+                if size > Video._HASH_CHUNK * 2:
+                    f.seek(max(Video._HASH_CHUNK, size - Video._HASH_CHUNK))
+                    h.update(f.read(Video._HASH_CHUNK))
+                else:
+                    h.update(f.read())
+            return h.hexdigest()
+        except (OSError, IOError):
+            # 文件不可读时回退到路径哈希，保证不崩溃（此分支不应成为常态）
+            return hashlib.sha256(video_path.encode('utf-8')).hexdigest()
 
     def to_dict(self):
         """转换为字典"""
@@ -192,6 +215,7 @@ class Video(db.Model):
             'min_role_name': ROLE_NAMES.get(self.min_role, '未知'),
             'is_downloaded': self.is_downloaded,
             'local_path': self.local_path,
+            'file_name': self.file_name,
             'tags': [vt.tag.to_dict() for vt in self.tags if vt.tag is not None],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

@@ -2258,21 +2258,22 @@ def serve_local_video(video_path):
         # 获取扫描目录白名单
         scan_dirs = [cfg['path'].replace('\\', '/') for cfg in app_config.get('scan_directories', [])]
 
-        # 白名单检查：1. 扫描目录 2. 数据库中已有视频的 local_path
+        # 白名单检查：1. 扫描目录 2. 数据库中已有视频的 local_path（精确匹配，绝不用文件名）
         allowed = any(video_path.startswith(d.replace('/', os.sep)) for d in scan_dirs)
 
-        # 如果不在扫描目录，检查是否在数据库中
+        # 如果不在扫描目录，检查是否在数据库中（基于完整 local_path 精确匹配，文件名不作为身份）
         if not allowed:
-            # 查找最后一个路径分隔符后的文件名，用文件名匹配
-            filename = os.path.basename(video_path)
-            existing_video = Video.query.filter(Video.local_path.like(f'%{filename}')).first()
+            existing_video = Video.query.filter_by(local_path=video_path).first()
+            if not existing_video:
+                # 兜底：统一分隔符与大小写后比较，仍基于完整路径而非文件名
+                norm_req = os.path.normcase(os.path.abspath(video_path))
+                for ev in Video.query.filter(Video.local_path.isnot(None)).all():
+                    if os.path.normcase(os.path.abspath(ev.local_path)) == norm_req:
+                        existing_video = ev
+                        break
             if existing_video:
-                # 检查路径是否相同（忽略斜杠方向）
-                db_path = existing_video.local_path.replace('/', '\\').replace('\\\\', '\\')
-                req_path = video_path.replace('/', '\\').replace('\\\\', '\\')
-                if db_path == req_path or db_path.endswith(req_path) or req_path.endswith(db_path):
-                    allowed = True
-                    log.runtime('INFO', f"[serve_local_video] 路径在数据库中找到: {video_path}")
+                allowed = True
+                log.runtime('INFO', f"[serve_local_video] 路径在数据库中找到: {video_path}")
 
         if not allowed:
             log.debug('WARN', f"[serve_local_video] 路径未通过白名单: {video_path}")
