@@ -132,6 +132,12 @@ const handleSubmitSuggestion = async () => {
         <!-- 已登录状态 -->
         <template v-else>
           <!-- 常用功能直接放在导航栏，避免下拉菜单不便 -->
+          <RouterLink to="/likes" class="nav-link nav-icon-link" title="点赞">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+            </svg>
+            <span>点赞</span>
+          </RouterLink>
           <RouterLink to="/favorites" class="nav-link nav-icon-link" title="收藏">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>

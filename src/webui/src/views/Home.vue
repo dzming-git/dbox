@@ -14,6 +14,8 @@ const loading = computed(() => videoStore.loading)
 const videos = computed(() => videoStore.videos)
 const tags = computed(() => videoStore.tags)
 const selectedTagId = computed(() => videoStore.selectedTagId)
+const selectedLibraryId = computed(() => videoStore.selectedLibraryId)
+const libraries = computed(() => videoStore.libraries)
 
 // 标签区域折叠状态
 const showTagsSection = ref(false)
@@ -169,17 +171,27 @@ const handleOrderChange = (event: Event) => {
   updateUrl()
 }
 
+// 按视频库筛选
+const handleLibraryChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement
+  const val = target.value
+  videoStore.filterByLibrary(val === '' ? null : parseInt(val))
+  updateUrl()
+}
+
 onMounted(async () => {
   // 如果 URL 有 query 参数，从其中恢复状态
   if (Object.keys(route.query).length > 0) {
     await Promise.all([
       videoStore.initFromQuery(route.query as Record<string, string>),
-      videoStore.fetchTags()
+      videoStore.fetchTags(),
+      videoStore.fetchUserLibraries()
     ])
   } else {
     await Promise.all([
       videoStore.fetchVideos(true),
-      videoStore.fetchTags()
+      videoStore.fetchTags(),
+      videoStore.fetchUserLibraries()
     ])
   }
 })
@@ -334,6 +346,13 @@ const formatDuration = (seconds?: number): string => {
         <select class="sort-order-select" :value="currentOrder" @change="handleOrderChange">
           <option value="desc">倒序</option>
           <option value="asc">正序</option>
+        </select>
+        <!-- 视频库筛选 -->
+        <select class="library-select" :value="selectedLibraryId || ''" @change="handleLibraryChange">
+          <option value="">全部视频库</option>
+          <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
+            {{ lib.name }}
+          </option>
         </select>
         <!-- 换一批按钮 -->
         <button class="shuffle-btn" @click="handleShuffle" :disabled="shuffling" title="换一批">
@@ -734,6 +753,30 @@ const formatDuration = (seconds?: number): string => {
 }
 
 .sort-order-select:focus {
+  outline: none;
+  border-color: #4a9eff;
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
+}
+
+/* 视频库筛选下拉，风格与排序下拉一致 */
+.library-select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  margin-left: 8px;
+}
+
+.library-select:hover {
+  border-color: #4a9eff;
+}
+
+.library-select:focus {
   outline: none;
   border-color: #4a9eff;
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);

@@ -17,6 +17,8 @@ export const useVideoStore = defineStore('video', () => {
   })
   
   const selectedTagId = ref<number | null>(null)
+  const selectedLibraryId = ref<number | null>(null)  // 按视频库筛选，null=全部
+  const libraries = ref<any[]>([])  // 当前用户可访问的视频库列表
   const searchQuery = ref('')
   const sortBy = ref('recommended')  // 排序方式
   const sortOrder = ref('desc')  // 排序方向: asc, desc
@@ -66,6 +68,10 @@ export const useVideoStore = defineStore('video', () => {
         params.tag_id = selectedTagId.value
       }
       
+      if (selectedLibraryId.value) {
+        params.library_id = selectedLibraryId.value
+      }
+
       if (searchQuery.value.trim()) {
         params.search = searchQuery.value.trim()
       }
@@ -118,6 +124,10 @@ export const useVideoStore = defineStore('video', () => {
         params.tag_id = selectedTagId.value
       }
 
+      if (selectedLibraryId.value) {
+        params.library_id = selectedLibraryId.value
+      }
+
       if (searchQuery.value.trim()) {
         params.search = searchQuery.value.trim()
       }
@@ -160,7 +170,7 @@ export const useVideoStore = defineStore('video', () => {
         // 更新视频列表中对应视频的点赞数量
         const index = videos.value.findIndex(v => v.hash === hash)
         if (index !== -1) {
-          videos.value[index] = { ...videos.value[index], like_count: response.like_count }
+          videos.value[index] = { ...videos.value[index], like_count: response.like_count, is_liked: response.liked }
         }
       }
       return response
@@ -176,7 +186,7 @@ export const useVideoStore = defineStore('video', () => {
         // 更新视频列表中对应视频的收藏数量
         const index = videos.value.findIndex(v => v.hash === hash)
         if (index !== -1) {
-          videos.value[index] = { ...videos.value[index], favorite_count: response.favorite_count }
+          videos.value[index] = { ...videos.value[index], favorite_count: response.favorite_count, is_favorited: response.favorited }
         }
         return response
       }
@@ -313,6 +323,26 @@ export const useVideoStore = defineStore('video', () => {
     await fetchVideos(true)
   }
 
+  // 按视频库筛选
+  const filterByLibrary = async (libraryId: number | null) => {
+    selectedLibraryId.value = libraryId
+    await fetchVideos(true)
+  }
+
+  // 获取当前用户可访问的视频库列表
+  const fetchUserLibraries = async () => {
+    try {
+      const response = await videoApi.getLibraries() as any
+      if (response.success && response.data) {
+        libraries.value = response.data
+      } else {
+        libraries.value = []
+      }
+    } catch (e) {
+      libraries.value = []
+    }
+  }
+
   // 设置排序方式
   const setSortBy = async (sort: string) => {
     sortBy.value = sort
@@ -349,6 +379,9 @@ export const useVideoStore = defineStore('video', () => {
     if (selectedTagId.value) {
       query.tag = String(selectedTagId.value)
     }
+    if (selectedLibraryId.value) {
+      query.lib = String(selectedLibraryId.value)
+    }
     if (searchQuery.value) {
       query.search = searchQuery.value
     }
@@ -370,6 +403,11 @@ export const useVideoStore = defineStore('video', () => {
       selectedTagId.value = parseInt(query.tag) || null
     } else {
       selectedTagId.value = null
+    }
+    if (query.lib) {
+      selectedLibraryId.value = parseInt(query.lib) || null
+    } else {
+      selectedLibraryId.value = null
     }
     if (query.search) {
       searchQuery.value = query.search
@@ -411,6 +449,8 @@ export const useVideoStore = defineStore('video', () => {
     error,
     pagination,
     selectedTagId,
+    selectedLibraryId,
+    libraries,
     searchQuery,
     sortBy,
     sortOrder,
@@ -429,6 +469,8 @@ export const useVideoStore = defineStore('video', () => {
     deleteTag,
     searchTags,
     filterByTag,
+    filterByLibrary,
+    fetchUserLibraries,
     setSortBy,
     setSortOrder,
     shuffleVideos,

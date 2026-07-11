@@ -546,9 +546,15 @@ def get_videos():
                 # 未登录或无权限用户只能看到主数据库的视频
                 query = query.filter(Video.library_id == None)
 
-        # 如果调用方指定了 library_id（管理员按库精确筛选），直接用精确过滤覆盖宽泛条件
+        # 如果调用方指定了 library_id（按库精确筛选），需要校验权限：
+        # 管理员/ROOT 可筛选任意库；普通用户只能筛选其有权限访问的库，否则返回空
         if filter_library_id is not None:
-            query = Video.query.filter(Video.library_id == filter_library_id)
+            _uid, _urole = resolve_identity()
+            if _urole in [UserRole.ADMIN, UserRole.ROOT] or filter_library_id in allowed_library_ids:
+                query = query.filter(Video.library_id == filter_library_id)
+            else:
+                # 无权限访问该库，返回空结果（使用一个不可能匹配的 id）
+                query = query.filter(Video.library_id == -1)
 
         # 搜索功能
         if search:
@@ -566,6 +572,8 @@ def get_videos():
 
         # ============ 排除不喜欢的视频（默认屏蔽） ============
         disliked_ids = set()
+        liked_ids = set()
+        favorited_ids = set()
         try:
             user_session = current_interaction_key()
         except Exception:
@@ -574,6 +582,12 @@ def get_videos():
             disliked_ids = {row[0] for row in db.session.query(
                 UserInteraction.video_id
             ).filter_by(user_session=user_session, interaction_type='dislike').all()}
+            liked_ids = {row[0] for row in db.session.query(
+                UserInteraction.video_id
+            ).filter_by(user_session=user_session, interaction_type='like').all()}
+            favorited_ids = {row[0] for row in db.session.query(
+                UserInteraction.video_id
+            ).filter_by(user_session=user_session, interaction_type='favorite').all()}
             if exclude_disliked and disliked_ids:
                 query = query.filter(Video.id.notin_(disliked_ids))
 
@@ -624,7 +638,9 @@ def get_videos():
 
         return jsonify({
             'success': True,
-            'videos': [dict(v.to_dict(), disliked=(v.id in disliked_ids)) for v in videos],
+            'videos': [dict(v.to_dict(), disliked=(v.id in disliked_ids),
+                            is_liked=(v.id in liked_ids),
+                            is_favorited=(v.id in favorited_ids)) for v in videos],
             'total': total,
             'sort': sort,
             'order': order
@@ -785,6 +801,30 @@ def get_favorites():
         return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
     except Exception as e:
         log.debug('ERROR', f"获取收藏列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/likes', methods=['GET'])
+def get_likes():
+    """获取当前用户点赞过的视频列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）"""
+    try:
+        key = current_interaction_key()
+        rows = UserInteraction.query.filter_by(
+            user_session=key, interaction_type='like'
+        ).order_by(UserInteraction.created_at.desc()).all()
+
+        videos = []
+        for row in rows:
+            video = Video.query.get(row.video_id)
+            if not video:
+                continue
+            v = video.to_dict()
+            v['liked_at'] = row.created_at.isoformat() if row.created_at else None
+            videos.append(v)
+
+        return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
+    except Exception as e:
+        log.debug('ERROR', f"获取点赞列表失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 

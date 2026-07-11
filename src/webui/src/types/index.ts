@@ -10,6 +10,7 @@ export interface Video {
   file_size?: number
   view_count: number
   like_count: number
+  favorite_count?: number
   download_count: number
   priority: number
   min_role: number

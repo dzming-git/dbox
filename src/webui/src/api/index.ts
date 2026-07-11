@@ -44,8 +44,12 @@ api.interceptors.response.use(
 
 // 视频相关API
 export const videoApi = {
-  getVideos: (params?: { limit?: number; offset?: number; tag_id?: number }) =>
+  getVideos: (params?: { limit?: number; offset?: number; tag_id?: number; library_id?: number; search?: string; sort?: string; order?: string; exclude_disliked?: string }) =>
     api.get('/api/videos', { params }),
+
+  // 获取当前用户可访问的视频库列表（用于筛选）
+  getLibraries: () =>
+    api.get('/api/user/libraries'),
   
   getVideo: (hash: string) =>
     api.get(`/api/video/${hash}`),
@@ -62,6 +66,8 @@ export const videoApi = {
   // 获取当前用户的收藏列表（以后端为准）
   getFavorites: () =>
     api.get('/api/favorites'),
+  getLikes: () =>
+    api.get('/api/likes'),
   
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
