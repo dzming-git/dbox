@@ -58,6 +58,10 @@ export const videoApi = {
 
   dislikeVideo: (hash: string) =>
     api.post(`/api/video/${hash}/dislike`),
+
+  // 获取当前用户的收藏列表（以后端为准）
+  getFavorites: () =>
+    api.get('/api/favorites'),
   
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),

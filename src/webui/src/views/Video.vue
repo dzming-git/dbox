@@ -74,16 +74,14 @@ onMounted(async () => {
   }
 })
 
-// 从localStorage加载用户交互状态
+// 从后端加载用户交互状态（登录用户绑定账号，跨设备一致，以后端为准）
 const loadUserInteractions = () => {
   if (!video.value) return
-  const likedVideos = JSON.parse(localStorage.getItem('likedVideos') || '[]')
-  const dislikedVideos = JSON.parse(localStorage.getItem('dislikedVideos') || '[]')
-  const favoritedVideos = JSON.parse(localStorage.getItem('favoritedVideos') || '[]')
+  isFavorited.value = !!video.value.is_favorited
+  isLiked.value = !!video.value.is_liked
+  isDisliked.value = !!video.value.is_disliked
+  // 稍后看仍基于本地缓存（后端暂无此功能）
   const watchLaterVideos = JSON.parse(localStorage.getItem('watchLaterVideos') || '[]')
-  isLiked.value = likedVideos.includes(video.value.hash)
-  isDisliked.value = dislikedVideos.includes(video.value.hash)
-  isFavorited.value = favoritedVideos.includes(video.value.hash)
   isWatchLater.value = watchLaterVideos.includes(video.value.hash)
 }
 

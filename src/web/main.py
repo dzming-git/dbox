@@ -342,6 +342,16 @@ def resolve_identity():
         pass
     return None, 0
 
+def current_interaction_key():
+    """返回交互记录（点赞/收藏/踩）的身份键。
+
+    登录用户使用 u{user_id}，跨设备一致；未登录游客使用随机会话，仅当前浏览器有效。
+    """
+    user_id, _ = resolve_identity()
+    if user_id:
+        return f'u{user_id}'
+    return get_user_session()
+
 def record_interaction(video_id, user_session, interaction_type, score=1.0):
     try:
         interaction = UserInteraction(
@@ -557,7 +567,7 @@ def get_videos():
         # ============ 排除不喜欢的视频（默认屏蔽） ============
         disliked_ids = set()
         try:
-            user_session = get_user_session()
+            user_session = current_interaction_key()
         except Exception:
             user_session = None
         if user_session:
@@ -673,7 +683,14 @@ def get_video(video_hash):
                         'code': 403
                     }), 403
         
-        return jsonify({'success': True, 'video': video.to_dict()})
+        video_dict = video.to_dict()
+        # 注入当前用户对视频的交互状态（以后端为准，登录用户绑定账号，跨设备一致）
+        key = current_interaction_key()
+        for _itype, _flag in (('favorite', 'is_favorited'), ('like', 'is_liked'), ('dislike', 'is_disliked')):
+            video_dict[_flag] = UserInteraction.query.filter_by(
+                video_id=video.id, user_session=key, interaction_type=_itype
+            ).first() is not None
+        return jsonify({'success': True, 'video': video_dict})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -681,7 +698,7 @@ def get_video(video_hash):
 def like_video(video_hash):
     try:
         video = Video.query.filter_by(hash=video_hash).first_or_404()
-        user_session = get_user_session()
+        user_session = current_interaction_key()
 
         interaction = UserInteraction.query.filter_by(
             video_id=video.id, user_session=user_session, interaction_type='like'
@@ -716,7 +733,7 @@ def like_video(video_hash):
 def toggle_favorite(video_hash):
     try:
         video = Video.query.filter_by(hash=video_hash).first_or_404()
-        user_session = get_user_session()
+        user_session = current_interaction_key()
         
         interaction = UserInteraction.query.filter_by(
             video_id=video.id, user_session=user_session, interaction_type='favorite'
@@ -747,12 +764,36 @@ def toggle_favorite(video_hash):
         log.debug('ERROR', f"收藏操作失败: {video_hash}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/favorites', methods=['GET'])
+def get_favorites():
+    """获取当前用户的收藏列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）"""
+    try:
+        key = current_interaction_key()
+        rows = UserInteraction.query.filter_by(
+            user_session=key, interaction_type='favorite'
+        ).order_by(UserInteraction.created_at.desc()).all()
+
+        videos = []
+        for row in rows:
+            video = Video.query.get(row.video_id)
+            if not video:
+                continue
+            v = video.to_dict()
+            v['favorited_at'] = row.created_at.isoformat() if row.created_at else None
+            videos.append(v)
+
+        return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
+    except Exception as e:
+        log.debug('ERROR', f"获取收藏列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/video/<video_hash>/dislike', methods=['POST'])
 def toggle_dislike(video_hash):
     """标记/取消标记不喜欢（踩），默认在列表中屏蔽该视频"""
     try:
         video = Video.query.filter_by(hash=video_hash).first_or_404()
-        user_session = get_user_session()
+        user_session = current_interaction_key()
 
         interaction = UserInteraction.query.filter_by(
             video_id=video.id, user_session=user_session, interaction_type='dislike'

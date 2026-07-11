@@ -17,6 +17,9 @@ export interface Video {
   is_downloaded: boolean
   local_path?: string
   disliked?: boolean
+  is_favorited?: boolean
+  is_liked?: boolean
+  is_disliked?: boolean
   tags: Tag[]
   created_at?: string
   updated_at?: string

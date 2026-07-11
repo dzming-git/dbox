@@ -1,42 +1,45 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { videoApi } from '../api'
 
 const router = useRouter()
 const favorites = ref<any[]>([])
 const loading = ref(false)
 
-onMounted(() => {
+// 从后端加载当前用户的收藏列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）
+const loadFavorites = async () => {
   loading.value = true
-  // 从localStorage加载收藏列表
-  const stored = localStorage.getItem('favorites')
-  if (stored) {
-    favorites.value = JSON.parse(stored)
+  try {
+    const response = await videoApi.getFavorites() as any
+    favorites.value = (response && response.success && response.videos) ? response.videos : []
+    // 同步到 localStorage 作为缓存，避免旧残留数据干扰
+    localStorage.setItem('favorites', JSON.stringify(favorites.value))
+  } catch (e) {
+    console.error('加载收藏列表失败:', e)
+    favorites.value = []
+  } finally {
+    loading.value = false
   }
-  loading.value = false
-})
+}
+
+onMounted(loadFavorites)
 
 // 跳转到视频详情
 const goToVideo = (hash: string) => {
   router.push(`/video/${hash}`)
 }
 
-// 取消收藏
-const unfavorite = (hash: string, event: Event) => {
+// 取消收藏（调用后端接口切换状态，以后端为准）
+const unfavorite = async (hash: string, event: Event) => {
   event.stopPropagation()
-  
-  // 从收藏列表移除
-  favorites.value = favorites.value.filter(f => f.hash !== hash)
-  localStorage.setItem('favorites', JSON.stringify(favorites.value))
-  
-  // 同步更新favoritedVideos
-  const favoritedVideos = JSON.parse(localStorage.getItem('favoritedVideos') || '[]')
-  const index = favoritedVideos.indexOf(hash)
-  if (index > -1) {
-    favoritedVideos.splice(index, 1)
-    localStorage.setItem('favoritedVideos', JSON.stringify(favoritedVideos))
+  try {
+    await videoApi.favoriteVideo(hash)
+  } catch (e) {
+    console.error('取消收藏失败:', e)
   }
-  
+  // 重新拉取最新收藏列表
+  await loadFavorites()
   showToast('已取消收藏')
 }
 
