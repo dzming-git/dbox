@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useVideoStore } from '../stores/videoStore'
 
 // 设置状态
 const settings = ref({
@@ -10,10 +11,14 @@ const settings = ref({
   // 界面设置
   theme: 'dark',
   language: 'zh-CN',
+  // 内容过滤
+  blockDisliked: true,  // 默认屏蔽不喜欢的视频
   // 通知设置
   enableNotifications: true,
   notifyOnNewVideos: true
 })
+
+const videoStore = useVideoStore()
 
 const loading = ref(false)
 const saved = ref(false)
@@ -29,11 +34,17 @@ onMounted(() => {
 // 保存设置
 const saveSettings = () => {
   loading.value = true
+  const prevBlock = JSON.parse(localStorage.getItem('userSettings') || '{}').blockDisliked
   localStorage.setItem('userSettings', JSON.stringify(settings.value))
-  
+
   // 应用主题
   document.body.className = settings.value.theme === 'dark' ? 'dark-theme' : 'light-theme'
-  
+
+  // 屏蔽开关变化后刷新首页列表，使屏蔽/取消屏蔽立即生效
+  if (prevBlock !== settings.value.blockDisliked) {
+    videoStore.fetchVideos(true).catch(() => {})
+  }
+
   setTimeout(() => {
     loading.value = false
     saved.value = true
@@ -52,6 +63,7 @@ const resetSettings = () => {
       subtitleLanguage: 'zh',
       theme: 'dark',
       language: 'zh-CN',
+      blockDisliked: true,
       enableNotifications: true,
       notifyOnNewVideos: true
     }
@@ -65,6 +77,7 @@ const clearAllData = () => {
     localStorage.removeItem('favorites')
     localStorage.removeItem('favoritedVideos')
     localStorage.removeItem('likedVideos')
+    localStorage.removeItem('dislikedVideos')
     localStorage.removeItem('watchHistory')
     localStorage.removeItem('userSettings')
     showToast('所有数据已清除')
@@ -189,6 +202,21 @@ const showToast = (message: string) => {
             <option value="en-US">English</option>
             <option value="ja-JP">日本語</option>
           </select>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label class="setting-label">屏蔽不喜欢的视频</label>
+            <p class="setting-desc">开启后，标记为"不喜欢"的视频不会出现在列表中</p>
+          </div>
+          <label class="toggle-switch">
+            <input 
+              type="checkbox" 
+              v-model="settings.blockDisliked"
+              data-testid="block-disliked-toggle"
+            >
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </section>
 

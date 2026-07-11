@@ -309,6 +309,39 @@ def get_user_session():
         session['user_session'] = str(random.randint(100000, 999999))
     return session['user_session']
 
+def resolve_identity():
+    """解析当前登录用户身份，返回 (user_id, user_role)。
+
+    登录态以 JWT Bearer 或 session 中的 auth_token 为准（与 AuthService 一致）。
+    注意：登录只会在 session 写入 auth_token，不会写入 user_id/role，
+    因此必须通过 auth_token 反查用户，而不能直接读取 session['user_id']。
+    """
+    # 1. 优先 JWT Bearer Token
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        try:
+            from authlib.jose import jwt as _jwt
+            _token = auth_header[7:]
+            _payload = None
+            for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+                try:
+                    _payload = _jwt.decode(_token, _secret)
+                    break
+                except Exception:
+                    continue
+            if _payload and _payload.get('type') == 'access':
+                return _payload.get('user_id'), int(_payload.get('role', 0))
+        except Exception:
+            pass
+    # 2. 回退到 session token（前端主要使用的登录方式）
+    try:
+        user = AuthService.get_current_user()
+        if user:
+            return user.id, int(user.role)
+    except Exception:
+        pass
+    return None, 0
+
 def record_interaction(video_id, user_session, interaction_type, score=1.0):
     try:
         interaction = UserInteraction(
@@ -394,10 +427,8 @@ def get_allowed_library_ids():
             user_role = _payload.get('role', 0)
         except Exception:
             pass
-    if not user_id and 'user_id' in session:
-        user_id = session['user_id']
-        user_role = session.get('role', 0)
-    
+    user_id, user_role = resolve_identity()
+
     # 管理员和ROOT可以访问所有激活的库
     if user_role in [UserRole.ADMIN, UserRole.ROOT]:
         all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
@@ -449,6 +480,8 @@ def get_videos():
         filter_library_id = request.args.get('library_id', type=int)  # 管理员按库筛选
         sort = request.args.get('sort', 'recommended')  # 排序方式: recommended, name, created_at, view_count, priority, like_count
         order = request.args.get('order', 'desc')  # 排序方向: asc, desc
+        # 默认屏蔽不喜欢的视频（可在设置中关闭）
+        exclude_disliked = request.args.get('exclude_disliked', 'true').lower() != 'false'
 
         query = Video.query
 
@@ -460,22 +493,8 @@ def get_videos():
         has_library_id = hasattr(Video, 'library_id')
 
         if has_library_id:
-            # 获取用户ID和角色 —— 优先 JWT token，其次 session
-            user_id = None
-            user_role = 0
-            auth_header = request.headers.get('Authorization', '')
-            if auth_header.startswith('Bearer '):
-                try:
-                    from authlib.jose import jwt as _jwt
-                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
-                    _payload = _jwt.decode(auth_header[7:], _secret)
-                    user_id = _payload.get('user_id')
-                    user_role = _payload.get('role', 0)
-                except Exception:
-                    pass
-            if not user_id and 'user_id' in session:
-                user_id = session['user_id']
-                user_role = session.get('role', 0)
+            # 获取用户ID和角色（通过 auth_token 正确解析登录态）
+            user_id, user_role = resolve_identity()
 
             # 管理员和ROOT可以访问所有激活的库
             if user_role in [UserRole.ADMIN, UserRole.ROOT]:
@@ -535,8 +554,21 @@ def get_videos():
             else:
                 query = query.join(VideoTag).filter(VideoTag.tag_id == tag_id)
 
+        # ============ 排除不喜欢的视频（默认屏蔽） ============
+        disliked_ids = set()
+        try:
+            user_session = get_user_session()
+        except Exception:
+            user_session = None
+        if user_session:
+            disliked_ids = {row[0] for row in db.session.query(
+                UserInteraction.video_id
+            ).filter_by(user_session=user_session, interaction_type='dislike').all()}
+            if exclude_disliked and disliked_ids:
+                query = query.filter(Video.id.notin_(disliked_ids))
+
         # ============ 重要：total 统计必须在权限过滤之后 ============
-        # 获取总数（已应用权限过滤）
+        # 获取总数（已应用权限过滤与不喜欢排除）
         total = query.count()
 
         # ============ 排序策略 ============
@@ -582,7 +614,7 @@ def get_videos():
 
         return jsonify({
             'success': True,
-            'videos': [v.to_dict() for v in videos],
+            'videos': [dict(v.to_dict(), disliked=(v.id in disliked_ids)) for v in videos],
             'total': total,
             'sort': sort,
             'order': order
@@ -613,10 +645,8 @@ def get_video(video_hash):
                     user_role = _payload.get('role', 0)
                 except Exception:
                     pass
-            if not user_id and 'user_id' in session:
-                user_id = session['user_id']
-                user_role = session.get('role', 0)
-            
+            user_id, user_role = resolve_identity()
+
             # 管理员和ROOT可以访问所有视频
             if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
                 # 检查用户权限
@@ -715,6 +745,37 @@ def toggle_favorite(video_hash):
     except Exception as e:
         db.session.rollback()
         log.debug('ERROR', f"收藏操作失败: {video_hash}, {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/video/<video_hash>/dislike', methods=['POST'])
+def toggle_dislike(video_hash):
+    """标记/取消标记不喜欢（踩），默认在列表中屏蔽该视频"""
+    try:
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        user_session = get_user_session()
+
+        interaction = UserInteraction.query.filter_by(
+            video_id=video.id, user_session=user_session, interaction_type='dislike'
+        ).first()
+
+        if interaction:
+            db.session.delete(interaction)
+            disliked = False
+        else:
+            interaction = UserInteraction(
+                video_id=video.id, user_session=user_session,
+                interaction_type='dislike', interaction_score=-1.0
+            )
+            db.session.add(interaction)
+            disliked = True
+
+        db.session.commit()
+
+        log.operation('WEB', f"{'不喜欢' if disliked else '取消不喜欢'}视频: {video.title}")
+        return jsonify({'success': True, 'disliked': disliked})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"不喜欢操作失败: {video_hash}, {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/video/<video_hash>', methods=['DELETE'])
@@ -873,10 +934,8 @@ def get_tags():
                 user_role = _payload.get('role', 0)
             except Exception:
                 pass
-        if not user_id and 'user_id' in session:
-            user_id = session['user_id']
-            user_role = session.get('role', 0)
-        
+        user_id, user_role = resolve_identity()
+
         allowed_library_ids = []
         
         if user_id:
@@ -1782,9 +1841,7 @@ def get_thumbnail(video_hash):
                         pass
 
             # 方式3: 从 session 获取
-            if not user_id and 'user_id' in session:
-                user_id = session['user_id']
-                user_role = session.get('role', 0)
+            user_id, user_role = resolve_identity()
 
             # 管理员和ROOT可以访问所有缩略图
             if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
@@ -3192,9 +3249,7 @@ def get_user_libraries():
             user_role = g.user.role
         
         # 方式3: 从 session 获取（传统方式）
-        if not user_id and 'user_id' in session:
-            user_id = session['user_id']
-            user_role = session.get('role', 0)
+        user_id, user_role = resolve_identity()
 
         # 获取所有激活的视频库
         libraries = VideoLibrary.query.filter_by(is_active=True).all()

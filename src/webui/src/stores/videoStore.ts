@@ -32,6 +32,20 @@ export const useVideoStore = defineStore('video', () => {
   const hasMore = computed(() => 
     videos.value.length < pagination.value.total
   )
+
+  // 读取"屏蔽不喜欢的视频"设置（默认开启），设置保存在 localStorage
+  const getBlockDisliked = (): boolean => {
+    try {
+      const raw = localStorage.getItem('userSettings')
+      if (raw) {
+        const s = JSON.parse(raw)
+        return s.blockDisliked !== false
+      }
+    } catch {
+      // 忽略解析错误，使用默认
+    }
+    return true
+  }
   
   const fetchVideos = async (reset = false) => {
     // 节流：如果最近刚获取过且不是强制刷新，跳过
@@ -63,7 +77,10 @@ export const useVideoStore = defineStore('video', () => {
       if (sortOrder.value) {
         params.order = sortOrder.value
       }
-      
+
+      // 默认屏蔽不喜欢的视频（设置可关闭）
+      params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
+
       const response = await videoApi.getVideos(params) as any
       videos.value = reset ? response.videos : [...videos.value, ...response.videos]
       pagination.value.total = response.total
@@ -111,6 +128,9 @@ export const useVideoStore = defineStore('video', () => {
       if (sortOrder.value) {
         params.order = sortOrder.value
       }
+
+      // 默认屏蔽不喜欢的视频（设置可关闭）
+      params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
 
       const response = await videoApi.getVideos(params) as any
       videos.value = response.videos
@@ -162,6 +182,27 @@ export const useVideoStore = defineStore('video', () => {
       }
     } catch (e) {
       console.error('收藏失败:', e)
+    }
+  }
+
+  // 标记/取消标记不喜欢（踩）。默认会在列表中屏蔽，设置可关闭
+  const dislikeVideo = async (hash: string) => {
+    try {
+      const response = await videoApi.dislikeVideo(hash) as any
+      if (response && response.success) {
+        const disliked = response.disliked
+        const index = videos.value.findIndex(v => v.hash === hash)
+        if (index !== -1) {
+          videos.value[index] = { ...videos.value[index], disliked }
+          // 开启屏蔽时，立即从当前列表中移除该视频
+          if (disliked && getBlockDisliked()) {
+            videos.value = videos.value.filter(v => v.hash !== hash)
+          }
+        }
+        return response
+      }
+    } catch (e) {
+      console.error('不喜欢操作失败:', e)
     }
   }
   
@@ -379,6 +420,7 @@ export const useVideoStore = defineStore('video', () => {
     fetchVideo,
     likeVideo,
     favoriteVideo,
+    dislikeVideo,
     deleteVideo,
     updateVideo,
     fetchTags,

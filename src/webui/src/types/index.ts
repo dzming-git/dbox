@@ -16,6 +16,7 @@ export interface Video {
   min_role_name: string
   is_downloaded: boolean
   local_path?: string
+  disliked?: boolean
   tags: Tag[]
   created_at?: string
   updated_at?: string

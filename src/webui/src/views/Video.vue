@@ -278,16 +278,23 @@ const handleFavorite = async () => {
 
 const handleDislike = async () => {
   if (!video.value) return
-  // 踩和点赞互斥：如果当前是点赞状态，先取消点赞
+  // 踩和点赞互斥：如果当前是点赞状态，先取消点赞（同步后端）
   if (isLiked.value) {
-    isLiked.value = false
-    video.value.like_count--
-    saveLikeStatus()
+    const r = await videoStore.likeVideo(video.value.hash) as any
+    isLiked.value = r?.liked ?? false
+    if (video.value) video.value.like_count = r?.like_count ?? video.value.like_count
   }
-  isDisliked.value = !isDisliked.value
+  // 调用后端切换不喜欢状态
+  const response = await videoStore.dislikeVideo(video.value.hash) as any
+  if (response && response.success) {
+    isDisliked.value = response.disliked
+  } else {
+    // 请求失败则仅本地切换兜底
+    isDisliked.value = !isDisliked.value
+  }
   saveDislikeStatus()
   // 显示提示
-  const message = isDisliked.value ? '我不喜欢这个视频' : '已取消踩'
+  const message = isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽'
   showToast(message)
 }
 
@@ -1294,6 +1301,21 @@ const handleDelete = async () => {
                   </svg>
                 </div>
                 <span class="btn-label">{{ video.favorite_count || 0 }}</span>
+              </button>
+
+              <!-- 不喜欢 -->
+              <button
+                class="interact-btn dislike-btn"
+                :class="{ active: isDisliked }"
+                @click="handleDislike"
+                data-testid="dislike-button"
+              >
+                <div class="btn-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
+                  </svg>
+                </div>
+                <span class="btn-label">不喜欢</span>
               </button>
 
               <!-- 稍后看 -->

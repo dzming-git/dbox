@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
+import { useVideoStore } from '../stores/videoStore'
 
 const props = defineProps<{
   video: Video
@@ -13,6 +14,13 @@ const emit = defineEmits<{
 }>()
 
 const userStore = useUserStore()
+const videoStore = useVideoStore()
+
+// 标记/取消不喜欢（踩）
+const handleDislike = (event: Event) => {
+  event.stopPropagation()
+  videoStore.dislikeVideo(props.video.hash)
+}
 
 // 监听 video.hash 变化，重置缩略图状态
 watch(() => props.video.hash, () => {
@@ -107,6 +115,18 @@ const handleImageError = () => {
       <span class="duration" v-if="video.duration" data-testid="video-duration">
         {{ formatDuration(video.duration) }}
       </span>
+      <!-- 不喜欢按钮（hover 显示） -->
+      <button
+        class="dislike-btn"
+        :class="{ active: video.disliked }"
+        @click="handleDislike"
+        :title="video.disliked ? '取消屏蔽' : '我不喜欢'"
+        data-testid="card-dislike-button"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
+        </svg>
+      </button>
       <!-- 播放图标 -->
       <div class="play-overlay">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="white">
@@ -196,6 +216,41 @@ const handleImageError = () => {
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
+}
+
+/* 不喜欢按钮：默认隐藏，hover 显示，已标记时始终显示 */
+.dislike-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease;
+  z-index: 2;
+}
+
+.video-card:hover .dislike-btn {
+  opacity: 1;
+}
+
+.dislike-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #ffd93d;
+}
+
+.dislike-btn.active {
+  opacity: 1;
+  color: #ffd93d;
+  background: rgba(255, 217, 61, 0.2);
 }
 
 .play-overlay {
