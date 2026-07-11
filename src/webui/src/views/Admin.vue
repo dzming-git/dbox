@@ -291,116 +291,6 @@ const manageFolders = (lib: any) => {
   showFolderModal.value = true
 }
 
-// 视频库扫描：使用批量导入接口，一键扫描所有关联文件夹并自动导入新视频
-const isScanning = ref<number | null>(null)  // 正在扫描的库ID
-
-const scanLibrary = async (lib: any) => {
-  if (isScanning.value !== null) {
-    showToast('正在扫描中，请勿重复点击')
-    return
-  }
-
-  isScanning.value = lib.id
-
-  try {
-    // 1. 获取库的文件夹列表
-    const foldersRes = await api.get('/api/admin/libraries/' + lib.id + '/folders') as any
-    if (!foldersRes.success || !foldersRes.data || foldersRes.data.length === 0) {
-      showToast('该视频库没有关联文件夹，请先添加文件夹')
-      return
-    }
-
-    const folders = foldersRes.data
-    const seenPaths = new Set<string>()
-    const allVideos: any[] = []
-
-    // 2. 逐个扫描每个文件夹
-    showToast('正在扫描 ' + folders.length + ' 个文件夹...')
-    for (const folder of folders) {
-      const folderPath = folder.path
-      if (!folderPath || !folderPath.trim()) continue
-      
-      try {
-        const scanRes = await api.post('/api/admin/scan-folder', {
-          folder_path: folderPath,
-          recursive: true
-        }) as any
-        
-        if (scanRes.success && scanRes.data?.videos) {
-          for (const v of scanRes.data.videos) {
-            if (!seenPaths.has(v.path)) {
-              seenPaths.add(v.path)
-              allVideos.push(v)
-            }
-          }
-        }
-      } catch (e) {
-        console.error('扫描文件夹失败: ' + folderPath, e)
-      }
-    }
-
-    const newVideos = allVideos.filter((v: any) => !v.exists)
-    
-    if (allVideos.length === 0) {
-      showToast('扫描完成：未发现视频文件')
-      return
-    }
-
-    if (newVideos.length === 0) {
-      showToast('扫描完成：共 ' + allVideos.length + ' 个视频，全部已存在，无需导入')
-      return
-    }
-
-    // 3. 自动导入所有新视频
-    showToast('发现 ' + newVideos.length + ' 个新视频，正在导入...')
-    const videosToImport = newVideos.map((v: any) => ({
-      path: v.path,
-      title: v.title,
-      tags: [] as string[]
-    }))
-
-    const importRes = await api.post('/api/admin/import-videos', {
-      library_id: lib.id,
-      videos: videosToImport,
-      skip_existing: true,
-      default_tags: ['本地视频']
-    }) as any
-
-    if (importRes.success) {
-      const total = allVideos.length
-      const imported = importRes.data?.imported || 0
-      const skipped = importRes.data?.skipped || 0
-      const failed = importRes.data?.failed || 0
-      
-      let msg = '扫描完成：共 ' + total + ' 个视频'
-      if (imported > 0) msg += '，新增 ' + imported + ' 个'
-      if (skipped > 0) msg += '，跳过 ' + skipped + ' 个'
-      if (failed > 0) msg += '，失败 ' + failed + ' 个'
-      showToast(msg)
-
-      // 刷新视频列表和库统计
-      if (activeTab.value === 'videos') {
-        await fetchVideos()
-      }
-      fetchLibraries()
-    } else {
-      showToast(importRes.message || '导入失败')
-    }
-  } catch (error: any) {
-    console.error('扫描导入失败:', error)
-    let errorMsg = '操作失败'
-    if (error.response) {
-      errorMsg = error.response.data?.message || error.response.data?.error || '服务器错误 (' + error.response.status + ')'
-    } else if (error.request) {
-      errorMsg = '无法连接到服务器'
-    } else if (error.message) {
-      errorMsg = error.message
-    }
-    showToast(errorMsg)
-  } finally {
-    isScanning.value = null
-  }
-}
 
 // ============ 视频库详情展开视图（在"视频库管理"标签页中使用） ============
 const expandedLibraryId = ref<number | null>(null)
@@ -412,6 +302,12 @@ const libraryDetailSelectedFiles = ref<string[]>([])
 const libraryDetailImporting = ref(false)
 const libraryDetailImportProgress = ref({ imported: 0, skipped: 0, failed: 0 })
 const libraryDetailImportErrors = ref<string[]>([])
+// 扫描进度反馈（正在扫描哪个文件夹、已发现几个）
+const libraryDetailScanInfo = ref<{ folder: string; index: number; total: number; found: number } | null>(null)
+// 扫描完成后的汇总（共多少、多少新、多少已存在）
+const libraryDetailScanSummary = ref<{ total: number; newCount: number; existCount: number } | null>(null)
+// 扫描过程中各文件夹的失败原因（如路径不存在/无权限），用于向用户解释为什么是 0
+const libraryDetailScanErrors = ref<{ folder: string; message: string }[]>([])
 
 // 当前展开的视频库对象
 const currentLibrary = computed(() => {
@@ -426,6 +322,14 @@ const libraryDetailCurrentFiles = computed(() => {
 // 展开视频库详情
 const enterLibraryDetail = async (lib: any) => {
   expandedLibraryId.value = lib.id
+
+  // 切换视频库时清空上一库的扫描缓存与状态，避免串库显示旧数据
+  libraryDetailFileCache.value = {}
+  libraryDetailSelectedFiles.value = []
+  libraryDetailScanSummary.value = null
+  libraryDetailScanInfo.value = null
+  libraryDetailImporting.value = false
+  libraryDetailScanning.value = false
 
   // 获取关联文件夹
   try {
@@ -458,6 +362,9 @@ const scanDetailFolder = async (folderKey?: string) => {
 
   const key = folderKey || libraryDetailFolderKey.value
   libraryDetailScanning.value = true
+  libraryDetailScanInfo.value = null
+  libraryDetailScanSummary.value = null
+  libraryDetailScanErrors.value = []
 
   try {
     const foldersToScan = key === '__all__'
@@ -473,16 +380,26 @@ const scanDetailFolder = async (folderKey?: string) => {
     const seenPaths = new Set<string>()
     const allResults: any[] = []
     const folderResults: Record<string, any[]> = {}
+    let scannedCount = 0
 
-    for (const folder of foldersToScan) {
+    for (let i = 0; i < foldersToScan.length; i++) {
+      const folder = foldersToScan[i]
       const folderPath = folder.path
       if (!folderPath || !folderPath.trim()) continue
+      scannedCount++
+      // 实时反馈当前正在扫描的文件夹与已发现数量，避免用户误以为卡死
+      libraryDetailScanInfo.value = {
+        folder: getFolderLabel(folder),
+        index: scannedCount,
+        total: foldersToScan.length,
+        found: allResults.length
+      }
 
       try {
         const scanRes = await api.post('/api/admin/scan-folder', {
           folder_path: folderPath,
           recursive: true
-        }) as any
+        }, { timeout: 900000 }) as any
 
         if (scanRes.success && scanRes.data?.videos) {
           const fKey = getFolderKey(folder)
@@ -495,9 +412,19 @@ const scanDetailFolder = async (folderKey?: string) => {
               folderResults[fKey].push(v)
             }
           }
+        } else if (scanRes && scanRes.success === false) {
+          // 后端明确返回失败（如文件夹不存在/无权限），记录下来告知用户
+          libraryDetailScanErrors.value.push({
+            folder: getFolderLabel(folder),
+            message: scanRes.message || '扫描失败'
+          })
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error(`扫描文件夹失败: ${folderPath}`, e)
+        libraryDetailScanErrors.value.push({
+          folder: getFolderLabel(folder),
+          message: e?.response?.data?.message || e?.message || '请求失败'
+        })
       }
     }
 
@@ -510,8 +437,18 @@ const scanDetailFolder = async (folderKey?: string) => {
     const newCount = allResults.filter((v: any) => !v.exists).length
     const existCount = allResults.filter((v: any) => v.exists).length
 
+    // 记录汇总，并在扫描结果区展示，便于一键导入
+    libraryDetailScanSummary.value = { total: allResults.length, newCount, existCount }
+    // 默认全选所有新视频，省去手动勾选这一步
+    libraryDetailSelectedFiles.value = allResults.filter((v: any) => !v.exists).map((v: any) => v.path)
+
     if (allResults.length === 0) {
-      showToast('扫描完成：未发现视频文件')
+      if (libraryDetailScanErrors.value.length > 0) {
+        const msgs = libraryDetailScanErrors.value.map((e) => `${e.folder}：${e.message}`).join('；')
+        showToast(`扫描完成但 0 个视频，${libraryDetailScanErrors.value.length} 个文件夹访问失败：${msgs}`)
+      } else {
+        showToast('扫描完成：未发现视频文件')
+      }
     } else {
       showToast(`扫描完成：共 ${allResults.length} 个视频（${newCount} 个新视频，${existCount} 个已存在）`)
     }
@@ -520,6 +457,139 @@ const scanDetailFolder = async (folderKey?: string) => {
     showToast(error.response?.data?.message || error.message || '扫描失败')
   } finally {
     libraryDetailScanning.value = false
+    libraryDetailScanInfo.value = null
+  }
+}
+
+// 扫描并直接导入所有新视频（一键操作，省去手动勾选）
+const scanAndImportDetail = async () => {
+  const lib = currentLibrary.value
+  if (!lib) return
+  if (libraryDetailScanning.value || libraryDetailImporting.value) {
+    showToast('正在处理中，请勿重复点击')
+    return
+  }
+
+  libraryDetailScanning.value = true
+  libraryDetailScanInfo.value = null
+  libraryDetailScanSummary.value = null
+  libraryDetailScanErrors.value = []
+
+  try {
+    const foldersToScan = libraryDetailFolders.value
+    if (foldersToScan.length === 0) {
+      showToast('没有可扫描的文件夹')
+      return
+    }
+
+    const seenPaths = new Set<string>()
+    const allResults: any[] = []
+    const folderResults: Record<string, any[]> = {}
+    let scannedCount = 0
+
+    for (let i = 0; i < foldersToScan.length; i++) {
+      const folder = foldersToScan[i]
+      const folderPath = folder.path
+      if (!folderPath || !folderPath.trim()) continue
+      scannedCount++
+      libraryDetailScanInfo.value = {
+        folder: getFolderLabel(folder),
+        index: scannedCount,
+        total: foldersToScan.length,
+        found: allResults.length
+      }
+
+      try {
+        const scanRes = await api.post('/api/admin/scan-folder', {
+          folder_path: folderPath,
+          recursive: true
+        }, { timeout: 900000 }) as any
+
+        if (scanRes.success && scanRes.data?.videos) {
+          const fKey = getFolderKey(folder)
+          if (!folderResults[fKey]) folderResults[fKey] = []
+
+          for (const v of scanRes.data.videos) {
+            if (!seenPaths.has(v.path)) {
+              seenPaths.add(v.path)
+              allResults.push(v)
+              folderResults[fKey].push(v)
+            }
+          }
+        } else if (scanRes && scanRes.success === false) {
+          libraryDetailScanErrors.value.push({
+            folder: getFolderLabel(folder),
+            message: scanRes.message || '扫描失败'
+          })
+        }
+      } catch (e: any) {
+        console.error(`扫描文件夹失败: ${folderPath}`, e)
+        libraryDetailScanErrors.value.push({
+          folder: getFolderLabel(folder),
+          message: e?.response?.data?.message || e?.message || '请求失败'
+        })
+      }
+    }
+
+    // 更新缓存，使文件列表可见
+    for (const [fKey, videos] of Object.entries(folderResults)) {
+      libraryDetailFileCache.value[fKey] = videos
+    }
+    libraryDetailFileCache.value['__all__'] = allResults
+
+    const newVideos = allResults.filter((v: any) => !v.exists)
+    const existCount = allResults.length - newVideos.length
+
+    if (allResults.length === 0) {
+      showToast('扫描完成：未发现视频文件')
+      return
+    }
+    if (newVideos.length === 0) {
+      showToast(`扫描完成：共 ${allResults.length} 个视频，全部已存在`)
+      libraryDetailScanSummary.value = { total: allResults.length, newCount: 0, existCount: allResults.length }
+      return
+    }
+
+    showToast(`发现 ${newVideos.length} 个新视频，正在导入...`)
+    const videosToImport = newVideos.map((v: any) => ({ path: v.path, title: v.title, tags: [] as string[] }))
+
+    libraryDetailScanInfo.value = null
+    libraryDetailImporting.value = true
+    libraryDetailImportProgress.value = { imported: 0, skipped: 0, failed: 0 }
+    libraryDetailImportErrors.value = []
+
+    const res = await api.post('/api/admin/import-videos', {
+      library_id: lib.id,
+      videos: videosToImport,
+      skip_existing: true,
+      default_tags: ['本地视频']
+    }, { timeout: 900000 }) as any
+
+    if (res.success) {
+      libraryDetailImportProgress.value = res.data
+      libraryDetailImportErrors.value = res.data.errors || []
+      showToast(res.message)
+      await fetchVideos()
+      // 标记已导入的视频为已存在
+      const importedPaths = new Set(videosToImport.map((v: any) => v.path))
+      for (const key of Object.keys(libraryDetailFileCache.value)) {
+        libraryDetailFileCache.value[key] = libraryDetailFileCache.value[key].map((v: any) => ({
+          ...v,
+          exists: v.exists || importedPaths.has(v.path)
+        }))
+      }
+      fetchLibraries()
+      libraryDetailScanSummary.value = { total: allResults.length, newCount: 0, existCount: allResults.length }
+    } else {
+      showToast(res.message || '导入失败')
+    }
+  } catch (error: any) {
+    console.error('扫描并导入失败:', error)
+    showToast(error.response?.data?.message || error.message || '操作失败')
+  } finally {
+    libraryDetailScanning.value = false
+    libraryDetailImporting.value = false
+    libraryDetailScanInfo.value = null
   }
 }
 
@@ -580,7 +650,7 @@ const detailImportVideos = async () => {
       videos: videosToImport,
       skip_existing: true,
       default_tags: ['本地视频']
-    }) as any
+    }, { timeout: 900000 }) as any
 
     if (res.success) {
       libraryDetailImportProgress.value = res.data
@@ -596,6 +666,15 @@ const detailImportVideos = async () => {
           exists: v.exists || importedPaths.has(v.path)
         }))
       }
+      // 导入完成后刷新汇总：新视频已全部导入
+      if (libraryDetailScanSummary.value) {
+        libraryDetailScanSummary.value = {
+          total: libraryDetailScanSummary.value.total,
+          newCount: 0,
+          existCount: libraryDetailScanSummary.value.total
+        }
+      }
+      libraryDetailSelectedFiles.value = []
     } else {
       showToast(res.message || '导入失败')
     }
@@ -829,7 +908,7 @@ const scanFolder = async () => {
     const res = await api.post('/api/admin/scan-folder', {
       folder_path: importFolder.value,
       recursive: importRecursive.value
-    }) as any
+    }, { timeout: 900000 }) as any
     
     if (res.success) {
       scannedVideos.value = res.data.videos
@@ -894,7 +973,7 @@ const importVideos = async () => {
       videos: videosToImport,
       skip_existing: true,
       default_tags: importDefaultTags.value.split(',').map((t: string) => t.trim()).filter((t: string) => t)
-    }) as any
+    }, { timeout: 900000 }) as any
     
     if (res.success) {
       importProgress.value = res.data
@@ -2898,15 +2977,53 @@ onUnmounted(() => {
               <p class="detail-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
             </div>
             <button
-              class="action-btn primary"
+              class="action-btn success"
+              @click="scanAndImportDetail()"
+              :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
+              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '扫描并自动导入所有新视频（一键）'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              {{ libraryDetailImporting ? '导入中...' : (libraryDetailScanning ? '扫描中...' : '扫描并导入') }}
+            </button>
+            <button
+              class="action-btn"
               @click="scanDetailFolder()"
-              :disabled="libraryDetailScanning || libraryDetailFolders.length === 0"
-              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '扫描当前选中的文件夹'"
+              :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
+              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '仅扫描当前文件夹，可手动选择要导入的视频'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              {{ libraryDetailScanning ? '扫描中...' : '扫描' }}
+              {{ libraryDetailScanning ? '扫描中...' : '仅扫描' }}
             </button>
           </div>
+
+          <!-- 扫描结果汇总 -->
+          <div v-if="libraryDetailScanSummary" class="scan-summary-banner">
+            <span class="scan-summary-text">
+              扫描完成：共 <b>{{ libraryDetailScanSummary.total }}</b> 个视频，
+              <b class="new-count">{{ libraryDetailScanSummary.newCount }}</b> 个新视频，
+              {{ libraryDetailScanSummary.existCount }} 个已存在
+            </span>
+            <button
+              v-if="libraryDetailScanSummary.newCount > 0"
+              class="action-btn success"
+              @click="detailImportVideos"
+              :disabled="libraryDetailImporting"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {{ libraryDetailImporting ? '导入中...' : '导入全部新视频' }}
+            </button>
+          </div>
+
+          <!-- 扫描文件夹访问失败提示 -->
+          <div v-if="libraryDetailScanErrors.length > 0" class="scan-error-banner">
+            <div class="scan-error-title">⚠️ {{ libraryDetailScanErrors.length }} 个文件夹扫描失败（这可能是扫描结果为 0 的原因）：</div>
+            <ul class="scan-error-list">
+              <li v-for="(err, idx) in libraryDetailScanErrors" :key="idx">
+                <b>{{ err.folder }}</b>：{{ err.message }}
+              </li>
+            </ul>
+          </div>
+
 
           <!-- 关联文件夹标签页 -->
           <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
@@ -2943,9 +3060,14 @@ onUnmounted(() => {
           </div>
 
           <!-- 扫描中 -->
-          <div v-if="libraryDetailScanning && !libraryDetailCurrentFiles.length" class="loading-state">
+          <div v-if="(libraryDetailScanning || libraryDetailImporting) && !libraryDetailCurrentFiles.length" class="loading-state">
             <div class="loading-spinner"></div>
-            <span>正在扫描文件夹...</span>
+            <span v-if="libraryDetailImporting && !libraryDetailScanInfo" class="scan-progress">正在导入视频...</span>
+            <template v-else-if="libraryDetailScanInfo">
+              <span class="scan-progress">正在扫描：{{ libraryDetailScanInfo.folder }}</span>
+              <span class="scan-progress-sub">第 {{ libraryDetailScanInfo.index }} / {{ libraryDetailScanInfo.total }} 个文件夹，已发现 {{ libraryDetailScanInfo.found }} 个视频</span>
+            </template>
+            <span v-else class="scan-progress">正在准备扫描...</span>
           </div>
 
           <!-- 扫描结果 / 文件列表 -->
@@ -4661,6 +4783,81 @@ onUnmounted(() => {
 
 .action-btn.danger:hover {
   background: #ff7875;
+}
+
+.action-btn.success {
+  background: #52c41a;
+  color: white;
+}
+
+.action-btn.success:hover {
+  background: #73d13d;
+}
+
+/* 扫描进度反馈 */
+.scan-progress {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+}
+
+.scan-progress-sub {
+  font-size: 12px;
+  color: #888;
+}
+
+/* 扫描结果汇总横幅 */
+.scan-summary-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 8px;
+}
+
+.scan-summary-text {
+  font-size: 14px;
+  color: #333;
+}
+
+.scan-summary-text b {
+  color: #389e0d;
+}
+
+.scan-summary-text .new-count {
+  color: #fa8c16;
+}
+
+/* 扫描文件夹失败提示 */
+.scan-error-banner {
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+}
+
+.scan-error-title {
+  font-size: 13px;
+  color: #ad6800;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.scan-error-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #614700;
+}
+
+.scan-error-list li {
+  margin: 2px 0;
 }
 
 .action-btn:disabled {
