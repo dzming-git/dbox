@@ -325,6 +325,52 @@ class UserInteraction(db.Model):
         return f'<UserInteraction {self.user_session} - {self.interaction_type}>'
 
 
+class FavoriteCollection(db.Model):
+    """用户收藏夹分组模型"""
+    __tablename__ = 'favorite_collections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_session = db.Column(db.String(100), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    position = db.Column(db.Integer, default=0)  # 排序位置
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    items = db.relationship(
+        'CollectionVideo', back_populates='collection',
+        cascade='all, delete-orphan'
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'position': self.position,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'video_count': len(self.items),
+        }
+
+
+class CollectionVideo(db.Model):
+    """收藏夹与视频的关联表"""
+    __tablename__ = 'collection_videos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    collection_id = db.Column(db.Integer, db.ForeignKey('favorite_collections.id'), nullable=False)
+    user_session = db.Column(db.String(100), nullable=False, index=True)
+    video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    collection = db.relationship('FavoriteCollection', back_populates='items')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'collection_id': self.collection_id,
+            'video_id': self.video_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class UserPreference(db.Model):
     """用户偏好模型"""
     __tablename__ = 'user_preferences'

@@ -112,6 +112,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
+from core.models import FavoriteCollection, CollectionVideo
 from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from auth_service import AuthService, init_root_user
 
@@ -492,6 +493,9 @@ def get_videos():
         order = request.args.get('order', 'desc')  # 排序方向: asc, desc
         # 默认屏蔽不喜欢的视频（可在设置中关闭）
         exclude_disliked = request.args.get('exclude_disliked', 'true').lower() != 'false'
+        # 仅看点赞 / 仅看收藏
+        only_liked = request.args.get('only_liked', '').lower() == 'true'
+        only_favorited = request.args.get('only_favorited', '').lower() == 'true'
 
         query = Video.query
 
@@ -590,6 +594,12 @@ def get_videos():
             ).filter_by(user_session=user_session, interaction_type='favorite').all()}
             if exclude_disliked and disliked_ids:
                 query = query.filter(Video.id.notin_(disliked_ids))
+
+        # 仅看点赞 / 仅看收藏（用户未登录或对应集合为空时返回空）
+        if only_liked:
+            query = query.filter(Video.id.in_(liked_ids) if liked_ids else Video.id.in_([-1]))
+        if only_favorited:
+            query = query.filter(Video.id.in_(favorited_ids) if favorited_ids else Video.id.in_([-1]))
 
         # ============ 重要：total 统计必须在权限过滤之后 ============
         # 获取总数（已应用权限过滤与不喜欢排除）
@@ -825,6 +835,215 @@ def get_likes():
         return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
     except Exception as e:
         log.debug('ERROR', f"获取点赞列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/disliked', methods=['GET'])
+def get_disliked():
+    """获取当前用户标记为不喜欢的视频列表（用于查看/撤销屏蔽）"""
+    try:
+        key = current_interaction_key()
+        rows = UserInteraction.query.filter_by(
+            user_session=key, interaction_type='dislike'
+        ).order_by(UserInteraction.created_at.desc()).all()
+
+        videos = []
+        for row in rows:
+            video = Video.query.get(row.video_id)
+            if not video:
+                continue
+            v = video.to_dict()
+            v['disliked_at'] = row.created_at.isoformat() if row.created_at else None
+            videos.append(v)
+
+        return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
+    except Exception as e:
+        log.debug('ERROR', f"获取不喜欢列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _ensure_interaction(video, user_session, itype, score):
+    """确保存在某条交互记录（用于批量添加，幂等）"""
+    interaction = UserInteraction.query.filter_by(
+        video_id=video.id, user_session=user_session, interaction_type=itype
+    ).first()
+    if not interaction:
+        interaction = UserInteraction(
+            video_id=video.id, user_session=user_session,
+            interaction_type=itype, interaction_score=score
+        )
+        db.session.add(interaction)
+        db.session.flush()
+    return interaction
+
+
+@app.route('/api/videos/batch-interact', methods=['POST'])
+def batch_interact():
+    """批量互动：对多个视频批量点赞/收藏/标记不喜欢"""
+    try:
+        data = request.get_json(force=True) or {}
+        hashes = data.get('hashes') or []
+        action = data.get('action')  # like / favorite / dislike
+        if not isinstance(hashes, list) or not hashes:
+            return jsonify({'success': False, 'message': '缺少视频列表'}), 400
+        if action not in ('like', 'favorite', 'dislike'):
+            return jsonify({'success': False, 'message': '未知操作'}), 400
+
+        user_session = current_interaction_key()
+        score_map = {'like': 2.0, 'favorite': 5.0, 'dislike': -1.0}
+        affected = 0
+        for h in hashes:
+            video = Video.query.filter_by(hash=h).first()
+            if not video:
+                continue
+            _ensure_interaction(video, user_session, action, score_map[action])
+            # 同步计数
+            if action == 'like':
+                video.like_count = UserInteraction.query.filter_by(
+                    video_id=video.id, interaction_type='like').count()
+            elif action == 'favorite':
+                video.favorite_count = UserInteraction.query.filter_by(
+                    video_id=video.id, interaction_type='favorite').count()
+            affected += 1
+        db.session.commit()
+        return jsonify({'success': True, 'affected': affected, 'action': action})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"批量互动失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/stats/overview', methods=['GET'])
+def stats_overview():
+    """统计概览：视频总数、各视频库数量、按标签视频数 Top、最热视频"""
+    try:
+        total = Video.query.count()
+        by_library = []
+        for lib in VideoLibrary.query.filter_by(is_active=True).all():
+            cnt = Video.query.filter_by(library_id=lib.id).count()
+            by_library.append({'id': lib.id, 'name': lib.name, 'count': cnt})
+
+        # 按标签视频数 Top 10
+        tag_counts = db.session.query(
+            Tag.name, db.func.count(VideoTag.tag_id)
+        ).join(VideoTag, Tag.id == VideoTag.tag_id).group_by(Tag.id).order_by(
+            db.func.count(VideoTag.tag_id).desc()
+        ).limit(10).all()
+        top_tags = [{'name': t[0], 'count': t[1]} for t in tag_counts]
+
+        # 最热视频（点赞最多 / 收藏最多）
+        top_liked = [v.to_dict() for v in Video.query.order_by(Video.like_count.desc()).limit(10).all()]
+        top_favorited = [v.to_dict() for v in Video.query.order_by(Video.favorite_count.desc()).limit(10).all()]
+
+        return jsonify({
+            'success': True,
+            'total': total,
+            'by_library': by_library,
+            'top_tags': top_tags,
+            'top_liked': top_liked,
+            'top_favorited': top_favorited,
+        })
+    except Exception as e:
+        log.debug('ERROR', f"统计概览失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 收藏夹分组 API ============
+@app.route('/api/favorite-collections', methods=['GET'])
+def list_favorite_collections():
+    try:
+        key = current_interaction_key()
+        cols = FavoriteCollection.query.filter_by(user_session=key).order_by(
+            FavoriteCollection.position.asc(), FavoriteCollection.created_at.asc()
+        ).all()
+        return jsonify({'success': True, 'collections': [c.to_dict() for c in cols]})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/favorite-collections', methods=['POST'])
+def create_favorite_collection():
+    try:
+        data = request.get_json(force=True) or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': '名称不能为空'}), 400
+        key = current_interaction_key()
+        max_pos = db.session.query(db.func.max(FavoriteCollection.position)).filter_by(
+            user_session=key).scalar() or 0
+        col = FavoriteCollection(user_session=key, name=name, position=(max_pos + 1))
+        db.session.add(col)
+        db.session.commit()
+        return jsonify({'success': True, 'collection': col.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/favorite-collections/<int:collection_id>', methods=['DELETE'])
+def delete_favorite_collection(collection_id):
+    try:
+        key = current_interaction_key()
+        col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
+        db.session.delete(col)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['GET'])
+def list_collection_videos(collection_id):
+    try:
+        key = current_interaction_key()
+        col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
+        items = CollectionVideo.query.filter_by(collection_id=col.id, user_session=key).all()
+        videos = []
+        for it in items:
+            video = Video.query.get(it.video_id)
+            if not video:
+                continue
+            v = video.to_dict()
+            v['favorited_at'] = it.created_at.isoformat() if it.created_at else None
+            videos.append(v)
+        return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/favorite-collections/<int:collection_id>/videos/<video_hash>', methods=['POST'])
+def add_to_collection(collection_id, video_hash):
+    try:
+        key = current_interaction_key()
+        col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        exists = CollectionVideo.query.filter_by(
+            collection_id=col.id, user_session=key, video_id=video.id).first()
+        if not exists:
+            db.session.add(CollectionVideo(
+                collection_id=col.id, user_session=key, video_id=video.id))
+            db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/favorite-collections/<int:collection_id>/videos/<video_hash>', methods=['DELETE'])
+def remove_from_collection(collection_id, video_hash):
+    try:
+        key = current_interaction_key()
+        col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        item = CollectionVideo.query.filter_by(
+            collection_id=col.id, user_session=key, video_id=video.id).first()
+        if item:
+            db.session.delete(item)
+            db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 

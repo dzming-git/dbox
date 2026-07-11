@@ -180,6 +180,8 @@ const handleLibraryChange = (event: Event) => {
 }
 
 onMounted(async () => {
+  // 加载继续观看（本地观看历史）
+  loadContinueWatching()
   // 如果 URL 有 query 参数，从其中恢复状态
   if (Object.keys(route.query).length > 0) {
     await Promise.all([
@@ -220,6 +222,71 @@ const handleVideoClick = (video: Video) => {
     fromQuery.from = btoa(JSON.stringify(homeQuery))
   }
   router.push({ name: 'Video', params: { hash: video.hash }, query: fromQuery })
+}
+
+// ============ 快捷筛选：全部 / 我点赞 / 我收藏 ============
+const activeQuickFilter = computed(() => {
+  if (videoStore.onlyLiked) return 'liked'
+  if (videoStore.onlyFavorited) return 'favorited'
+  return 'all'
+})
+
+const handleQuickFilter = (tab: string) => {
+  if (tab === 'liked') {
+    videoStore.filterByLiked()
+  } else if (tab === 'favorited') {
+    videoStore.filterByFavorited()
+  } else {
+    videoStore.clearInteractionFilter()
+  }
+  updateUrl()
+}
+
+// ============ 继续观看（来自 localStorage 观看历史） ============
+const continueWatching = ref<any[]>([])
+const loadContinueWatching = () => {
+  try {
+    const raw = localStorage.getItem('watchHistory')
+    if (!raw) { continueWatching.value = []; return }
+    const list = JSON.parse(raw) || []
+    continueWatching.value = list.filter((h: any) =>
+      h && h.duration && h.progress > 0 && h.progress < h.duration - 5
+    ).slice(0, 12)
+  } catch {
+    continueWatching.value = []
+  }
+}
+
+const continueWatch = (item: any) => {
+  router.push({ path: `/video/${item.hash}`, query: { t: Math.floor(item.progress || 0) } })
+}
+
+// 继续观看进度百分比
+const progressPercent = (item: any) => {
+  if (!item.duration) return 0
+  return Math.min(100, Math.round((item.progress / item.duration) * 100))
+}
+
+// ============ 批量选择 ============
+const selectionMode = ref(false)
+const selectedHashes = ref<string[]>([])
+
+const toggleSelect = (video: Video) => {
+  const i = selectedHashes.value.indexOf(video.hash)
+  if (i === -1) selectedHashes.value.push(video.hash)
+  else selectedHashes.value.splice(i, 1)
+}
+
+const toggleSelectionMode = () => {
+  selectionMode.value = !selectionMode.value
+  if (!selectionMode.value) selectedHashes.value = []
+}
+
+const batchAction = async (action: 'like' | 'favorite' | 'dislike') => {
+  if (selectedHashes.value.length === 0) return
+  await videoStore.batchInteractVideos([...selectedHashes.value], action)
+  selectedHashes.value = []
+  // 批量屏蔽后，被屏蔽视频会在 store 重新拉取后从列表移除
 }
 
 // ============ 分页相关 ============
@@ -372,10 +439,45 @@ const formatDuration = (seconds?: number): string => {
           </svg>
           <span class="undo-text">撤回</span>
         </button>
+        <!-- 批量选择开关 -->
+        <button class="batch-toggle-btn" :class="{ active: selectionMode }" @click="toggleSelectionMode" title="批量选择">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 11l3 3L22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <span class="batch-toggle-text">{{ selectionMode ? '退出选择' : '批量选择' }}</span>
+        </button>
+      </div>
+      <!-- 批量操作工具条 -->
+      <div v-if="selectionMode" class="batch-toolbar">
+        <span class="batch-count">已选 {{ selectedHashes.length }} 个</span>
+        <button class="batch-action-btn like" @click="batchAction('like')">批量点赞</button>
+        <button class="batch-action-btn favorite" @click="batchAction('favorite')">批量收藏</button>
+        <button class="batch-action-btn dislike" @click="batchAction('dislike')">批量屏蔽</button>
+        <button class="batch-action-btn clear" @click="toggleSelectionMode">取消</button>
       </div>
       <div v-if="searchQuery" class="search-status">
         搜索: "{{ searchQuery }}" ({{ videos.length }} 个结果)
       </div>
+    </div>
+
+    <!-- 快捷筛选页签 -->
+    <div class="quick-filter-bar">
+      <button
+        class="quick-filter-btn"
+        :class="{ active: activeQuickFilter === 'all' }"
+        @click="handleQuickFilter('all')"
+      >全部</button>
+      <button
+        class="quick-filter-btn"
+        :class="{ active: activeQuickFilter === 'liked' }"
+        @click="handleQuickFilter('liked')"
+      >我点赞</button>
+      <button
+        class="quick-filter-btn"
+        :class="{ active: activeQuickFilter === 'favorited' }"
+        @click="handleQuickFilter('favorited')"
+      >我收藏</button>
     </div>
 
     <!-- 标签筛选按钮 -->
@@ -449,6 +551,32 @@ const formatDuration = (seconds?: number): string => {
       </div>
     </div>
 
+    <!-- 继续观看 -->
+    <div v-if="continueWatching.length > 0" class="continue-section">
+      <h2 class="section-title">继续观看</h2>
+      <div class="video-grid">
+        <div
+          v-for="item in continueWatching"
+          :key="item.hash"
+          class="continue-card"
+          @click="continueWatch(item)"
+          data-testid="continue-card"
+        >
+          <div class="continue-thumb">
+            <img :src="item.thumbnail || '/default-thumb.jpg'" :alt="item.title" />
+            <span class="continue-duration">{{ formatDuration(item.duration) }}</span>
+            <div class="continue-progress">
+              <div class="continue-progress-bar" :style="{ width: progressPercent(item) + '%' }"></div>
+            </div>
+          </div>
+          <div class="continue-info">
+            <h3 class="continue-title">{{ item.title }}</h3>
+            <span class="continue-pct">已看 {{ progressPercent(item) }}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 加载中 -->
     <div v-if="loading" class="loading-container">
       <div class="spinner"></div>
@@ -463,7 +591,10 @@ const formatDuration = (seconds?: number): string => {
             v-for="video in videos"
             :key="video.hash"
             :video="video"
+            :selectable="selectionMode"
+            :selected="selectedHashes.includes(video.hash)"
             @click="handleVideoClick(video)"
+            @toggle-select="toggleSelect"
           />
         </div>
       </div>
@@ -1064,6 +1195,192 @@ const formatDuration = (seconds?: number): string => {
   color: #888;
   font-size: 13px;
   margin-left: 12px;
+}
+
+/* 快捷筛选页签 */
+.quick-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.quick-filter-btn {
+  padding: 8px 18px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 20px;
+  color: #aaa;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-filter-btn:hover {
+  background: #333;
+  color: #fff;
+}
+
+.quick-filter-btn.active {
+  background: #2196F3;
+  border-color: #2196F3;
+  color: #fff;
+}
+
+/* 批量选择按钮 */
+.batch-toggle-btn {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(33, 150, 243, 0.3);
+  border-radius: 18px;
+  background: rgba(33, 150, 243, 0.1);
+  color: #4a9eff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.batch-toggle-btn:hover {
+  background: rgba(33, 150, 243, 0.2);
+}
+
+.batch-toggle-btn.active {
+  background: #2196F3;
+  color: #fff;
+  border-color: #2196F3;
+}
+
+.batch-toggle-text {
+  letter-spacing: 0.3px;
+}
+
+/* 批量操作工具条 */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-count {
+  color: #ccc;
+  font-size: 14px;
+  margin-right: 4px;
+}
+
+.batch-action-btn {
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.batch-action-btn:hover {
+  opacity: 0.85;
+}
+
+.batch-action-btn.like { background: #ff4757; }
+.batch-action-btn.favorite { background: #ffa502; }
+.batch-action-btn.dislike { background: #ffd93d; color: #222; }
+.batch-action-btn.clear {
+  background: #333;
+  color: #ccc;
+}
+
+/* 继续观看 */
+.continue-section {
+  margin-bottom: 32px;
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0 0 16px;
+}
+
+.continue-card {
+  cursor: pointer;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s;
+}
+
+.continue-card:hover {
+  transform: translateY(-4px);
+}
+
+.continue-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.continue-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.continue-duration {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #fff;
+}
+
+.continue-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.continue-progress-bar {
+  height: 100%;
+  background: #ff4757;
+}
+
+.continue-info {
+  padding: 10px 12px;
+}
+
+.continue-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  margin: 0 0 4px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.continue-pct {
+  font-size: 12px;
+  color: #ff4757;
 }
 
 /* 响应式 */

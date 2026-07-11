@@ -22,6 +22,8 @@ export const useVideoStore = defineStore('video', () => {
   const searchQuery = ref('')
   const sortBy = ref('recommended')  // 排序方式
   const sortOrder = ref('desc')  // 排序方向: asc, desc
+  const onlyLiked = ref(false)   // 仅看点赞
+  const onlyFavorited = ref(false)  // 仅看收藏
 
   // 换一批功能 - 保存之前的视频列表用于撤回
   const previousVideos = ref<Video[]>([])
@@ -87,6 +89,10 @@ export const useVideoStore = defineStore('video', () => {
       // 默认屏蔽不喜欢的视频（设置可关闭）
       params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
 
+      // 仅看点赞 / 仅看收藏
+      if (onlyLiked.value) params.only_liked = 'true'
+      if (onlyFavorited.value) params.only_favorited = 'true'
+
       const response = await videoApi.getVideos(params) as any
       videos.value = reset ? response.videos : [...videos.value, ...response.videos]
       pagination.value.total = response.total
@@ -141,6 +147,10 @@ export const useVideoStore = defineStore('video', () => {
 
       // 默认屏蔽不喜欢的视频（设置可关闭）
       params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
+
+      // 仅看点赞 / 仅看收藏
+      if (onlyLiked.value) params.only_liked = 'true'
+      if (onlyFavorited.value) params.only_favorited = 'true'
 
       const response = await videoApi.getVideos(params) as any
       videos.value = response.videos
@@ -329,6 +339,43 @@ export const useVideoStore = defineStore('video', () => {
     await fetchVideos(true)
   }
 
+  // 仅看点赞
+  const filterByLiked = async () => {
+    onlyLiked.value = true
+    onlyFavorited.value = false
+    selectedTagId.value = null
+    await fetchVideos(true)
+  }
+
+  // 仅看收藏
+  const filterByFavorited = async () => {
+    onlyFavorited.value = true
+    onlyLiked.value = false
+    selectedTagId.value = null
+    await fetchVideos(true)
+  }
+
+  // 清除点赞/收藏筛选，恢复全部
+  const clearInteractionFilter = async () => {
+    onlyLiked.value = false
+    onlyFavorited.value = false
+    await fetchVideos(true)
+  }
+
+  // 批量互动（点赞/收藏/不喜欢）
+  const batchInteractVideos = async (hashes: string[], action: 'like' | 'favorite' | 'dislike') => {
+    try {
+      const response = await videoApi.batchInteract(hashes, action) as any
+      if (response.success) {
+        // 重新拉取以同步状态
+        await fetchVideos(true)
+      }
+      return response
+    } catch (e) {
+      console.error('批量操作失败:', e)
+    }
+  }
+
   // 获取当前用户可访问的视频库列表
   const fetchUserLibraries = async () => {
     try {
@@ -454,6 +501,8 @@ export const useVideoStore = defineStore('video', () => {
     searchQuery,
     sortBy,
     sortOrder,
+    onlyLiked,
+    onlyFavorited,
     hasMore,
     fetchVideos,
     fetchVideosByOffset,
@@ -470,6 +519,10 @@ export const useVideoStore = defineStore('video', () => {
     searchTags,
     filterByTag,
     filterByLibrary,
+    filterByLiked,
+    filterByFavorited,
+    clearInteractionFilter,
+    batchInteractVideos,
     fetchUserLibraries,
     setSortBy,
     setSortOrder,

@@ -7,30 +7,90 @@ const router = useRouter()
 const favorites = ref<any[]>([])
 const loading = ref(false)
 
-// 从后端加载当前用户的收藏列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）
+// 收藏夹分组
+const collections = ref<any[]>([])
+const activeCollectionId = ref<number | null>(null)  // null = 全部收藏
+const openMenuHash = ref<string | null>(null)  // 当前展开"加入收藏夹"菜单的视频 hash
+
+// 加载收藏夹列表
+const loadCollections = async () => {
+  try {
+    const r = await videoApi.getCollections() as any
+    collections.value = (r && r.success && r.collections) ? r.collections : []
+  } catch (e) {
+    collections.value = []
+  }
+}
+
+// 加载当前显示的收藏视频（全部 或 某收藏夹）
 const loadFavorites = async () => {
   loading.value = true
   try {
-    const response = await videoApi.getFavorites() as any
-    favorites.value = (response && response.success && response.videos) ? response.videos : []
-    // 同步到 localStorage 作为缓存，避免旧残留数据干扰
-    localStorage.setItem('favorites', JSON.stringify(favorites.value))
+    let list: any[] = []
+    if (activeCollectionId.value) {
+      const r = await videoApi.getCollectionVideos(activeCollectionId.value) as any
+      list = (r && r.success && r.videos) ? r.videos : []
+    } else {
+      const r = await videoApi.getFavorites() as any
+      list = (r && r.success && r.videos) ? r.videos : []
+    }
+    favorites.value = list
   } catch (e) {
-    console.error('加载收藏列表失败:', e)
+    console.error('加载收藏失败:', e)
     favorites.value = []
   } finally {
     loading.value = false
   }
 }
 
-onMounted(loadFavorites)
+onMounted(async () => {
+  await loadCollections()
+  await loadFavorites()
+})
+
+// 切换收藏夹
+const selectCollection = async (id: number | null) => {
+  activeCollectionId.value = id
+  openMenuHash.value = null
+  await loadFavorites()
+}
+
+// 新建收藏夹
+const createCollection = async () => {
+  const name = prompt('请输入收藏夹名称')
+  if (!name || !name.trim()) return
+  try {
+    const r = await videoApi.createCollection(name.trim()) as any
+    if (r && r.success) {
+      await loadCollections()
+      await selectCollection(r.collection.id)
+    }
+  } catch (e) {
+    console.error('创建收藏夹失败', e)
+  }
+}
+
+// 删除收藏夹
+const deleteCollection = async (id: number, event: Event) => {
+  event.stopPropagation()
+  if (!confirm('确定删除该收藏夹吗？（其中的视频不会被取消收藏）')) return
+  try {
+    const r = await videoApi.deleteCollection(id) as any
+    if (r && r.success) {
+      await loadCollections()
+      if (activeCollectionId.value === id) await selectCollection(null)
+    }
+  } catch (e) {
+    console.error('删除收藏夹失败', e)
+  }
+}
 
 // 跳转到视频详情
 const goToVideo = (hash: string) => {
   router.push(`/video/${hash}`)
 }
 
-// 取消收藏（调用后端接口切换状态，以后端为准）
+// 取消收藏
 const unfavorite = async (hash: string, event: Event) => {
   event.stopPropagation()
   try {
@@ -38,9 +98,25 @@ const unfavorite = async (hash: string, event: Event) => {
   } catch (e) {
     console.error('取消收藏失败:', e)
   }
-  // 重新拉取最新收藏列表
   await loadFavorites()
   showToast('已取消收藏')
+}
+
+// 加入收藏夹 / 从收藏夹移除
+const toggleMenu = (hash: string, event: Event) => {
+  event.stopPropagation()
+  openMenuHash.value = openMenuHash.value === hash ? null : hash
+}
+
+const addToCollection = async (colId: number, hash: string, event: Event) => {
+  event.stopPropagation()
+  try {
+    await videoApi.addToCollection(colId, hash)
+    showToast('已加入收藏夹')
+  } catch (e) {
+    console.error('加入收藏夹失败', e)
+  }
+  openMenuHash.value = null
 }
 
 // 格式化时长
@@ -57,6 +133,7 @@ const formatDuration = (seconds: number): string => {
 
 // 格式化日期
 const formatDate = (dateStr: string): string => {
+  if (!dateStr) return ''
   const date = new Date(dateStr)
   return date.toLocaleDateString('zh-CN')
 }
@@ -75,64 +152,119 @@ const showToast = (message: string) => {
 
 <template>
   <div class="favorites-page">
-    <div class="page-header">
-      <h1 class="page-title">我的收藏</h1>
-    </div>
-
-    <!-- 加载中 -->
-    <div v-if="loading" class="loading-container">
-      <div class="spinner"></div>
-      <p>加载中...</p>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-else-if="favorites.length === 0" class="empty-state" data-testid="empty-state">
-      <svg class="empty-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-      </svg>
-      <p>暂无收藏视频</p>
-      <router-link to="/" class="browse-link">去浏览视频</router-link>
-    </div>
-
-    <!-- 收藏列表 -->
-    <div v-else class="favorites-grid">
-      <div 
-        v-for="video in favorites" 
-        :key="video.hash"
-        class="favorite-card"
-        @click="goToVideo(video.hash)"
-        data-testid="video-card"
-      >
-        <div class="thumbnail-wrapper">
-          <img 
-            :src="video.thumbnail || '/default-thumb.jpg'" 
-            :alt="video.title"
-            class="thumbnail"
-          />
-          <span v-if="video.duration" class="duration">{{ formatDuration(video.duration) }}</span>
+    <div class="favorites-layout">
+      <!-- 收藏夹侧边栏 -->
+      <aside class="collections-sidebar">
+        <div class="sidebar-header">
+          <span>收藏夹</span>
+          <button class="add-collection-btn" @click="createCollection" title="新建收藏夹">+</button>
         </div>
-        <div class="video-info">
-          <h3 class="video-title">{{ video.title }}</h3>
-          <div class="video-meta">
-            <span class="favorited-date">收藏于 {{ formatDate(video.favorited_at) }}</span>
-          </div>
+        <ul class="collection-list">
+          <li
+            class="collection-item"
+            :class="{ active: activeCollectionId === null }"
+            @click="selectCollection(null)"
+          >
+            <span class="collection-name">全部收藏</span>
+          </li>
+          <li
+            v-for="col in collections"
+            :key="col.id"
+            class="collection-item"
+            :class="{ active: activeCollectionId === col.id }"
+            @click="selectCollection(col.id)"
+          >
+            <span class="collection-name">{{ col.name }}</span>
+            <span class="collection-count">{{ col.video_count }}</span>
+            <button class="del-collection-btn" @click="deleteCollection(col.id, $event)" title="删除收藏夹">×</button>
+          </li>
+        </ul>
+      </aside>
+
+      <!-- 主内容区 -->
+      <div class="favorites-main">
+        <div class="page-header">
+          <h1 class="page-title">
+            {{ activeCollectionId ? (collections.find(c => c.id === activeCollectionId)?.name || '收藏夹') : '我的收藏' }}
+          </h1>
         </div>
-        <button 
-          class="unfavorite-btn" 
-          @click="unfavorite(video.hash, $event)"
-          data-testid="unfavorite-button"
-          title="取消收藏"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+
+        <div v-if="loading" class="loading-container">
+          <div class="spinner"></div>
+          <p>加载中...</p>
+        </div>
+
+        <div v-else-if="favorites.length === 0" class="empty-state" data-testid="empty-state">
+          <svg class="empty-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
-        </button>
-      </div>
-    </div>
+          <p>暂无收藏视频</p>
+          <router-link to="/" class="browse-link">去浏览视频</router-link>
+        </div>
 
-    <!-- Toast 提示 -->
-    <div v-if="showToastFlag" class="toast" data-testid="unfavorite-success">
-      {{ toastMessage }}
+        <div v-else class="favorites-grid">
+          <div
+            v-for="video in favorites"
+            :key="video.hash"
+            class="favorite-card"
+            @click="goToVideo(video.hash)"
+            data-testid="video-card"
+          >
+            <div class="thumbnail-wrapper">
+              <img
+                :src="video.thumbnail || '/default-thumb.jpg'"
+                :alt="video.title"
+                class="thumbnail"
+              />
+              <span v-if="video.duration" class="duration">{{ formatDuration(video.duration) }}</span>
+            </div>
+            <div class="video-info">
+              <h3 class="video-title">{{ video.title }}</h3>
+              <div class="video-meta">
+                <span class="favorited-date">收藏于 {{ formatDate(video.favorited_at) }}</span>
+              </div>
+            </div>
+            <button
+              class="unfavorite-btn"
+              @click="unfavorite(video.hash, $event)"
+              data-testid="unfavorite-button"
+              title="取消收藏"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+            </button>
+            <!-- 加入收藏夹 -->
+            <button
+              class="add-to-collection-btn"
+              @click="toggleMenu(video.hash, $event)"
+              title="加入收藏夹"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+            </button>
+            <div
+              v-if="openMenuHash === video.hash"
+              class="collection-menu"
+              @click.stop
+            >
+              <div class="collection-menu-title">加入收藏夹</div>
+              <div v-if="collections.length === 0" class="collection-menu-empty">暂无收藏夹，请先新建</div>
+              <div
+                v-for="col in collections"
+                :key="col.id"
+                class="collection-menu-item"
+                @click="addToCollection(col.id, video.hash, $event)"
+              >{{ col.name }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="showToastFlag" class="toast" data-testid="toast">
+          {{ toastMessage }}
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -145,6 +277,115 @@ const showToast = (message: string) => {
   min-height: 100vh;
   background: #0f0f0f;
   color: #fff;
+}
+
+.favorites-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+/* 收藏夹侧边栏 */
+.collections-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 12px;
+  position: sticky;
+  top: 80px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 12px;
+  border-bottom: 1px solid #333;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #aaa;
+}
+
+.add-collection-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: #2196F3;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.add-collection-btn:hover {
+  background: #1976D2;
+}
+
+.collection-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.collection-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #ccc;
+  transition: background 0.2s;
+}
+
+.collection-item:hover {
+  background: #252525;
+}
+
+.collection-item.active {
+  background: #2196F3;
+  color: #fff;
+}
+
+.collection-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-count {
+  font-size: 11px;
+  color: #888;
+}
+
+.collection-item.active .collection-count {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.del-collection-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.del-collection-btn:hover {
+  color: #ff6b6b;
+}
+
+.favorites-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .page-header {
@@ -312,7 +553,72 @@ const showToast = (message: string) => {
   background: rgba(244, 67, 54, 0.2);
 }
 
-/* Toast 提示 */
+.add-to-collection-btn {
+  position: absolute;
+  top: 8px;
+  right: 52px;
+  width: 36px;
+  height: 36px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  border-radius: 50%;
+  color: #ffa502;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.favorite-card:hover .add-to-collection-btn {
+  opacity: 1;
+}
+
+.add-to-collection-btn:hover {
+  background: rgba(255, 165, 2, 0.2);
+}
+
+.collection-menu {
+  position: absolute;
+  top: 50px;
+  right: 8px;
+  width: 180px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.collection-menu-title {
+  font-size: 12px;
+  color: #aaa;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid #333;
+  margin-bottom: 4px;
+}
+
+.collection-menu-empty {
+  font-size: 12px;
+  color: #777;
+  padding: 6px 8px;
+}
+
+.collection-menu-item {
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #eee;
+  cursor: pointer;
+}
+
+.collection-menu-item:hover {
+  background: #2196F3;
+  color: #fff;
+}
+
 .toast {
   position: fixed;
   bottom: 80px;
@@ -339,6 +645,15 @@ const showToast = (message: string) => {
     padding: 16px;
   }
 
+  .favorites-layout {
+    flex-direction: column;
+  }
+
+  .collections-sidebar {
+    width: 100%;
+    position: static;
+  }
+
   .page-title {
     font-size: 22px;
   }
@@ -348,7 +663,8 @@ const showToast = (message: string) => {
     gap: 12px;
   }
 
-  .unfavorite-btn {
+  .unfavorite-btn,
+  .add-to-collection-btn {
     opacity: 1;
   }
 }

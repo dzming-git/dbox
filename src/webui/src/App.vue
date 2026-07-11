@@ -11,6 +11,13 @@ const userStore = useUserStore()
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
 
+// 全局搜索：回车跳转到首页并带上 search 参数
+const searchText = ref('')
+const handleNavSearch = () => {
+  const q = searchText.value.trim()
+  router.push({ path: '/', query: q ? { search: q } : {} })
+}
+
 // 用户下拉菜单状态
 const showUserDropdown = ref(false)
 
@@ -122,6 +129,21 @@ const handleSubmitSuggestion = async () => {
       <div class="nav-left">
         <RouterLink to="/" class="logo">DPlayer</RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
+        <div class="nav-search">
+          <input
+            v-model="searchText"
+            class="nav-search-input"
+            type="text"
+            placeholder="搜索视频标题..."
+            @keyup.enter="handleNavSearch"
+          />
+          <button class="nav-search-btn" @click="handleNavSearch" title="搜索">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="nav-right">
         <!-- 未登录状态 -->
@@ -149,6 +171,12 @@ const handleSubmitSuggestion = async () => {
               <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
             </svg>
             <span>历史</span>
+          </RouterLink>
+          <RouterLink to="/disliked" class="nav-link nav-icon-link" title="我不喜欢">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
+            </svg>
+            <span>不喜欢</span>
           </RouterLink>
 
           <!-- 用户头像下拉菜单 -->
@@ -310,6 +338,44 @@ body {
   font-weight: bold;
   color: #fff;
   text-decoration: none;
+}
+
+/* 导航栏搜索框 */
+.nav-search {
+  display: flex;
+  align-items: center;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.nav-search-input {
+  width: 200px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.nav-search-input::placeholder {
+  color: #777;
+}
+
+.nav-search-btn {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+}
+
+.nav-search-btn:hover {
+  color: #fff;
 }
 
 .nav-link {

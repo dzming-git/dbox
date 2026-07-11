@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
-import { thumbnailApi, logApi, libraryApi } from '../api'
+import { videoApi, thumbnailApi, logApi, libraryApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
+const router = useRouter()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
@@ -22,6 +24,8 @@ watch(activeTab, (val) => {
 // 系统信息
 const systemInfo = ref<any>(null)
 const systemStats = ref<any>(null)
+// 热门视频排行（点赞/收藏最多）与各视频库数量
+const hotStats = ref<any>(null)
 const systemPaths = ref<any>(null)
 const loading = ref({
   info: false,
@@ -1143,6 +1147,16 @@ const fetchSystemInfo = async () => {
   }
 }
 
+// 获取热门视频排行与视频库分布
+const loadHotStats = async () => {
+  try {
+    const r = await videoApi.getStats() as any
+    if (r && r.success) hotStats.value = r
+  } catch (e) {
+    console.error('获取热门统计失败:', e)
+  }
+}
+
 // 获取系统统计
 const fetchSystemStats = async () => {
   loading.value.stats = true
@@ -2027,6 +2041,7 @@ onMounted(() => {
   fetchSystemStats()
   fetchSystemPaths()
   fetchSyncStatus()
+  loadHotStats()
   // 恢复上次的标签页数据
   const restoredTab = activeTab.value
   if (restoredTab === 'videos') { fetchLibraries(); fetchVideos() }
@@ -2203,6 +2218,59 @@ onUnmounted(() => {
                   <span class="stat-label">用户总数</span>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- 热门视频排行卡片 -->
+          <div class="info-card hot-card" v-if="hotStats">
+            <div class="card-header">
+              <h3>热门视频</h3>
+            </div>
+            <div class="card-body">
+              <div class="hot-col">
+                <div class="hot-col-title">点赞最多</div>
+                <div
+                  v-for="(v, i) in (hotStats.top_liked || []).slice(0, 5)"
+                  :key="v.hash"
+                  class="hot-item"
+                  @click="router.push('/video/' + v.hash)"
+                >
+                  <span class="hot-rank">{{ i + 1 }}</span>
+                  <span class="hot-name" :title="v.title">{{ v.title }}</span>
+                  <span class="hot-count">{{ v.like_count }}</span>
+                </div>
+                <div v-if="!(hotStats.top_liked && hotStats.top_liked.length)" class="hot-empty">暂无数据</div>
+              </div>
+              <div class="hot-col">
+                <div class="hot-col-title">收藏最多</div>
+                <div
+                  v-for="(v, i) in (hotStats.top_favorited || []).slice(0, 5)"
+                  :key="v.hash"
+                  class="hot-item"
+                  @click="router.push('/video/' + v.hash)"
+                >
+                  <span class="hot-rank fav">{{ i + 1 }}</span>
+                  <span class="hot-name" :title="v.title">{{ v.title }}</span>
+                  <span class="hot-count">{{ v.favorite_count }}</span>
+                </div>
+                <div v-if="!(hotStats.top_favorited && hotStats.top_favorited.length)" class="hot-empty">暂无数据</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 视频库分布卡片 -->
+          <div class="info-card libdist-card" v-if="hotStats">
+            <div class="card-header">
+              <h3>视频库分布</h3>
+            </div>
+            <div class="card-body">
+              <div class="stat-item" v-for="lib in hotStats.by_library" :key="lib.id">
+                <div class="stat-info">
+                  <span class="stat-value">{{ lib.count }}</span>
+                  <span class="stat-label">{{ lib.name }}</span>
+                </div>
+              </div>
+              <div v-if="!(hotStats.by_library && hotStats.by_library.length)" class="hot-empty">暂无视频库</div>
             </div>
           </div>
 
@@ -4344,6 +4412,84 @@ onUnmounted(() => {
 .stat-label {
   font-size: 12px;
   color: #888;
+}
+
+/* 热门视频排行卡片 */
+.hot-card .card-body {
+  display: flex;
+  gap: 20px;
+}
+
+.hot-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.hot-col-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eee;
+}
+
+.hot-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.hot-item:hover {
+  background: #f0f0f0;
+}
+
+.hot-rank {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ff4757;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hot-rank.fav {
+  background: #ffa502;
+}
+
+.hot-name {
+  flex: 1;
+  font-size: 13px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hot-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ff4757;
+}
+
+.hot-empty {
+  font-size: 12px;
+  color: #aaa;
+  padding: 6px 4px;
+}
+
+.libdist-card .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* 同步卡片样式 */

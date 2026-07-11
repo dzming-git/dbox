@@ -68,6 +68,22 @@ export const videoApi = {
     api.get('/api/favorites'),
   getLikes: () =>
     api.get('/api/likes'),
+  getDisliked: () =>
+    api.get('/api/disliked'),
+  // 批量互动（点赞/收藏/不喜欢）
+  batchInteract: (hashes: string[], action: 'like' | 'favorite' | 'dislike') =>
+    api.post('/api/videos/batch-interact', { hashes, action }),
+  // 统计概览
+  getStats: () =>
+    api.get('/api/stats/overview'),
+
+  // 收藏夹分组
+  getCollections: () => api.get('/api/favorite-collections'),
+  createCollection: (name: string) => api.post('/api/favorite-collections', { name }),
+  deleteCollection: (id: number) => api.delete(`/api/favorite-collections/${id}`),
+  getCollectionVideos: (id: number) => api.get(`/api/favorite-collections/${id}/videos`),
+  addToCollection: (id: number, hash: string) => api.post(`/api/favorite-collections/${id}/videos/${hash}`),
+  removeFromCollection: (id: number, hash: string) => api.delete(`/api/favorite-collections/${id}/videos/${hash}`),
   
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
