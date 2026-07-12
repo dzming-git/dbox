@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
+import { useUserStore } from '../stores/userStore'
+import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import type { Video, Tag } from '../types'
@@ -9,6 +11,7 @@ import type { Video, Tag } from '../types'
 const router = useRouter()
 const route = useRoute()
 const videoStore = useVideoStore()
+const userStore = useUserStore()
 
 const loading = computed(() => videoStore.loading)
 const videos = computed(() => videoStore.videos)
@@ -224,37 +227,81 @@ const handleVideoClick = (video: Video) => {
   router.push({ name: 'Video', params: { hash: video.hash }, query: fromQuery })
 }
 
-// ============ 快捷筛选：全部 / 我点赞 / 我收藏 ============
-const activeQuickFilter = computed(() => {
-  if (videoStore.onlyLiked) return 'liked'
-  if (videoStore.onlyFavorited) return 'favorited'
-  return 'all'
-})
-
-const handleQuickFilter = (tab: string) => {
-  if (tab === 'liked') {
-    videoStore.filterByLiked()
-  } else if (tab === 'favorited') {
-    videoStore.filterByFavorited()
-  } else {
-    videoStore.clearInteractionFilter()
-  }
-  updateUrl()
-}
-
 // ============ 继续观看（来自 localStorage 观看历史） ============
 const continueWatching = ref<any[]>([])
-const loadContinueWatching = () => {
+
+// 缩略图加载失败时的占位图（内联 SVG，无需额外文件）
+const PLACEHOLDER_THUMB =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">' +
+    '<rect width="100%" height="100%" fill="#222"/>' +
+    '<text x="50%" y="50%" fill="#666" font-size="14" text-anchor="middle" dominant-baseline="middle">无缩略图</text>' +
+    '</svg>'
+  )
+
+const onContinueImgError = (e: Event) => {
+  const img = e.target as HTMLImageElement
+  img.onerror = null
+  img.src = PLACEHOLDER_THUMB
+}
+
+const loadContinueWatching = async () => {
+  let history: any[] = []
   try {
     const raw = localStorage.getItem('watchHistory')
-    if (!raw) { continueWatching.value = []; return }
-    const list = JSON.parse(raw) || []
-    continueWatching.value = list.filter((h: any) =>
-      h && h.duration && h.progress > 0 && h.progress < h.duration - 5
-    ).slice(0, 12)
+    if (raw) history = JSON.parse(raw) || []
   } catch {
-    continueWatching.value = []
+    history = []
   }
+
+  // 筛选出仍在观看中（有进度且未看完）的记录，并按 hash 保留进度/标题
+  const metaByHash = new Map<string, any>()
+  const candidates = history.filter((h: any) => {
+    if (!h || !h.hash || !h.duration) return false
+    const progress = Number(h.progress) || 0
+    if (progress <= 0 || progress >= h.duration - 5) return false
+    metaByHash.set(h.hash, {
+      progress,
+      title: h.title || '',
+      duration: h.duration
+    })
+    return true
+  })
+
+  if (candidates.length === 0) {
+    continueWatching.value = []
+    return
+  }
+
+  // 以后端权威数据重建：解决迁移前旧 hash / 空 thumbnail 导致缩略图空白的问题，
+  // 同时过滤掉数据库中已不存在（hash 失效）的视频。
+  try {
+    const hashes = [...metaByHash.keys()]
+    const res: any = await videoApi.getVideosByHashes(hashes)
+    const videos = (res && res.videos) || []
+    const items = videos.map((v: any) => {
+      const meta = metaByHash.get(v.hash) || {}
+      return {
+        hash: v.hash,
+        title: v.title || meta.title || '',
+        thumbnail: v.thumbnail || `/thumbnail/${v.hash}`,
+        duration: v.duration || meta.duration || 0,
+        progress: meta.progress || 0
+      }
+    })
+    continueWatching.value = items.slice(0, 12)
+    return
+  } catch {
+    // 接口失败（如未登录）时回退到本地数据，用 hash 推导缩略图
+  }
+
+  continueWatching.value = candidates.slice(0, 12).map((h: any) => ({
+    hash: h.hash,
+    title: h.title || '',
+    thumbnail: h.thumbnail || `/thumbnail/${h.hash}`,
+    duration: h.duration || 0,
+    progress: Number(h.progress) || 0
+  }))
 }
 
 const continueWatch = (item: any) => {
@@ -384,6 +431,18 @@ const formatDuration = (seconds?: number): string => {
   }
   return `${m}:${s.toString().padStart(2, '0')}`
 }
+
+// 列表模式的缩略图地址（带登录 token 鉴权）
+const listThumbUrl = (video: Video): string => {
+  const base = video.thumbnail || '/placeholder.jpg'
+  return userStore.token ? `${base}?token=${userStore.token}` : base
+}
+
+const onListImgError = (e: Event) => {
+  const img = e.target as HTMLImageElement
+  img.onerror = null
+  img.src = PLACEHOLDER_THUMB
+}
 </script>
 
 <template>
@@ -448,6 +507,39 @@ const formatDuration = (seconds?: number): string => {
           <span class="batch-toggle-text">{{ selectionMode ? '退出选择' : '批量选择' }}</span>
         </button>
       </div>
+      <!-- 显示模式切换：缩略图 / 列表 -->
+      <div class="view-toggle">
+        <button
+          class="view-toggle-btn"
+          :class="{ active: videoStore.viewMode === 'grid' }"
+          @click="videoStore.setViewMode('grid')"
+          title="缩略图"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+          <span class="view-toggle-text">缩略图</span>
+        </button>
+        <button
+          class="view-toggle-btn"
+          :class="{ active: videoStore.viewMode === 'list' }"
+          @click="videoStore.setViewMode('list')"
+          title="列表"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <span class="view-toggle-text">列表</span>
+        </button>
+      </div>
       <!-- 批量操作工具条 -->
       <div v-if="selectionMode" class="batch-toolbar">
         <span class="batch-count">已选 {{ selectedHashes.length }} 个</span>
@@ -459,25 +551,6 @@ const formatDuration = (seconds?: number): string => {
       <div v-if="searchQuery" class="search-status">
         搜索: "{{ searchQuery }}" ({{ videos.length }} 个结果)
       </div>
-    </div>
-
-    <!-- 快捷筛选页签 -->
-    <div class="quick-filter-bar">
-      <button
-        class="quick-filter-btn"
-        :class="{ active: activeQuickFilter === 'all' }"
-        @click="handleQuickFilter('all')"
-      >全部</button>
-      <button
-        class="quick-filter-btn"
-        :class="{ active: activeQuickFilter === 'liked' }"
-        @click="handleQuickFilter('liked')"
-      >我点赞</button>
-      <button
-        class="quick-filter-btn"
-        :class="{ active: activeQuickFilter === 'favorited' }"
-        @click="handleQuickFilter('favorited')"
-      >我收藏</button>
     </div>
 
     <!-- 标签筛选按钮 -->
@@ -563,7 +636,7 @@ const formatDuration = (seconds?: number): string => {
           data-testid="continue-card"
         >
           <div class="continue-thumb">
-            <img :src="item.thumbnail || '/default-thumb.jpg'" :alt="item.title" />
+            <img :src="item.thumbnail" :alt="item.title" @error="onContinueImgError" />
             <span class="continue-duration">{{ formatDuration(item.duration) }}</span>
             <div class="continue-progress">
               <div class="continue-progress-bar" :style="{ width: progressPercent(item) + '%' }"></div>
@@ -586,7 +659,8 @@ const formatDuration = (seconds?: number): string => {
     <!-- 视频网格 - 所有视频统一显示 -->
     <template v-else>
       <div v-if="videos.length > 0" class="video-section">
-        <div class="video-grid">
+        <!-- 缩略图模式 -->
+        <div v-if="videoStore.viewMode === 'grid'" class="video-grid">
           <VideoCard
             v-for="video in videos"
             :key="video.hash"
@@ -596,6 +670,81 @@ const formatDuration = (seconds?: number): string => {
             @click="handleVideoClick(video)"
             @toggle-select="toggleSelect"
           />
+        </div>
+        <!-- 列表模式 -->
+        <div v-else class="video-list">
+          <div
+            v-for="video in videos"
+            :key="video.hash"
+            class="video-list-row"
+            :class="{ selected: selectedHashes.includes(video.hash) }"
+            @click="handleVideoClick(video)"
+          >
+            <div class="list-thumb" @click.stop="selectionMode ? toggleSelect(video) : handleVideoClick(video)">
+              <img
+                :src="listThumbUrl(video)"
+                :alt="video.title"
+                loading="lazy"
+                class="list-thumb-img"
+                @error="onListImgError"
+              />
+              <span class="list-duration" v-if="video.duration">{{ formatDuration(video.duration) }}</span>
+              <div
+                v-if="selectionMode"
+                class="list-select-overlay"
+                :class="{ active: selectedHashes.includes(video.hash) }"
+                @click.stop="toggleSelect(video)"
+              >
+                <svg v-if="selectedHashes.includes(video.hash)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              </div>
+            </div>
+            <div class="list-info">
+              <h3 class="list-title" :title="video.title">{{ video.title }}</h3>
+              <div class="list-meta">
+                <span class="list-views">{{ video.view_count }} 次播放</span>
+                <span class="list-likes" v-if="video.like_count > 0">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                  </svg>
+                  {{ video.like_count }}
+                </span>
+              </div>
+            </div>
+            <div class="list-actions" v-if="!selectionMode">
+              <button
+                class="list-action-btn like"
+                :class="{ active: video.is_liked }"
+                @click.stop="videoStore.likeVideo(video.hash)"
+                :title="video.is_liked ? '取消点赞' : '点赞'"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" :fill="video.is_liked ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+                  <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                </svg>
+              </button>
+              <button
+                class="list-action-btn favorite"
+                :class="{ active: video.is_favorited }"
+                @click.stop="videoStore.favoriteVideo(video.hash)"
+                :title="video.is_favorited ? '取消收藏' : '收藏'"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" :fill="video.is_favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+              </button>
+              <button
+                class="list-action-btn dislike"
+                :class="{ active: video.disliked }"
+                @click.stop="videoStore.dislikeVideo(video.hash)"
+                :title="video.disliked ? '取消屏蔽' : '我不喜欢'"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -837,6 +986,7 @@ const formatDuration = (seconds?: number): string => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .sort-label {
@@ -1105,6 +1255,193 @@ const formatDuration = (seconds?: number): string => {
   gap: 20px;
 }
 
+/* 显示模式切换 */
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: #aaa;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.view-toggle-btn:hover {
+  color: #fff;
+  background: #333;
+}
+
+.view-toggle-btn.active {
+  background: #2196F3;
+  color: #fff;
+}
+
+/* 列表模式 */
+.video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.video-list-row:hover {
+  background: #222;
+  border-color: #3a3a3a;
+}
+
+.video-list-row.selected {
+  border-color: #2196F3;
+  background: rgba(33, 150, 243, 0.08);
+}
+
+.list-thumb {
+  position: relative;
+  width: 160px;
+  flex-shrink: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000;
+}
+
+.list-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.list-duration {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.list-select-overlay {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  z-index: 3;
+}
+
+.list-select-overlay.active {
+  background: #2196F3;
+  border-color: #2196F3;
+}
+
+.list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  margin: 0 0 6px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: #999;
+}
+
+.list-likes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #ff6b6b;
+}
+
+.list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.list-action-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2a2a2a;
+  border: none;
+  border-radius: 50%;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.list-action-btn:hover {
+  background: #3a3a3a;
+  color: #fff;
+}
+
+.list-action-btn.like.active {
+  color: #ff4757;
+  background: rgba(255, 71, 87, 0.15);
+}
+
+.list-action-btn.favorite.active {
+  color: #ffa502;
+  background: rgba(255, 165, 2, 0.15);
+}
+
+.list-action-btn.dislike.active {
+  color: #ffd93d;
+  background: rgba(255, 217, 61, 0.15);
+}
+
 /* 空状态 */
 .empty-state {
   display: flex;
@@ -1195,36 +1532,6 @@ const formatDuration = (seconds?: number): string => {
   color: #888;
   font-size: 13px;
   margin-left: 12px;
-}
-
-/* 快捷筛选页签 */
-.quick-filter-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.quick-filter-btn {
-  padding: 8px 18px;
-  background: #252525;
-  border: 1px solid #333;
-  border-radius: 20px;
-  color: #aaa;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.quick-filter-btn:hover {
-  background: #333;
-  color: #fff;
-}
-
-.quick-filter-btn.active {
-  background: #2196F3;
-  border-color: #2196F3;
-  color: #fff;
 }
 
 /* 批量选择按钮 */
@@ -1423,11 +1730,45 @@ const formatDuration = (seconds?: number): string => {
   }
   
   .action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 16px;
     max-width: 100%;
   }
-  
+
   .search-box {
     max-width: 100%;
+    width: 100%;
+  }
+
+  /* 排序/筛选行在移动端换行堆叠，避免控件溢出 */
+  .sort-box {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .sort-label {
+    display: none;
+  }
+
+  .sort-select,
+  .sort-order-select,
+  .library-select {
+    flex: 1 1 30%;
+    min-width: 0;
+    height: 38px;
+    font-size: 13px;
+    margin-left: 0;
+  }
+
+  .shuffle-btn,
+  .undo-btn,
+  .batch-toggle-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    height: 38px;
   }
   
   .search-input {
@@ -1458,6 +1799,45 @@ const formatDuration = (seconds?: number): string => {
   .undo-btn svg {
     width: 14px;
     height: 14px;
+  }
+
+  /* 移动端显示模式切换占满整行 */
+  .view-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .view-toggle-btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  /* 移动端列表模式：缩略图收窄，操作按钮缩小 */
+  .video-list-row {
+    gap: 10px;
+    padding: 6px;
+  }
+
+  .list-thumb {
+    width: 120px;
+  }
+
+  .list-title {
+    font-size: 13px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-clamp: 2;
+  }
+
+  .list-action-btn {
+    width: 30px;
+    height: 30px;
+  }
+
+  .list-actions {
+    gap: 4px;
   }
 }
 </style>

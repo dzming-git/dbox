@@ -481,6 +481,33 @@ def get_allowed_library_ids():
     return allowed_library_ids
 
 
+@app.route('/api/videos/by-hashes', methods=['POST'])
+def get_videos_by_hashes():
+    """根据一组 hash 返回视频概要（hash/title/thumbnail/duration）。
+
+    用于「继续观看」等本地历史场景：localStorage 中可能残留迁移前的旧 hash
+    或空的 thumbnail 字段，这里统一以后端权威数据为准重建，过滤掉已不存在的视频。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        hashes = data.get('hashes')
+        if not isinstance(hashes, list) or len(hashes) == 0 or len(hashes) > 300:
+            return jsonify({'success': True, 'videos': []})
+
+        videos = Video.query.filter(Video.hash.in_(hashes)).all()
+        result = [{
+            'hash': v.hash,
+            'title': v.title,
+            'thumbnail': f'/thumbnail/{v.hash}',
+            'duration': getattr(v, 'duration', None),
+        } for v in videos]
+
+        return jsonify({'success': True, 'videos': result})
+    except Exception as e:
+        log.debug('ERROR', f"get_videos_by_hashes 失败: {e}")
+        return jsonify({'success': False, 'message': str(e), 'videos': []}), 500
+
+
 @app.route('/api/videos', methods=['GET'])
 def get_videos():
     try:

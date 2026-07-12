@@ -621,20 +621,37 @@ body {
 /* 响应式导航 */
 @media (max-width: 600px) {
   .nav {
-    padding: 8px 12px;
+    padding: 8px 10px;
     gap: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    align-items: center;
   }
   
   .nav-left {
-    gap: 6px;
-    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
   }
   
   .nav-right {
-    gap: 6px;
+    flex: 0 0 auto;
+    gap: 2px;
     flex-wrap: nowrap;
     justify-content: flex-end;
+    align-self: flex-start;
+  }
+  
+  /* 移动端搜索框独占整行，避免与图标挤在一起溢出 */
+  .nav-search {
+    flex: 1 1 100%;
+    order: 5;
+    margin-top: 4px;
+  }
+  
+  .nav-search-input {
+    width: 100%;
   }
   
   /* 移动端导航只显示图标，避免换行挤占两行遮挡搜索框 */
@@ -647,17 +664,17 @@ body {
   }
   
   .logo {
-    font-size: 16px;
+    font-size: 18px;
   }
   
   .nav-link {
-    padding: 6px 10px;
+    padding: 6px 8px;
     font-size: 13px;
     white-space: nowrap;
   }
   
   .user-avatar-trigger {
-    padding: 4px;
+    padding: 2px;
   }
   
   .username {

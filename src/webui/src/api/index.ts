@@ -73,6 +73,10 @@ export const videoApi = {
   // 批量互动（点赞/收藏/不喜欢）
   batchInteract: (hashes: string[], action: 'like' | 'favorite' | 'dislike') =>
     api.post('/api/videos/batch-interact', { hashes, action }),
+
+  // 按 hash 列表获取视频概要（继续观看等本地历史重建用）
+  getVideosByHashes: (hashes: string[]) =>
+    api.post('/api/videos/by-hashes', { hashes }),
   // 统计概览
   getStats: () =>
     api.get('/api/stats/overview'),

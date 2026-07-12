@@ -22,8 +22,10 @@ export const useVideoStore = defineStore('video', () => {
   const searchQuery = ref('')
   const sortBy = ref('recommended')  // 排序方式
   const sortOrder = ref('desc')  // 排序方向: asc, desc
-  const onlyLiked = ref(false)   // 仅看点赞
-  const onlyFavorited = ref(false)  // 仅看收藏
+  const viewMode = ref<'grid' | 'list'>(
+    (localStorage.getItem('dplayer_view_mode') as 'grid' | 'list') || 'grid'
+  )  // 显示模式: grid=缩略图, list=列表
+
 
   // 换一批功能 - 保存之前的视频列表用于撤回
   const previousVideos = ref<Video[]>([])
@@ -89,10 +91,6 @@ export const useVideoStore = defineStore('video', () => {
       // 默认屏蔽不喜欢的视频（设置可关闭）
       params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
 
-      // 仅看点赞 / 仅看收藏
-      if (onlyLiked.value) params.only_liked = 'true'
-      if (onlyFavorited.value) params.only_favorited = 'true'
-
       const response = await videoApi.getVideos(params) as any
       videos.value = reset ? response.videos : [...videos.value, ...response.videos]
       pagination.value.total = response.total
@@ -148,10 +146,6 @@ export const useVideoStore = defineStore('video', () => {
       // 默认屏蔽不喜欢的视频（设置可关闭）
       params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
 
-      // 仅看点赞 / 仅看收藏
-      if (onlyLiked.value) params.only_liked = 'true'
-      if (onlyFavorited.value) params.only_favorited = 'true'
-
       const response = await videoApi.getVideos(params) as any
       videos.value = response.videos
       pagination.value.total = response.total
@@ -205,7 +199,8 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
 
-  // 标记/取消标记不喜欢（踩）。默认会在列表中屏蔽，设置可关闭
+  // 标记/取消标记不喜欢（踩）。被标记后会保留在当前列表中（避免误触无法撤回），
+  // 下次刷新（fetchVideos 会带 exclude_disliked）时才不再返回该视频
   const dislikeVideo = async (hash: string) => {
     try {
       const response = await videoApi.dislikeVideo(hash) as any
@@ -214,10 +209,6 @@ export const useVideoStore = defineStore('video', () => {
         const index = videos.value.findIndex(v => v.hash === hash)
         if (index !== -1) {
           videos.value[index] = { ...videos.value[index], disliked }
-          // 开启屏蔽时，立即从当前列表中移除该视频
-          if (disliked && getBlockDisliked()) {
-            videos.value = videos.value.filter(v => v.hash !== hash)
-          }
         }
         return response
       }
@@ -339,29 +330,6 @@ export const useVideoStore = defineStore('video', () => {
     await fetchVideos(true)
   }
 
-  // 仅看点赞
-  const filterByLiked = async () => {
-    onlyLiked.value = true
-    onlyFavorited.value = false
-    selectedTagId.value = null
-    await fetchVideos(true)
-  }
-
-  // 仅看收藏
-  const filterByFavorited = async () => {
-    onlyFavorited.value = true
-    onlyLiked.value = false
-    selectedTagId.value = null
-    await fetchVideos(true)
-  }
-
-  // 清除点赞/收藏筛选，恢复全部
-  const clearInteractionFilter = async () => {
-    onlyLiked.value = false
-    onlyFavorited.value = false
-    await fetchVideos(true)
-  }
-
   // 批量互动（点赞/收藏/不喜欢）
   const batchInteractVideos = async (hashes: string[], action: 'like' | 'favorite' | 'dislike') => {
     try {
@@ -401,6 +369,17 @@ export const useVideoStore = defineStore('video', () => {
     sortOrder.value = order
     await fetchVideos(true)
   }
+
+  // 设置显示模式（缩略图/列表），并持久化到 localStorage
+  const setViewMode = (mode: 'grid' | 'list') => {
+    viewMode.value = mode
+    try {
+      localStorage.setItem('dplayer_view_mode', mode)
+    } catch {
+      // 忽略隐私模式下的写入失败
+    }
+  }
+
 
   // 换一批 - 重新获取视频（使用随机排序）
   const shuffleVideos = async () => {
@@ -501,8 +480,7 @@ export const useVideoStore = defineStore('video', () => {
     searchQuery,
     sortBy,
     sortOrder,
-    onlyLiked,
-    onlyFavorited,
+    viewMode,
     hasMore,
     fetchVideos,
     fetchVideosByOffset,
@@ -519,13 +497,11 @@ export const useVideoStore = defineStore('video', () => {
     searchTags,
     filterByTag,
     filterByLibrary,
-    filterByLiked,
-    filterByFavorited,
-    clearInteractionFilter,
     batchInteractVideos,
     fetchUserLibraries,
     setSortBy,
     setSortOrder,
+    setViewMode,
     shuffleVideos,
     undoShuffle,
     previousVideos,
