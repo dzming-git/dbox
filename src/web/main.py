@@ -2906,6 +2906,8 @@ def add_library_folder(library_id):
         if result is None:
             return jsonify({'success': False, 'message': '资源服务无响应'}), 500
         if result.get('success'):
+            # 新文件夹加入后重启监控，使其立即纳入自动感知
+            _restart_library_watchers()
             return jsonify({'success': True, 'data': result.get('folder')})
         return jsonify({'success': False, 'message': result.get('error', '添加文件夹失败')}), 500
     except Exception as e:
@@ -4718,6 +4720,32 @@ def control_service(service_name):
     except Exception as e:
         log.debug('ERROR', f'控制服务失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============ 视频库文件夹自动感知 ============
+def _restart_library_watchers():
+    """（重新）启动视频库文件夹监控，供服务启动 / 新增文件夹后调用。
+
+    监控路径优先从 resourced 查询（视频库/文件夹的磁盘路径），回退到现有 Video.local_path。
+    文件的新增/删除/重命名会实时同步到 Video 表，无需手动扫描。
+    """
+    if not app_config.get('library_watch_enabled', True):
+        log.debug('INFO', '视频库文件夹自动感知已通过配置禁用')
+        return
+    try:
+        from library_watcher import start_library_watchers as _sw
+        _sw(app=app, resource_bus=resource_bus, app_config=app_config,
+            thumbnail_bus=thumbnail_bus, log=log)
+    except Exception as e:
+        log.debug('ERROR', f'启动视频库文件夹监控失败: {e}')
+
+
+try:
+    import threading as _tw
+    _tw.Thread(target=_restart_library_watchers, daemon=True,
+               name='library-watcher-boot').start()
+except Exception as e:
+    print(f'[WARNING] 视频库文件夹监控模块不可用: {e}')
 
 
 # ============ 主入口 ============
