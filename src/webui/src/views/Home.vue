@@ -38,6 +38,19 @@ const loading = computed(() => videoStore.loading)
 const videos = computed(() => videoStore.videos)
 const tags = computed(() => videoStore.tags)
 const selectedTagId = computed(() => videoStore.selectedTagId)
+const selectedUntagged = computed(() => videoStore.selectedUntagged)
+// 「未标记（待整理）」视频数量，仅在展开标签面板时拉取，不在主界面暴露
+const untaggedCount = ref(0)
+const fetchUntaggedCount = async () => {
+  try {
+    const params: any = { untagged: 1, limit: 1 }
+    if (selectedLibraryId.value) params.library_id = selectedLibraryId.value
+    const res = await videoApi.getVideos(params) as any
+    untaggedCount.value = res.total || 0
+  } catch {
+    untaggedCount.value = 0
+  }
+}
 const selectedLibraryId = computed(() => videoStore.selectedLibraryId)
 const libraries = computed(() => videoStore.libraries)
 
@@ -144,6 +157,12 @@ const handleClearTag = () => {
   updateUrl()
 }
 
+// 点击"未标记（待整理）"——与标签筛选互斥，再次点击取消
+const handleUntaggedClick = () => {
+  videoStore.filterByUntagged(!selectedUntagged.value)
+  updateUrl()
+}
+
 // 监听 showTagsSection 变化，初始化树
 watch(showTagsSection, (newVal) => {
   if (newVal) {
@@ -151,6 +170,8 @@ watch(showTagsSection, (newVal) => {
     allTagsTree.value = buildTagTree(tags.value)
     currentTagLevel.value = allTagsTree.value
     tagBreadcrumbs.value = []
+    // 展开时拉取「未标记」数量（低调呈现，不常驻主界面）
+    fetchUntaggedCount()
   }
 })
 
@@ -225,7 +246,7 @@ onMounted(async () => {
     ])
   }
   // 通过分享链接或标签页眼睛图标进入时，若带 tag 参数，自动展开标签面板以显示当前筛选状态
-  if (route.query.tag) {
+  if (route.query.tag || route.query.untagged === '1') {
     showTagsSection.value = true
   }
 })
@@ -388,7 +409,11 @@ const onTagClick = (tag: any) => {
     const found = videoStore.tags.find((t: any) => t.name === tag.name)
     if (found) id = found.id
   }
-  if (id != null) videoStore.filterByTag(id)
+  if (id != null) {
+    videoStore.filterByTag(id)
+    // 与侧边标签导航、标签页眼睛图标保持一致：筛选后写入 URL
+    updateUrl()
+  }
 }
 
 // 抽屉保存后就地更新列表中的该条数据
@@ -666,7 +691,10 @@ const onListImgError = (e: Event) => {
           <line x1="7" y1="7" x2="7.01" y2="7"/>
         </svg>
         {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
-        <span v-if="selectedTagId" class="selected-tag-name">
+        <span v-if="selectedUntagged" class="selected-tag-name">
+          (未标记)
+        </span>
+        <span v-else-if="selectedTagId" class="selected-tag-name">
           ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
         </span>
       </button>
@@ -704,11 +732,24 @@ const onListImgError = (e: Event) => {
         <!-- 全部按钮 -->
         <div
           class="tag-nav-item all-tag"
-          :class="{ active: selectedTagId === null }"
+          :class="{ active: selectedTagId === null && !selectedUntagged }"
           @click="handleClearTag"
         >
           <span class="tag-nav-name">全部</span>
         </div>
+
+        <!-- 未标记（待整理）：低调呈现，仅在展开标签面板时出现 -->
+        <div
+          v-if="untaggedCount > 0"
+          class="tag-nav-item untagged-tag"
+          :class="{ active: selectedUntagged }"
+          @click="handleUntaggedClick"
+          title="查看还没有打标签的视频"
+        >
+          <span class="tag-nav-name">未标记</span>
+          <span class="tag-nav-badge untagged-badge">{{ untaggedCount }}</span>
+        </div>
+
 
         <!-- 当前层级的标签 -->
         <div
@@ -1080,6 +1121,39 @@ const onListImgError = (e: Event) => {
 
 .tag-nav-item.all-tag {
   background: #333;
+}
+
+/* 未标记（待整理）：灰色低调，与真实标签区分，不抢视觉 */
+.tag-nav-item.untagged-tag {
+  border-style: dashed;
+  border-color: #3a3a3a;
+  color: #888;
+}
+
+.tag-nav-item.untagged-tag:hover {
+  background: #2a2a2a;
+  border-color: #4a4a4a;
+  color: #aaa;
+}
+
+.tag-nav-item.untagged-tag.active {
+  background: #3a2f1a;
+  border-color: #c79100;
+  color: #ffca28;
+}
+
+.tag-nav-item.untagged-tag .tag-nav-name {
+  color: inherit;
+}
+
+.untagged-badge {
+  background: #2a2a2a;
+  color: #777;
+}
+
+.tag-nav-item.untagged-tag.active .untagged-badge {
+  background: #4a3a10;
+  color: #ffca28;
 }
 
 .tag-nav-name {

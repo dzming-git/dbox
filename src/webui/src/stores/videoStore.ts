@@ -17,6 +17,7 @@ export const useVideoStore = defineStore('video', () => {
   })
   
   const selectedTagId = ref<number | null>(null)
+  const selectedUntagged = ref(false)  // 是否仅看「未标记（待整理）」的视频
   const selectedLibraryId = ref<number | null>(null)  // 按视频库筛选，null=全部
   const libraries = ref<any[]>([])  // 当前用户可访问的视频库列表
   const searchQuery = ref('')
@@ -68,10 +69,14 @@ export const useVideoStore = defineStore('video', () => {
         offset: currentOffset,
       }
       
-      if (selectedTagId.value) {
+      if (selectedTagId.value && !selectedUntagged.value) {
         params.tag_id = selectedTagId.value
       }
-      
+
+      if (selectedUntagged.value) {
+        params.untagged = 1
+      }
+
       if (selectedLibraryId.value) {
         params.library_id = selectedLibraryId.value
       }
@@ -124,8 +129,12 @@ export const useVideoStore = defineStore('video', () => {
         offset: offset,
       }
 
-      if (selectedTagId.value) {
+      if (selectedTagId.value && !selectedUntagged.value) {
         params.tag_id = selectedTagId.value
+      }
+
+      if (selectedUntagged.value) {
+        params.untagged = 1
       }
 
       if (selectedLibraryId.value) {
@@ -321,6 +330,16 @@ export const useVideoStore = defineStore('video', () => {
 
   const filterByTag = async (tagId: number | null) => {
     selectedTagId.value = tagId
+    selectedUntagged.value = false
+    await fetchVideos(true)
+  }
+
+  // 仅看未标记（待整理）的视频——与标签筛选互斥
+  const filterByUntagged = async (value: boolean) => {
+    selectedUntagged.value = value
+    if (value) {
+      selectedTagId.value = null
+    }
     await fetchVideos(true)
   }
 
@@ -405,6 +424,9 @@ export const useVideoStore = defineStore('video', () => {
     if (selectedTagId.value) {
       query.tag = String(selectedTagId.value)
     }
+    if (selectedUntagged.value) {
+      query.untagged = '1'
+    }
     if (selectedLibraryId.value) {
       query.lib = String(selectedLibraryId.value)
     }
@@ -425,9 +447,14 @@ export const useVideoStore = defineStore('video', () => {
 
   // 从 URL query 参数恢复状态
   const initFromQuery = async (query: Record<string, string>) => {
-    if (query.tag) {
+    if (query.untagged === '1') {
+      selectedUntagged.value = true
+      selectedTagId.value = null
+    } else if (query.tag) {
+      selectedUntagged.value = false
       selectedTagId.value = parseInt(query.tag) || null
     } else {
+      selectedUntagged.value = false
       selectedTagId.value = null
     }
     if (query.lib) {
@@ -470,6 +497,7 @@ export const useVideoStore = defineStore('video', () => {
     error,
     pagination,
     selectedTagId,
+    selectedUntagged,
     selectedLibraryId,
     libraries,
     searchQuery,
@@ -491,6 +519,7 @@ export const useVideoStore = defineStore('video', () => {
     deleteTag,
     searchTags,
     filterByTag,
+    filterByUntagged,
     filterByLibrary,
     batchInteractVideos,
     fetchUserLibraries,

@@ -610,6 +610,14 @@ def get_videos():
             else:
                 query = query.join(VideoTag).filter(VideoTag.tag_id == tag_id)
 
+        # 筛选未标记（没有任何标签）的视频——用于「待整理 / 补标签」场景
+        untagged = request.args.get('untagged', type=int)
+        if untagged:
+            # 没有关联任何 VideoTag 的视频
+            tagged_video_ids = db.session.query(VideoTag.video_id)
+            query = query.filter(Video.id.notin_(tagged_video_ids))
+
+
         # ============ 排除不喜欢的视频（默认屏蔽） ============
         disliked_ids = set()
         liked_ids = set()
@@ -669,7 +677,7 @@ def get_videos():
         else:
             # 默认推荐排序：首页推荐带随机成分（仅支持倒序）
             # 如果没有指定 tag_id 和 search，则认为是首页推荐，加入随机成分
-            if not tag_id and not search:
+            if not tag_id and not search and not untagged:
                 # 使用 func.random() 为每个视频赋予随机权重
                 # 排序公式：priority + view_count * 0.1 + random() * 50
                 # 这样热门视频仍有优势，但随机视频也有机会排在前面
