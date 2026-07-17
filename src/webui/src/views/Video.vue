@@ -1225,7 +1225,7 @@ const handleDelete = async () => {
 
     <!-- 视频内容 -->
     <div v-else-if="video" class="video-content">
-      <div class="main-content">
+      <div class="video-main">
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
@@ -1601,43 +1601,43 @@ const handleDelete = async () => {
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 推荐视频区域 -->
-      <div class="recommendations-section">
-        <div class="recommendations-header">
-          <span class="recommendations-title">推荐视频</span>
-          <button class="shuffle-btn" @click="shuffleRecommendations" :disabled="recommendedLoading">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M23 4v6h-6M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            换一批
-          </button>
-        </div>
-        <div v-if="recommendedLoading" class="recommendations-loading">
-          <div class="spinner-small"></div>
-          <span>加载中...</span>
-        </div>
-        <div v-else class="recommendations-list">
-          <div
-            v-for="rec in recommendedVideos"
-            :key="rec.hash"
-            class="rec-item"
-            @click="handleRecommendationClick(rec)"
-          >
-            <div class="rec-thumbnail-wrapper">
-              <img
-                :src="'/thumbnail/' + rec.hash"
-                :alt="rec.name"
-                class="rec-thumbnail"
-                @error="($event.target as HTMLImageElement).src = '/placeholder.jpg'"
-              />
-              <span v-if="rec.duration" class="rec-duration">{{ formatDuration(rec.duration) }}</span>
-            </div>
-            <div class="rec-info">
-              <div class="rec-title">{{ rec.name }}</div>
-              <div class="rec-meta">{{ rec.view_count || 0 }}播放</div>
-            </div>
+    <!-- 推荐视频区域（桌面端位于视频右侧，移动端自动移至下方） -->
+    <div class="recommendations-section">
+      <div class="recommendations-header">
+        <span class="recommendations-title">推荐视频</span>
+        <button class="shuffle-btn" @click="shuffleRecommendations" :disabled="recommendedLoading">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          换一批
+        </button>
+      </div>
+      <div v-if="recommendedLoading" class="recommendations-loading">
+        <div class="spinner-small"></div>
+        <span>加载中...</span>
+      </div>
+      <div v-else class="recommendations-list">
+        <div
+          v-for="rec in recommendedVideos"
+          :key="rec.hash"
+          class="rec-item"
+          @click="handleRecommendationClick(rec)"
+        >
+          <div class="rec-thumbnail-wrapper">
+            <img
+              :src="'/thumbnail/' + rec.hash"
+              :alt="(rec.title || rec.file_name || '')"
+              class="rec-thumbnail"
+              @error="($event.target as HTMLImageElement).src = '/placeholder.jpg'"
+            />
+            <span v-if="rec.duration" class="rec-duration">{{ formatDuration(rec.duration) }}</span>
+          </div>
+          <div class="rec-info">
+            <div class="rec-title">{{ rec.title || rec.file_name }}</div>
+            <div class="rec-meta">{{ rec.view_count || 0 }}播放</div>
           </div>
         </div>
       </div>
@@ -1788,9 +1788,9 @@ const handleDelete = async () => {
   box-sizing: border-box;
 }
 
-.main-content {
-  flex: 0 1 calc(100% - 374px);
-  min-width: 300px;
+.video-main {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* 推荐视频区域 */
