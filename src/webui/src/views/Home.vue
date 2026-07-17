@@ -176,22 +176,32 @@ watch(showTagsSection, (newVal) => {
 })
 
 // 监听路由 query 变化（处理浏览器后退/URL直接访问场景）
+// suppressQueryWatch：当 URL 是由页面自身 updateUrl() 主动 push（已自行拉取数据）时置位，
+// 避免 route.query 变化再次触发 initFromQuery 造成重复请求/闪烁。
+const suppressQueryWatch = ref(false)
 watch(() => route.query, async (newQuery) => {
-  // 跳过空 query
-  if (Object.keys(newQuery).length === 0) return
+  // 自身触发的 URL 同步，跳过恢复
+  if (suppressQueryWatch.value) {
+    suppressQueryWatch.value = false
+    return
+  }
   // 如果 query 包含 from，说明是从视频页返回，不需要重新初始化
   if (newQuery.from) return
-  // 从 URL 恢复状态
+  // 从 URL 恢复状态（空 query 也走这里，会重置筛选/排序等到默认，
+  // 保证浏览器后退到无参数首页时，列表与 URL 保持一致）
   await videoStore.initFromQuery(newQuery as Record<string, string>)
 }, { immediate: false })
 
-// 更新 URL query 参数（不产生历史记录）
+// 更新 URL query 参数
+// 使用 push 而非 replace：让每次筛选/排序/搜索都成为一条独立的浏览器历史记录，
+// 用户点击「后退」会返回上一次的筛选状态（而不是直接退出 Dplayer）。
 const updateUrl = () => {
   const query = videoStore.toQuery()
   // 始终保留当前媒体模式，避免换页/筛选后 mode 丢失导致切换 tab 消失
   query.mode = mediaTab.value
-  // 使用 replace 避免产生过多历史记录
-  router.replace({ path: '/', query })
+  // 标记为本页面主动同步，避免 route.query 监听器重复恢复数据
+  suppressQueryWatch.value = true
+  router.push({ path: '/', query })
 }
 
 // 排序选项

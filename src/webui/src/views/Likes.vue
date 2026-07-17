@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { videoApi, comicApi } from '../api'
 import { fetchLikes, type MediaItem } from '../utils/media'
+import MediaCard from '../components/MediaCard.vue'
 
 const likes = ref<MediaItem[]>([])
 const loading = ref(false)

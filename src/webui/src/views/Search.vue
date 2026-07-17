@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { videoApi, comicApi } from '../api'
 import type { MediaItem } from '../utils/media'
+import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
 const q = ref((route.query.q as string) || '')

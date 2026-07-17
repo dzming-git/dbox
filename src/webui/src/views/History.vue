@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchHistory, type MediaItem } from '../utils/media'
+import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
 const history = ref<MediaItem[]>([])

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { videoApi, comicApi } from '../api'
 import { fetchFavorites, type MediaItem } from '../utils/media'
+import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
 const favorites = ref<MediaItem[]>([])
