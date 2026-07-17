@@ -20,7 +20,6 @@ except ImportError:
     FileSystemEvent = None
 
 from .indexer import MediaIndexer
-from .models import ResourceItem, ResourceItemDB
 
 
 if WATCHDOG_AVAILABLE:
@@ -58,32 +57,9 @@ if WATCHDOG_AVAILABLE:
                 resource_type = self._indexer.detect_resource_type(file_path)
                 if resource_type == 'unknown':
                     return
-
-                if event_type == 'deleted':
-                    item = ResourceItemDB.get_by_library(self.library_id)
-                    for i in item:
-                        if i.file_path == file_path:
-                            ResourceItemDB.soft_delete(i.hash)
-                            self.on_change(event_type, file_path, i.hash)
-                            break
-                else:
-                    info = self._indexer.index_file(file_path, self.library_id)
-                    if info:
-                        item = ResourceItem(
-                            library_id=self.library_id,
-                            hash=info['hash'],
-                            file_path=info['file_path'],
-                            file_name=info['file_name'],
-                            file_ext=info['file_ext'],
-                            file_size=info['file_size'],
-                            mime_type=info['mime_type'],
-                            width=info.get('width'),
-                            height=info.get('height'),
-                            duration=info.get('duration'),
-                            metadata=info.get('metadata', {}),
-                        )
-                        ResourceItemDB.upsert(item)
-                        self.on_change(event_type, file_path, info['hash'])
+                # 注：自 2026-07-12 起，文件级索引由 web 的 library_watcher 维护（Video 表），
+                # resourced 不再写 ResourceItem。此处仅转发事件供记录/调试。
+                self.on_change(event_type, file_path, '')
             except Exception as e:
                 print(f"处理文件事件失败 {event_type} {file_path}: {e}")
 else:

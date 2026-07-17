@@ -158,68 +158,6 @@ class ResourceFolder:
         )
 
 
-@dataclass
-class ResourceItem:
-    """资源条目模型 - 以 hash 为索引"""
-    id: Optional[int] = None
-    library_id: int = 0
-    folder_id: Optional[int] = None  # 所属文件夹 ID
-    hash: str = ""  # 文件内容 hash，作为唯一索引
-    file_path: str = ""  # 文件相对路径（相对于库文件夹）
-    file_name: str = ""  # 文件名
-    file_ext: str = ""  # 扩展名
-    file_size: int = 0  # 文件大小
-    mime_type: str = ""  # MIME 类型
-    width: Optional[int] = None  # 图片/视频宽度
-    height: Optional[int] = None  # 图片/视频高度
-    duration: Optional[float] = None  # 视频时长（秒）
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 其他元数据
-    is_deleted: bool = False  # 软删除标记
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'id': self.id,
-            'library_id': self.library_id,
-            'folder_id': self.folder_id,
-            'hash': self.hash,
-            'file_path': self.file_path,
-            'file_name': self.file_name,
-            'file_ext': self.file_ext,
-            'file_size': self.file_size,
-            'mime_type': self.mime_type,
-            'width': self.width,
-            'height': self.height,
-            'duration': self.duration,
-            'metadata': self.metadata,
-            'is_deleted': self.is_deleted,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'ResourceItem':
-        return cls(
-            id=d.get('id'),
-            library_id=d.get('library_id', 0),
-            folder_id=d.get('folder_id'),
-            hash=d.get('hash', ''),
-            file_path=d.get('file_path', ''),
-            file_name=d.get('file_name', ''),
-            file_ext=d.get('file_ext', ''),
-            file_size=d.get('file_size', 0),
-            mime_type=d.get('mime_type', ''),
-            width=d.get('width'),
-            height=d.get('height'),
-            duration=d.get('duration'),
-            metadata=d.get('metadata', {}),
-            is_deleted=d.get('is_deleted', False),
-            created_at=datetime.fromisoformat(d['created_at']) if d.get('created_at') else datetime.utcnow(),
-            updated_at=datetime.fromisoformat(d['updated_at']) if d.get('updated_at') else datetime.utcnow(),
-        )
-
-
 class Database:
     """数据库管理器"""
     _local = threading.local()
@@ -303,48 +241,8 @@ class Database:
             if 'is_default' not in columns:
                 cursor.execute("ALTER TABLE resource_folders ADD COLUMN is_default INTEGER DEFAULT 0")
 
-            # 资源条目表（hash 为索引）
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS resource_items (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    library_id INTEGER NOT NULL,
-                    folder_id INTEGER,
-                    hash TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    file_name TEXT NOT NULL,
-                    file_ext TEXT,
-                    file_size INTEGER DEFAULT 0,
-                    mime_type TEXT,
-                    width INTEGER,
-                    height INTEGER,
-                    duration REAL,
-                    metadata TEXT,
-                    is_deleted INTEGER DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (library_id) REFERENCES resource_libraries(id) ON DELETE CASCADE,
-                    FOREIGN KEY (folder_id) REFERENCES resource_folders(id) ON DELETE SET NULL,
-                    UNIQUE(library_id, hash)
-                )
-            ''')
-
-            # 创建 hash 索引（唯一索引加速查询）
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_resource_items_hash
-                ON resource_items(hash)
-            ''')
-
-            # 创建 library_id 索引
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_resource_items_library
-                ON resource_items(library_id)
-            ''')
-
-            # 创建 folder_id 索引
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_resource_items_folder
-                ON resource_items(folder_id)
-            ''')
+            # 注：resource_items 表已废弃（双索引的死数据，索引权威源统一为 web 的 Video 表）。
+            # 2026-07-12 迁移：DROP 该表并停止写入，resourced 仅保留「库/文件夹路径注册表」职责。
 
             # 创建 folders library_id 索引
             cursor.execute('''
@@ -490,34 +388,6 @@ class ResourceLibraryDB:
         with Database.get_cursor() as cursor:
             cursor.execute('DELETE FROM resource_libraries WHERE id = ?', (library_id,))
             return cursor.rowcount > 0
-
-    @staticmethod
-    def get_by_hash(hash_value: str) -> Optional[ResourceItem]:
-        """根据 hash 获取资源条目"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            cursor.execute('SELECT * FROM resource_items WHERE hash = ? AND is_deleted = 0', (hash_value,))
-            row = cursor.fetchone()
-            if row:
-                return ResourceItem(
-                    id=row['id'],
-                    library_id=row['library_id'],
-                    hash=row['hash'],
-                    file_path=row['file_path'],
-                    file_name=row['file_name'],
-                    file_ext=row['file_ext'],
-                    file_size=row['file_size'],
-                    mime_type=row['mime_type'],
-                    width=row['width'],
-                    height=row['height'],
-                    duration=row['duration'],
-                    metadata=eval(row['metadata']) if row['metadata'] else {},
-                    is_deleted=bool(row['is_deleted']),
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at']),
-                )
-            return None
-
 
 class ResourceFolderDB:
     """文件夹数据库操作"""
@@ -668,14 +538,13 @@ class ResourceFolderDB:
 
     @staticmethod
     def get_item_count(folder_id: int) -> int:
-        """统计文件夹的资源数量"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            cursor.execute(
-                'SELECT COUNT(*) as cnt FROM resource_items WHERE folder_id = ? AND is_deleted = 0',
-                (folder_id,)
-            )
-            return cursor.fetchone()['cnt']
+        """统计文件夹的资源数量
+
+        注：resource_items 表已于 2026-07-12 废弃（索引权威源统一为 web 的 Video 表）。
+        resourced 不再维护文件级索引，故此处恒返回 0；若需按文件夹统计真实视频数，
+        应在 web 侧基于 Video.local_path 前缀匹配实现。
+        """
+        return 0
 
     @staticmethod
     def _row_to_folder(row: sqlite3.Row) -> ResourceFolder:
@@ -696,131 +565,4 @@ class ResourceFolderDB:
         )
 
 
-class ResourceItemDB:
-    """资源条目数据库操作"""
 
-    @staticmethod
-    def upsert(item: ResourceItem) -> int:
-        """插入或更新资源条目"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            # 先查询是否存在
-            cursor.execute(
-                'SELECT id FROM resource_items WHERE library_id = ? AND hash = ?',
-                (item.library_id, item.hash)
-            )
-            existing = cursor.fetchone()
-
-            now = datetime.utcnow().isoformat()
-            metadata_str = str(item.metadata) if item.metadata else '{}'
-
-            if existing:
-                cursor.execute('''
-                    UPDATE resource_items SET
-                        file_path = ?, file_name = ?, file_ext = ?, file_size = ?,
-                        mime_type = ?, width = ?, height = ?, duration = ?,
-                        metadata = ?, is_deleted = 0, updated_at = ?
-                    WHERE id = ?
-                ''', (
-                    item.file_path,
-                    item.file_name,
-                    item.file_ext,
-                    item.file_size,
-                    item.mime_type,
-                    item.width,
-                    item.height,
-                    item.duration,
-                    metadata_str,
-                    now,
-                    existing['id'],
-                ))
-                return existing['id']
-            else:
-                cursor.execute('''
-                    INSERT INTO resource_items
-                    (library_id, hash, file_path, file_name, file_ext, file_size,
-                     mime_type, width, height, duration, metadata, is_deleted, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-                ''', (
-                    item.library_id,
-                    item.hash,
-                    item.file_path,
-                    item.file_name,
-                    item.file_ext,
-                    item.file_size,
-                    item.mime_type,
-                    item.width,
-                    item.height,
-                    item.duration,
-                    metadata_str,
-                    now,
-                    now,
-                ))
-                return cursor.lastrowid
-
-    @staticmethod
-    def soft_delete(hash_value: str) -> bool:
-        """软删除资源条目"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            cursor.execute('''
-                UPDATE resource_items SET is_deleted = 1, updated_at = ?
-                WHERE hash = ?
-            ''', (datetime.utcnow().isoformat(), hash_value))
-            return cursor.rowcount > 0
-
-    @staticmethod
-    def delete_by_hash(hash_value: str, library_id: int) -> bool:
-        """删除指定库中的资源条目（物理删除，用于扫描时清理已删除的文件）"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            cursor.execute('''
-                DELETE FROM resource_items
-                WHERE hash = ? AND library_id = ?
-            ''', (hash_value, library_id))
-            return cursor.rowcount > 0
-
-    @staticmethod
-    def get_by_library(library_id: int, include_deleted: bool = False) -> List[ResourceItem]:
-        """获取库的所有资源条目"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            if include_deleted:
-                cursor.execute(
-                    'SELECT * FROM resource_items WHERE library_id = ? ORDER BY file_name',
-                    (library_id,)
-                )
-            else:
-                cursor.execute(
-                    'SELECT * FROM resource_items WHERE library_id = ? AND is_deleted = 0 ORDER BY file_name',
-                    (library_id,)
-                )
-            rows = cursor.fetchall()
-            return [ResourceItem(
-                id=row['id'],
-                library_id=row['library_id'],
-                hash=row['hash'],
-                file_path=row['file_path'],
-                file_name=row['file_name'],
-                file_ext=row['file_ext'],
-                file_size=row['file_size'],
-                mime_type=row['mime_type'],
-                width=row['width'],
-                height=row['height'],
-                duration=row['duration'],
-                metadata=eval(row['metadata']) if row['metadata'] else {},
-                is_deleted=bool(row['is_deleted']),
-                created_at=datetime.fromisoformat(row['created_at']),
-                updated_at=datetime.fromisoformat(row['updated_at']),
-            ) for row in rows]
-
-    @staticmethod
-    def count_by_library(library_id: int) -> int:
-        """统计库的资源数量"""
-        Database.init_db()
-        with Database.get_cursor() as cursor:
-            cursor.execute(
-                'SELECT COUNT(*) as cnt FROM resource_items WHERE library_id = ? AND is_deleted = 0',
-                (library_id,)
-            )
-            return cursor.fetchone()['cnt']

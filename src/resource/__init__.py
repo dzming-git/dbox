@@ -10,11 +10,12 @@
 
 from .models import (
     ResourceLibrary,
-    ResourceItem,
     ResourceLibraryDB,
-    ResourceItemDB,
+    ResourceFolder,
+    ResourceFolderDB,
     ResourceType,
     ScanMode,
+    PathType,
     Database,
 )
 from .indexer import MediaIndexer
@@ -23,11 +24,12 @@ from .scanner_adapter import BusResourceAdapter
 
 __all__ = [
     'ResourceLibrary',
-    'ResourceItem',
     'ResourceLibraryDB',
-    'ResourceItemDB',
+    'ResourceFolder',
+    'ResourceFolderDB',
     'ResourceType',
     'ScanMode',
+    'PathType',
     'Database',
     'MediaIndexer',
     'LibraryWatcher',

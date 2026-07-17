@@ -351,22 +351,27 @@ class FavoriteCollection(db.Model):
 
 
 class CollectionVideo(db.Model):
-    """收藏夹与视频的关联表"""
+    """收藏夹与资源的关联表（视频 / 漫画地位等同，通过 item_type 区分）"""
     __tablename__ = 'collection_videos'
 
     id = db.Column(db.Integer, primary_key=True)
     collection_id = db.Column(db.Integer, db.ForeignKey('favorite_collections.id'), nullable=False)
     user_session = db.Column(db.String(100), nullable=False, index=True)
-    video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=False)
+    item_type = db.Column(db.String(20), nullable=False, default='video')  # 'video' | 'comic'
+    video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=True)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     collection = db.relationship('FavoriteCollection', back_populates='items')
+    comic = db.relationship('Comic', foreign_keys=[comic_id])
 
     def to_dict(self):
         return {
             'id': self.id,
             'collection_id': self.collection_id,
+            'item_type': self.item_type,
             'video_id': self.video_id,
+            'comic_id': self.comic_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -714,5 +719,213 @@ class SharedWatchSession(db.Model):
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
             'ended_at': self.ended_at.isoformat() if self.ended_at else None
         }
+
+
+# ==================== 漫画模式（Comic Mode）数据模型 ====================
+class Comic(db.Model):
+    """漫画模型 - 一本漫画 = 磁盘上一个扁平的图片文件夹"""
+    __tablename__ = 'comics'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hash = db.Column(db.String(64), unique=True, nullable=False, index=True)  # 内容指纹（与路径解耦）
+    title = db.Column(db.String(300), nullable=False)
+    folder_path = db.Column(db.String(600))            # 漫画文件夹本地路径
+    cover_path = db.Column(db.String(600))             # 封面（第一页）本地路径
+    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=True)
+    page_count = db.Column(db.Integer, default=0)
+    like_count = db.Column(db.Integer, default=0)
+    favorite_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    pages = db.relationship('ComicPage', back_populates='comic', cascade='all, delete-orphan',
+                            order_by='ComicPage.page_index')
+    interactions = db.relationship('ComicInteraction', back_populates='comic', cascade='all, delete-orphan')
+    progress = db.relationship('ComicProgress', back_populates='comic', cascade='all, delete-orphan')
+
+    @staticmethod
+    def generate_hash(folder_path, page_paths):
+        """基于图片文件名 + 文件大小的内容指纹（与文件夹路径解耦，重命名后仍可匹配）。"""
+        import os
+        h = hashlib.sha256()
+        try:
+            h.update(str(len(page_paths)).encode('utf-8'))
+            for p in sorted(page_paths, key=lambda x: os.path.basename(x).lower()):
+                h.update(os.path.basename(p).lower().encode('utf-8'))
+                try:
+                    h.update(str(os.path.getsize(p)).encode('utf-8'))
+                except OSError:
+                    pass
+            # 混入文件夹名，避免两套图片集合完全相同被误判为同一本
+            h.update(os.path.basename(folder_path.rstrip(os.sep)).lower().encode('utf-8'))
+        except Exception:
+            return hashlib.sha256(folder_path.encode('utf-8')).hexdigest()
+        return h.hexdigest()
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'hash': self.hash,
+            'title': self.title,
+            'page_count': self.page_count,
+            'library_id': self.library_id,
+            'like_count': self.like_count,
+            'favorite_count': self.favorite_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class ComicPage(db.Model):
+    """漫画页面 - 一页图片"""
+    __tablename__ = 'comic_pages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    page_index = db.Column(db.Integer, nullable=False)   # 从 0 开始
+    file_path = db.Column(db.String(600), index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    comic = db.relationship('Comic', back_populates='pages')
+
+    __table_args__ = (db.UniqueConstraint('comic_id', 'page_index', name='_comic_page_uc'),)
+
+
+class ComicInteraction(db.Model):
+    """漫画交互（点赞/收藏/不喜欢），结构对齐 videos 的 user_interactions"""
+    __tablename__ = 'comic_interactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    user_session = db.Column(db.String(100), nullable=False)
+    interaction_type = db.Column(db.String(20), nullable=False)  # like / favorite / dislike
+    interaction_score = db.Column(db.Float, default=0.0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    comic = db.relationship('Comic', back_populates='interactions')
+
+    __table_args__ = (db.UniqueConstraint('comic_id', 'user_session', 'interaction_type',
+                                          name='_comic_interaction_uc'),)
+
+
+class ComicProgress(db.Model):
+    """漫画阅读进度（按用户）"""
+    __tablename__ = 'comic_progress'
+
+    id = db.Column(db.Integer, primary_key=True)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    user_session = db.Column(db.String(100), nullable=False)
+    page = db.Column(db.Integer, default=0)         # 当前阅读到的页码（从 1 开始）
+    progress = db.Column(db.Float, default=0.0)     # 0~1 阅读进度
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    comic = db.relationship('Comic', back_populates='progress')
+
+    __table_args__ = (db.UniqueConstraint('comic_id', 'user_session', name='_comic_progress_uc'),)
+
+
+class ComicTag(db.Model):
+    """漫画-标签关联表（复用主应用的 tags 表，支持多视频库独立标签体系）"""
+    __tablename__ = 'comic_tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    comic = db.relationship('Comic')
+    tag = db.relationship('Tag')
+
+    __table_args__ = (db.UniqueConstraint('comic_id', 'tag_id', name='_comic_tag_uc'),)
+
+
+class ComicPlaylist(db.Model):
+    """漫画合集/播放列表模型（对齐 videos 的 Playlist）"""
+    __tablename__ = 'comic_playlists'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    user_session = db.Column(db.String(100), nullable=False, index=True)
+    is_public = db.Column(db.Boolean, default=False)
+    thumbnail = db.Column(db.String(500))
+    comic_count = db.Column(db.Integer, default=0)
+    play_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    items = db.relationship('ComicPlaylistItem', back_populates='playlist', cascade='all, delete-orphan')
+
+    def update_comic_count(self):
+        self.comic_count = len([item for item in self.items if item.comic is not None])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'user_session': self.user_session,
+            'is_public': self.is_public,
+            'thumbnail': self.thumbnail,
+            'comic_count': self.comic_count,
+            'play_count': self.play_count,
+            'items': [item.to_dict() for item in self.items if item.comic is not None],
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class ComicPlaylistItem(db.Model):
+    """漫画合集项模型（对齐 videos 的 PlaylistItem）"""
+    __tablename__ = 'comic_playlist_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    playlist_id = db.Column(db.Integer, db.ForeignKey('comic_playlists.id'), nullable=False)
+    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False)
+    position = db.Column(db.Integer, nullable=False)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    playlist = db.relationship('ComicPlaylist', back_populates='items')
+    comic = db.relationship('Comic')
+
+    __table_args__ = (db.UniqueConstraint('playlist_id', 'comic_id', name='_comic_playlist_uc'),)
+
+    def to_dict(self):
+        d = {
+            'id': self.id,
+            'playlist_id': self.playlist_id,
+            'comic_id': self.comic_id,
+            'position': self.position,
+            'added_at': self.added_at.isoformat() if self.added_at else None
+        }
+        if self.comic:
+            cd = self.comic.to_dict()
+            cd['cover_url'] = f'/comic-cover/{self.comic.hash}'
+            d['comic'] = cd
+        else:
+            d['comic'] = None
+        return d
+
+
+def migrate_collection_videos_schema():
+    """[TEST] 为 collection_videos 增加 item_type / comic_id 列（支持收藏夹收纳漫画）。
+
+    仅当列不存在时执行 ALTER，兼容旧库；create_all 不会为已存在的表新增列。
+    """
+    try:
+        insp = db.inspect(db.engine)
+        existing = {c['name'] for c in insp.get_columns('collection_videos')}
+        with db.engine.begin() as conn:
+            if 'item_type' not in existing:
+                conn.execute(db.text(
+                    "ALTER TABLE collection_videos ADD COLUMN item_type VARCHAR(20) NOT NULL DEFAULT 'video'"))
+            if 'comic_id' not in existing:
+                conn.execute(db.text(
+                    "ALTER TABLE collection_videos ADD COLUMN comic_id INTEGER"))
+    except Exception as e:
+        print(f'[WARN] collection_videos 迁移跳过: {e}')
+
+
+
 
 

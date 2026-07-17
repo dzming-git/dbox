@@ -11,11 +11,11 @@ const userStore = useUserStore()
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
 
-// 全局搜索：回车跳转到首页并带上 search 参数
+// 全局搜索：同时搜索视频与漫画，跳转到统一搜索页
 const searchText = ref('')
 const handleNavSearch = () => {
   const q = searchText.value.trim()
-  router.push({ path: '/', query: q ? { search: q } : {} })
+  router.push({ path: '/search', query: q ? { q } : {} })
 }
 
 // 用户下拉菜单状态
@@ -129,12 +129,20 @@ const handleSubmitSuggestion = async () => {
       <div class="nav-left">
         <RouterLink to="/" class="logo">DPlayer</RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
+        <RouterLink to="/comics" class="nav-link" title="漫画">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:2px">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>漫画
+        </RouterLink>
+        <RouterLink to="/comic-tags" class="nav-link">漫画标签</RouterLink>
+        <RouterLink to="/comic-playlists" class="nav-link">漫画合集</RouterLink>
         <div class="nav-search">
           <input
             v-model="searchText"
             class="nav-search-input"
             type="text"
-            placeholder="搜索视频标题..."
+            placeholder="搜索视频、漫画..."
             @keyup.enter="handleNavSearch"
           />
           <button class="nav-search-btn" @click="handleNavSearch" title="搜索">
@@ -616,6 +624,17 @@ body {
 
 .main-content.no-nav {
   padding-top: 0;
+}
+
+/* 漫画沉浸全屏阅读模式：隐藏全局导航，铺满全屏 */
+body.reader-immersive {
+  overflow: hidden;
+}
+body.reader-immersive .nav {
+  display: none !important;
+}
+body.reader-immersive .main-content {
+  padding-top: 0 !important;
 }
 
 /* 响应式导航 */

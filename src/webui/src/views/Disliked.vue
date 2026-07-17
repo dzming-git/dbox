@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { videoApi } from '../api'
+import { videoApi, comicApi } from '../api'
+import { fetchDisliked, type MediaItem } from '../utils/media'
 
-const router = useRouter()
-const disliked = ref<any[]>([])
+const disliked = ref<MediaItem[]>([])
 const loading = ref(false)
 
-// 从后端加载当前用户标记为不喜欢的视频列表
+// 同时加载视频与漫画的"我不喜欢"列表
 const loadDisliked = async () => {
   loading.value = true
   try {
-    const response = await videoApi.getDisliked() as any
-    disliked.value = (response && response.success && response.videos) ? response.videos : []
+    disliked.value = await fetchDisliked()
   } catch (e) {
     console.error('加载不喜欢列表失败:', e)
     disliked.value = []
@@ -23,15 +21,13 @@ const loadDisliked = async () => {
 
 onMounted(loadDisliked)
 
-const goToVideo = (hash: string) => {
-  router.push(`/video/${hash}`)
-}
-
 // 取消不喜欢（撤销屏蔽），调后端切换状态
-const restore = async (hash: string, event: Event) => {
-  event.stopPropagation()
+const onAction = async (payload: { name: string; item: MediaItem }) => {
+  const { name, item } = payload
+  if (name !== 'restore') return
   try {
-    await videoApi.dislikeVideo(hash)
+    if (item.type === 'comic') await comicApi.interact(item.hash, 'dislike')
+    else await videoApi.dislikeVideo(item.hash)
   } catch (e) {
     console.error('取消不喜欢失败:', e)
   }
@@ -39,30 +35,12 @@ const restore = async (hash: string, event: Event) => {
   showToast('已取消屏蔽')
 }
 
-const formatDuration = (seconds: number): string => {
-  if (!seconds || isNaN(seconds)) return '00:00'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
-
-const formatDate = (dateStr: string): string => {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('zh-CN')
-}
-
 const toastMessage = ref('')
 const showToastFlag = ref(false)
 const showToast = (message: string) => {
   toastMessage.value = message
   showToastFlag.value = true
-  setTimeout(() => {
-    showToastFlag.value = false
-  }, 2000)
+  setTimeout(() => { showToastFlag.value = false }, 2000)
 }
 </script>
 
@@ -70,7 +48,7 @@ const showToast = (message: string) => {
   <div class="disliked-page">
     <div class="page-header">
       <h1 class="page-title">我不喜欢</h1>
-      <p class="page-sub">这里列出你标记为"我不喜欢"的视频，默认已在首页屏蔽。点击可取消屏蔽。</p>
+      <p class="page-sub">这里列出你标记为"我不喜欢"的内容，默认已在首页/漫画库屏蔽。点击可取消屏蔽。</p>
     </div>
 
     <div v-if="loading" class="loading-container">
@@ -82,44 +60,22 @@ const showToast = (message: string) => {
       <svg class="empty-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
       </svg>
-      <p>暂无屏蔽的视频</p>
-      <router-link to="/" class="browse-link">去浏览视频</router-link>
+      <p>暂无屏蔽的内容</p>
+      <div class="browse-links">
+        <router-link to="/" class="browse-link">去浏览视频</router-link>
+        <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+      </div>
     </div>
 
     <div v-else class="disliked-grid">
-      <div
-        v-for="video in disliked"
-        :key="video.hash"
-        class="disliked-card"
-        @click="goToVideo(video.hash)"
+      <MediaCard
+        v-for="item in disliked"
+        :key="item.type + ':' + item.hash"
+        :item="item"
+        :actions="['restore']"
+        @action="onAction"
         data-testid="video-card"
-      >
-        <div class="thumbnail-wrapper">
-          <img
-            :src="video.thumbnail || '/default-thumb.jpg'"
-            :alt="video.title"
-            class="thumbnail"
-          />
-          <span v-if="video.duration" class="duration">{{ formatDuration(video.duration) }}</span>
-        </div>
-        <div class="video-info">
-          <h3 class="video-title">{{ video.title }}</h3>
-          <div class="video-meta">
-            <span class="disliked-date">屏蔽于 {{ formatDate(video.disliked_at) }}</span>
-          </div>
-        </div>
-        <button
-          class="restore-btn"
-          @click="restore(video.hash, $event)"
-          data-testid="restore-button"
-          title="取消屏蔽"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
-          </svg>
-        </button>
-      </div>
+      />
     </div>
 
     <div v-if="showToastFlag" class="toast" data-testid="restore-success">
@@ -137,24 +93,9 @@ const showToast = (message: string) => {
   background: #0f0f0f;
   color: #fff;
 }
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0;
-  color: #fff;
-}
-
-.page-sub {
-  margin: 8px 0 0;
-  color: #888;
-  font-size: 14px;
-}
-
+.page-header { margin-bottom: 24px; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: #fff; }
+.page-sub { margin: 8px 0 0; color: #888; font-size: 14px; }
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -162,7 +103,6 @@ const showToast = (message: string) => {
   justify-content: center;
   min-height: 400px;
 }
-
 .spinner {
   width: 48px;
   height: 48px;
@@ -171,11 +111,7 @@ const showToast = (message: string) => {
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
+@keyframes spin { to { transform: rotate(360deg); } }
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -184,17 +120,9 @@ const showToast = (message: string) => {
   min-height: 400px;
   color: #666;
 }
-
-.empty-icon {
-  margin-bottom: 16px;
-  color: #444;
-}
-
-.empty-state p {
-  font-size: 16px;
-  margin-bottom: 16px;
-}
-
+.empty-icon { margin-bottom: 16px; color: #444; }
+.empty-state p { font-size: 16px; margin-bottom: 16px; }
+.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
   padding: 10px 24px;
   background: #ffd93d;
@@ -206,109 +134,14 @@ const showToast = (message: string) => {
   cursor: pointer;
   transition: background 0.2s;
 }
-
-.browse-link:hover {
-  background: #e6c233;
-}
-
+.browse-link:hover { background: #e6c233; }
+.browse-link.comic { background: #ff9800; color: #fff; }
+.browse-link.comic:hover { background: #e68a00; }
 .disliked-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
 }
-
-.disliked-card {
-  background: #1a1a1a;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  position: relative;
-}
-
-.disliked-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-
-.thumbnail-wrapper {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-}
-
-.thumbnail {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s;
-}
-
-.disliked-card:hover .thumbnail {
-  transform: scale(1.05);
-}
-
-.duration {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 4px;
-  font-size: 12px;
-  color: #fff;
-}
-
-.video-info {
-  padding: 16px;
-}
-
-.video-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: #fff;
-  margin: 0 0 8px 0;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.video-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #999;
-}
-
-.restore-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 36px;
-  height: 36px;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  border-radius: 50%;
-  color: #ffd93d;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s, background 0.2s;
-}
-
-.disliked-card:hover .restore-btn {
-  opacity: 1;
-}
-
-.restore-btn:hover {
-  background: rgba(255, 217, 61, 0.2);
-}
-
 .toast {
   position: fixed;
   bottom: 80px;
@@ -322,30 +155,15 @@ const showToast = (message: string) => {
   z-index: 2000;
   animation: fadeInOut 2s ease;
 }
-
 @keyframes fadeInOut {
   0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
   10% { opacity: 1; transform: translateX(-50%) translateY(0); }
   90% { opacity: 1; transform: translateX(-50%) translateY(0); }
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
-
 @media (max-width: 768px) {
-  .disliked-page {
-    padding: 16px;
-  }
-
-  .page-title {
-    font-size: 22px;
-  }
-
-  .disliked-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-
-  .restore-btn {
-    opacity: 1;
-  }
+  .disliked-page { padding: 16px; }
+  .page-title { font-size: 22px; }
+  .disliked-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
 }
 </style>

@@ -59,7 +59,6 @@ if _SRC_DIR not in sys.path:
 try:
     from .models import (
         ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
-        ResourceItem, ResourceItemDB,
         ResourceType, ScanMode, PathType, Database,
         get_db_dir
     )
@@ -68,7 +67,6 @@ try:
 except ImportError:
     from resource.models import (
         ResourceLibrary, ResourceLibraryDB, ResourceFolder, ResourceFolderDB,
-        ResourceItem, ResourceItemDB,
         ResourceType, ScanMode, PathType, Database,
         get_db_dir
     )
@@ -386,110 +384,6 @@ class BusResourceAdapter(BaseDBusService):
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def on_method_scan_folder(self, params: Dict[str, Any]) -> Dict:
-        """扫描单个文件夹"""
-        try:
-            folder_id = params.get('folder_id')
-            if not folder_id:
-                return {'success': False, 'error': '缺少 folder_id'}
-
-            folder = ResourceFolderDB.get_by_id(folder_id)
-            if not folder:
-                return {'success': False, 'error': '文件夹不存在'}
-
-            if folder.path_type == 'file':
-                if not os.path.isfile(folder.path):
-                    return {'success': False, 'error': '文件不存在'}
-                # 单文件扫描
-                result = self._scan_single_file(folder)
-            else:
-                if not os.path.isdir(folder.path):
-                    return {'success': False, 'error': '文件夹不存在'}
-                # 文件夹扫描
-                result = self._scan_folder(folder)
-
-            # 更新文件夹扫描时间
-            folder.last_scan_at = datetime.utcnow()
-            ResourceFolderDB.update(folder)
-
-            return result
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-
-    def _scan_single_file(self, folder: ResourceFolder) -> Dict:
-        """扫描单个文件"""
-        try:
-            indexer = MediaIndexer()
-            result = indexer.scan_file(folder.path, folder.library_id, folder.id)
-
-            if result.get('hash'):
-                item = ResourceItem(
-                    library_id=folder.library_id,
-                    folder_id=folder.id,
-                    hash=result['hash'],
-                    file_path=result['file_path'],
-                    file_name=result['file_name'],
-                    file_ext=result['file_ext'],
-                    file_size=result['file_size'],
-                    mime_type=result.get('mime_type', ''),
-                    width=result.get('width'),
-                    height=result.get('height'),
-                    duration=result.get('duration'),
-                    metadata=result.get('metadata', {}),
-                )
-                ResourceItemDB.upsert(item)
-                return {
-                    'success': True,
-                    'stats': {
-                        'total': 1,
-                        'videos': 1 if item.file_ext.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.wmv'] else 0,
-                        'images': 1 if item.file_ext.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'] else 0,
-                        'items_added': 1,
-                    }
-                }
-            return {'success': True, 'stats': {'total': 0, 'items_added': 0}}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-
-    def _scan_folder(self, folder: ResourceFolder) -> Dict:
-        """扫描文件夹"""
-        try:
-            indexer = MediaIndexer()
-            result = indexer.scan_directory(folder.path, folder.library_id, folder.id)
-
-            items_added = 0
-            for item_info in result.get('items', []):
-                item = ResourceItem(
-                    library_id=folder.library_id,
-                    folder_id=folder.id,
-                    hash=item_info['hash'],
-                    file_path=item_info['file_path'],
-                    file_name=item_info['file_name'],
-                    file_ext=item_info['file_ext'],
-                    file_size=item_info['file_size'],
-                    mime_type=item_info['mime_type'],
-                    width=item_info.get('width'),
-                    height=item_info.get('height'),
-                    duration=item_info.get('duration'),
-                    metadata=item_info.get('metadata', {}),
-                )
-                ResourceItemDB.upsert(item)
-                items_added += 1
-
-            return {
-                'success': True,
-                'stats': {
-                    'total': result['total'],
-                    'videos': result['videos'],
-                    'images': result['images'],
-                    'galleries': result['galleries'],
-                    'unknown': result['unknown'],
-                    'items_added': items_added,
-                }
-            }
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-
     # ============ 扫描 ============
 
     def on_method_scan_library(self, params: Dict[str, Any]) -> Dict:
@@ -598,13 +492,13 @@ class BusResourceAdapter(BaseDBusService):
         return {'success': True, 'message': '扫描状态已重置'}
 
     def _do_scan(self, library: ResourceLibrary, progress_callback: Callable = None) -> Dict:
-        """执行实际扫描，支持进度回调（扫描所有关联文件夹）"""
-        try:
-            # 扫描前：记录已有的 hash（用于检测删除的文件）
-            existing_items = ResourceItemDB.get_by_library(library.id)
-            existing_hashes = {item.hash for item in existing_items}
-            existing_map = {item.hash: item for item in existing_items}
+        """执行实际扫描（仅枚举文件 + 进度上报，不做内容索引）。
 
+        注：自 2026-07-12 起，resourced 不再维护文件级索引（ResourceItem 已废弃），
+        索引权威源统一为 web 的 Video 表（由 web 的 library_watcher / scan-folder / 导入流程负责）。
+        本方法只负责「遍历磁盘 + 进度上报 + 返回媒体文件清单」，供上层驱动 web 侧索引。
+        """
+        try:
             # 获取库下所有文件夹
             folders = ResourceFolderDB.get_by_library(library.id)
             if not folders:
@@ -627,91 +521,35 @@ class BusResourceAdapter(BaseDBusService):
             total = len(all_files)
             print(f"[scanner] start scan, {total} files in {len(folders)} folder(s)", flush=True)
 
-            # 执行扫描
-            all_items = []
             stats = {'total': 0, 'videos': 0, 'images': 0, 'galleries': 0, 'unknown': 0}
+            scanned_files = []  # 媒体文件清单（供 web 侧索引使用）
 
             for idx, (folder_id, file_path) in enumerate(all_files, 1):
                 if progress_callback:
                     progress_callback(idx, total, file_path)
                 try:
-                    info = indexer.index_file(file_path, library.id, folder_id)
-                    if info:
-                        stats['total'] += 1
-                        rtype = info['resource_type']
-                        stats[rtype + 's'] = stats.get(rtype + 's', 0) + 1
-                        all_items.append(info)
-                    else:
-                        stats['unknown'] += 1
+                    rtype = indexer.detect_resource_type(file_path)
+                    stats['total'] += 1
+                    stats[rtype + 's'] = stats.get(rtype + 's', 0) + 1
+                    if rtype in ('video', 'image', 'gallery'):
+                        scanned_files.append(file_path)
                 except Exception as e:
-                    print(f"[scanner] index_file failed: {file_path}: {e}", flush=True)
+                    print(f"[scanner] classify failed: {file_path}: {e}", flush=True)
                     stats['unknown'] += 1
 
-            print(f"[scanner] scan done, {len(all_items)} items indexed, stats={stats}", flush=True)
+            print(f"[scanner] scan done, {len(scanned_files)} media files enumerated, stats={stats}", flush=True)
 
-            # 分类处理结果
-            scanned_hashes = {item['hash'] for item in all_items}
-            added = []
-            updated = []
-
-            for item_info in all_items:
-                file_hash = item_info['hash']
-                if file_hash in existing_hashes:
-                    old = existing_map.get(file_hash)
-                    if old and old.file_path != item_info['file_path']:
-                        updated.append(item_info['file_path'])
-                else:
-                    added.append(item_info['file_path'])
-
-            print(f"[scanner] scanned={len(scanned_hashes)}, existing={len(existing_hashes)}, added={len(added)}, updated={len(updated)}", flush=True)
-
-            # 检测删除的文件（在 DB 中但不在磁盘上）
-            removed_hashes = existing_hashes - scanned_hashes
-            removed = []
-            for item in existing_items:
-                if item.hash in removed_hashes:
-                    removed.append(item.file_path)
-                    try:
-                        ResourceItemDB.delete_by_hash(item.hash, library.id)
-                    except Exception as e:
-                        print(f"[scanner] delete_by_hash failed: {e}", flush=True)
-
-            # 更新数据库（upsert）
-            items_added_count = 0
-            for item_info in all_items:
-                item = ResourceItem(
-                    library_id=library.id,
-                    hash=item_info['hash'],
-                    file_path=item_info['file_path'],
-                    file_name=item_info['file_name'],
-                    file_ext=item_info['file_ext'],
-                    file_size=item_info['file_size'],
-                    mime_type=item_info['mime_type'],
-                    width=item_info.get('width'),
-                    height=item_info.get('height'),
-                    duration=item_info.get('duration'),
-                    metadata=item_info.get('metadata', {}),
-                )
-                ResourceItemDB.upsert(item)
-                items_added_count += 1
-
-            # 更新库的扫描时间
+            # 更新库的扫描时间（仅元数据，不产生文件级索引）
             library.last_scan_at = datetime.utcnow()
             ResourceLibraryDB.update(library)
 
             return {
                 'success': True,
-                'stats': {
-                    'total': stats['total'],
-                    'videos': stats['videos'],
-                    'images': stats['images'],
-                    'galleries': stats['galleries'],
-                    'unknown': stats['unknown'],
-                    'items_added': items_added_count,
-                },
-                'added': added,
-                'updated': updated,
-                'removed': removed,
+                'stats': stats,
+                'files': scanned_files,
+                'added': [],
+                'updated': [],
+                'removed': [],
             }
         except Exception as e:
             print(f"[scanner] _do_scan error: {e}", flush=True)
@@ -728,7 +566,9 @@ class BusResourceAdapter(BaseDBusService):
             if not library:
                 return {'success': False, 'error': '库不存在'}
 
-            resource_count = ResourceItemDB.count_by_library(library_id)
+            # resource_count 已废弃：文件级索引（ResourceItem）于 2026-07-12 移除，
+            # 索引权威源统一为 web 的 Video 表。此处恒为 0。
+            resource_count = 0
 
             return {
                 'success': True,
@@ -745,7 +585,12 @@ class BusResourceAdapter(BaseDBusService):
     # ============ 文件监控 ============
 
     def on_method_watch_library(self, params: Dict[str, Any]) -> Dict:
-        """启动文件监控"""
+        """登记文件监控状态（仅元数据）。
+
+        注：自 2026-07-12 起，真实的文件系统监控由 web 的 library_watcher 负责
+        （它直接维护 web 的 Video 表，作为唯一索引源）。resourced 不再启动 watchdog，
+        避免与 web 重复监控、重复写索引。这里仅记录 is_watching 供展示。
+        """
         try:
             library_id = params.get('library_id')
             if not library_id:
@@ -755,39 +600,21 @@ class BusResourceAdapter(BaseDBusService):
             if not library:
                 return {'success': False, 'error': '库不存在'}
 
-            if not os.path.isdir(library.path):
-                return {'success': False, 'error': '路径不存在'}
-
-            if self._watcher.is_watching(library_id):
-                return {'success': True, 'message': '已经在监控中'}
-
-            def on_change(event_type: str, file_path: str, file_hash: str):
-                print(f"[ResourceWatcher] {library.name}: {event_type} {file_path}")
-
-            self._watcher.watch(library_id, library.path, on_change)
-
-            # 更新库的监控状态
             library.is_watching = True
             library.last_watch_at = datetime.utcnow()
             ResourceLibraryDB.update(library)
 
-            return {'success': True}
+            return {'success': True, 'message': '监控状态已登记（实际监控由 web 服务负责）'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
     def on_method_unwatch_library(self, params: Dict[str, Any]) -> Dict:
-        """停止文件监控"""
+        """取消文件监控状态（仅元数据，见 on_method_watch_library 说明）"""
         try:
             library_id = params.get('library_id')
             if not library_id:
                 return {'success': False, 'error': '缺少 library_id'}
 
-            if not self._watcher.is_watching(library_id):
-                return {'success': True, 'message': '未在监控'}
-
-            self._watcher.unwatch(library_id)
-
-            # 更新库的监控状态
             library = ResourceLibraryDB.get_by_id(library_id)
             if library:
                 library.is_watching = False
@@ -800,46 +627,15 @@ class BusResourceAdapter(BaseDBusService):
     # ============ 资源查询 ============
 
     def on_method_get_resource(self, params: Dict[str, Any]) -> Dict:
-        """根据 hash 获取资源"""
-        try:
-            hash_value = params.get('hash', '')
-            if not hash_value:
-                return {'success': False, 'error': '缺少 hash'}
-
-            resource = ResourceItemDB.get_by_hash(hash_value)
-            if not resource:
-                return {'success': False, 'error': '资源不存在'}
-
-            return {'success': True, 'resource': resource.to_dict()}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
+        """根据 hash 获取资源（已废弃：ResourceItem 于 2026-07-12 移除，索引权威源为 web 的 Video 表）"""
+        return {
+            'success': False,
+            'error': '资源索引已迁移至 web 的 Video 表（com.dplayer.web），resourced 不再提供文件级资源查询',
+        }
 
     def on_method_get_resources_by_library(self, params: Dict[str, Any]) -> Dict:
-        """获取库的所有资源"""
-        try:
-            library_id = params.get('library_id')
-            if not library_id:
-                return {'success': False, 'error': '缺少 library_id'}
-
-            library = ResourceLibraryDB.get_by_id(library_id)
-            if not library:
-                return {'success': False, 'error': '库不存在'}
-
-            resources = ResourceItemDB.get_by_library(library_id)
-            total = len(resources)
-
-            # 分页
-            limit = params.get('limit', 100)
-            offset = params.get('offset', 0)
-            page_resources = resources[offset:offset+limit]
-
-            return {
-                'success': True,
-                'resources': [r.to_dict() for r in page_resources],
-                'total': total,
-            }
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
+        """获取库的所有资源（已废弃：见 on_method_get_resource 说明，返回空列表）"""
+        return {'success': True, 'resources': [], 'total': 0}
 
     # ============ 健康检查 ============
 

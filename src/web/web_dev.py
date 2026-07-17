@@ -42,6 +42,7 @@ from functools import wraps
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
+from core.models import migrate_collection_videos_schema
 from auth_service import AuthService, init_root_user
 
 # 导入API蓝图
@@ -102,6 +103,7 @@ def internal_error(error):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        migrate_collection_videos_schema()
         init_root_user()
     
     print("[DEV] DPlayer Web Service starting on http://0.0.0.0:5000")

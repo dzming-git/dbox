@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { videoApi } from '../api'
+import { videoApi, comicApi } from '../api'
+import { fetchFavorites, type MediaItem } from '../utils/media'
 
 const router = useRouter()
-const favorites = ref<any[]>([])
+const favorites = ref<MediaItem[]>([])
 const loading = ref(false)
 
 // 收藏夹分组
 const collections = ref<any[]>([])
 const activeCollectionId = ref<number | null>(null)  // null = 全部收藏
-const openMenuHash = ref<string | null>(null)  // 当前展开"加入收藏夹"菜单的视频 hash
+const openMenuItem = ref<MediaItem | null>(null)  // 当前展开"加入收藏夹"菜单的资源
 
 // 加载收藏夹列表
 const loadCollections = async () => {
@@ -22,17 +23,33 @@ const loadCollections = async () => {
   }
 }
 
-// 加载当前显示的收藏视频（全部 或 某收藏夹）
+// 将收藏夹接口返回的视频/漫画条目统一为 MediaItem
+const toMediaItem = (it: any): MediaItem => {
+  if (it.type === 'comic') {
+    return {
+      type: 'comic', hash: it.hash, title: it.title, cover: it.cover_url || '',
+      pageCount: it.page_count, progress: it.progress, page: it.page ?? it.last_page,
+      date: it.favorited_at, raw: it
+    }
+  }
+  return {
+    type: 'video', hash: it.hash, title: it.title, cover: it.thumbnail || '',
+    thumbnail: it.thumbnail, duration: it.duration, progress: it.progress,
+    date: it.favorited_at, raw: it
+  }
+}
+
+// 加载当前显示的收藏（全部 或 某收藏夹，均含视频与漫画）
 const loadFavorites = async () => {
   loading.value = true
   try {
-    let list: any[] = []
+    let list: MediaItem[] = []
     if (activeCollectionId.value) {
       const r = await videoApi.getCollectionVideos(activeCollectionId.value) as any
-      list = (r && r.success && r.videos) ? r.videos : []
+      list = (r && r.success && Array.isArray(r.videos))
+        ? r.videos.map(toMediaItem) : []
     } else {
-      const r = await videoApi.getFavorites() as any
-      list = (r && r.success && r.videos) ? r.videos : []
+      list = await fetchFavorites()
     }
     favorites.value = list
   } catch (e) {
@@ -51,7 +68,7 @@ onMounted(async () => {
 // 切换收藏夹
 const selectCollection = async (id: number | null) => {
   activeCollectionId.value = id
-  openMenuHash.value = null
+  openMenuItem.value = null
   await loadFavorites()
 }
 
@@ -73,7 +90,7 @@ const createCollection = async () => {
 // 删除收藏夹
 const deleteCollection = async (id: number, event: Event) => {
   event.stopPropagation()
-  if (!confirm('确定删除该收藏夹吗？（其中的视频不会被取消收藏）')) return
+  if (!confirm('确定删除该收藏夹吗？（其中的内容不会被取消收藏）')) return
   try {
     const r = await videoApi.deleteCollection(id) as any
     if (r && r.success) {
@@ -85,57 +102,32 @@ const deleteCollection = async (id: number, event: Event) => {
   }
 }
 
-// 跳转到视频详情
-const goToVideo = (hash: string) => {
-  router.push(`/video/${hash}`)
-}
-
-// 取消收藏
-const unfavorite = async (hash: string, event: Event) => {
-  event.stopPropagation()
-  try {
-    await videoApi.favoriteVideo(hash)
-  } catch (e) {
-    console.error('取消收藏失败:', e)
+// 取消收藏（视频/漫画分别走各自接口，toggle 语义一致）
+const onAction = async (payload: { name: string; item: MediaItem }) => {
+  const { name, item } = payload
+  if (name === 'unfavorite') {
+    try {
+      if (item.type === 'comic') await comicApi.interact(item.hash, 'favorite')
+      else await videoApi.favoriteVideo(item.hash)
+    } catch (e) {
+      console.error('取消收藏失败:', e)
+    }
+    await loadFavorites()
+    showToast('已取消收藏')
+  } else if (name === 'addCollection') {
+    openMenuItem.value = openMenuItem.value === item ? null : item
   }
-  await loadFavorites()
-  showToast('已取消收藏')
 }
 
-// 加入收藏夹 / 从收藏夹移除
-const toggleMenu = (hash: string, event: Event) => {
-  event.stopPropagation()
-  openMenuHash.value = openMenuHash.value === hash ? null : hash
-}
-
-const addToCollection = async (colId: number, hash: string, event: Event) => {
+const addToCollection = async (colId: number, item: MediaItem, event: Event) => {
   event.stopPropagation()
   try {
-    await videoApi.addToCollection(colId, hash)
+    await videoApi.addToCollection(colId, item.type, item.hash)
     showToast('已加入收藏夹')
   } catch (e) {
     console.error('加入收藏夹失败', e)
   }
-  openMenuHash.value = null
-}
-
-// 格式化时长
-const formatDuration = (seconds: number): string => {
-  if (!seconds || isNaN(seconds)) return '00:00'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
-
-// 格式化日期
-const formatDate = (dateStr: string): string => {
-  if (!dateStr) return ''
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('zh-CN')
+  openMenuItem.value = null
 }
 
 // 提示消息
@@ -144,9 +136,7 @@ const showToastFlag = ref(false)
 const showToast = (message: string) => {
   toastMessage.value = message
   showToastFlag.value = true
-  setTimeout(() => {
-    showToastFlag.value = false
-  }, 2000)
+  setTimeout(() => { showToastFlag.value = false }, 2000)
 }
 </script>
 
@@ -198,54 +188,23 @@ const showToast = (message: string) => {
           <svg class="empty-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
-          <p>暂无收藏视频</p>
-          <router-link to="/" class="browse-link">去浏览视频</router-link>
+          <p>暂无收藏内容</p>
+          <div class="browse-links">
+            <router-link to="/" class="browse-link">去浏览视频</router-link>
+            <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+          </div>
         </div>
 
         <div v-else class="favorites-grid">
           <div
-            v-for="video in favorites"
-            :key="video.hash"
-            class="favorite-card"
-            @click="goToVideo(video.hash)"
-            data-testid="video-card"
+            v-for="item in favorites"
+            :key="item.type + ':' + item.hash"
+            class="favorite-card-wrap"
           >
-            <div class="thumbnail-wrapper">
-              <img
-                :src="video.thumbnail || '/default-thumb.jpg'"
-                :alt="video.title"
-                class="thumbnail"
-              />
-              <span v-if="video.duration" class="duration">{{ formatDuration(video.duration) }}</span>
-            </div>
-            <div class="video-info">
-              <h3 class="video-title">{{ video.title }}</h3>
-              <div class="video-meta">
-                <span class="favorited-date">收藏于 {{ formatDate(video.favorited_at) }}</span>
-              </div>
-            </div>
-            <button
-              class="unfavorite-btn"
-              @click="unfavorite(video.hash, $event)"
-              data-testid="unfavorite-button"
-              title="取消收藏"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-              </svg>
-            </button>
+            <MediaCard :item="item" :actions="['unfavorite', 'addCollection']" @action="onAction" />
             <!-- 加入收藏夹 -->
-            <button
-              class="add-to-collection-btn"
-              @click="toggleMenu(video.hash, $event)"
-              title="加入收藏夹"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-              </svg>
-            </button>
             <div
-              v-if="openMenuHash === video.hash"
+              v-if="openMenuItem === item"
               class="collection-menu"
               @click.stop
             >
@@ -255,7 +214,7 @@ const showToast = (message: string) => {
                 v-for="col in collections"
                 :key="col.id"
                 class="collection-menu-item"
-                @click="addToCollection(col.id, video.hash, $event)"
+                @click="addToCollection(col.id, item, $event)"
               >{{ col.name }}</div>
             </div>
           </div>
@@ -278,14 +237,11 @@ const showToast = (message: string) => {
   background: #0f0f0f;
   color: #fff;
 }
-
 .favorites-layout {
   display: flex;
   gap: 24px;
   align-items: flex-start;
 }
-
-/* 收藏夹侧边栏 */
 .collections-sidebar {
   width: 200px;
   flex-shrink: 0;
@@ -295,7 +251,6 @@ const showToast = (message: string) => {
   position: sticky;
   top: 80px;
 }
-
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -306,7 +261,6 @@ const showToast = (message: string) => {
   font-size: 14px;
   color: #aaa;
 }
-
 .add-collection-btn {
   width: 24px;
   height: 24px;
@@ -318,11 +272,7 @@ const showToast = (message: string) => {
   line-height: 1;
   cursor: pointer;
 }
-
-.add-collection-btn:hover {
-  background: #1976D2;
-}
-
+.add-collection-btn:hover { background: #1976D2; }
 .collection-list {
   list-style: none;
   margin: 0;
@@ -331,7 +281,6 @@ const showToast = (message: string) => {
   flex-direction: column;
   gap: 4px;
 }
-
 .collection-item {
   display: flex;
   align-items: center;
@@ -342,16 +291,8 @@ const showToast = (message: string) => {
   color: #ccc;
   transition: background 0.2s;
 }
-
-.collection-item:hover {
-  background: #252525;
-}
-
-.collection-item.active {
-  background: #2196F3;
-  color: #fff;
-}
-
+.collection-item:hover { background: #252525; }
+.collection-item.active { background: #2196F3; color: #fff; }
 .collection-name {
   flex: 1;
   font-size: 13px;
@@ -359,16 +300,8 @@ const showToast = (message: string) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.collection-count {
-  font-size: 11px;
-  color: #888;
-}
-
-.collection-item.active .collection-count {
-  color: rgba(255, 255, 255, 0.8);
-}
-
+.collection-count { font-size: 11px; color: #888; }
+.collection-item.active .collection-count { color: rgba(255, 255, 255, 0.8); }
 .del-collection-btn {
   background: none;
   border: none;
@@ -378,27 +311,10 @@ const showToast = (message: string) => {
   line-height: 1;
   padding: 0 2px;
 }
-
-.del-collection-btn:hover {
-  color: #ff6b6b;
-}
-
-.favorites-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0;
-  color: #fff;
-}
-
+.del-collection-btn:hover { color: #ff6b6b; }
+.favorites-main { flex: 1; min-width: 0; }
+.page-header { margin-bottom: 24px; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: #fff; }
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -406,7 +322,6 @@ const showToast = (message: string) => {
   justify-content: center;
   min-height: 400px;
 }
-
 .spinner {
   width: 48px;
   height: 48px;
@@ -415,11 +330,7 @@ const showToast = (message: string) => {
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
+@keyframes spin { to { transform: rotate(360deg); } }
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -428,17 +339,9 @@ const showToast = (message: string) => {
   min-height: 400px;
   color: #666;
 }
-
-.empty-icon {
-  margin-bottom: 16px;
-  color: #444;
-}
-
-.empty-state p {
-  font-size: 16px;
-  margin-bottom: 16px;
-}
-
+.empty-icon { margin-bottom: 16px; color: #444; }
+.empty-state p { font-size: 16px; margin-bottom: 16px; }
+.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
   padding: 10px 24px;
   background: #2196F3;
@@ -450,135 +353,15 @@ const showToast = (message: string) => {
   cursor: pointer;
   transition: background 0.2s;
 }
-
-.browse-link:hover {
-  background: #1976D2;
-}
-
+.browse-link:hover { background: #1976D2; }
+.browse-link.comic { background: #ff9800; }
+.browse-link.comic:hover { background: #e68a00; }
 .favorites-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
 }
-
-.favorite-card {
-  background: #1a1a1a;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  position: relative;
-}
-
-.favorite-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-
-.thumbnail-wrapper {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-}
-
-.thumbnail {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s;
-}
-
-.favorite-card:hover .thumbnail {
-  transform: scale(1.05);
-}
-
-.duration {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 4px;
-  font-size: 12px;
-  color: #fff;
-}
-
-.video-info {
-  padding: 16px;
-}
-
-.video-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: #fff;
-  margin: 0 0 8px 0;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.video-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #999;
-}
-
-.unfavorite-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 36px;
-  height: 36px;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  border-radius: 50%;
-  color: #f44336;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s, background 0.2s;
-}
-
-.favorite-card:hover .unfavorite-btn {
-  opacity: 1;
-}
-
-.unfavorite-btn:hover {
-  background: rgba(244, 67, 54, 0.2);
-}
-
-.add-to-collection-btn {
-  position: absolute;
-  top: 8px;
-  right: 52px;
-  width: 36px;
-  height: 36px;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  border-radius: 50%;
-  color: #ffa502;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s, background 0.2s;
-}
-
-.favorite-card:hover .add-to-collection-btn {
-  opacity: 1;
-}
-
-.add-to-collection-btn:hover {
-  background: rgba(255, 165, 2, 0.2);
-}
-
+.favorite-card-wrap { position: relative; }
 .collection-menu {
   position: absolute;
   top: 50px;
@@ -591,7 +374,6 @@ const showToast = (message: string) => {
   z-index: 10;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-
 .collection-menu-title {
   font-size: 12px;
   color: #aaa;
@@ -599,13 +381,7 @@ const showToast = (message: string) => {
   border-bottom: 1px solid #333;
   margin-bottom: 4px;
 }
-
-.collection-menu-empty {
-  font-size: 12px;
-  color: #777;
-  padding: 6px 8px;
-}
-
+.collection-menu-empty { font-size: 12px; color: #777; padding: 6px 8px; }
 .collection-menu-item {
   padding: 8px;
   border-radius: 6px;
@@ -613,12 +389,7 @@ const showToast = (message: string) => {
   color: #eee;
   cursor: pointer;
 }
-
-.collection-menu-item:hover {
-  background: #2196F3;
-  color: #fff;
-}
-
+.collection-menu-item:hover { background: #2196F3; color: #fff; }
 .toast {
   position: fixed;
   bottom: 80px;
@@ -632,40 +403,17 @@ const showToast = (message: string) => {
   z-index: 2000;
   animation: fadeInOut 2s ease;
 }
-
 @keyframes fadeInOut {
   0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
   10% { opacity: 1; transform: translateX(-50%) translateY(0); }
   90% { opacity: 1; transform: translateX(-50%) translateY(0); }
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
-
 @media (max-width: 768px) {
-  .favorites-page {
-    padding: 16px;
-  }
-
-  .favorites-layout {
-    flex-direction: column;
-  }
-
-  .collections-sidebar {
-    width: 100%;
-    position: static;
-  }
-
-  .page-title {
-    font-size: 22px;
-  }
-
-  .favorites-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-
-  .unfavorite-btn,
-  .add-to-collection-btn {
-    opacity: 1;
-  }
+  .favorites-page { padding: 16px; }
+  .favorites-layout { flex-direction: column; }
+  .collections-sidebar { width: 100%; position: static; }
+  .page-title { font-size: 22px; }
+  .favorites-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
 }
 </style>

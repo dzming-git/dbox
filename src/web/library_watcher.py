@@ -37,6 +37,10 @@ _DEFAULT_FORMATS = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m
 _COOLDOWN = 2.0  # 文件事件去抖时间（秒）
 _DEFAULT_POLL_INTERVAL = 30  # 轮询模式下的检查间隔（秒）
 
+# 漫画相关
+_IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif')
+_COMIC_COOLDOWN = 8.0  # 漫画重扫去抖时间（秒，重于视频，避免大批量复制期间反复全扫）
+
 
 if WATCHDOG_AVAILABLE:
     class _VideoEventHandler(FileSystemEventHandler):
@@ -49,22 +53,37 @@ if WATCHDOG_AVAILABLE:
 
         def on_created(self, event):
             if event.is_directory:
+                # 新目录 = 可能是新漫画文件夹
+                self._watcher.schedule_comic_scan(self._library_id)
                 return
+            if self._watcher._is_image(event.src_path):
+                # 新图片 = 可能是漫画新增页
+                self._watcher.schedule_comic_scan(self._library_id)
             self._watcher.schedule_upsert(event.src_path, self._library_id)
 
         def on_modified(self, event):
             if event.is_directory:
+                # 目录内容变动（如整批复制完成）
+                self._watcher.schedule_comic_scan(self._library_id)
                 return
+            if self._watcher._is_image(event.src_path):
+                self._watcher.schedule_comic_scan(self._library_id)
             self._watcher.schedule_upsert(event.src_path, self._library_id)
 
         def on_deleted(self, event):
             if event.is_directory:
+                self._watcher.schedule_comic_scan(self._library_id)
                 return
+            if self._watcher._is_image(event.src_path):
+                self._watcher.schedule_comic_scan(self._library_id)
             self._watcher.remove_video(event.src_path)
 
         def on_moved(self, event):
             if event.is_directory:
+                self._watcher.schedule_comic_scan(self._library_id)
                 return
+            if self._watcher._is_image(event.src_path) or self._watcher._is_image(event.dest_path):
+                self._watcher.schedule_comic_scan(self._library_id)
             self._watcher.handle_moved(event.src_path, event.dest_path, self._library_id)
 else:
     _VideoEventHandler = None
@@ -85,10 +104,14 @@ class VideoLibraryWatcher:
         self._lock = threading.Lock()
         self._poll_thread = None
         self._stop_poll = threading.Event()
+        self._comic_timers = {}       # library_id -> Timer（漫画重扫去抖）
 
     # ---------- 工具 ----------
     def _is_video(self, path):
         return isinstance(path, str) and path.lower().endswith(tuple(self._formats))
+
+    def _is_image(self, path):
+        return isinstance(path, str) and path.lower().endswith(_IMAGE_EXTS)
 
     def _debug(self, level, msg):
         if self._log:
@@ -164,6 +187,72 @@ class VideoLibraryWatcher:
             self._debug('ERROR', f'[LibWatcher] 收集监控目标失败: {e}')
         return targets
 
+    # ---------- 单库扫描（驱动 Video 索引）----------
+    def _targets_for_library(self, library_id: int):
+        """返回该 web 视频库对应的磁盘监控目标 [(path, library_id)]。
+
+        路径来源：resourced 中同名库的 path + 其文件夹 path（与 _collect_watch_targets 同源）。
+        """
+        targets = []
+        try:
+            from core.models import VideoLibrary
+            with self._app.app_context():
+                lib = VideoLibrary.query.get(library_id)
+                if not lib:
+                    return targets
+                name = lib.name
+            res_libs = None
+            if self._resource_bus:
+                try:
+                    res = self._resource_bus.call_method(
+                        'com.dplayer.resourced', 'com.dplayer.Resourced',
+                        'ListLibraries', {}, timeout=5000)
+                    if res and res.get('success'):
+                        res_libs = {rl['name']: rl for rl in res.get('libraries', [])}
+                except Exception as e:
+                    self._debug('WARN', f'[LibWatcher] 查询资源库失败: {e}')
+                    res_libs = None
+            rl = res_libs.get(name) if res_libs else None
+            paths = []
+            if rl:
+                if rl.get('path'):
+                    paths.append(rl['path'])
+                try:
+                    fr = self._resource_bus.call_method(
+                        'com.dplayer.resourced', 'com.dplayer.Resourced',
+                        'ListFolders', {'library_id': rl['id']}, timeout=5000)
+                    if fr and fr.get('success'):
+                        for f in fr.get('folders', []):
+                            if f.get('path'):
+                                paths.append(f['path'])
+                except Exception:
+                    pass
+            for p in paths:
+                if os.path.isdir(p):
+                    targets.append((p, library_id))
+                else:
+                    self._debug('WARN', f'[LibWatcher] 库路径不存在，跳过: {p}')
+        except Exception as e:
+            self._debug('ERROR', f'[LibWatcher] 收集库 {library_id} 目标失败: {e}')
+        return targets
+
+    def scan_library(self, library_id: int):
+        """对单个视频库执行全量同步：磁盘 -> Video 表（web 唯一索引源）。
+
+        新增/更新/重命名/删除均复用已验证的 _diff_sync。只针对该库监控目标，
+        不会误删其它库。返回实际扫描的目录数。
+        """
+        targets = self._targets_for_library(library_id)
+        if not targets:
+            self._debug('WARN', f'[LibWatcher] 库 {library_id} 没有可扫描的目录')
+            return 0
+        self._diff_sync(targets)
+        return len(targets)
+
+    def library_disk_targets(self, library_id: int):
+        """返回该视频库在磁盘上的监控根目录列表（供漫画等扫描复用）。"""
+        return [p for p, _ in self._targets_for_library(library_id)]
+
     # ---------- 启动 / 停止 ----------
     def start(self):
         targets = self._collect_watch_targets()
@@ -187,8 +276,8 @@ class VideoLibraryWatcher:
                     self._debug('INFO', f'[LibWatcher] 开始监控(watchdog): {root} (library_id={lib_id})')
                 except Exception as e:
                     self._debug('ERROR', f'[LibWatcher] 监控启动失败 {root}: {e}')
-            # 启动后立即补齐一次（处理已存在但 Video 表缺失的文件）
-            threading.Thread(target=self._diff_sync, args=(targets,),
+            # 启动后立即补齐一次（处理已存在但 Video 表缺失的文件 + 漫画初始入库）
+            threading.Thread(target=self._initial_sync, args=(targets,),
                              daemon=True, name='lib-watcher-sync').start()
         else:
             self._debug('INFO', f'[LibWatcher] watchdog 不可用，使用定时轮询（间隔 {self._poll_interval}s）')
@@ -197,15 +286,25 @@ class VideoLibraryWatcher:
                 target=self._poll_loop, args=(targets,), daemon=True, name='lib-watcher-poll')
             self._poll_thread.start()
 
+    def _initial_sync(self, targets):
+        """启动补齐：视频 diff + 各库漫画首次扫描。"""
+        self._diff_sync(targets)
+        for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
+            self._delayed_comic_scan(lib_id)
+
     def _poll_loop(self, targets):
         # 首次立即同步一次，之后按间隔轮询
         self._diff_sync(targets)
+        for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
+            self._delayed_comic_scan(lib_id)
         while not self._stop_poll.is_set():
             self._stop_poll.wait(self._poll_interval)
             if self._stop_poll.is_set():
                 break
             try:
                 self._diff_sync(targets)
+                for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
+                    self._delayed_comic_scan(lib_id)
             except Exception as e:
                 self._debug('ERROR', f'[LibWatcher] 轮询同步失败: {e}')
 
@@ -226,6 +325,12 @@ class VideoLibraryWatcher:
                 pass
         self._timers.clear()
         self._debounce.clear()
+        for t in list(self._comic_timers.values()):
+            try:
+                t.cancel()
+            except Exception:
+                pass
+        self._comic_timers.clear()
 
     def is_watching(self):
         return len(self._observers) > 0 or (self._poll_thread is not None and self._poll_thread.is_alive())
@@ -294,6 +399,38 @@ class VideoLibraryWatcher:
         self._timers.pop(path, None)
         self._debounce.pop(path, None)
         self.upsert_video(path, library_id)
+
+    # ---------- 漫画重扫（去抖）----------
+    def schedule_comic_scan(self, library_id):
+        """去抖：某库目录下发生图片/目录变动后，冷却一段时间再对整库漫画重扫。"""
+        if library_id is None:
+            return
+        old = self._comic_timers.pop(library_id, None)
+        if old:
+            try:
+                old.cancel()
+            except Exception:
+                pass
+        t = threading.Timer(_COMIC_COOLDOWN, self._delayed_comic_scan, args=(library_id,))
+        t.daemon = True
+        t.start()
+        self._comic_timers[library_id] = t
+
+    def _delayed_comic_scan(self, library_id):
+        self._comic_timers.pop(library_id, None)
+        try:
+            # 延迟导入，避免与 comic.scanner 形成循环依赖
+            from backend.comic.scanner import scan_library_comics
+            with self._app.app_context():
+                res = scan_library_comics(library_id, self._app, log=self._log)
+            if res.get('success'):
+                self._debug('INFO', f'[LibWatcher] 漫画自动重扫 库{library_id}: '
+                                    f'新增{res.get("added")} 更新{res.get("updated")} '
+                                    f'清理{res.get("removed")} 现存{res.get("total")}')
+            else:
+                self._debug('WARN', f'[LibWatcher] 漫画自动重扫跳过 库{library_id}: {res.get("message")}')
+        except Exception as e:
+            self._debug('ERROR', f'[LibWatcher] 漫画自动重扫失败 库{library_id}: {e}')
 
     def handle_moved(self, src, dest, library_id):
         if self._is_video(dest):

@@ -28,6 +28,14 @@ export default defineConfig({
       '/local_video': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true
+      },
+      '/comic-page': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
+      },
+      '/comic-cover': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
       }
     }
   }

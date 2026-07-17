@@ -33,6 +33,36 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '标签管理', requiresAuth: true }
   },
   {
+    path: '/comics',
+    name: 'Comics',
+    component: () => import('../views/Comics.vue'),
+    meta: { title: '漫画', requiresAuth: true }
+  },
+  {
+    path: '/comic/:hash',
+    name: 'Comic',
+    component: () => import('../views/ComicReader.vue'),
+    meta: { title: '漫画阅读', requiresAuth: true }
+  },
+  {
+    path: '/comic-tags',
+    name: 'ComicTags',
+    component: () => import('../views/ComicTags.vue'),
+    meta: { title: '漫画标签', requiresAuth: true }
+  },
+  {
+    path: '/comic-playlists',
+    name: 'ComicPlaylists',
+    component: () => import('../views/ComicPlaylists.vue'),
+    meta: { title: '漫画合集', requiresAuth: true }
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import('../views/Search.vue'),
+    meta: { title: '搜索', requiresAuth: true }
+  },
+  {
     path: '/favorites',
     name: 'Favorites',
     component: () => import('../views/Favorites.vue'),

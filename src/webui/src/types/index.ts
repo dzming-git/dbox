@@ -63,6 +63,63 @@ export interface VideoListResponse {
   total: number
 }
 
+// 漫画类型
+export interface ComicPage {
+  index: number
+  url: string
+}
+
+export interface Comic {
+  id: number
+  hash: string
+  title: string
+  page_count: number
+  library_id: number | null
+  cover_url: string
+  like_count: number
+  favorite_count: number
+  is_liked?: boolean
+  is_favorited?: boolean
+  is_disliked?: boolean
+  last_page?: number
+  progress?: number
+  pages?: ComicPage[]
+  created_at?: string
+  updated_at?: string
+}
+
+// 漫画列表响应
+export interface ComicListResponse {
+  success: boolean
+  comics: Comic[]
+  total: number
+}
+
+// 漫画合集项
+export interface ComicPlaylistItem {
+  id: number
+  playlist_id: number
+  comic_id: number
+  comic: Comic | null
+  position: number
+  added_at?: string
+}
+
+// 漫画合集（播放列表）
+export interface ComicPlaylist {
+  id: number
+  name: string
+  description?: string
+  user_session: string
+  is_public: boolean
+  thumbnail?: string
+  comic_count: number
+  play_count: number
+  items: ComicPlaylistItem[]
+  created_at?: string
+  updated_at?: string
+}
+
 // 标签列表响应
 export interface TagListResponse {
   success: boolean

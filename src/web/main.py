@@ -13,6 +13,7 @@ DPlayer - 纯后端 Web 服务
 """
 import os
 import sys
+import threading
 
 # 目录定义
 # _THIS_DIR: src/web/
@@ -112,8 +113,9 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
-from core.models import FavoriteCollection, CollectionVideo
+from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
+from core.models import migrate_collection_videos_schema
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -123,6 +125,9 @@ try:
     _HAS_RESOURCE_DB = True
 except Exception:
     _HAS_RESOURCE_DB = False
+
+# 视频库扫描进度（web 侧，驱动 Video 表作为唯一索引源）
+_library_scan_progress = {}
 
 def _resolve_resource_library_id(dplayer_library_id: int) -> int:
     """
@@ -158,6 +163,7 @@ from api.search_api import search_bp, init_search_api
 from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
+from backend.comic.comic_api import comic_bp
 
 # ============ 配置 ============
 app = Flask(__name__)
@@ -180,6 +186,7 @@ print("[DEBUG] Initializing database...")
 db.init_app(app)
 with app.app_context():
     db.create_all()
+    migrate_collection_videos_schema()
     init_root_user()
     print("[DEBUG] Database initialized")
 
@@ -194,6 +201,7 @@ app.register_blueprint(collection_bp)  # 收藏夹API
 app.register_blueprint(search_bp)  # 搜索API
 app.register_blueprint(suggestion_bp)  # 建议反馈API
 app.register_blueprint(shared_watch_bp)  # 共享观看API
+app.register_blueprint(comic_bp)  # 漫画模式 API
 
 # ============ 初始化 API 总线客户端 ============
 init_history_api(history_bus)
@@ -1022,49 +1030,84 @@ def delete_favorite_collection(collection_id):
 
 @app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['GET'])
 def list_collection_videos(collection_id):
+    """收藏夹内容（视频 + 漫画，通过 type 区分）。"""
     try:
         key = current_interaction_key()
         col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
         items = CollectionVideo.query.filter_by(collection_id=col.id, user_session=key).all()
         videos = []
         for it in items:
-            video = Video.query.get(it.video_id)
-            if not video:
-                continue
-            v = video.to_dict()
-            v['favorited_at'] = it.created_at.isoformat() if it.created_at else None
-            videos.append(v)
+            if it.item_type == 'comic':
+                c = Comic.query.get(it.comic_id)
+                if not c:
+                    continue
+                d = c.to_dict()
+                d['type'] = 'comic'
+                d['cover_url'] = f'/comic-cover/{c.hash}'
+                d['favorited_at'] = it.created_at.isoformat() if it.created_at else None
+                videos.append(d)
+            else:
+                video = Video.query.get(it.video_id)
+                if not video:
+                    continue
+                v = video.to_dict()
+                v['type'] = 'video'
+                v['favorited_at'] = it.created_at.isoformat() if it.created_at else None
+                videos.append(v)
         return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@app.route('/api/favorite-collections/<int:collection_id>/videos/<video_hash>', methods=['POST'])
-def add_to_collection(collection_id, video_hash):
+@app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['POST'])
+def add_to_collection(collection_id):
+    """加入收藏夹，支持视频或漫画（body: {type, hash}）。"""
+    data = request.get_json(force=True) or {}
     try:
         key = current_interaction_key()
         col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
-        exists = CollectionVideo.query.filter_by(
-            collection_id=col.id, user_session=key, video_id=video.id).first()
-        if not exists:
-            db.session.add(CollectionVideo(
-                collection_id=col.id, user_session=key, video_id=video.id))
-            db.session.commit()
+        item_type = data.get('type', 'video')
+        item_hash = data.get('hash')
+        if not item_hash:
+            return jsonify({'success': False, 'message': '缺少资源标识'}), 400
+        if item_type == 'comic':
+            comic = Comic.query.filter_by(hash=item_hash).first_or_404()
+            exists = CollectionVideo.query.filter_by(
+                collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id).first()
+            if not exists:
+                db.session.add(CollectionVideo(
+                    collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id))
+        else:
+            video = Video.query.filter_by(hash=item_hash).first_or_404()
+            exists = CollectionVideo.query.filter_by(
+                collection_id=col.id, user_session=key, item_type='video', video_id=video.id).first()
+            if not exists:
+                db.session.add(CollectionVideo(
+                    collection_id=col.id, user_session=key, item_type='video', video_id=video.id))
+        db.session.commit()
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@app.route('/api/favorite-collections/<int:collection_id>/videos/<video_hash>', methods=['DELETE'])
-def remove_from_collection(collection_id, video_hash):
+@app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['DELETE'])
+def remove_from_collection(collection_id):
+    """从收藏夹移除（body: {type, hash}）。"""
+    data = request.get_json(force=True) or {}
     try:
         key = current_interaction_key()
         col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
-        item = CollectionVideo.query.filter_by(
-            collection_id=col.id, user_session=key, video_id=video.id).first()
+        item_type = data.get('type', 'video')
+        item_hash = data.get('hash')
+        if item_type == 'comic':
+            comic = Comic.query.filter_by(hash=item_hash).first_or_404()
+            item = CollectionVideo.query.filter_by(
+                collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id).first()
+        else:
+            video = Video.query.filter_by(hash=item_hash).first_or_404()
+            item = CollectionVideo.query.filter_by(
+                collection_id=col.id, user_session=key, item_type='video', video_id=video.id).first()
         if item:
             db.session.delete(item)
             db.session.commit()
@@ -2997,50 +3040,45 @@ def set_default_folder(folder_id):
 @app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
 @admin_required
 def scan_library(library_id):
-    """启动视频库扫描（异步，立即返回）
-    
-    改进：无论状态如何，先强制重置再启动，彻底避免"扫描已在进行中"的问题
+    """启动视频库扫描（异步，立即返回）。
+
+    统一索引源：扫描直接驱动 web 的 Video 表（由 library_watcher 维护），
+    不再依赖 resourced 的 ResourceItem（已于 2026-07-12 废弃，双索引问题根因）。
     """
     try:
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        # 使用 resource.db 中的库 ID
-        res_lib_id = _resolve_resource_library_id(library_id)
+        from library_watcher import get_watcher
+        watcher = get_watcher()
+        if not watcher:
+            return jsonify({'success': False, 'message': '视频库监控器未初始化'}), 500
 
-        # 强制重置扫描状态（清除可能卡住的状态）
-        print(f"[web] force-reset scan state for library {res_lib_id} before scan", flush=True)
-        try:
-            resource_bus.call_method(
-                'com.dplayer.resourced',
-                'com.dplayer.Resourced',
-                'ResetScan',
-                {'library_id': res_lib_id},
-                timeout=5000
-            )
-        except Exception as reset_e:
-            print(f"[web] reset scan state failed (ignored): {reset_e}", flush=True)
+        # 防止重复扫描
+        if _library_scan_progress.get(library_id, {}).get('status') == 'scanning':
+            return jsonify({'success': False, 'message': '扫描已在进行中，请稍候...'}), 400
 
-        # 调用 ScanLibrary
-        print(f"[web] calling ScanLibrary for library {res_lib_id}", flush=True)
-        result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
-            'ScanLibrary',
-            {'library_id': res_lib_id},
-            timeout=5000
-        )
+        _library_scan_progress[library_id] = {
+            'status': 'scanning', 'current': 0, 'total': 0, 'message': '扫描中...'
+        }
 
-        print(f"[web] ScanLibrary result: {result}", flush=True)
+        def _run():
+            try:
+                targets = watcher.scan_library(library_id)
+                _library_scan_progress[library_id] = {
+                    'status': 'done',
+                    'targets': targets,
+                    'message': f'扫描完成，已同步 {targets} 个目录到 Video 索引',
+                }
+                print(f"[web] library {library_id} scan done, targets={targets}", flush=True)
+            except Exception as e:
+                _library_scan_progress[library_id] = {
+                    'status': 'error', 'error': str(e), 'message': f'扫描失败: {e}'
+                }
+                print(f"[web] library {library_id} scan failed: {e}", flush=True)
 
-        if result is None:
-            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
-        if result.get('started'):
-            return jsonify({'success': True, 'started': True, 'message': '扫描已启动'})
-        if not result.get('success'):
-            error_msg = result.get('error', '启动扫描失败')
-            return jsonify({'success': False, 'message': error_msg}), 400
-        return jsonify({'success': True, 'data': result})
+        threading.Thread(target=_run, daemon=True).start()
+        return jsonify({'success': True, 'started': True, 'message': '扫描已启动'})
     except Exception as e:
         log.debug('ERROR', f'启动扫描失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -3049,27 +3087,13 @@ def scan_library(library_id):
 @app.route('/api/admin/libraries/<int:library_id>/scan-status', methods=['GET'])
 @admin_required
 def get_library_scan_status(library_id):
-    """获取视频库扫描进度（轮询接口）"""
+    """获取视频库扫描进度（轮询接口，web 侧驱动 Video 索引）"""
     try:
-        if not resource_bus:
-            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
-
-        # 使用 resource.db 中的库 ID
-        res_lib_id = _resolve_resource_library_id(library_id)
-
-        result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
-            'GetScanProgress',
-            {'library_id': res_lib_id},
-            timeout=5000
-        )
-
-        if result is None:
-            return jsonify({'success': False, 'message': '资源服务无响应'}), 500
-        if result.get('success'):
-            return jsonify({'success': True, 'data': result})
-        return jsonify({'success': False, 'message': result.get('error', '获取状态失败')}), 500
+        prog = _library_scan_progress.get(library_id)
+        if not prog:
+            return jsonify({'success': True, 'status': 'idle',
+                            'message': '没有进行中的扫描'})
+        return jsonify({'success': True, **prog})
     except Exception as e:
         log.debug('ERROR', f'获取扫描状态失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
