@@ -26,9 +26,7 @@
         ".webm",
         ".m4v"
     ],
-    "default_tags": [
-        "本地视频"
-    ],
+    "default_tags": [],
     "default_priority": 0,
     "test": "value",
     "scan_directory": "/path/to/scan",

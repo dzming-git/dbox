@@ -478,7 +478,7 @@ class VideoLibraryWatcher:
                     db.session.add(existing)
                     db.session.flush()
                     # 默认标签（与扫描逻辑一致）
-                    for tag_name in self._app_config.get('default_tags', ['本地视频']):
+                    for tag_name in self._app_config.get('default_tags', []):
                         tag = Tag.query.filter_by(name=tag_name).first()
                         if not tag:
                             tag = Tag(name=tag_name, category='类型')

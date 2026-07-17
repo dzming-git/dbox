@@ -289,7 +289,7 @@ def load_config():
         "scan_directories": [{"path": "M:/<媒体库>", "recursive": True, "enabled": True}],
         "auto_scan_on_startup": True,
         "supported_formats": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"],
-        "default_tags": ["本地视频"],
+        "default_tags": [],
         "default_priority": 0,
         "ports": {"web": 8080, "thumbnail": "bus://127.0.0.1:15555"}
     }
@@ -2593,7 +2593,7 @@ def scan_videos():
                         db.session.add(video)
                         db.session.flush()
                         
-                        for tag_name in app_config.get('default_tags', ['本地视频']):
+                        for tag_name in app_config.get('default_tags', []):
                             tag = Tag.query.filter_by(name=tag_name).first()
                             if not tag:
                                 tag = Tag(name=tag_name, category='类型')
@@ -3354,7 +3354,7 @@ def import_videos():
         library_id = data.get('library_id')  # 必须指定有效的视频库ID
         videos = data.get('videos', [])
         skip_existing = data.get('skip_existing', True)
-        default_tags = data.get('default_tags', app_config.get('default_tags', ['本地视频']))
+        default_tags = data.get('default_tags', app_config.get('default_tags', []))
 
         if not videos:
             return jsonify({'success': False, 'message': '请选择要导入的视频'}), 400

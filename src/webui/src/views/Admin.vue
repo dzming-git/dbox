@@ -566,7 +566,7 @@ const scanAndImportDetail = async () => {
       library_id: lib.id,
       videos: videosToImport,
       skip_existing: true,
-      default_tags: ['本地视频']
+      default_tags: []
     }, { timeout: 900000 }) as any
 
     if (res.success) {
@@ -653,7 +653,7 @@ const detailImportVideos = async () => {
       library_id: lib.id,
       videos: videosToImport,
       skip_existing: true,
-      default_tags: ['本地视频']
+      default_tags: []
     }, { timeout: 900000 }) as any
 
     if (res.success) {
@@ -713,7 +713,7 @@ watch(importFolder, (val) => { sessionStorage.setItem('admin_import_folder', val
 watch(scannedVideos, (val) => { sessionStorage.setItem('admin_scanned_videos', JSON.stringify(val)) }, { deep: true })
 watch(selectedImportVideos, (val) => { sessionStorage.setItem('admin_selected_import', JSON.stringify(val)) }, { deep: true })
 const targetLibrary = ref<number | null>(null)
-const importDefaultTags = ref('本地视频')
+const importDefaultTags = ref('')
 
 // 文件夹浏览器
 const showFolderBrowser = ref(false)
