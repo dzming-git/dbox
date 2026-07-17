@@ -72,36 +72,6 @@ const handleLibraryChange = (e: Event) => {
 }
 const handleComicClick = (c: Comic) => router.push({ name: 'Comic', params: { hash: c.hash } })
 
-// 管理员扫描
-const scanStatusText = ref('')
-const scanning = ref(false)
-const doScan = async () => {
-  if (!userStore.isAdmin) return
-  const libId = comicStore.selectedLibraryId
-  if (!libId) {
-    scanStatusText.value = '请先选择要扫描的视频库'
-    return
-  }
-  scanning.value = true
-  scanStatusText.value = '扫描中...'
-  await comicStore.scanLibrary(libId)
-  // 轮询进度
-  const timer = setInterval(async () => {
-    const st: any = await comicStore.scanStatus(libId)
-    if (st.status === 'done' || st.status === 'error') {
-      clearInterval(timer)
-      scanning.value = false
-      scanStatusText.value = st.status === 'done'
-        ? `完成：新增 ${st.added}，更新 ${st.updated}，清理 ${st.removed}，现存 ${st.total}`
-        : `失败：${st.message}`
-      await comicStore.fetchComics(true)
-      updateUrl()
-    } else {
-      scanStatusText.value = st.message || '扫描中...'
-    }
-  }, 1500)
-}
-
 // 分页
 const currentPage = computed(() => Math.floor(comicStore.pagination.offset / comicStore.pagination.limit) + 1)
 const totalPages = computed(() => Math.ceil(comicStore.pagination.total / comicStore.pagination.limit) || 1)
@@ -189,10 +159,6 @@ watch(() => route.query, async (newQuery) => {
           <option value="">全部标签</option>
           <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.comic_count }})</option>
         </select>
-        <button v-if="userStore.isAdmin" class="scan-btn" :disabled="scanning" @click="doScan">
-          {{ scanning ? '扫描中...' : '扫描漫画' }}
-        </button>
-        <span v-if="scanStatusText" class="scan-status">{{ scanStatusText }}</span>
       </div>
       <div class="view-toggle">
         <button class="view-toggle-btn" :class="{ active: comicStore.viewMode === 'grid' }" @click="comicStore.setViewMode('grid')" title="缩略图">
@@ -241,7 +207,7 @@ watch(() => route.query, async (newQuery) => {
       <div v-if="comics.length === 0" class="empty-state">
         <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <p>暂无漫画</p>
-        <p class="empty-tip" v-if="userStore.isAdmin">在视频库里放入「扁平的图片文件夹」（每本 >=2 张图），然后点「扫描漫画」。</p>
+        <p class="empty-tip" v-if="userStore.isAdmin">在视频库里放入「扁平的图片文件夹」（每本 >=2 张图）即可自动收录。</p>
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
@@ -268,10 +234,6 @@ watch(() => route.query, async (newQuery) => {
 .search-input:focus { outline: none; border-color: #2196F3; box-shadow: 0 0 0 3px rgba(33,150,243,0.1); }
 .sort-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid #333; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 14px; cursor: pointer; }
-.scan-btn { height: 40px; padding: 0 16px; border: 1px solid rgba(33,150,243,0.4); border-radius: 8px; background: rgba(33,150,243,0.12); color: #4a9eff; font-size: 14px; cursor: pointer; }
-.scan-btn:hover:not(:disabled) { background: rgba(33,150,243,0.22); }
-.scan-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.scan-status { color: #888; font-size: 13px; }
 .view-toggle { display: flex; gap: 4px; background: #252525; border: 1px solid #333; border-radius: 8px; padding: 3px; margin-left: auto; }
 .view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: #aaa; font-size: 13px; border-radius: 6px; cursor: pointer; }
 .view-toggle-btn.active { background: #2196F3; color: #fff; }

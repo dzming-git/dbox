@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useVideoStore } from '../stores/videoStore'
+import { useUserStore } from '../stores/userStore'
 import { tagApi } from '../api'
 import type { Tag } from '../types'
 
 const videoStore = useVideoStore()
+const userStore = useUserStore()
+
+// 管理员友好：是否允许编辑（仅管理员）
+const isAdmin = computed(() => userStore.isAdmin)
 
 const loading = computed(() => videoStore.loading)
 
@@ -146,13 +151,107 @@ const router = useRouter()
 const viewTagVideos = (tag: Tag) => {
   router.push({ path: '/', query: { tag: tag.path || tag.name } })
 }
+
+// ============ 管理员：新建 / 编辑 / 删除 标签 ============
+const showDialog = ref(false)
+const dialogMode = ref<'create' | 'edit'>('create')
+const dialogTag = ref<Tag | null>(null)
+const dialogName = ref('')
+const dialogCategory = ref('')
+const dialogParentId = ref<number | null>(null)
+const dialogError = ref('')
+
+// 轻量 toast
+const toastMessage = ref('')
+const toastTimer = ref<number | null>(null)
+const showToast = (message: string) => {
+  toastMessage.value = message
+  if (toastTimer.value) window.clearTimeout(toastTimer.value)
+  toastTimer.value = window.setTimeout(() => { toastMessage.value = '' }, 2500)
+}
+
+// 打开新建标签对话框
+const openCreateDialog = () => {
+  dialogMode.value = 'create'
+  dialogTag.value = null
+  dialogName.value = ''
+  dialogCategory.value = ''
+  dialogParentId.value = null
+  dialogError.value = ''
+  showDialog.value = true
+}
+
+// 打开编辑标签对话框
+const openEditDialog = (tag: Tag) => {
+  dialogMode.value = 'edit'
+  dialogTag.value = tag
+  dialogName.value = tag.name
+  dialogCategory.value = tag.category || ''
+  dialogParentId.value = tag.parent_id || null
+  dialogError.value = ''
+  showDialog.value = true
+}
+
+// 提交新建 / 编辑
+const submitDialog = async () => {
+  const name = dialogName.value.trim()
+  if (!name) {
+    dialogError.value = '标签名不能为空'
+    return
+  }
+  try {
+    if (dialogMode.value === 'create') {
+      await tagApi.createTag(name, dialogCategory.value.trim() || '类型', dialogParentId.value || undefined)
+      showToast('标签已创建')
+    } else if (dialogTag.value) {
+      await tagApi.updateTag(dialogTag.value.id, {
+        name,
+        category: dialogCategory.value.trim() || '类型',
+        parent_id: dialogParentId.value || null
+      })
+      showToast('标签已更新')
+    }
+    showDialog.value = false
+    await fetchAllTags()
+  } catch (e: any) {
+    dialogError.value = e?.response?.data?.message || '操作失败'
+  }
+}
+
+// 删除标签（二次确认）
+const pendingDelete = ref<Tag | null>(null)
+const confirmDeleteTag = (tag: Tag) => {
+  pendingDelete.value = tag
+}
+const cancelDelete = () => { pendingDelete.value = null }
+const doDeleteTag = async () => {
+  if (!pendingDelete.value) return
+  try {
+    await tagApi.deleteTag(pendingDelete.value.id)
+    showToast('标签已删除')
+    pendingDelete.value = null
+    await fetchAllTags()
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || '删除失败')
+    pendingDelete.value = null
+  }
+}
 </script>
 
 <template>
   <div class="tags-page">
     <div class="page-header">
-      <h1 class="page-title">标签</h1>
-      <p class="page-desc">点击标签可查看对应的视频列表</p>
+      <div>
+        <h1 class="page-title">标签</h1>
+        <p class="page-desc">点击标签可查看对应的内容（视频或漫画共用同一套标签）</p>
+      </div>
+      <button v-if="isAdmin" class="create-btn" @click="openCreateDialog">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        新建标签
+      </button>
     </div>
 
     <!-- 搜索 -->
@@ -219,15 +318,15 @@ const viewTagVideos = (tag: Tag) => {
               <span class="level-badge" v-if="item.level > 0">Lv.{{ item.level + 1 }}</span>
             </div>
             <div class="tag-meta">
-              <span class="tag-count">{{ countAllVideos(item.tag) }} 个视频</span>
+              <span class="tag-count">{{ countAllVideos(item.tag) }} 个内容</span>
               <span v-if="getChildren(item.tag.id).length > 0" class="tag-children-count">
                 {{ getChildren(item.tag.id).length }} 个子标签
               </span>
             </div>
           </div>
           
-          <!-- 操作按钮 - 只保留查看视频列表 -->
-          <div class="tag-actions">
+          <!-- 操作按钮 -->
+          <div class="tag-actions" :class="{ admin: isAdmin }">
             <button
               class="action-icon-btn view"
               @click="viewTagVideos(item.tag)"
@@ -237,6 +336,30 @@ const viewTagVideos = (tag: Tag) => {
                 <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
               </svg>
             </button>
+            <template v-if="isAdmin">
+              <button
+                class="action-icon-btn edit"
+                @click="openEditDialog(item.tag)"
+                title="编辑标签"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button
+                class="action-icon-btn delete"
+                @click="confirmDeleteTag(item.tag)"
+                title="删除标签"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+              </button>
+            </template>
           </div>
         </div>
       </template>
@@ -244,11 +367,62 @@ const viewTagVideos = (tag: Tag) => {
       <!-- 空状态 -->
       <div v-if="displayTags.length === 0" class="empty-state">
         <p v-if="searchQuery">没有找到匹配的标签</p>
-        <p v-else>暂无标签，在视频中添加标签后会自动显示</p>
+        <p v-else>暂无标签，在视频或漫画中添加标签后会自动显示</p>
       </div>
     </div>
 
   </div>
+
+  <!-- 新建 / 编辑标签对话框 -->
+  <div v-if="showDialog" class="dialog-overlay" @click.self="showDialog = false">
+    <div class="dialog">
+      <h3>{{ dialogMode === 'create' ? '新建标签' : '编辑标签' }}</h3>
+      <div class="form-group">
+        <label>标签名称</label>
+        <input v-model="dialogName" type="text" placeholder="如：科幻" maxlength="20" @keydown.enter="submitDialog" />
+      </div>
+      <div class="form-group">
+        <label>分类（可选）</label>
+        <input v-model="dialogCategory" type="text" placeholder="如：类型" maxlength="20" />
+      </div>
+      <div class="form-group">
+        <label>父标签（可选）</label>
+        <select v-model="dialogParentId" class="parent-select">
+          <option :value="null">顶级标签</option>
+          <option
+            v-for="t in allTagsList.filter(t => t.id !== dialogTag?.id)"
+            :key="t.id"
+            :value="t.id"
+          >{{ t.path || t.name }}</option>
+        </select>
+      </div>
+      <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
+      <div class="dialog-actions">
+        <button class="btn-secondary" @click="showDialog = false">取消</button>
+        <button class="btn-primary" @click="submitDialog">
+          {{ dialogMode === 'create' ? '创建' : '保存' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认 -->
+  <div v-if="pendingDelete" class="dialog-overlay" @click.self="cancelDelete">
+    <div class="dialog">
+      <h3>删除标签</h3>
+      <p class="warning-text">
+        确定要删除标签「{{ pendingDelete.name }}」吗？<br/>
+        该标签及其下所有视频的关联将被移除（子标签会提升为顶级）。
+      </p>
+      <div class="dialog-actions">
+        <button class="btn-secondary" @click="cancelDelete">取消</button>
+        <button class="btn-danger" @click="doDeleteTag">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
 </template>
 
 <style scoped>
@@ -503,6 +677,11 @@ const viewTagVideos = (tag: Tag) => {
   transition: opacity 0.2s;
 }
 
+/* 管理员视图下操作按钮常驻显示，方便快速操作 */
+.tag-actions.admin {
+  opacity: 1;
+}
+
 .action-icon-btn {
   display: flex;
   align-items: center;
@@ -717,6 +896,27 @@ const viewTagVideos = (tag: Tag) => {
 
 .btn-danger:hover {
   background: #d32f2f;
+}
+
+/* Toast 提示 */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(33, 33, 33, 0.95);
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 2000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: toastSlideIn 0.25s ease;
+}
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @media (max-width: 768px) {

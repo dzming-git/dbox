@@ -6,10 +6,29 @@ import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
+import Comics from './Comics.vue'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
 const route = useRoute()
+
+// 首页媒体类型切换：视频 / 漫画 对等展示，模式写入 URL（?mode=video|comic）
+const mediaTab = ref<'video' | 'comic'>(route.query.mode === 'comic' ? 'comic' : 'video')
+
+// 切换媒体模式时同步到 URL，并从 URL 回读（支持前进/后退、直接分享链接）
+watch(mediaTab, (val) => {
+  if (route.query.mode !== val) {
+    router.replace({ query: { ...route.query, mode: val } })
+  }
+})
+watch(
+  () => route.query.mode,
+  (val) => {
+    const m = val === 'comic' ? 'comic' : 'video'
+    if (mediaTab.value !== m) mediaTab.value = m
+  }
+)
+
 const videoStore = useVideoStore()
 const userStore = useUserStore()
 
@@ -447,8 +466,34 @@ const onListImgError = (e: Event) => {
 
 <template>
   <div class="home-container">
+    <!-- 媒体类型切换：视频与漫画对等 -->
+    <div class="media-tabs">
+      <button
+        class="media-tab"
+        :class="{ active: mediaTab === 'video' }"
+        @click="mediaTab = 'video'"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="4" width="20" height="16" rx="2"/>
+          <path d="M10 9l5 3-5 3V9z"/>
+        </svg>
+        视频
+      </button>
+      <button
+        class="media-tab"
+        :class="{ active: mediaTab === 'comic' }"
+        @click="mediaTab = 'comic'"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        漫画
+      </button>
+    </div>
+
     <!-- 操作栏 - 移到顶部 -->
-    <div class="action-bar">
+    <div class="action-bar" v-if="mediaTab === 'video'">
       <div class="search-box">
         <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/>
@@ -554,7 +599,7 @@ const onListImgError = (e: Event) => {
     </div>
 
     <!-- 标签筛选按钮 -->
-    <div class="tags-toggle-bar">
+    <div class="tags-toggle-bar" v-if="mediaTab === 'video'">
       <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -568,7 +613,7 @@ const onListImgError = (e: Event) => {
     </div>
 
     <!-- 标签区域 - 可折叠 -->
-    <div v-if="showTagsSection" class="tags-section">
+    <div v-if="showTagsSection && mediaTab === 'video'" class="tags-section">
       <!-- 面包屑导航 -->
       <div class="tag-tree-nav">
         <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0">
@@ -623,6 +668,9 @@ const onListImgError = (e: Event) => {
         <p v-if="currentTagLevel.length === 0" class="no-tags">该分类下暂无标签</p>
       </div>
     </div>
+
+    <!-- 视频内容（仅视频 tab 显示） -->
+    <div v-if="mediaTab === 'video'">
 
     <!-- 继续观看 -->
     <div v-if="continueWatching.length > 0" class="continue-section">
@@ -785,6 +833,9 @@ const onListImgError = (e: Event) => {
         <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
     </template>
+    </div>
+    <!-- 漫画内容（仅漫画 tab 显示） -->
+    <Comics v-else />
   </div>
 </template>
 
@@ -795,6 +846,43 @@ const onListImgError = (e: Event) => {
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* 首页媒体类型切换：视频 / 漫画 对等 */
+.media-tabs {
+  display: flex;
+  gap: 4px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 20px;
+  width: fit-content;
+}
+
+.media-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  color: #aaa;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.media-tab:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.media-tab.active {
+  background: #2196F3;
+  color: #fff;
 }
 
 /* 标签区域 */

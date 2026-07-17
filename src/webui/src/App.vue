@@ -129,14 +129,6 @@ const handleSubmitSuggestion = async () => {
       <div class="nav-left">
         <RouterLink to="/" class="logo">DPlayer</RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
-        <RouterLink to="/comics" class="nav-link" title="漫画">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:2px">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-          </svg>漫画
-        </RouterLink>
-        <RouterLink to="/comic-tags" class="nav-link">漫画标签</RouterLink>
-        <RouterLink to="/comic-playlists" class="nav-link">漫画合集</RouterLink>
         <div class="nav-search">
           <input
             v-model="searchText"

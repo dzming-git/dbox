@@ -45,18 +45,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '漫画阅读', requiresAuth: true }
   },
   {
-    path: '/comic-tags',
-    name: 'ComicTags',
-    component: () => import('../views/ComicTags.vue'),
-    meta: { title: '漫画标签', requiresAuth: true }
-  },
-  {
-    path: '/comic-playlists',
-    name: 'ComicPlaylists',
-    component: () => import('../views/ComicPlaylists.vue'),
-    meta: { title: '漫画合集', requiresAuth: true }
-  },
-  {
     path: '/search',
     name: 'Search',
     component: () => import('../views/Search.vue'),
