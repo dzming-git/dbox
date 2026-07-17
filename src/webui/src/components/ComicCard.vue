@@ -10,11 +10,14 @@ const props = defineProps<{
   size?: 'large' | 'normal' | 'small'
   selectable?: boolean
   selected?: boolean
+  editable?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [comic: Comic]
   toggleSelect: [comic: Comic]
+  edit: [comic: Comic]
+  tagClick: [tag: any]
 }>()
 
 const userStore = useUserStore()
@@ -109,6 +112,10 @@ const handleClick = () => {
     emit('toggleSelect', props.comic)
     return
   }
+  if (props.editable) {
+    emit('edit', props.comic)
+    return
+  }
   emit('click', props.comic)
 }
 </script>
@@ -127,6 +134,18 @@ const handleClick = () => {
         @error="hasError = true; thumbnailUrl = '/placeholder.jpg'"
       />
       <span class="page-count" v-if="comic.page_count">{{ comic.page_count }}P</span>
+      <!-- 编辑入口 -->
+      <button
+        v-if="editable"
+        class="edit-overlay"
+        @click.stop="emit('edit', comic)"
+        title="编辑"
+        data-testid="card-edit"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+        </svg>
+      </button>
       <div class="continue-badge" v-if="(comic.progress || 0) > 0 && (comic.progress || 0) < 1">
         续读 {{ progressPercent }}%
       </div>
@@ -165,6 +184,16 @@ const handleClick = () => {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
           {{ comic.like_count }}
         </span>
+      </div>
+      <!-- 标签：正常模式下点击跳转到该标签筛选 -->
+      <div v-if="!editable && comic.tags && comic.tags.length" class="card-tags">
+        <span
+          v-for="t in comic.tags"
+          :key="t.id"
+          class="card-tag"
+          :title="'筛选: ' + t.name"
+          @click.stop="emit('tagClick', t)"
+        >{{ t.name }}</span>
       </div>
     </div>
 
@@ -226,6 +255,35 @@ const handleClick = () => {
 .likes { display: flex; align-items: center; gap: 4px; color: #ff6b6b; }
 
 .playlist-popover-backdrop { position: fixed; inset: 0; z-index: 40; }
+.edit-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(33, 150, 243, 0.85);
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 4;
+}
+.edit-overlay:hover { background: #2196F3; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.card-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  color: #9ecbff;
+  font-size: 11px;
+  cursor: pointer;
+}
+.card-tag:hover { background: #2196F3; color: #fff; }
 .playlist-popover { position: absolute; top: calc(100% - 6px); right: 0; left: 0; z-index: 50; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 12px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
 .playlist-popover-title { color: #fff; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
 .playlist-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }

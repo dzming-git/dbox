@@ -132,8 +132,9 @@ export const useComicStore = defineStore('comic', () => {
     selectedLibraryId.value = query.lib ? (parseInt(query.lib) || null) : null
     selectedTagId.value = query.tag ? (parseInt(query.tag) || null) : null
     searchQuery.value = query.search || ''
-    if (query.sort) sortBy.value = query.sort
-    if (query.order) sortOrder.value = query.order
+    // 缺失的参数恢复默认值（切换模式时清空 URL，其他参数应回到默认）
+    sortBy.value = query.sort || 'recommended'
+    sortOrder.value = query.order || 'desc'
     const page = query.page ? (parseInt(query.page) || 1) : 1
     const offset = (page - 1) * pagination.value.limit
     await fetchComicsByOffset(offset)

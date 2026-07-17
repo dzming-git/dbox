@@ -638,6 +638,30 @@ def set_comic_tags(comic_hash):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@comic_bp.route('/api/comic/<comic_hash>/update', methods=['POST'])
+def update_comic_info(comic_hash):
+    """更新漫画信息（标题、所属视频库）"""
+    try:
+        c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+        data = request.get_json(silent=True) or {}
+        if 'title' in data and data['title'] is not None:
+            c.title = data['title'].strip()
+        if 'library_id' in data:
+            library_id = data['library_id']
+            if library_id is not None:
+                library = VideoLibrary.query.get(int(library_id))
+                if not library:
+                    return jsonify({'success': False, 'message': '视频库不存在'}), 400
+            c.library_id = library_id
+        db.session.commit()
+        return jsonify({'success': True, 'comic': c.to_dict()})
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @comic_bp.route('/api/comic/<comic_hash>/tags', methods=['DELETE'])
 def delete_comic_tags(comic_hash):
     try:

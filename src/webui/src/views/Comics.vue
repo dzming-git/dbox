@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useComicStore } from '../stores/comicStore'
 import { useUserStore } from '../stores/userStore'
 import ComicCard from '../components/ComicCard.vue'
+import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import type { Comic } from '../types'
 import { comicApi } from '../api'
 
@@ -28,10 +29,19 @@ const handleTagChange = (e: Event) => {
   updateUrl()
 }
 
+// 当前是否作为首页（Home）内嵌的漫画 tab 存在。
+// 内嵌时需在当前路径 '/' 上更新 query（保留 mode 等首页参数，避免整页跳转到 /comics 导致切换 tab 消失）；
+// 独立页（/comics）时维持原有跳转到 Comics 路由的行为。
+const isEmbedded = computed(() => route.name === 'Home')
+
 // 将当前筛选/排序/分页状态同步到 URL（不产生历史记录）
 const updateUrl = () => {
   const query = comicStore.toQuery()
-  router.replace({ name: 'Comics', query })
+  if (isEmbedded.value) {
+    router.replace({ query: { ...route.query, ...query } })
+  } else {
+    router.replace({ name: 'Comics', query })
+  }
 }
 
 const loading = computed(() => comicStore.loading)
@@ -72,6 +82,40 @@ const handleLibraryChange = (e: Event) => {
 }
 const handleComicClick = (c: Comic) => router.push({ name: 'Comic', params: { hash: c.hash } })
 
+// ============ 编辑模式（抽屉编辑单条，对齐视频） ============
+const editMode = ref(false)
+const editDrawerVisible = ref(false)
+const editingItem = ref<any>(null)
+
+const toggleEditMode = () => {
+  editMode.value = !editMode.value
+}
+
+const openEdit = (c: any) => {
+  editingItem.value = c
+  editDrawerVisible.value = true
+}
+
+// 正常模式下点击卡片上的 tag → 按该 tag 筛选漫画
+const onTagClick = (tag: any) => {
+  if (editMode.value) return
+  let id = tag.id
+  // 通过抽屉新增的标签可能缺少 id，按名称在标签表中回查
+  if (id == null && tag.name) {
+    const found = allTags.value.find((t: any) => t.name === tag.name)
+    if (found) id = found.id
+  }
+  if (id != null) comicStore.filterByTag(id)
+}
+
+// 抽屉保存后就地更新列表中的该条数据
+const onEditSaved = (updated: any) => {
+  const idx = comicStore.comics.findIndex((c: any) => c.hash === updated.hash)
+  if (idx !== -1) {
+    comicStore.comics[idx] = { ...comicStore.comics[idx], ...updated }
+  }
+}
+
 // 分页
 const currentPage = computed(() => Math.floor(comicStore.pagination.offset / comicStore.pagination.limit) + 1)
 const totalPages = computed(() => Math.ceil(comicStore.pagination.total / comicStore.pagination.limit) || 1)
@@ -84,7 +128,11 @@ const goToPage = async (p: number) => {
   // 始终带上 page 参数，确保切换到第 1 页时 watcher 也能正确触发重新拉取。
   const query = comicStore.toQuery()
   query.page = String(p)
-  router.push({ name: 'Comics', query })
+  if (isEmbedded.value) {
+    router.push({ query: { ...route.query, ...query } })
+  } else {
+    router.push({ name: 'Comics', query })
+  }
 }
 const pageRange = computed(() => {
   const cur = currentPage.value, total = totalPages.value
@@ -160,6 +208,10 @@ watch(() => route.query, async (newQuery) => {
           <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.comic_count }})</option>
         </select>
       </div>
+      <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
+      </button>
       <div class="view-toggle">
         <button class="view-toggle-btn" :class="{ active: comicStore.viewMode === 'grid' }" @click="comicStore.setViewMode('grid')" title="缩略图">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -185,11 +237,19 @@ watch(() => route.query, async (newQuery) => {
     <template v-else>
       <div v-if="comics.length > 0" class="comic-section">
         <div v-if="comicStore.viewMode === 'grid'" class="comic-grid">
-          <ComicCard v-for="c in comics" :key="c.hash" :comic="c" @click="handleComicClick" />
+          <ComicCard
+            v-for="c in comics"
+            :key="c.hash"
+            :comic="c"
+            :editable="editMode"
+            @click="handleComicClick"
+            @edit="openEdit"
+            @tag-click="onTagClick"
+          />
         </div>
         <div v-else class="comic-list">
-          <div v-for="c in comics" :key="c.hash" class="comic-list-row" @click="handleComicClick(c)">
-            <div class="list-thumb">
+          <div v-for="c in comics" :key="c.hash" class="comic-list-row" @click="editMode ? openEdit(c) : handleComicClick(c)">
+            <div class="list-thumb" @click.stop="editMode ? openEdit(c) : handleComicClick(c)">
               <img :src="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'" loading="lazy" @error="(e:any)=>e.target.src='/placeholder.jpg'" />
               <span class="list-pages">{{ c.page_count }}P</span>
             </div>
@@ -198,8 +258,18 @@ watch(() => route.query, async (newQuery) => {
               <div class="list-meta"><span>{{ c.page_count }} 页</span><span v-if="c.like_count>0">♥ {{ c.like_count }}</span></div>
             </div>
             <div class="list-actions">
-              <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="comicStore.interact(c.hash,'like')">♥</button>
-              <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="comicStore.interact(c.hash,'favorite')">★</button>
+              <button
+                v-if="editMode"
+                class="list-action-btn edit"
+                @click.stop="openEdit(c)"
+                title="编辑"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              </button>
+              <template v-else>
+                <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="comicStore.interact(c.hash,'like')">♥</button>
+                <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="comicStore.interact(c.hash,'favorite')">★</button>
+              </template>
             </div>
           </div>
         </div>
@@ -222,6 +292,15 @@ watch(() => route.query, async (newQuery) => {
         <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
     </template>
+
+    <!-- 编辑抽屉（漫画） -->
+    <ItemEditDrawer
+      :visible="editDrawerVisible"
+      type="comic"
+      :item="editingItem"
+      @update:visible="editDrawerVisible = $event"
+      @saved="onEditSaved"
+    />
   </div>
 </template>
 
@@ -260,6 +339,12 @@ watch(() => route.query, async (newQuery) => {
 .empty-state p { margin-top: 12px; font-size: 16px; }
 .empty-tip { font-size: 13px; color: #888; max-width: 420px; text-align: center; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px 0; flex-wrap: wrap; }
+.batch-toggle-btn { height: 36px; padding: 0 14px; border: 1px solid rgba(33,150,243,0.3); border-radius: 18px; background: rgba(33,150,243,0.1); color: #4a9eff; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.25s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.batch-toggle-btn:hover { background: rgba(33,150,243,0.2); }
+.batch-toggle-btn.active { background: #2196F3; color: #fff; border-color: #2196F3; }
+.batch-toggle-text { letter-spacing: 0.3px; }
+.list-action-btn.edit { background: #2196F3; color: #fff; }
+.list-action-btn.edit:hover { background: #1e88e5; }
 .page-btn { padding: 8px 14px; background: #2a2a2a; color: #ccc; border: 1px solid #444; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .page-btn:hover:not(:disabled) { background: #3a3a3a; color: #fff; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }

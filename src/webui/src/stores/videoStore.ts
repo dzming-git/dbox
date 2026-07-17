@@ -435,15 +435,10 @@ export const useVideoStore = defineStore('video', () => {
     } else {
       selectedLibraryId.value = null
     }
-    if (query.search) {
-      searchQuery.value = query.search
-    }
-    if (query.sort) {
-      sortBy.value = query.sort
-    }
-    if (query.order) {
-      sortOrder.value = query.order
-    }
+    // 缺失的参数恢复默认值（切换模式时清空 URL，其他参数应回到默认）
+    searchQuery.value = query.search || ''
+    sortBy.value = query.sort || 'recommended'
+    sortOrder.value = query.order || 'desc'
     // 根据 page 参数计算 offset（不存在则回到第 1 页）
     const page = query.page ? (parseInt(query.page) || 1) : 1
     const offset = (page - 1) * pagination.value.limit

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi } from '../api'
+import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import type { Video, Tag } from '../types'
 
 const route = useRoute()
@@ -14,8 +15,9 @@ const userStore = useUserStore()
 // 检查当前用户是否为管理员（使用 userStore 的统一判断）
 const isAdmin = computed(() => userStore.isAdmin)
 
-// 标签编辑模式（仅管理员可开启，开启后标签上显示重命名/删除的显眼标记）
-const editMode = ref(false)
+// 视频编辑抽屉（管理员可编辑标题/简介/优先级/视频库/标签）
+const editDrawerVisible = ref(false)
+const editingItem = ref<any>(null)
 
 const video = ref<Video | null>(null)
 const loading = ref(true)
@@ -667,6 +669,19 @@ onUnmounted(() => {
   stopSyncLoop()
 })
 
+// 打开编辑抽屉（管理员可编辑标题/简介/优先级/视频库/标签）
+const openEditDrawer = () => {
+  if (!video.value) return
+  editingItem.value = video.value
+  editDrawerVisible.value = true
+}
+
+// 抽屉保存后就地更新当前视频信息
+const onEditSaved = (updated: any) => {
+  if (!video.value) return
+  video.value = { ...video.value, ...updated }
+}
+
 // ============ 标签编辑器 ============
 const showTagEditor = ref(false)  // 是否显示标签编辑器
 const tagInput = ref('')  // 当前输入的标签
@@ -1113,19 +1128,7 @@ const deleteTag = async (tag: Tag) => {
   }
 }
 
-// 查看模式下快捷删除标签（带二次确认）
-const tagToRemove = ref<Tag | null>(null)
-const confirmRemoveTag = (tag: Tag) => {
-  tagToRemove.value = tag
-}
-const cancelRemoveTag = () => { tagToRemove.value = null }
-const doRemoveTag = async () => {
-  if (!tagToRemove.value) return
-  const tag = tagToRemove.value
-  tagToRemove.value = null
-  await deleteTag(tag)
-  showToast(`已删除标签「${tag.name}」`)
-}
+// 查看模式下快捷删除标签（已移至标签树对话框处理）
 
 // 确认添加标签（输入框回车或点击添加按钮）
 const confirmAddTag = async () => {
@@ -1249,6 +1252,19 @@ const handleDelete = async () => {
         <!-- 查看模式 -->
         <div class="video-title-row">
           <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
+          <button
+            v-if="isAdmin"
+            class="edit-video-btn"
+            @click="openEditDrawer"
+            title="编辑视频信息"
+            data-testid="edit-video-button"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            编辑
+          </button>
         </div>
 
         <div class="video-meta">
@@ -1264,59 +1280,16 @@ const handleDelete = async () => {
 
         <!-- 标签区域 -->
         <div class="video-tags-section">
-          <!-- 管理员：编辑模式开关 -->
-          <div v-if="isAdmin" class="tag-edit-toolbar">
-            <button
-              class="edit-mode-toggle"
-              :class="{ active: editMode }"
-              @click="editMode = !editMode"
-              data-testid="edit-mode-toggle"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              {{ editMode ? '退出编辑' : '编辑模式' }}
-            </button>
-            <span v-if="editMode" class="edit-mode-hint">编辑模式下可快捷重命名或删除标签</span>
-          </div>
-
           <div class="video-tags" data-testid="video-tags" v-if="video.tags && video.tags.length > 0">
             <span
               v-for="tag in video.tags"
               :key="tag.id"
               class="tag-badge"
-              :class="{ 'admin-editable': isAdmin }"
             >
               {{ tag.name }}
-              <!-- 管理员：标签操作标记（显眼） -->
-              <template v-if="isAdmin">
-                <button
-                  v-if="editMode"
-                  class="tag-edit-pencil"
-                  @click="startEditTag(tag)"
-                  title="重命名标签"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button
-                  class="tag-remove-btn"
-                  @click="confirmRemoveTag(tag)"
-                  title="删除该标签"
-                  data-testid="remove-tag-button"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                    <line x1="18" y1="6" x2="6" y2="18"/>
-                    <line x1="6" y1="6" x2="18" y2="18"/>
-                  </svg>
-                </button>
-              </template>
             </span>
           </div>
-          <!-- 管理员：添加标签按钮 -->
+          <!-- 管理员：添加标签（打开标签树对话框） -->
           <button v-if="isAdmin" class="tag-add-btn" @click="openTagEditor" title="添加标签">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
@@ -1744,20 +1717,14 @@ const handleDelete = async () => {
       <button @click="goBack" class="back-link">返回首页</button>
     </div>
 
-    <!-- 删除标签确认 -->
-    <div v-if="tagToRemove" class="dialog-overlay" @click.self="cancelRemoveTag">
-      <div class="dialog">
-        <h3>删除标签</h3>
-        <p class="warning-text">
-          确定要从该视频移除标签「{{ tagToRemove.name }}」吗？<br/>
-          若其他视频都不再使用此标签，该标签也会被自动删除。
-        </p>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="cancelRemoveTag">取消</button>
-          <button class="btn-danger" @click="doRemoveTag" data-testid="confirm-remove-tag">删除</button>
-        </div>
-      </div>
-    </div>
+    <!-- 编辑视频抽屉（标题/简介/优先级/视频库/标签） -->
+    <ItemEditDrawer
+      :visible="editDrawerVisible"
+      type="video"
+      :item="editingItem"
+      @update:visible="editDrawerVisible = $event"
+      @saved="onEditSaved"
+    />
 
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast" data-testid="favorite-success">
@@ -2007,6 +1974,29 @@ const handleDelete = async () => {
   margin-bottom: 12px;
 }
 
+/* 标题旁的“编辑”按钮（管理员） */
+.edit-video-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #252525;
+  color: #ddd;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.edit-video-btn:hover {
+  border-color: #2196F3;
+  color: #fff;
+  background: #2d2d2d;
+}
+
+
 .video-meta {
   display: flex;
   gap: 16px;
@@ -2084,26 +2074,26 @@ const handleDelete = async () => {
   border: 1px solid transparent;
 }
 
-/* 显眼的标签删除标记 */
+/* 标签删除/重命名标记：克制的幽灵样式，仅在编辑模式出现 */
 .tag-remove-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 1px solid #f44336;
-  background: #f44336;
-  color: #fff;
+  border: none;
+  background: transparent;
+  color: #f87171;
   cursor: pointer;
   flex-shrink: 0;
+  opacity: 0.6;
   transition: all 0.15s;
 }
 
 .tag-remove-btn:hover {
-  background: #d32f2f;
-  border-color: #d32f2f;
-  transform: scale(1.15);
+  background: rgba(248, 113, 113, 0.18);
+  opacity: 1;
 }
 
 /* 重命名铅笔标记 */
@@ -2111,21 +2101,21 @@ const handleDelete = async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 1px solid #2196F3;
-  background: #2196F3;
-  color: #fff;
+  border: none;
+  background: transparent;
+  color: #60a5fa;
   cursor: pointer;
   flex-shrink: 0;
+  opacity: 0.6;
   transition: all 0.15s;
 }
 
 .tag-edit-pencil:hover {
-  background: #1976D2;
-  border-color: #1976D2;
-  transform: scale(1.15);
+  background: rgba(96, 165, 250, 0.18);
+  opacity: 1;
 }
 
 /* 交互按钮栏 */

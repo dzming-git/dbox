@@ -9,11 +9,14 @@ const props = defineProps<{
   size?: 'large' | 'normal' | 'small'
   selectable?: boolean
   selected?: boolean
+  editable?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [video: Video]
   toggleSelect: [video: Video]
+  edit: [video: Video]
+  tagClick: [tag: any]
 }>()
 
 const userStore = useUserStore()
@@ -90,6 +93,10 @@ const handleClick = () => {
     emit('toggleSelect', props.video)
     return
   }
+  if (props.editable) {
+    emit('edit', props.video)
+    return
+  }
   emit('click', props.video)
 }
 
@@ -134,6 +141,19 @@ const handleImageError = () => {
       <span class="duration" v-if="video.duration" data-testid="video-duration">
         {{ formatDuration(video.duration) }}
       </span>
+      <!-- 编辑入口 -->
+      <button
+        v-if="editable"
+        class="edit-overlay"
+        @click.stop="emit('edit', video)"
+        title="编辑"
+        data-testid="card-edit"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+        </svg>
+      </button>
+
       <!-- 批量选择勾选框 -->
       <div
         v-if="selectable"
@@ -212,6 +232,16 @@ const handleImageError = () => {
           </svg>
           {{ video.like_count }}
         </span>
+      </div>
+      <!-- 标签：正常模式下点击跳转到该标签筛选 -->
+      <div v-if="!editable && video.tags && video.tags.length" class="card-tags">
+        <span
+          v-for="t in video.tags"
+          :key="t.id || t.path"
+          class="card-tag"
+          :title="'筛选: ' + (t.name || t.path)"
+          @click.stop="emit('tagClick', t)"
+        >{{ t.name || t.path }}</span>
       </div>
     </div>
   </div>
@@ -408,6 +438,45 @@ const handleImageError = () => {
   overflow: hidden;
 }
 
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.card-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  color: #9ecbff;
+  font-size: 11px;
+  cursor: pointer;
+}
+.card-tag:hover {
+  background: #2196F3;
+  color: #fff;
+}
+.edit-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(33, 150, 243, 0.85);
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 4;
+}
+.edit-overlay:hover {
+  background: #2196F3;
+}
 .likes {
   display: flex;
   align-items: center;

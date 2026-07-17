@@ -238,11 +238,12 @@ def auth_required(f):
                 log.debug('WARN', f'JWT 认证失败: {e}')
                 # JWT 无效时继续尝试 session
         
-        # 回退到 Session 认证
-        if 'user_id' in session:
-            g.user_id = session.get('user_id')
-            g.role = session.get('role', 0)
-            g.username = session.get('username')
+        # 回退到 Session 认证（登录仅写入 auth_token，需反查用户身份）
+        user = AuthService.get_current_user()
+        if user:
+            g.user_id = user.id
+            g.role = int(user.role)
+            g.username = user.username
             return f(*args, **kwargs)
         
         return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
@@ -1610,7 +1611,7 @@ def add_tag():
 
 
 @app.route('/api/video/<video_hash>/tags', methods=['POST'])
-@admin_required
+@auth_required
 def set_video_tags(video_hash):
     """
     为视频设置标签（自动创建不存在的标签）
@@ -1623,10 +1624,7 @@ def set_video_tags(video_hash):
             return jsonify({'success': False, 'message': '视频不存在'}), 404
         
         data = request.get_json()
-        tag_paths = data.get('tags', [])
-        
-        if not tag_paths:
-            return jsonify({'success': False, 'message': '标签列表不能为空'}), 400
+        tag_paths = data.get('tags', []) or []
         
         # 获取视频库ID（用于标签隔离）
         library_id = video.library_id
@@ -2088,7 +2086,7 @@ def batch_delete_videos():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/videos/<video_hash>/update', methods=['POST'])
-@admin_required
+@auth_required
 def update_video_info(video_hash):
     """更新视频信息"""
     try:
@@ -2107,7 +2105,16 @@ def update_video_info(video_hash):
             if priority < 0 or priority > 100:
                 return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
             video.priority = int(priority)
-        
+
+        # 支持修改所属视频库
+        if 'library_id' in data:
+            library_id = data['library_id']
+            if library_id is not None:
+                library = VideoLibrary.query.get(int(library_id))
+                if not library:
+                    return jsonify({'success': False, 'message': '视频库不存在'}), 400
+            video.library_id = library_id
+
         db.session.commit()
         log.runtime('INFO', f"更新视频信息: {video.title}")
         return jsonify({'success': True, 'video': video.to_dict()})

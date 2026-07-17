@@ -96,6 +96,10 @@ export const videoApi = {
   
   updateVideo: (hash: string, data: Record<string, unknown>) =>
     api.post(`/api/videos/${hash}/update`, data),
+
+  // 设置视频标签（整体替换，传空数组即清空；接受层级路径数组如 ['/动物/狗']）
+  setVideoTags: (hash: string, tags: string[]) =>
+    api.post(`/api/video/${hash}/tags`, { tags }),
   
   scanVideos: () =>
     api.post('/api/scan', {}),
@@ -311,6 +315,9 @@ export const comicApi = {
 
   // 标签（复用主应用 tags 表，对齐视频标签体系）
   getComicTags: (params?: { tree?: boolean }) => api.get('/api/comics/tags', { params }),
+  // 更新漫画信息（标题、所属视频库）
+  updateComic: (hash: string, data: { title?: string; library_id?: number | null }) =>
+    api.post(`/api/comic/${hash}/update`, data),
   getComicTagsByHash: (hash: string) => api.get(`/api/comic/${hash}/tags`),
   setComicTags: (hash: string, tags: string[]) => api.post(`/api/comic/${hash}/tags`, { tags }),
   removeComicTag: (hash: string, tagId: number) =>

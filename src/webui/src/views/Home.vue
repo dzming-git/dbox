@@ -6,6 +6,7 @@ import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
+import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Comics from './Comics.vue'
 import type { Video, Tag } from '../types'
 
@@ -16,9 +17,10 @@ const route = useRoute()
 const mediaTab = ref<'video' | 'comic'>(route.query.mode === 'comic' ? 'comic' : 'video')
 
 // 切换媒体模式时同步到 URL，并从 URL 回读（支持前进/后退、直接分享链接）
+// 切换模式时清空与模式绑定的其他参数（排序、页码、筛选、搜索等），仅保留 mode，使其恢复默认。
 watch(mediaTab, (val) => {
   if (route.query.mode !== val) {
-    router.replace({ query: { ...route.query, mode: val } })
+    router.replace({ query: { mode: val } })
   }
 })
 watch(
@@ -163,6 +165,8 @@ watch(() => route.query, async (newQuery) => {
 // 更新 URL query 参数（不产生历史记录）
 const updateUrl = () => {
   const query = videoStore.toQuery()
+  // 始终保留当前媒体模式，避免换页/筛选后 mode 丢失导致切换 tab 消失
+  query.mode = mediaTab.value
   // 使用 replace 避免产生过多历史记录
   router.replace({ path: '/', query })
 }
@@ -336,6 +340,11 @@ const progressPercent = (item: any) => {
 // ============ 批量选择 ============
 const selectionMode = ref(false)
 const selectedHashes = ref<string[]>([])
+// 编辑模式（抽屉编辑单条，与批量选择互斥）
+const editMode = ref(false)
+const editDrawerVisible = ref(false)
+const editingItem = ref<any>(null)
+
 
 const toggleSelect = (video: Video) => {
   const i = selectedHashes.value.indexOf(video.hash)
@@ -346,6 +355,42 @@ const toggleSelect = (video: Video) => {
 const toggleSelectionMode = () => {
   selectionMode.value = !selectionMode.value
   if (!selectionMode.value) selectedHashes.value = []
+  // 批量选择与编辑模式互斥
+  if (selectionMode.value) editMode.value = false
+}
+
+// ============ 编辑模式（抽屉编辑单条） ============
+const toggleEditMode = () => {
+  editMode.value = !editMode.value
+  if (editMode.value) {
+    selectionMode.value = false
+    selectedHashes.value = []
+  }
+}
+
+const openEdit = (video: any) => {
+  editingItem.value = video
+  editDrawerVisible.value = true
+}
+
+// 正常模式下点击卡片上的 tag → 按该 tag 筛选视频
+const onTagClick = (tag: any) => {
+  if (editMode.value) return
+  let id = tag.id
+  // 通过抽屉新增的标签可能缺少 id，按名称在标签表中回查
+  if (id == null && tag.name) {
+    const found = videoStore.tags.find((t: any) => t.name === tag.name)
+    if (found) id = found.id
+  }
+  if (id != null) videoStore.filterByTag(id)
+}
+
+// 抽屉保存后就地更新列表中的该条数据
+const onEditSaved = (updated: any) => {
+  const idx = videoStore.videos.findIndex((v) => v.hash === updated.hash)
+  if (idx !== -1) {
+    videoStore.videos[idx] = { ...videoStore.videos[idx], ...updated }
+  }
 }
 
 const batchAction = async (action: 'like' | 'favorite' | 'dislike') => {
@@ -373,6 +418,8 @@ const goToPage = async (page: number) => {
   // 始终带上 page 参数，确保切换到第 1 页时 watcher 也能正确触发重新拉取。
   const query = videoStore.toQuery()
   query.page = String(page)
+  // 保留当前媒体模式，避免换页后 mode 丢失导致切换 tab 消失
+  query.mode = mediaTab.value
   router.push({ path: '/', query })
 }
 
@@ -551,6 +598,13 @@ const onListImgError = (e: Event) => {
           </svg>
           <span class="batch-toggle-text">{{ selectionMode ? '退出选择' : '批量选择' }}</span>
         </button>
+        <!-- 编辑模式开关 -->
+        <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+          </svg>
+          <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
+        </button>
       </div>
       <!-- 显示模式切换：缩略图 / 列表 -->
       <div class="view-toggle">
@@ -713,10 +767,13 @@ const onListImgError = (e: Event) => {
             v-for="video in videos"
             :key="video.hash"
             :video="video"
-            :selectable="selectionMode"
+            :selectable="selectionMode && !editMode"
             :selected="selectedHashes.includes(video.hash)"
+            :editable="editMode"
             @click="handleVideoClick(video)"
             @toggle-select="toggleSelect"
+            @edit="openEdit"
+            @tag-click="onTagClick"
           />
         </div>
         <!-- 列表模式 -->
@@ -726,9 +783,9 @@ const onListImgError = (e: Event) => {
             :key="video.hash"
             class="video-list-row"
             :class="{ selected: selectedHashes.includes(video.hash) }"
-            @click="handleVideoClick(video)"
+            @click="editMode ? openEdit(video) : handleVideoClick(video)"
           >
-            <div class="list-thumb" @click.stop="selectionMode ? toggleSelect(video) : handleVideoClick(video)">
+            <div class="list-thumb" @click.stop="selectionMode ? toggleSelect(video) : (editMode ? openEdit(video) : handleVideoClick(video))">
               <img
                 :src="listThumbUrl(video)"
                 :alt="video.title"
@@ -762,6 +819,17 @@ const onListImgError = (e: Event) => {
             </div>
             <div class="list-actions" v-if="!selectionMode">
               <button
+                v-if="editMode"
+                class="list-action-btn edit"
+                @click.stop="openEdit(video)"
+                title="编辑"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+                </svg>
+              </button>
+              <button
+                v-if="!editMode"
                 class="list-action-btn like"
                 :class="{ active: video.is_liked }"
                 @click.stop="videoStore.likeVideo(video.hash)"
@@ -772,6 +840,7 @@ const onListImgError = (e: Event) => {
                 </svg>
               </button>
               <button
+                v-if="!editMode"
                 class="list-action-btn favorite"
                 :class="{ active: video.is_favorited }"
                 @click.stop="videoStore.favoriteVideo(video.hash)"
@@ -782,6 +851,7 @@ const onListImgError = (e: Event) => {
                 </svg>
               </button>
               <button
+                v-if="!editMode"
                 class="list-action-btn dislike"
                 :class="{ active: video.disliked }"
                 @click.stop="videoStore.dislikeVideo(video.hash)"
@@ -836,6 +906,15 @@ const onListImgError = (e: Event) => {
     </div>
     <!-- 漫画内容（仅漫画 tab 显示） -->
     <Comics v-else />
+
+    <!-- 编辑抽屉（视频/漫画通用） -->
+    <ItemEditDrawer
+      :visible="editDrawerVisible"
+      type="video"
+      :item="editingItem"
+      @update:visible="editDrawerVisible = $event"
+      @saved="onEditSaved"
+    />
   </div>
 </template>
 
