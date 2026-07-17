@@ -143,13 +143,14 @@ const getParentName = (parentId: number | null | undefined): string => {
 }
 
 
-// 查看标签下的视频 - 跳转到首页并筛选该标签
+// 查看标签下的视频 - 跳转到首页并筛选该标签（统一使用数字 tag id 作为 URL 参数，
+// 与首页标签筛选保持一致，确保从标签页点击眼睛图标筛选能真正生效）
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
 const viewTagVideos = (tag: Tag) => {
-  router.push({ path: '/', query: { tag: tag.path || tag.name } })
+  router.push({ path: '/', query: { tag: String(tag.id) } })
 }
 
 // ============ 管理员：新建 / 编辑 / 删除 标签 ============

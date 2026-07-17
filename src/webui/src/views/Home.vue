@@ -124,15 +124,17 @@ const goToRootLevel = () => {
 
 // 点击标签
 const handleTagClick = (tag: any) => {
-  // 如果有子标签，进入子层级
+  // 选中该标签并筛选（无论是否有子标签都写入 URL，与标签页眼睛图标保持一致）
+  videoStore.filterByTag(tag.id)
   if (tag.children && tag.children.length > 0) {
+    // 有子标签：展开下一级便于继续浏览，同时按当前标签筛选
     enterTagLevel(tag)
+    showTagsSection.value = true
   } else {
-    // 否则选中该标签
-    videoStore.filterByTag(tag.id)
+    // 叶子标签：直接筛选并收起标签区
     showTagsSection.value = false
-    updateUrl()
   }
+  updateUrl()
 }
 
 // 点击"全部"标签
@@ -221,6 +223,10 @@ onMounted(async () => {
       videoStore.fetchTags(),
       videoStore.fetchUserLibraries()
     ])
+  }
+  // 通过分享链接或标签页眼睛图标进入时，若带 tag 参数，自动展开标签面板以显示当前筛选状态
+  if (route.query.tag) {
+    showTagsSection.value = true
   }
 })
 
