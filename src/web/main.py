@@ -166,6 +166,7 @@ from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
 from backend.comic.comic_api import comic_bp
+from backend.api.markers_api import markers_bp
 
 # ============ 配置 ============
 app = Flask(__name__)
@@ -204,6 +205,7 @@ app.register_blueprint(search_bp)  # 搜索API
 app.register_blueprint(suggestion_bp)  # 建议反馈API
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
+app.register_blueprint(markers_bp)  # 精彩片段标记 API
 
 # ============ 初始化 API 总线客户端 ============
 init_history_api(history_bus)

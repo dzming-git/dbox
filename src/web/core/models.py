@@ -325,6 +325,32 @@ class UserInteraction(db.Model):
         return f'<UserInteraction {self.user_session} - {self.interaction_type}>'
 
 
+class VideoMarker(db.Model):
+    """用户标记的精彩片段时间戳（按个人会话区分，不覆盖文件名/标题）。"""
+    __tablename__ = 'video_markers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=False, index=True)
+    user_session = db.Column(db.String(100), nullable=False, index=True)
+    time_seconds = db.Column(db.Float, nullable=False)
+    note = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    video = db.relationship('Video', backref='markers')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'video_id': self.video_id,
+            'time_seconds': self.time_seconds,
+            'note': self.note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<VideoMarker {self.video_id} @ {self.time_seconds}s>'
+
+
 class FavoriteCollection(db.Model):
     """用户收藏夹分组模型"""
     __tablename__ = 'favorite_collections'

@@ -5,7 +5,7 @@ import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
-import type { Video, Tag } from '../types'
+import type { Video, Tag, VideoMarker } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +29,18 @@ const videoPlayer = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 
+// 精彩片段标记（用户个人时间戳）
+const markers = ref<VideoMarker[]>([])
+const showMarkerForm = ref(false)
+const markerNote = ref('')
+const currentTime = ref(0)
+
 const videoHash = computed(() => route.params.hash as string)
+
+// 切换视频时重新加载精彩片段标记
+watch(videoHash, async () => {
+  if (video.value) await loadMarkers()
+})
 
 // 推荐视频相关状态
 const recommendedVideos = ref<Video[]>([])
@@ -62,6 +73,8 @@ onMounted(async () => {
       const response = await videoStore.fetchVideo(videoHash.value)
       if (response && response.video) {
         video.value = response.video
+        // 加载精彩片段标记
+        await loadMarkers()
         // 增加观看次数
         await incrementViewCount()
         // 记录观看历史
@@ -682,6 +695,86 @@ const onEditSaved = (updated: any) => {
   video.value = { ...video.value, ...updated }
 }
 
+// ============ 精彩片段标记 ============
+const formatMarkerTime = (sec: number) => {
+  const s = Math.max(0, Math.floor(sec))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}:${r.toString().padStart(2, '0')}`
+}
+
+const loadMarkers = async () => {
+  if (!video.value) return
+  try {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`/api/video/${video.value.hash}/markers`, { headers })
+    if (res.ok) markers.value = await res.json()
+  } catch (e) {
+    console.error('加载精彩片段标记失败', e)
+  }
+}
+
+const startAddMarker = () => {
+  markerNote.value = ''
+  showMarkerForm.value = true
+}
+
+const cancelAddMarker = () => {
+  showMarkerForm.value = false
+  markerNote.value = ''
+}
+
+const submitMarker = async () => {
+  if (!video.value) return
+  const time = videoPlayer.value?.currentTime ?? 0
+  try {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`/api/video/${video.value.hash}/markers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ time, note: markerNote.value.trim() }),
+    })
+    if (res.ok) {
+      await loadMarkers()
+      cancelAddMarker()
+    }
+  } catch (e) {
+    console.error('添加精彩片段标记失败', e)
+  }
+}
+
+const jumpToMarker = (time: number) => {
+  const player = videoPlayer.value
+  if (player) {
+    player.currentTime = time
+    player.play().catch(() => {})
+  }
+}
+
+const deleteMarker = async (id: number) => {
+  if (!video.value) return
+  try {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`/api/video/${video.value.hash}/markers/${id}`, {
+      method: 'DELETE',
+      headers,
+    })
+    if (res.ok) markers.value = markers.value.filter(m => m.id !== id)
+  } catch (e) {
+    console.error('删除精彩片段标记失败', e)
+  }
+}
+
+const onTimeUpdate = () => {
+  if (videoPlayer.value) currentTime.value = videoPlayer.value.currentTime
+}
+
 // ============ 标签编辑器 ============
 const showTagEditor = ref(false)  // 是否显示标签编辑器
 const tagInput = ref('')  // 当前输入的标签
@@ -1241,6 +1334,7 @@ const handleDelete = async () => {
               @play="onPlay"
               @pause="onPause"
               @seeked="onSeeked"
+              @timeupdate="onTimeUpdate"
               preload="metadata"
               controls
             ></video>
@@ -1296,6 +1390,42 @@ const handleDelete = async () => {
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
+        </div>
+
+        <!-- 精彩片段标记 -->
+        <div class="markers-section">
+          <div class="markers-header">
+            <span class="markers-title">精彩片段</span>
+            <button class="markers-add-btn" @click="startAddMarker" :disabled="showMarkerForm">
+              + 标记当前位置 ({{ formatMarkerTime(currentTime) }})
+            </button>
+          </div>
+
+          <div v-if="showMarkerForm" class="marker-form">
+            <input
+              v-model="markerNote"
+              class="marker-note-input"
+              type="text"
+              placeholder="备注（可选），如：高燃打斗"
+              @keyup.enter="submitMarker"
+            />
+            <button class="marker-save" @click="submitMarker">保存</button>
+            <button class="marker-cancel" @click="cancelAddMarker">取消</button>
+          </div>
+
+          <div v-if="markers.length" class="markers-list">
+            <div
+              v-for="m in markers"
+              :key="m.id"
+              class="marker-item"
+              @click="jumpToMarker(m.time_seconds)"
+            >
+              <span class="marker-time">⏱ {{ formatMarkerTime(m.time_seconds) }}</span>
+              <span class="marker-note">{{ m.note || '精彩片段' }}</span>
+              <button class="marker-del" @click.stop="deleteMarker(m.id)" title="删除">✕</button>
+            </div>
+          </div>
+          <p v-else class="markers-empty">看到精彩处，点「标记当前位置」记录时间戳，之后随时点击跳转。</p>
         </div>
 
           <!-- 视频下方交互按钮 -->
@@ -3417,6 +3547,141 @@ const handleDelete = async () => {
 
   .rec-thumbnail-wrapper {
     height: 140px;
+  }
+}
+/* 精彩片段标记 */
+.markers-section {
+  margin: 16px 0;
+  padding: 14px 16px;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+}
+.markers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.markers-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+.markers-add-btn {
+  padding: 6px 12px;
+  border: 1px solid #3a5a7a;
+  border-radius: 8px;
+  background: rgba(33, 150, 243, 0.12);
+  color: #9ecbff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.markers-add-btn:hover:not(:disabled) {
+  background: #2196f3;
+  color: #fff;
+}
+.markers-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.marker-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.marker-note-input {
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  background: #0f0f0f;
+  color: #fff;
+  font-size: 14px;
+}
+.marker-save,
+.marker-cancel {
+  padding: 0 14px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #222;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 13px;
+}
+.marker-save {
+  background: #2196f3;
+  border-color: #2196f3;
+  color: #fff;
+}
+.marker-save:hover {
+  background: #1976d2;
+}
+.markers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.marker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #0f0f0f;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.marker-item:hover {
+  background: #1c1c1c;
+  border-color: #3a5a7a;
+}
+.marker-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #9ecbff;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.marker-note {
+  flex: 1;
+  color: #e0e0e0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.marker-del {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  font-size: 13px;
+}
+.marker-del:hover {
+  background: #3a2020;
+  color: #ff6b6b;
+}
+.markers-empty {
+  margin: 4px 0 0;
+  color: #888;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1024px) {
+  .markers-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

@@ -27,6 +27,15 @@ export interface Video {
   updated_at?: string
 }
 
+// 精彩片段标记（用户个人时间戳）
+export interface VideoMarker {
+  id: number
+  video_id: number
+  time_seconds: number
+  note: string | null
+  created_at: string | null
+}
+
 // 标签类型 - 支持多级标签
 export interface Tag {
   id: number
