@@ -3209,7 +3209,7 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style>
 /* 删除确认对话框 */
 .dialog-overlay {
   position: fixed;
