@@ -4,13 +4,30 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import api from '../api'
-import { videoApi, thumbnailApi, logApi, libraryApi } from '../api'
+import { videoApi, libraryApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
+import {
+  formatDate,
+  formatPath,
+  formatFileSize,
+  formatBytes,
+  formatUptime,
+  getUsageClass,
+  getRoleClass,
+  getPriorityColor,
+  getPriorityLabel
+} from '../utils/adminCommon'
+import { useToast } from '../composables/useToast'
+import AdminLogs from '../admin/AdminLogs.vue'
+import AdminMonitor from '../admin/AdminMonitor.vue'
+import AdminConfig from '../admin/AdminConfig.vue'
+import AdminUsers from '../admin/AdminUsers.vue'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
 const router = useRouter()
+const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
@@ -54,77 +71,6 @@ const editingVideoTags = ref<string>('')  // 标签输入（用 "/" 分隔）
 const showVideoEditModal = ref(false)
 const showPriorityModal = ref(false)
 const batchPriorityValue = ref(50)
-const thumbnailBatchLoading = ref(false)
-const showThumbnailModal = ref(false)  // 缩略图操作弹窗
-const thumbnailBatchDeleting = ref(false)  // 批量删除中
-
-// 批量生成缩略图
-const batchGenerateThumbnails = async () => {
-  if (selectedVideos.value.length === 0) return
-  thumbnailBatchLoading.value = true
-  let successCount = 0
-  let failCount = 0
-
-  for (const hash of selectedVideos.value) {
-    try {
-      const res = await thumbnailApi.regenerate(hash) as any
-      if (res.success) {
-        successCount++
-      } else {
-        failCount++
-      }
-    } catch (e) {
-      failCount++
-    }
-  }
-
-  thumbnailBatchLoading.value = false
-  if (successCount > 0) {
-    showToast(`已提交 ${successCount} 个缩略图生成任务`)
-  }
-  if (failCount > 0) {
-    showToast(`失败 ${failCount} 个`)
-  }
-}
-
-// 批量删除缩略图
-const batchDeleteThumbnails = async () => {
-  if (selectedVideos.value.length === 0) return
-  showThumbnailModal.value = false
-  thumbnailBatchDeleting.value = true
-  let successCount = 0
-  let failMessages: string[] = []
-
-  for (const hash of selectedVideos.value) {
-    try {
-      const res = await thumbnailApi.delete(hash) as any
-      if (res.success) {
-        successCount++
-      } else {
-        failMessages.push(res.message || '删除失败')
-      }
-    } catch (e: any) {
-      failMessages.push(e.response?.data?.message || '请求失败')
-    }
-  }
-
-  thumbnailBatchDeleting.value = false
-  if (successCount > 0) {
-    showToast(`已删除 ${successCount} 个缩略图`)
-  }
-  if (failMessages.length > 0) {
-    // 显示所有失败原因（去重）
-    const uniqueMsgs = [...new Set(failMessages)]
-    showToast(`失败: ${uniqueMsgs.join('; ')}`)
-  }
-}
-
-// 打开缩略图操作弹窗
-const openThumbnailModal = () => {
-  if (selectedVideos.value.length === 0) return
-  showThumbnailModal.value = true
-}
-
 // 排序选项（不使用推荐）
 const sortOptions = [
   { value: 'name', label: '视频名' },
@@ -137,24 +83,6 @@ const sortOptions = [
 ]
 const videoSortBy = ref('created_at')  // 默认按文件时间
 const videoSortOrder = ref('desc')     // 默认倒序
-
-// 用户管理
-const users = ref<any[]>([])
-const showUserModal = ref(false)
-const editingUser = ref<any>(null)
-const userForm = ref({
-  username: '',
-  password: '',
-  role: 'user'
-})
-
-// 系统配置
-const systemConfig = ref({
-  max_upload_size: 1024,
-  thumbnail_quality: 85,
-  auto_sync: true,
-  allow_register: false
-})
 
 // 缩略图管理
 const thumbConfig = ref({
@@ -461,138 +389,6 @@ const scanDetailFolder = async (folderKey?: string) => {
     showToast(error.response?.data?.message || error.message || '扫描失败')
   } finally {
     libraryDetailScanning.value = false
-    libraryDetailScanInfo.value = null
-  }
-}
-
-// 扫描并直接导入所有新视频（一键操作，省去手动勾选）
-const scanAndImportDetail = async () => {
-  const lib = currentLibrary.value
-  if (!lib) return
-  if (libraryDetailScanning.value || libraryDetailImporting.value) {
-    showToast('正在处理中，请勿重复点击')
-    return
-  }
-
-  libraryDetailScanning.value = true
-  libraryDetailScanInfo.value = null
-  libraryDetailScanSummary.value = null
-  libraryDetailScanErrors.value = []
-
-  try {
-    const foldersToScan = libraryDetailFolders.value
-    if (foldersToScan.length === 0) {
-      showToast('没有可扫描的文件夹')
-      return
-    }
-
-    const seenPaths = new Set<string>()
-    const allResults: any[] = []
-    const folderResults: Record<string, any[]> = {}
-    let scannedCount = 0
-
-    for (let i = 0; i < foldersToScan.length; i++) {
-      const folder = foldersToScan[i]
-      const folderPath = folder.path
-      if (!folderPath || !folderPath.trim()) continue
-      scannedCount++
-      libraryDetailScanInfo.value = {
-        folder: getFolderLabel(folder),
-        index: scannedCount,
-        total: foldersToScan.length,
-        found: allResults.length
-      }
-
-      try {
-        const scanRes = await api.post('/api/admin/scan-folder', {
-          folder_path: folderPath,
-          recursive: true
-        }, { timeout: 900000 }) as any
-
-        if (scanRes.success && scanRes.data?.videos) {
-          const fKey = getFolderKey(folder)
-          if (!folderResults[fKey]) folderResults[fKey] = []
-
-          for (const v of scanRes.data.videos) {
-            if (!seenPaths.has(v.path)) {
-              seenPaths.add(v.path)
-              allResults.push(v)
-              folderResults[fKey].push(v)
-            }
-          }
-        } else if (scanRes && scanRes.success === false) {
-          libraryDetailScanErrors.value.push({
-            folder: getFolderLabel(folder),
-            message: scanRes.message || '扫描失败'
-          })
-        }
-      } catch (e: any) {
-        console.error(`扫描文件夹失败: ${folderPath}`, e)
-        libraryDetailScanErrors.value.push({
-          folder: getFolderLabel(folder),
-          message: e?.response?.data?.message || e?.message || '请求失败'
-        })
-      }
-    }
-
-    // 更新缓存，使文件列表可见
-    for (const [fKey, videos] of Object.entries(folderResults)) {
-      libraryDetailFileCache.value[fKey] = videos
-    }
-    libraryDetailFileCache.value['__all__'] = allResults
-
-    const newVideos = allResults.filter((v: any) => !v.exists)
-    const existCount = allResults.length - newVideos.length
-
-    if (allResults.length === 0) {
-      showToast('扫描完成：未发现视频文件')
-      return
-    }
-    if (newVideos.length === 0) {
-      showToast(`扫描完成：共 ${allResults.length} 个视频，全部已存在`)
-      libraryDetailScanSummary.value = { total: allResults.length, newCount: 0, existCount: allResults.length }
-      return
-    }
-
-    showToast(`发现 ${newVideos.length} 个新视频，正在导入...`)
-    const videosToImport = newVideos.map((v: any) => ({ path: v.path, title: v.title, tags: [] as string[] }))
-
-    libraryDetailScanInfo.value = null
-    libraryDetailImporting.value = true
-    libraryDetailImportProgress.value = { imported: 0, skipped: 0, failed: 0 }
-    libraryDetailImportErrors.value = []
-
-    const res = await api.post('/api/admin/import-videos', {
-      library_id: lib.id,
-      videos: videosToImport,
-      skip_existing: true,
-      default_tags: []
-    }, { timeout: 900000 }) as any
-
-    if (res.success) {
-      libraryDetailImportProgress.value = res.data
-      libraryDetailImportErrors.value = res.data.errors || []
-      showToast(res.message)
-      await fetchVideos()
-      // 标记已导入的视频为已存在
-      const importedPaths = new Set(videosToImport.map((v: any) => v.path))
-      for (const key of Object.keys(libraryDetailFileCache.value)) {
-        libraryDetailFileCache.value[key] = libraryDetailFileCache.value[key].map((v: any) => ({
-          ...v,
-          exists: v.exists || importedPaths.has(v.path)
-        }))
-      }
-      fetchLibraries()
-      libraryDetailScanSummary.value = { total: allResults.length, newCount: 0, existCount: allResults.length }
-    } else {
-      showToast(res.message || '导入失败')
-    }
-  } catch (error: any) {
-    console.error('扫描并导入失败:', error)
-    showToast(error.response?.data?.message || error.message || '操作失败')
-  } finally {
-    libraryDetailScanning.value = false
-    libraryDetailImporting.value = false
     libraryDetailScanInfo.value = null
   }
 }
@@ -1255,46 +1051,6 @@ const fetchVideos = async (resetPage = true) => {
   }
 }
 
-// 获取用户列表
-const fetchUsers = async () => {
-  loading.value.users = true
-  try {
-    const res = await api.get('/api/admin/users') as any
-    if (res.success) {
-      users.value = res.users || []
-    }
-  } catch (error) {
-    console.error('获取用户列表失败:', error)
-  } finally {
-    loading.value.users = false
-  }
-}
-
-// 获取系统配置
-const fetchSystemConfig = async () => {
-  try {
-    const res = await api.get('/api/admin/config') as any
-    if (res.success) {
-      systemConfig.value = { ...systemConfig.value, ...res.config }
-    }
-  } catch (error) {
-    console.error('获取系统配置失败:', error)
-  }
-}
-
-// 保存系统配置
-const saveSystemConfig = async () => {
-  try {
-    const res = await api.post('/api/admin/config', systemConfig.value) as any
-    if (res.success) {
-      showToast('配置已保存')
-    }
-  } catch (error) {
-    console.error('保存系统配置失败:', error)
-    showToast('保存失败')
-  }
-}
-
 // ============ 缩略图管理 ============
 
 const fetchThumbnailConfig = async () => {
@@ -1603,22 +1359,7 @@ const batchSetPriority = async () => {
 }
 
 // 获取优先级颜色
-const getPriorityColor = (priority: number) => {
-  if (priority >= 80) return '#ff4d4f'
-  if (priority >= 60) return '#faad14'
-  if (priority >= 40) return '#1890ff'
-  if (priority >= 20) return '#52c41a'
-  return '#8c8c8c'
-}
 
-// 获取优先级标签
-const getPriorityLabel = (priority: number) => {
-  if (priority >= 80) return '极高'
-  if (priority >= 60) return '高'
-  if (priority >= 40) return '中'
-  if (priority >= 20) return '低'
-  return '极低'
-}
 
 // 删除视频确认对话框
 const showDeleteConfirm = ref(false)
@@ -1713,111 +1454,9 @@ const toggleSelectAll = () => {
   }
 }
 
-// 创建用户
-const createUser = async () => {
-  try {
-    const res = await api.post('/api/admin/users', userForm.value) as any
-    if (res.success) {
-      showToast('创建成功')
-      showUserModal.value = false
-      fetchUsers()
-      userForm.value = { username: '', password: '', role: 'user' }
-    }
-  } catch (error) {
-    console.error('创建用户失败:', error)
-    showToast('创建失败')
-  }
-}
 
-// 编辑用户
-const editUser = (user: any) => {
-  editingUser.value = user
-  userForm.value = {
-    username: user.username,
-    password: '',
-    role: ['guest', 'user', 'admin', 'root'][user.role] || 'user'
-  }
-  showUserModal.value = true
-}
 
-// 更新用户
-const updateUser = async () => {
-  if (!editingUser.value) return
-  try {
-    const updateData: any = {
-      username: userForm.value.username,
-      role: userForm.value.role
-    }
-    if (userForm.value.password) {
-      updateData.password = userForm.value.password
-    }
-    
-    const res = await api.put(`/api/admin/users/${editingUser.value.id}`, updateData) as any
-    if (res.success) {
-      showToast('更新成功')
-      showUserModal.value = false
-      editingUser.value = null
-      userForm.value = { username: '', password: '', role: 'user' }
-      fetchUsers()
-    }
-  } catch (error) {
-    console.error('更新用户失败:', error)
-    showToast('更新失败')
-  }
-}
 
-// 删除用户
-const deleteUser = async (id: number) => {
-  if (!confirm('确定要删除这个用户吗？')) return
-  try {
-    const res = await api.delete(`/api/admin/users/${id}`) as any
-    if (res.success) {
-      showToast('删除成功')
-      fetchUsers()
-    }
-  } catch (error) {
-    console.error('删除用户失败:', error)
-    showToast('删除失败')
-  }
-}
-
-// 格式化日期
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN')
-}
-
-// 获取角色CSS类名
-const getRoleClass = (role: number) => {
-  const roleMap: Record<number, string> = {
-    0: 'guest',
-    1: 'user',
-    2: 'admin',
-    3: 'root'
-  }
-  return roleMap[role] || 'user'
-}
-
-// 格式化路径（缩短显示）
-const formatPath = (path: string, maxLength: number = 50) => {
-  if (!path) return '-'
-  if (path.length <= maxLength) return path
-  return '...' + path.slice(-maxLength + 3)
-}
-
-// 格式化文件大小
-const formatFileSize = (bytes: number) => {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let size = bytes
-  let unitIndex = 0
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex++
-  }
-  return `${size.toFixed(2)} ${units[unitIndex]}`
-}
 
 // 计算属性：安装信息
 const installInfo = computed(() => {
@@ -1845,181 +1484,12 @@ const syncStatusColor = computed(() => {
   return '#9E9E9E'
 })
 
-// Toast 提示
-const toastMessage = ref('')
-const showToastFlag = ref(false)
-let toastQueue: string[] = []
-let toastTimer: any = null
-
-const showToast = (message: string) => {
-  toastQueue.push(message)
-  if (!showToastFlag.value) {
-    showNextToast()
-  }
-}
-
-const showNextToast = () => {
-  if (toastQueue.length === 0) {
-    showToastFlag.value = false
-    return
-  }
-  toastMessage.value = toastQueue.shift()!
-  showToastFlag.value = true
-  setTimeout(() => {
-    showToastFlag.value = false
-    setTimeout(() => showNextToast(), 100)
-  }, 2500)
-}
-
-// ============ 系统日志功能 ============
-const logEntries = ref<any[]>([])
-const logPage = ref(1)
-const logLimit = ref(20)
-const logTotal = ref(0)
-const logTotalPages = ref(0)
-const logType = ref('maintenance')
-const logService = ref('')
-const logServices = ref<string[]>([])
-const logLoading = ref(false)
-
-const logTypes = [
-  { value: 'maintenance', label: '维护日志', icon: '🔧' },
-  { value: 'runtime', label: '运行日志', icon: '📋' },
-  { value: 'debug', label: '调试日志', icon: '🐛' },
-  { value: 'operation', label: '操作日志', icon: '👤' }
-]
-
-const logLimitOptions = [10, 20, 50, 100]
-
-const fetchLogs = async (resetPage = true) => {
-  logLoading.value = true
-  try {
-    const params: any = { type: logType.value }
-    if (resetPage) {
-      logPage.value = 1
-    }
-    params.page = logPage.value
-    params.limit = logLimit.value
-    if (logService.value) {
-      params.service = logService.value
-    }
-    const res = await logApi.getLogs(params) as any
-    if (res.success) {
-      logEntries.value = res.logs || []
-      logTotal.value = res.total || 0
-      logTotalPages.value = res.total_pages || 0
-      // 更新服务列表
-      if (res.services) {
-        logServices.value = res.services
-      }
-    }
-  } catch (error) {
-    console.error('获取日志失败:', error)
-    showToast('获取日志失败')
-  } finally {
-    logLoading.value = false
-  }
-}
-
-const switchLogType = (type: string) => {
-  logType.value = type
-  logService.value = ''  // 切换类型时清空服务筛选
-  fetchLogs(true)
-}
-
-const switchLogService = (service: string) => {
-  logService.value = service
-  fetchLogs(true)
-}
-
-const changeLogPage = (page: number) => {
-  logPage.value = page
-  // 换页不触发刷新，直接从已加载的数据取
-  // 需要重新请求因为分页在服务端
-  fetchLogs(false)
-}
-
-// ============ 系统监控 ============
-const monitorMetrics = ref<any>(null)
-const monitorHistory = ref<any[]>([])
-const monitorLoading = ref(false)
-let monitorPollingTimer: number | null = null
-
-const fetchMonitorMetrics = async () => {
-  monitorLoading.value = true
-  try {
-    const res = await api.get('/api/system/metrics') as any
-    if (res.success) {
-      monitorMetrics.value = res.metrics
-      // 更新历史
-      if (res.metrics && monitorHistory.value.length < 60) {
-        monitorHistory.value.push(res.metrics)
-      }
-    }
-  } catch (error) {
-    console.error('获取系统监控数据失败:', error)
-  } finally {
-    monitorLoading.value = false
-  }
-}
-
-const startMonitorPolling = () => {
-  stopMonitorPolling()
-  fetchMonitorMetrics()
-  monitorPollingTimer = window.setInterval(() => {
-    fetchMonitorMetrics()
-  }, 3000)
-}
-
-const stopMonitorPolling = () => {
-  if (monitorPollingTimer !== null) {
-    clearInterval(monitorPollingTimer)
-    monitorPollingTimer = null
-  }
-}
-
-// 格式化字节为人类可读
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-// 根据使用率返回样式类
-const getUsageClass = (percent: number | undefined): string => {
-  if (percent === undefined) return ''
-  if (percent >= 90) return 'danger'
-  if (percent >= 70) return 'warning'
-  return 'normal'
-}
-
-// 格式化运行时间
-const formatUptime = (seconds: number): string => {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const parts: string[] = []
-  if (days > 0) parts.push(`${days} 天`)
-  if (hours > 0) parts.push(`${hours} 小时`)
-  if (minutes > 0) parts.push(`${minutes} 分钟`)
-  return parts.join(' ') || '不到 1 分钟'
-}
-
-const changeLogLimit = () => {
-  fetchLogs(true)
-}
-
 // ============ 切换标签页 ============
 const switchTab = (tab: string) => {
   activeTab.value = tab
   if (tab === 'videos') { fetchLibraries(); fetchVideos() }
-  if (tab === 'users') fetchUsers()
-  if (tab === 'config') fetchSystemConfig()
   if (tab === 'thumbnail') fetchThumbnailConfig()
   if (tab === 'services') { fetchServices(); startServicePolling() }
-  if (tab === 'monitor') { fetchMonitorMetrics(); startMonitorPolling() }
   if (tab === 'libraries') {
     fetchLibraries()
     fetchUserGroups()
@@ -2027,13 +1497,11 @@ const switchTab = (tab: string) => {
   if (tab === 'import') {
     fetchLibraries()
   }
-  if (tab === 'logs') {
-    fetchLogs()
+  if (tab === 'sync') {
+    fetchSyncStatus()
   }
   // 离开服务管理页时停止轮询
   if (tab !== 'services') stopServicePolling()
-  // 离开监控页时停止轮询
-  if (tab !== 'monitor') stopMonitorPolling()
 }
 
 onMounted(() => {
@@ -2042,17 +1510,13 @@ onMounted(() => {
   fetchSystemPaths()
   fetchSyncStatus()
   loadHotStats()
-  // 恢复上次的标签页数据
+  // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
   const restoredTab = activeTab.value
   if (restoredTab === 'videos') { fetchLibraries(); fetchVideos() }
-  else if (restoredTab === 'users') fetchUsers()
-  else if (restoredTab === 'config') fetchSystemConfig()
   else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
-  else if (restoredTab === 'monitor') { fetchMonitorMetrics(); startMonitorPolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
   else if (restoredTab === 'import') fetchLibraries()
-  else if (restoredTab === 'logs') fetchLogs()
 })
 
 // 组件卸载时停止轮询
@@ -2073,83 +1537,79 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 标签页导航 -->
+    <!-- 标签页导航（按职责分组，避免平铺混乱） -->
     <div class="admin-tabs">
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'dashboard' }"
-        @click="switchTab('dashboard')"
-      >
-        📊 仪表板
-      </button>
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'videos' }"
-        @click="switchTab('videos')"
-      >
-        🎬 视频管理
-      </button>
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'users' }"
-        @click="switchTab('users')"
-        v-if="userStore.isRoot"
-      >
-        👥 用户管理
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'config' }"
-        @click="switchTab('config')"
-      >
-        ⚙️ 系统配置
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'thumbnail' }"
-        @click="switchTab('thumbnail')"
-      >
-        🖼️ 缩略图管理
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'services' }"
-        @click="switchTab('services')"
-        v-if="userStore.isRoot"
-      >
-        🔧 服务管理
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'monitor' }"
-        @click="switchTab('monitor')"
-      >
-        📈 系统监控
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'libraries' }"
-        @click="switchTab('libraries')"
-        v-if="userStore.isRoot"
-      >
-        📁 视频库管理
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'import' }"
-        @click="switchTab('import')"
-        v-if="userStore.isAdmin"
-      >
-        📥 批量导入
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'logs' }"
-        @click="switchTab('logs')"
-        v-if="userStore.isAdmin"
-      >
-        📜 系统日志
-      </button>
+      <div class="tab-group">
+        <span class="tab-group-label">内容</span>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'dashboard' }"
+          @click="switchTab('dashboard')"
+        >📊 仪表板</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'videos' }"
+          @click="switchTab('videos')"
+        >🎬 视频管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'libraries' }"
+          @click="switchTab('libraries')"
+          v-if="userStore.isRoot"
+        >📁 视频库管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'import' }"
+          @click="switchTab('import')"
+          v-if="userStore.isAdmin"
+        >📥 批量导入</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'thumbnail' }"
+          @click="switchTab('thumbnail')"
+        >🖼️ 缩略图管理</button>
+      </div>
+
+      <div class="tab-group">
+        <span class="tab-group-label">系统</span>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'config' }"
+          @click="switchTab('config')"
+        >⚙️ 系统配置</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'services' }"
+          @click="switchTab('services')"
+          v-if="userStore.isRoot"
+        >🔧 服务管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'monitor' }"
+          @click="switchTab('monitor')"
+        >📈 系统监控</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'logs' }"
+          @click="switchTab('logs')"
+          v-if="userStore.isAdmin"
+        >📜 系统日志</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'sync' }"
+          @click="switchTab('sync')"
+        >🔄 开发同步</button>
+      </div>
+
+      <div class="tab-group">
+        <span class="tab-group-label">账号</span>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'users' }"
+          @click="switchTab('users')"
+          v-if="userStore.isRoot"
+        >👥 用户管理</button>
+      </div>
     </div>
 
     <div class="admin-content">
@@ -2274,6 +1734,30 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- 路径配置卡片 -->
+          <div class="info-card paths-card">
+            <div class="card-header">
+              <h3>路径配置</h3>
+            </div>
+            <div class="card-body">
+              <div class="path-list">
+                <div class="path-item" v-for="(path, key) in systemPaths" :key="key">
+                  <span class="path-key">{{ key }}</span>
+                  <span class="path-value" :title="path">{{ formatPath(path, 40) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 开发同步标签页 -->
+      <div v-if="activeTab === 'sync'" class="tab-content">
+        <div class="section-header">
+          <h3>开发同步</h3>
+        </div>
+        <div class="card-grid">
           <!-- 开发同步状态卡片 -->
           <div class="info-card sync-card">
             <div class="card-header">
@@ -2308,21 +1792,6 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-
-          <!-- 路径配置卡片 -->
-          <div class="info-card paths-card">
-            <div class="card-header">
-              <h3>路径配置</h3>
-            </div>
-            <div class="card-body">
-              <div class="path-list">
-                <div class="path-item" v-for="(path, key) in systemPaths" :key="key">
-                  <span class="path-key">{{ key }}</span>
-                  <span class="path-value" :title="path">{{ formatPath(path, 40) }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- 同步日志区域 -->
@@ -2332,9 +1801,9 @@ onUnmounted(() => {
             <span class="log-count">最近 {{ syncLog.length }} 条</span>
           </div>
           <div class="log-container">
-            <div 
-              class="log-item" 
-              v-for="(log, index) in syncLog" 
+            <div
+              class="log-item"
+              v-for="(log, index) in syncLog"
               :key="index"
               :class="{ error: log.includes('ERROR'), success: log.includes('已同步') }"
             >
@@ -2395,14 +1864,6 @@ onUnmounted(() => {
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
               批量设置优先级 ({{ selectedVideos.length }})
-            </button>
-            <button
-              class="action-btn"
-              @click="openThumbnailModal"
-              :disabled="selectedVideos.length === 0"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              缩略图操作 ({{ selectedVideos.length }})
             </button>
             <button
               class="action-btn danger"
@@ -2585,97 +2046,10 @@ onUnmounted(() => {
       </div>
 
       <!-- 用户管理标签页 -->
-      <div v-if="activeTab === 'users'" class="tab-content">
-        <div class="section-header">
-          <h3>用户管理</h3>
-          <button class="action-btn primary" @click="showUserModal = true">+ 添加用户</button>
-        </div>
-
-        <div class="data-table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>用户名</th>
-                <th>角色</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in users" :key="user.id">
-                <td>{{ user.id }}</td>
-                <td>{{ user.username }}</td>
-                <td>
-                  <span class="role-tag" :class="getRoleClass(user.role)">{{ user.role_name }}</span>
-                </td>
-                <td>{{ formatDate(user.created_at) }}</td>
-                <td>
-                  <button 
-                    class="icon-btn" 
-                    @click="editUser(user)"
-                    v-if="user.id !== userStore.user?.id"
-                  >
-                    ✏️
-                  </button>
-                  <button 
-                    class="icon-btn danger" 
-                    @click="deleteUser(user.id)"
-                    v-if="user.id !== userStore.user?.id"
-                  >
-                    🗑️
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AdminUsers v-if="activeTab === 'users'" />
 
       <!-- 系统配置标签页 -->
-      <div v-if="activeTab === 'config'" class="tab-content">
-        <div class="section-header">
-          <h3>系统配置</h3>
-        </div>
-
-        <div class="config-form">
-          <div class="form-group">
-            <label>最大上传大小 (MB)</label>
-            <input 
-              v-model.number="systemConfig.max_upload_size" 
-              type="number" 
-              min="1"
-              max="10240"
-            />
-          </div>
-          <div class="form-group">
-            <label>缩略图质量 (1-100)</label>
-            <input 
-              v-model.number="systemConfig.thumbnail_quality" 
-              type="number" 
-              min="1"
-              max="100"
-            />
-          </div>
-          <div class="form-group">
-            <label>自动同步</label>
-            <label class="switch">
-              <input v-model="systemConfig.auto_sync" type="checkbox" />
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div class="form-group">
-            <label>允许注册</label>
-            <label class="switch">
-              <input v-model="systemConfig.allow_register" type="checkbox" />
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div class="form-actions">
-            <button class="action-btn primary" @click="saveSystemConfig">保存配置</button>
-          </div>
-        </div>
-      </div>
+      <AdminConfig v-if="activeTab === 'config'" />
 
       <!-- 缩略图管理标签页 -->
       <div v-if="activeTab === 'thumbnail'" class="tab-content">
@@ -3045,22 +2419,13 @@ onUnmounted(() => {
               <p class="detail-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
             </div>
             <button
-              class="action-btn success"
-              @click="scanAndImportDetail()"
-              :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
-              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '扫描并自动导入所有新视频（一键）'"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-              {{ libraryDetailImporting ? '导入中...' : (libraryDetailScanning ? '扫描中...' : '扫描并导入') }}
-            </button>
-            <button
               class="action-btn"
               @click="scanDetailFolder()"
               :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
               :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '仅扫描当前文件夹，可手动选择要导入的视频'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              {{ libraryDetailScanning ? '扫描中...' : '仅扫描' }}
+              {{ libraryDetailScanning ? '扫描中...' : '扫描文件夹' }}
             </button>
           </div>
 
@@ -3395,227 +2760,9 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 系统日志标签页 -->
-      <div v-if="activeTab === 'logs'" class="tab-content">
-        <div class="section-header">
-          <h3>📜 系统日志</h3>
-          <div class="section-actions">
-            <select v-model="logLimit" @change="changeLogLimit" class="page-size-select">
-              <option v-for="n in logLimitOptions" :key="n" :value="n">{{ n }} 条/页</option>
-            </select>
-<button class="action-btn primary" @click="fetchLogs(true)" :disabled="logLoading">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                {{ logLoading ? '加载中...' : '刷新' }}
-              </button>
-          </div>
-        </div>
+      <AdminLogs v-if="activeTab === 'logs'" />
 
-        <!-- 日志类型子标签 -->
-        <div class="log-type-tabs">
-          <button
-            v-for="lt in logTypes"
-            :key="lt.value"
-            class="log-type-btn"
-            :class="{ active: logType === lt.value }"
-            @click="switchLogType(lt.value)"
-          >
-            {{ lt.icon }} {{ lt.label }}
-          </button>
-        </div>
-
-        <!-- 服务筛选 -->
-        <div class="log-service-filter" v-if="logServices.length > 0">
-          <span class="filter-label">服务筛选:</span>
-          <select v-model="logService" @change="switchLogService(logService)" class="service-select">
-            <option value="">全部服务</option>
-            <option v-for="svc in logServices" :key="svc" :value="svc">{{ svc }}</option>
-          </select>
-        </div>
-
-        <!-- 日志表格 -->
-        <div class="log-container">
-          <div v-if="logLoading" class="loading-text">加载中...</div>
-          <div v-else-if="logEntries.length === 0" class="empty-text">暂无日志</div>
-          <template v-else>
-            <!-- 桌面端表格 -->
-            <div class="log-table-wrapper">
-              <table class="log-table">
-                <thead>
-                  <tr>
-                    <th class="log-col-time">时间</th>
-                    <th class="log-col-level">{{ logType === 'operation' ? '来源' : '等级' }}</th>
-                    <th class="log-col-module">服务</th>
-                    <th class="log-col-content">内容</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(entry, idx) in logEntries" :key="idx">
-                    <td class="log-col-time log-mono">{{ entry.timestamp }}</td>
-                    <td class="log-col-level">
-                      <span v-if="logType === 'operation'" class="log-source">{{ entry.source }}</span>
-                      <span v-else class="log-badge" :class="'log-level-' + entry.level.toLowerCase()">
-                        {{ entry.level }}
-                      </span>
-                    </td>
-                    <td class="log-col-module log-mono">{{ entry.service }}</td>
-                    <td class="log-col-content">{{ entry.content }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- 移动端卡片 -->
-            <div class="log-cards">
-              <div v-for="(entry, idx) in logEntries" :key="idx" class="log-card">
-                <div class="log-card-header">
-                  <span v-if="logType === 'operation'" class="log-source">{{ entry.source }}</span>
-                  <span v-else class="log-badge" :class="'log-level-' + entry.level.toLowerCase()">
-                    {{ entry.level }}
-                  </span>
-                  <span class="log-card-module log-mono">{{ entry.service }}</span>
-                </div>
-                <div class="log-card-content">{{ entry.content }}</div>
-                <div class="log-card-time log-mono">{{ entry.timestamp }}</div>
-              </div>
-            </div>
-
-            <!-- 分页 -->
-            <div class="log-pagination" v-if="logTotalPages > 1">
-              <span class="log-page-info">共 {{ logTotal }} 条</span>
-              <div class="log-page-btns">
-                <button
-                  class="page-btn"
-                  :disabled="logPage <= 1"
-                  @click="changeLogPage(1)"
-                >首页</button>
-                <button
-                  class="page-btn"
-                  :disabled="logPage <= 1"
-                  @click="changeLogPage(logPage - 1)"
-                >上一页</button>
-                <span class="page-current">{{ logPage }} / {{ logTotalPages }}</span>
-                <button
-                  class="page-btn"
-                  :disabled="logPage >= logTotalPages"
-                  @click="changeLogPage(logPage + 1)"
-                >下一页</button>
-                <button
-                  class="page-btn"
-                  :disabled="logPage >= logTotalPages"
-                  @click="changeLogPage(logTotalPages)"
-                >末页</button>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-
-      <!-- 系统监控标签页 -->
-      <div v-if="activeTab === 'monitor'" class="tab-content">
-        <div class="section-header">
-          <h3>📈 系统监控</h3>
-          <div class="section-actions">
-<button class="action-btn primary" @click="fetchMonitorMetrics" :disabled="monitorLoading">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                {{ monitorLoading ? '加载中...' : '刷新' }}
-              </button>
-          </div>
-        </div>
-
-        <!-- 概览卡片 -->
-        <div class="monitor-overview">
-          <!-- CPU 卡片 -->
-          <div class="monitor-card cpu-card">
-            <div class="monitor-card-header">
-              <span class="monitor-icon">🖥️</span>
-              <span class="monitor-title">CPU 使用率</span>
-            </div>
-            <div class="monitor-card-body">
-              <div class="monitor-value" :class="getUsageClass(monitorMetrics?.cpu?.usage_percent)">
-                {{ monitorMetrics?.cpu?.usage_percent?.toFixed(1) || '0' }}%
-              </div>
-              <div class="monitor-bar-container">
-                <div class="monitor-bar" :style="{ width: (monitorMetrics?.cpu?.usage_percent || 0) + '%' }"
-                     :class="getUsageClass(monitorMetrics?.cpu?.usage_percent)"></div>
-              </div>
-              <div class="monitor-detail">
-                <span>{{ monitorMetrics?.cpu?.count || 0 }} 核心</span>
-                <span v-if="monitorMetrics?.cpu?.freq_current">
-                  {{ monitorMetrics?.cpu?.freq_current?.toFixed(0) }} MHz
-                </span>
-              </div>
-              <!-- 每核心使用率 -->
-              <div class="core-usage" v-if="monitorMetrics?.cpu?.per_core_usage">
-                <div class="core-usage-item"
-                     v-for="(usage, idx) in monitorMetrics.cpu.per_core_usage"
-                     :key="idx">
-                  <span class="core-label">核心 {{ idx + 1 }}</span>
-                  <div class="monitor-bar-container small">
-                    <div class="monitor-bar" :style="{ width: usage + '%' }"
-                         :class="getUsageClass(usage)"></div>
-                  </div>
-                  <span class="core-value">{{ usage.toFixed(1) }}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 内存卡片 -->
-          <div class="monitor-card memory-card">
-            <div class="monitor-card-header">
-              <span class="monitor-icon">💾</span>
-              <span class="monitor-title">内存使用</span>
-            </div>
-            <div class="monitor-card-body">
-              <div class="monitor-value" :class="getUsageClass(monitorMetrics?.memory?.usage_percent)">
-                {{ monitorMetrics?.memory?.usage_percent?.toFixed(1) || '0' }}%
-              </div>
-              <div class="monitor-bar-container">
-                <div class="monitor-bar" :style="{ width: (monitorMetrics?.memory?.usage_percent || 0) + '%' }"
-                     :class="getUsageClass(monitorMetrics?.memory?.usage_percent)"></div>
-              </div>
-              <div class="monitor-detail">
-                <span>已用: {{ formatBytes(monitorMetrics?.memory?.used || 0) }}</span>
-                <span>总计: {{ formatBytes(monitorMetrics?.memory?.total || 0) }}</span>
-              </div>
-              <div class="monitor-detail">
-                <span>可用: {{ formatBytes(monitorMetrics?.memory?.available || 0) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 磁盘卡片 -->
-          <div class="monitor-card disk-card" v-for="disk in monitorMetrics?.disks" :key="disk.device">
-            <div class="monitor-card-header">
-              <span class="monitor-icon">💿</span>
-              <span class="monitor-title">{{ disk.device || disk.mount_point }}</span>
-            </div>
-            <div class="monitor-card-body">
-              <div class="monitor-value" :class="getUsageClass(disk.usage_percent)">
-                {{ disk.usage_percent?.toFixed(1) || '0' }}%
-              </div>
-              <div class="monitor-bar-container">
-                <div class="monitor-bar" :style="{ width: (disk.usage_percent || 0) + '%' }"
-                     :class="getUsageClass(disk.usage_percent)"></div>
-              </div>
-              <div class="monitor-detail">
-                <span>已用: {{ formatBytes(disk.used || 0) }}</span>
-                <span>总计: {{ formatBytes(disk.total || 0) }}</span>
-              </div>
-              <div class="monitor-detail">
-                <span>可用: {{ formatBytes(disk.free || 0) }}</span>
-                <span class="fs-type">{{ disk.fs_type }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 运行时间 -->
-        <div class="monitor-uptime" v-if="monitorMetrics?.uptime">
-          <span class="uptime-label">系统运行时间:</span>
-          <span class="uptime-value">{{ formatUptime(monitorMetrics.uptime) }}</span>
-        </div>
-      </div>
+      <AdminMonitor v-if="activeTab === 'monitor'" />
     </div>
 
     <!-- 视频编辑弹窗 -->
@@ -4021,39 +3168,6 @@ onUnmounted(() => {
     </div>
 
     <!-- 用户创建/编辑弹窗 -->
-    <div v-if="showUserModal" class="modal-overlay" @click="showUserModal = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>{{ editingUser ? '编辑用户' : '添加用户' }}</h3>
-          <button class="close-btn" @click="showUserModal = false">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>用户名</label>
-            <input v-model="userForm.username" type="text" />
-          </div>
-          <div class="form-group">
-            <label>密码{{ editingUser ? '（留空表示不修改）' : '' }}</label>
-            <input v-model="userForm.password" type="password" :placeholder="editingUser ? '留空表示不修改密码' : ''" />
-          </div>
-          <div class="form-group">
-            <label>角色</label>
-            <select v-model="userForm.role">
-              <option value="user">普通用户</option>
-              <option value="admin">管理员</option>
-              <option value="root">超级管理员</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showUserModal = false">取消</button>
-          <button class="action-btn primary" @click="editingUser ? updateUser() : createUser()">
-            {{ editingUser ? '保存' : '创建' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- 删除单个视频确认对话框 -->
     <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
       <div class="dialog">
@@ -4086,33 +3200,6 @@ onUnmounted(() => {
         <div class="dialog-buttons">
           <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
           <button class="btn-danger" @click="batchDeleteVideos">删除</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 缩略图操作弹窗 -->
-    <div v-if="showThumbnailModal" class="dialog-overlay" @click.self="showThumbnailModal = false">
-      <div class="dialog">
-        <h3>缩略图操作</h3>
-        <p>已选择 <strong>{{ selectedVideos.length }}</strong> 个视频</p>
-        <div class="thumbnail-modal-ops">
-          <button
-            class="action-btn"
-            @click="batchGenerateThumbnails"
-            :disabled="thumbnailBatchLoading"
-          >
-            {{ thumbnailBatchLoading ? '生成中...' : '批量生成缩略图' }}
-          </button>
-          <button
-            class="action-btn danger"
-            @click="batchDeleteThumbnails"
-            :disabled="thumbnailBatchDeleting"
-          >
-            {{ thumbnailBatchDeleting ? '删除中...' : '批量删除缩略图' }}
-          </button>
-        </div>
-        <div class="dialog-buttons">
-          <button class="btn-secondary" @click="showThumbnailModal = false">关闭</button>
         </div>
       </div>
     </div>
@@ -4634,11 +3721,32 @@ onUnmounted(() => {
 /* 标签页导航 */
 .admin-tabs {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 4px;
   padding: 0 24px 16px;
   background: white;
   border-bottom: 1px solid #e8e8e8;
   margin: 0 -24px 24px;
+}
+
+.tab-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.tab-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  padding: 0 6px 0 2px;
+  letter-spacing: 1px;
+  user-select: none;
 }
 
 .tab-btn {
