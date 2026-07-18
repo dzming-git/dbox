@@ -206,6 +206,11 @@ export const libraryApi = {
   // 启动扫描（异步）
   scanLibrary: (libraryId: number) => api.post(`/api/admin/libraries/${libraryId}/scan`, {}),
 
+  // 一键扫描所有视频库（异步）
+  scanAllLibraries: () => api.post(`/api/admin/libraries/scan-all`, {}),
+  // 获取全量扫描进度
+  getScanAllStatus: () => api.get(`/api/admin/libraries/scan-all/status`),
+
   // 获取用户组列表
   getUserGroups: () => api.get('/api/admin/user-groups'),
 

@@ -128,6 +128,8 @@ except Exception:
 
 # 视频库扫描进度（web 侧，驱动 Video 表作为唯一索引源）
 _library_scan_progress = {}
+# 全量扫描进度（一键扫描所有视频库）
+_library_scan_all_progress = {'status': 'idle', 'total': 0, 'done': 0, 'message': ''}
 
 def _resolve_resource_library_id(dplayer_library_id: int) -> int:
     """
@@ -3079,7 +3081,9 @@ def scan_library(library_id):
 
         def _run():
             try:
-                targets = watcher.scan_library(library_id)
+                # 后台线程无请求上下文，需显式进入 Flask 习作上下文
+                with app.app_context():
+                    targets = watcher.scan_library(library_id)
                 _library_scan_progress[library_id] = {
                     'status': 'done',
                     'targets': targets,
@@ -3111,6 +3115,72 @@ def get_library_scan_status(library_id):
         return jsonify({'success': True, **prog})
     except Exception as e:
         log.debug('ERROR', f'获取扫描状态失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/scan-all', methods=['POST'])
+@admin_required
+def scan_all_libraries():
+    """一键扫描所有（启用中的）视频库（异步，立即返回）。
+
+    底层复用 library_watcher 的全量 diff：新增/删除/重命名/文件名对齐
+    均会自动同步到 Video 表，覆盖「软件未运行时改名」「旧逻辑漏更新」
+    等导致网页仍显示旧文件名的情况。
+    """
+    global _library_scan_all_progress
+    try:
+        if not resource_bus:
+            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+        from library_watcher import get_watcher
+        watcher = get_watcher()
+        if not watcher:
+            return jsonify({'success': False, 'message': '视频库监控器未初始化'}), 500
+        if _library_scan_all_progress.get('status') == 'scanning':
+            return jsonify({'success': False, 'message': '全量扫描已在进行中，请稍候...'}), 400
+
+        _library_scan_all_progress = {
+            'status': 'scanning', 'total': 0, 'done': 0, 'message': '正在扫描所有视频库...'
+        }
+
+        def _run_all():
+            global _library_scan_all_progress
+            try:
+                from core.models import VideoLibrary
+                # 后台线程无请求上下文，需显式进入 Flask 应用上下文
+                # 才能执行 DB 查询与 watcher 内的 ORM 操作
+                with app.app_context():
+                    libs = VideoLibrary.query.filter_by(is_active=True).all()
+                    _library_scan_all_progress['total'] = len(libs)
+                    for i, lib in enumerate(libs, 1):
+                        try:
+                            watcher.scan_library(lib.id)
+                        except Exception as e:
+                            log.debug('ERROR', f'扫描库 {lib.id} 失败: {e}')
+                        _library_scan_all_progress['done'] = i
+                        _library_scan_all_progress['message'] = f'已扫描 {i}/{len(libs)} 个视频库'
+                    _library_scan_all_progress['status'] = 'done'
+                    _library_scan_all_progress['message'] = f'全量扫描完成，共处理 {len(libs)} 个视频库'
+                    print('[web] scan-all done', flush=True)
+            except Exception as e:
+                _library_scan_all_progress['status'] = 'error'
+                _library_scan_all_progress['error'] = str(e)
+                _library_scan_all_progress['message'] = f'全量扫描失败: {e}'
+                print(f'[web] scan-all failed: {e}', flush=True)
+
+        threading.Thread(target=_run_all, daemon=True).start()
+        return jsonify({'success': True, 'started': True, 'message': '全量扫描已启动'})
+    except Exception as e:
+        log.debug('ERROR', f'启动全量扫描失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/libraries/scan-all/status', methods=['GET'])
+@admin_required
+def get_scan_all_status():
+    """获取全量扫描进度（轮询接口）"""
+    try:
+        return jsonify({'success': True, **_library_scan_all_progress})
+    except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 

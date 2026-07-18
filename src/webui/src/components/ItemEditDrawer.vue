@@ -69,6 +69,13 @@ const removeTag = (t: string) => {
 
 const close = () => emit('update:visible', false)
 
+// 把文件名（去扩展名）填入标题，交由管理员确认后点“保存”生效
+const syncFromFilename = () => {
+  const fn = props.item?.file_name || ''
+  const dot = fn.lastIndexOf('.')
+  form.value.title = dot > 0 ? fn.slice(0, dot) : fn
+}
+
 const save = async () => {
   if (!props.item) return
   saving.value = true
@@ -124,7 +131,10 @@ const save = async () => {
         <div class="drawer-body">
           <label class="field">
             <span class="field-label">标题</span>
-            <input v-model="form.title" class="field-input" type="text" placeholder="标题" />
+            <div class="title-input-row">
+              <input v-model="form.title" class="field-input" type="text" placeholder="标题" />
+              <button v-if="isVideo" type="button" class="sync-filename-btn" title="用文件名填充标题" @click="syncFromFilename">↺ 同步文件名</button>
+            </div>
           </label>
 
           <label v-if="isVideo" class="field">
@@ -245,6 +255,31 @@ const save = async () => {
   background: #161616;
   color: #fff;
   font-size: 14px;
+}
+
+.title-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sync-filename-btn {
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #3a5a7a;
+  border-radius: 8px;
+  background: rgba(33, 150, 243, 0.12);
+  color: #9ecbff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.sync-filename-btn:hover {
+  background: #2196f3;
+  color: #fff;
 }
 .field-textarea {
   padding: 10px 12px;

@@ -3,6 +3,7 @@ export interface Video {
   id: number
   hash: string
   title: string
+  file_name?: string
   description?: string
   url: string
   thumbnail?: string

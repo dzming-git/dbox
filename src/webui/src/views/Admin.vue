@@ -393,6 +393,47 @@ const scanDetailFolder = async (folderKey?: string) => {
   }
 }
 
+// 一键扫描全部视频库（自动对齐文件名/标题，覆盖软件未运行或旧逻辑漏更新的情况）
+const scanAllScanning = ref(false)
+const scanAllMessage = ref('')
+let scanAllTimer: any = null
+
+const scanAllLibraries = async () => {
+  try {
+    const res = await libraryApi.scanAllLibraries() as any
+    if (res.success) {
+      scanAllScanning.value = true
+      scanAllMessage.value = '全量扫描已启动...'
+      pollScanAll()
+    } else {
+      showToast(res.message || '启动失败')
+    }
+  } catch (e: any) {
+    console.error('启动全量扫描失败:', e)
+    showToast(e?.response?.data?.message || e?.message || '启动失败')
+  }
+}
+
+const pollScanAll = () => {
+  if (scanAllTimer) clearInterval(scanAllTimer)
+  scanAllTimer = setInterval(async () => {
+    try {
+      const res = await libraryApi.getScanAllStatus() as any
+      if (res.success) {
+        scanAllMessage.value = res.message || ''
+        if (res.status === 'done' || res.status === 'error') {
+          scanAllScanning.value = false
+          if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
+          showToast(res.message || '扫描完成')
+        }
+      }
+    } catch (e) {
+      if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
+      scanAllScanning.value = false
+    }
+  }, 1500)
+}
+
 // 文件夹唯一Key
 const getFolderKey = (folder: any) => {
   return folder.path || `folder_${folder.id}`
@@ -2129,8 +2170,15 @@ onUnmounted(() => {
       <div v-if="activeTab === 'libraries'" class="tab-content">
         <div class="section-header">
           <h3>视频库管理</h3>
-          <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true">+ 新建视频库</button>
+          <div class="header-actions">
+            <button class="action-btn" @click="scanAllLibraries()" :disabled="scanAllScanning">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {{ scanAllScanning ? '全量扫描中...' : '🔄 扫描全部库（同步文件名/标题）' }}
+            </button>
+            <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true">+ 新建视频库</button>
+          </div>
         </div>
+        <div v-if="scanAllMessage" class="scan-all-status">{{ scanAllMessage }}</div>
 
         <!-- 视频库列表 -->
         <div class="library-grid">
@@ -3267,6 +3315,20 @@ onUnmounted(() => {
   margin: 0;
   font-size: 16px;
   color: #333;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.scan-all-status {
+  padding: 8px 20px;
+  font-size: 13px;
+  color: #155724;
+  background: #e8f5e9;
+  border-bottom: 1px solid #c8e6c9;
 }
 
 .log-count {

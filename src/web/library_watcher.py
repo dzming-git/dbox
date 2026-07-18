@@ -246,7 +246,8 @@ class VideoLibraryWatcher:
         if not targets:
             self._debug('WARN', f'[LibWatcher] 库 {library_id} 没有可扫描的目录')
             return 0
-        self._diff_sync(targets)
+        # 管理员主动的全量/单库扫描：强制把标题对齐为文件名，让索引与磁盘一致
+        self._diff_sync(targets, refresh_title=True)
         return len(targets)
 
     def library_disk_targets(self, library_id: int):
@@ -340,7 +341,12 @@ class VideoLibraryWatcher:
 
     # ---------- 目录 diff（新增 / 重命名 / 删除）----------
     def _diff_sync(self, targets):
-        """对比磁盘与 Video 表，处理新增、重命名、删除。用于初始补齐与轮询。"""
+        """对比磁盘与 Video 表，处理新增、重命名、删除。用于初始补齐与轮询。
+
+        title 与 file_name 解耦：已存在视频仅同步 file_name / url / 内容指纹等
+        物理信息，绝不修改 title（标题由管理员在编辑界面维护，可一键“同步文件名”）。
+        仅在新增视频时把 title 初始化为文件名（去扩展名）。
+        """
         try:
             from core.models import Video
             disk = {}   # norm_path -> (real_path, library_id)
@@ -351,14 +357,19 @@ class VideoLibraryWatcher:
                             p = os.path.join(dirpath, f)
                             disk[os.path.normcase(os.path.abspath(p))] = (p, lib_id)
 
-            # 新增 / 重命名
+            # 新增 / 重命名 / 文件名对齐（仅更新物理信息，不动 title）
+            self._debug('INFO', f'[LibWatcher] diff 开始，磁盘文件数 {len(disk)}')
             for np_norm, (p, lib_id) in disk.items():
                 with self._app.app_context():
                     existing = Video.query.filter_by(local_path=p).first()
-                if existing:
-                    continue
-                h = Video.generate_hash(p)
-                with self._app.app_context():
+                    if existing:
+                        new_name = os.path.basename(p)
+                        if existing.file_name != new_name:
+                            # 磁盘文件名已变（软件未运行 / 旧逻辑漏更新）：
+                            # 仅对齐 file_name / url / 内容指纹，不修改 title。
+                            self._reconcile_fields(existing, p, new_name)
+                        continue
+                    h = Video.generate_hash(p)
                     by_hash = Video.query.filter_by(hash=h).first()
                 if by_hash and by_hash.local_path != p:
                     # 同一内容出现在新路径 -> 视为重命名
@@ -455,7 +466,8 @@ class VideoLibraryWatcher:
                 is_new = existing is None
 
                 if existing:
-                    # 内容或路径变化：刷新指纹与路径，保留用户改过的标题与互动数据
+                    # 内容或路径变化：仅刷新指纹与路径等物理信息，不修改 title
+                    # （标题与文件名解耦，由管理员在编辑界面维护）。
                     existing.local_path = path
                     existing.file_name = os.path.basename(path)
                     existing.hash = vhash
@@ -515,6 +527,25 @@ class VideoLibraryWatcher:
         except Exception as e:
             self._debug('ERROR', f'[LibWatcher] 删除视频失败 {path}: {e}')
 
+    def _reconcile_fields(self, v, path, new_name):
+        """磁盘文件名与 DB 不一致时，仅对齐 file_name / url / 内容指纹等物理信息。
+
+        不修改 title：标题与文件名解耦，由管理员在编辑界面维护（可一键“同步文件名”）。
+        """
+        try:
+            from core.models import db, Video
+            v.file_name = new_name
+            try:
+                v.hash = Video.generate_hash(path)
+            except Exception as e:
+                self._debug('WARN', f'[LibWatcher] 重新计算指纹失败 {path}: {e}')
+            v.url = f'/local_video/{quote(path.replace(chr(92), "/"), safe=":/")}'
+            v.updated_at = datetime.utcnow()
+            db.session.commit()
+            self._debug('INFO', f'[LibWatcher] 对齐文件名: {path} -> {new_name}')
+        except Exception as e:
+            self._debug('ERROR', f'[LibWatcher] 对齐文件名失败 {path}: {e}')
+
     def rename_video(self, src, dest):
         if not self._is_video(dest):
             return
@@ -523,8 +554,10 @@ class VideoLibraryWatcher:
             with self._app.app_context():
                 v = Video.query.filter_by(local_path=src).first()
                 if v:
+                    new_name = os.path.basename(dest)
+                    # 仅更新路径等物理信息，不修改 title（标题与文件名解耦）。
                     v.local_path = dest
-                    v.file_name = os.path.basename(dest)
+                    v.file_name = new_name
                     v.url = f'/local_video/{quote(dest.replace(chr(92), "/"), safe=":/")}'
                     v.updated_at = datetime.utcnow()
                     db.session.commit()
