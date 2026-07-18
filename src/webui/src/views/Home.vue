@@ -1510,6 +1510,7 @@ const onListImgError = (e: Event) => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
+  align-items: start; /* 不同宽高比的卡片顶部对齐，不互相拉伸 */
 }
 
 /* 显示模式切换 */
