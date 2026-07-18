@@ -3,10 +3,11 @@
 """
 import sqlite3
 import os
+from pathlib import Path
 
-BASE_DIR = r'c:\Users\<用户>\<工作目录>\Claw\Dplayer2.0'
-DATA_LIBRARIES_DIR = os.path.join(BASE_DIR, 'data', 'libraries')
-MAIN_DB = os.path.join(BASE_DIR, 'data', 'databases', 'dplayer.db')
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_LIBRARIES_DIR = os.path.join(str(BASE_DIR), 'data', 'libraries')
+MAIN_DB = os.path.join(str(BASE_DIR), 'data', 'databases', 'dplayer.db')
 
 # 从所有库 DB 收集用户（去重）
 all_users = {}  # username -> (id, username, password_hash, role, is_active, email, ...)

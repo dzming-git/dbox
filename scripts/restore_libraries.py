@@ -6,10 +6,11 @@ import sqlite3
 import os
 import re
 import datetime
+from pathlib import Path
 
-BASE_DIR = r'c:\Users\<用户>\<工作目录>\Claw\Dplayer2.0'
-DATA_LIBRARIES_DIR = os.path.join(BASE_DIR, 'data', 'libraries')
-MAIN_DB = os.path.join(BASE_DIR, 'data', 'databases', 'dplayer.db')
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_LIBRARIES_DIR = os.path.join(str(BASE_DIR), 'data', 'libraries')
+MAIN_DB = os.path.join(str(BASE_DIR), 'data', 'databases', 'dplayer.db')
 
 def parse_lib_name(fname):
     """从文件名提取库名：去掉末尾的 _数字戳.db"""
