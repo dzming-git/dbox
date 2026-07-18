@@ -489,27 +489,6 @@ const detailImportVideos = async () => {
 // 用户组
 const userGroups = ref<any[]>([])
 
-// 批量导入
-const showImportModal = ref(false)
-// 从 sessionStorage 恢复 importFolder，防止切后台后丢失
-const importFolder = ref(sessionStorage.getItem('admin_import_folder') || '')
-const importRecursive = ref(true)
-const scanning = ref(false)
-// 从 sessionStorage 恢复扫描结果
-const _storedScanned = sessionStorage.getItem('admin_scanned_videos')
-const scannedVideos = ref<any[]>(_storedScanned ? JSON.parse(_storedScanned) : [])
-const _storedSelected = sessionStorage.getItem('admin_selected_import')
-const selectedImportVideos = ref<string[]>(_storedSelected ? JSON.parse(_storedSelected) : [])
-const importing = ref(false)
-const importProgress = ref({ imported: 0, skipped: 0, failed: 0 })
-const importErrors = ref<string[]>([])
-
-// 持久化 importFolder 和扫描结果到 sessionStorage
-watch(importFolder, (val) => { sessionStorage.setItem('admin_import_folder', val) })
-watch(scannedVideos, (val) => { sessionStorage.setItem('admin_scanned_videos', JSON.stringify(val)) }, { deep: true })
-watch(selectedImportVideos, (val) => { sessionStorage.setItem('admin_selected_import', JSON.stringify(val)) }, { deep: true })
-const targetLibrary = ref<number | null>(null)
-const importDefaultTags = ref('')
 
 // 文件夹浏览器
 const showFolderBrowser = ref(false)
@@ -685,150 +664,12 @@ const fetchUserGroups = async () => {
   }
 }
 
-// ============ 批量导入功能 ============
-
-// 扫描文件夹
-const scanFolder = async () => {
-  if (!importFolder.value.trim()) {
-    showToast('请输入文件夹路径')
-    return
-  }
-
-  // 必须先选择目标视频库
-  if (!targetLibrary.value) {
-    showToast('请先选择目标视频库')
-    return
-  }
-
-  scanning.value = true
-  scannedVideos.value = []
-  selectedImportVideos.value = []
-  
-  try {
-    const res = await api.post('/api/admin/scan-folder', {
-      folder_path: importFolder.value,
-      recursive: importRecursive.value
-    }, { timeout: 900000 }) as any
-    
-    if (res.success) {
-      scannedVideos.value = res.data.videos
-      showToast(`发现 ${res.data.total} 个视频（${res.data.new_count} 个新视频，${res.data.existing_count} 个已存在）`)
-    } else {
-      showToast(res.message || '扫描失败')
-    }
-  } catch (error: any) {
-    console.error('扫描失败:', error)
-    // 显示更详细的错误信息
-    let errorMsg = '扫描失败'
-    if (error.response) {
-      errorMsg = error.response.data?.message || error.response.data?.error || `服务器错误 (${error.response.status})`
-    } else if (error.request) {
-      errorMsg = '无法连接到服务器'
-    } else if (error.message) {
-      errorMsg = error.message
-    }
-    showToast(errorMsg)
-  } finally {
-    scanning.value = false
-  }
-}
-
-// 全选/取消全选导入视频
-const toggleImportSelectAll = () => {
-  if (selectedImportVideos.value.length === scannedVideos.value.filter((v: any) => !v.exists).length) {
-    selectedImportVideos.value = []
-  } else {
-    selectedImportVideos.value = scannedVideos.value.filter((v: any) => !v.exists).map((v: any) => v.path)
-  }
-}
-
-// 导入视频
-const importVideos = async () => {
-  if (selectedImportVideos.value.length === 0) {
-    showToast('请选择要导入的视频')
-    return
-  }
-
-  // 必须选择目标视频库
-  if (!targetLibrary.value) {
-    showToast('请选择目标视频库')
-    return
-  }
-
-  importing.value = true
-  importProgress.value = { imported: 0, skipped: 0, failed: 0 }
-  importErrors.value = []
-  
-  try {
-    const videosToImport = scannedVideos.value
-      .filter((v: any) => selectedImportVideos.value.includes(v.path))
-      .map((v: any) => ({
-        path: v.path,
-        title: v.title,
-        tags: importDefaultTags.value.split(',').map((t: string) => t.trim()).filter((t: string) => t)
-      }))
-    
-    const res = await api.post('/api/admin/import-videos', {
-      library_id: targetLibrary.value,
-      videos: videosToImport,
-      skip_existing: true,
-      default_tags: importDefaultTags.value.split(',').map((t: string) => t.trim()).filter((t: string) => t)
-    }, { timeout: 900000 }) as any
-    
-    if (res.success) {
-      importProgress.value = res.data
-      importErrors.value = res.data.errors || []
-      showToast(res.message)
-      
-      // 刷新视频列表
-      if (activeTab.value === 'videos') {
-        await fetchVideos()
-      }
-      
-      // 关闭弹窗
-      setTimeout(() => {
-        showImportModal.value = false
-        scannedVideos.value = []
-        selectedImportVideos.value = []
-        sessionStorage.removeItem('admin_scanned_videos')
-        sessionStorage.removeItem('admin_selected_import')
-      }, 2000)
-    } else {
-      showToast(res.message || '导入失败')
-    }
-  } catch (error: any) {
-    console.error('导入失败:', error)
-    // 显示更详细的错误信息
-    let errorMsg = '导入失败'
-    if (error.response) {
-      // 服务器返回了错误响应
-      errorMsg = error.response.data?.message || error.response.data?.error || `服务器错误 (${error.response.status})`
-    } else if (error.request) {
-      // 请求已发出但没有收到响应
-      errorMsg = '无法连接到服务器'
-    } else if (error.message) {
-      errorMsg = error.message
-    }
-    showToast(errorMsg)
-  } finally {
-    importing.value = false
-  }
-}
-
-// 打开导入弹窗
-const openImportModal = () => {
-  showImportModal.value = true
-  scannedVideos.value = []
-  selectedImportVideos.value = []
-  importFolder.value = ''
-  importProgress.value = { imported: 0, skipped: 0, failed: 0 }
-  importErrors.value = []
-}
-
 // ============ 文件夹浏览器功能 ============
 
-// 打开文件夹浏览器（用于导入扫描）
-const openFolderBrowser = async () => {
+
+// 打开文件夹浏览器（用于向当前视频库导入：选择其他文件夹）
+const openLibraryImportFolderBrowser = async () => {
+  if (expandedLibraryId.value == null) return
   showFolderBrowser.value = true
   browserPath.value = ''
   browserHistory.value = []
@@ -836,58 +677,17 @@ const openFolderBrowser = async () => {
   await loadFolderList('', false)
 }
 
-// 打开文件夹浏览器（用于添加库文件夹，可选择文件或文件夹）
-const openFolderBrowserForAdd = async () => {
-  showFolderBrowser.value = true
-  browserPath.value = ''
-  browserHistory.value = []
-  browserMode.value = 'file'  // show files too
-  await loadFolderList('', true)
-}
-
-// 加载文件夹列表
-const loadFolderList = async (path: string, showFiles: boolean = false) => {
-  browserLoading.value = true
-  try {
-    const res = await api.get('/api/admin/browse-folders', {
-      params: { path, show_files: showFiles }
-    }) as any
-
-    if (res.success) {
-      browserPath.value = res.data.current_path
-      browserFolders.value = res.data.folders
-    } else {
-      showToast(res.message || '加载文件夹失败')
-    }
-  } catch (error: any) {
-    console.error('加载文件夹失败:', error)
-    showToast(error.message || '加载文件夹失败')
-  } finally {
-    browserLoading.value = false
-  }
-}
-
-// 进入文件夹或驱动器
-const enterFolder = (folder: any) => {
-  // 支持 folder 和 drive 两种类型
-  if (folder.type === 'folder' || folder.type === 'drive') {
-    browserHistory.value.push(browserPath.value)
-    loadFolderList(folder.path, browserMode.value === 'file')
-  }
-}
-
-// 返回上级目录
-const goBack = () => {
-  if (browserHistory.value.length > 0) {
-    const previousPath = browserHistory.value.pop()!
-    loadFolderList(previousPath, browserMode.value === 'file')
-  }
-}
-
-// 选择当前文件夹（用于导入扫描）
+// 选择文件夹后：作为“其他文件夹”扫描并导入到当前视频库
 const selectCurrentFolder = () => {
-  importFolder.value = browserPath.value
+  const p = browserPath.value
   showFolderBrowser.value = false
+  if (!p || expandedLibraryId.value == null) return
+  const synth = { path: p, name: getFolderLabel({ path: p }) }
+  if (!libraryDetailFolders.value.some((f: any) => f.path === p)) {
+    libraryDetailFolders.value = [...libraryDetailFolders.value, synth]
+  }
+  libraryDetailFolderKey.value = p
+  scanDetailFolder(p)
 }
 
 // 从浏览器选择路径（用于添加库文件夹）
@@ -1435,16 +1235,6 @@ const toggleVideoSelection = (hash: string) => {
   }
 }
 
-// 切换导入视频选择
-const toggleImportVideoSelection = (path: string) => {
-  const index = selectedImportVideos.value.indexOf(path)
-  if (index > -1) {
-    selectedImportVideos.value.splice(index, 1)
-  } else {
-    selectedImportVideos.value.push(path)
-  }
-}
-
 // 全选/取消全选
 const toggleSelectAll = () => {
   if (selectedVideos.value.length === videos.value.length) {
@@ -1494,12 +1284,6 @@ const switchTab = (tab: string) => {
     fetchLibraries()
     fetchUserGroups()
   }
-  if (tab === 'import') {
-    fetchLibraries()
-  }
-  if (tab === 'sync') {
-    fetchSyncStatus()
-  }
   // 离开服务管理页时停止轮询
   if (tab !== 'services') stopServicePolling()
 }
@@ -1516,7 +1300,6 @@ onMounted(() => {
   else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
-  else if (restoredTab === 'import') fetchLibraries()
 })
 
 // 组件卸载时停止轮询
@@ -1557,12 +1340,6 @@ onUnmounted(() => {
           @click="switchTab('libraries')"
           v-if="userStore.isRoot"
         >📁 视频库管理</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'import' }"
-          @click="switchTab('import')"
-          v-if="userStore.isAdmin"
-        >📥 批量导入</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'thumbnail' }"
@@ -2384,7 +2161,7 @@ onUnmounted(() => {
                 :title="expandedLibraryId === lib.id ? '收起详情' : '展开查看视频库详情、关联文件夹与文件列表'"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-                详情
+                导入
               </button>
               <button class="action-btn" @click="editLibrary(lib)" title="编辑">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -2410,352 +2187,157 @@ onUnmounted(() => {
           <p>暂无视频库，请创建一个</p>
         </div>
 
-        <!-- ============ 展开的视频库详情视图 ============ -->
-        <div v-if="expandedLibraryId" class="library-detail-view">
-          <!-- 顶部：库信息 + 扫描 -->
-          <div class="detail-header">
-            <div class="detail-title">
-              <h3>{{ currentLibrary?.name || '视频库详情' }}</h3>
-              <p class="detail-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
-            </div>
-            <button
-              class="action-btn"
-              @click="scanDetailFolder()"
-              :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
-              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请先添加文件夹' : '仅扫描当前文件夹，可手动选择要导入的视频'"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              {{ libraryDetailScanning ? '扫描中...' : '扫描文件夹' }}
-            </button>
-          </div>
-
-          <!-- 扫描结果汇总 -->
-          <div v-if="libraryDetailScanSummary" class="scan-summary-banner">
-            <span class="scan-summary-text">
-              扫描完成：共 <b>{{ libraryDetailScanSummary.total }}</b> 个视频，
-              <b class="new-count">{{ libraryDetailScanSummary.newCount }}</b> 个新视频，
-              {{ libraryDetailScanSummary.existCount }} 个已存在
-            </span>
-            <button
-              v-if="libraryDetailScanSummary.newCount > 0"
-              class="action-btn success"
-              @click="detailImportVideos"
-              :disabled="libraryDetailImporting"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              {{ libraryDetailImporting ? '导入中...' : '导入全部新视频' }}
-            </button>
-          </div>
-
-          <!-- 扫描文件夹访问失败提示 -->
-          <div v-if="libraryDetailScanErrors.length > 0" class="scan-error-banner">
-            <div class="scan-error-title">⚠️ {{ libraryDetailScanErrors.length }} 个文件夹扫描失败（这可能是扫描结果为 0 的原因）：</div>
-            <ul class="scan-error-list">
-              <li v-for="(err, idx) in libraryDetailScanErrors" :key="idx">
-                <b>{{ err.folder }}</b>：{{ err.message }}
-              </li>
-            </ul>
-          </div>
-
-
-          <!-- 关联文件夹标签页 -->
-          <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
-            <h4>关联文件夹</h4>
-            <div class="folder-tabs">
-              <button
-                :class="['folder-tab', { active: libraryDetailFolderKey === '__all__' }]"
-                @click="libraryDetailFolderKey = '__all__'"
-              >
-                所有
-                <span class="tab-count" v-if="libraryDetailFileCache['__all__']">
-                  {{ libraryDetailFileCache['__all__'].length }}
-                </span>
-              </button>
-              <button
-                v-for="folder in libraryDetailFolders"
-                :key="getFolderKey(folder)"
-                :class="['folder-tab', { active: libraryDetailFolderKey === getFolderKey(folder) }]"
-                @click="libraryDetailFolderKey = getFolderKey(folder)"
-              >
-                {{ getFolderLabel(folder) }}
-                <span class="tab-count" v-if="libraryDetailFileCache[getFolderKey(folder)]">
-                  {{ libraryDetailFileCache[getFolderKey(folder)].length }}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 无关联文件夹 -->
-          <div v-else class="empty-state">
-            <div class="empty-icon">📁</div>
-            <div class="empty-text">该视频库没有关联文件夹</div>
-            <div class="empty-hint">请点击上方"文件夹"按钮为视频库添加上传文件夹</div>
-          </div>
-
-          <!-- 扫描中 -->
-          <div v-if="(libraryDetailScanning || libraryDetailImporting) && !libraryDetailCurrentFiles.length" class="loading-state">
-            <div class="loading-spinner"></div>
-            <span v-if="libraryDetailImporting && !libraryDetailScanInfo" class="scan-progress">正在导入视频...</span>
-            <template v-else-if="libraryDetailScanInfo">
-              <span class="scan-progress">正在扫描：{{ libraryDetailScanInfo.folder }}</span>
-              <span class="scan-progress-sub">第 {{ libraryDetailScanInfo.index }} / {{ libraryDetailScanInfo.total }} 个文件夹，已发现 {{ libraryDetailScanInfo.found }} 个视频</span>
-            </template>
-            <span v-else class="scan-progress">正在准备扫描...</span>
-          </div>
-
-          <!-- 扫描结果 / 文件列表 -->
-          <div v-if="libraryDetailCurrentFiles.length > 0" class="scan-results card">
-            <div class="results-header">
-              <h4>{{ libraryDetailScanning ? '正在扫描...' : `文件列表 (${libraryDetailCurrentFiles.length} 个视频)` }}</h4>
-            </div>
-
-            <div class="results-toolbar">
-              <label class="checkbox-label select-all">
-                <input
-                  type="checkbox"
-                  :checked="libraryDetailSelectedFiles.length > 0 && libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length"
-                  @change="detailToggleSelectAll"
-                />
-                <span>{{ libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length ? '取消全选' : '全选' }}</span>
-              </label>
-              <span class="selected-count">
-                已选择 {{ libraryDetailSelectedFiles.length }} / {{ libraryDetailCurrentFiles.filter((v: any) => !v.exists).length }} 个新视频
-              </span>
-            </div>
-
-            <div class="video-list">
-              <div
-                v-for="video in libraryDetailCurrentFiles"
-                :key="video.path"
-                :class="['video-item', { selected: libraryDetailSelectedFiles.includes(video.path), existing: video.exists }]"
-                @click="!video.exists && detailToggleFile(video.path)"
-              >
-                <div class="video-checkbox">
-                  <input
-                    v-if="!video.exists"
-                    type="checkbox"
-                    :checked="libraryDetailSelectedFiles.includes(video.path)"
-                    @click.stop
-                    @change="detailToggleFile(video.path)"
-                  />
-                  <span v-else class="exists-badge">已存在</span>
-                </div>
-                <div class="video-info">
-                  <div class="video-title">{{ video.title }}</div>
-                  <div class="video-meta">
-                    <span>📁 {{ video.path }}</span>
-                    <span>💾 {{ video.size_mb }} MB</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="import-actions">
-              <button
-                class="action-btn primary large"
-                @click="detailImportVideos"
-                :disabled="libraryDetailImporting || libraryDetailSelectedFiles.length === 0"
-              >
-                {{ libraryDetailImporting ? '导入中...' : `导入 ${libraryDetailSelectedFiles.length} 个视频` }}
-              </button>
-            </div>
-
-            <!-- 导入进度 -->
-            <div v-if="libraryDetailImporting || libraryDetailImportProgress.imported > 0" class="import-progress">
-              <h4>导入进度</h4>
-              <div class="progress-stats">
-                <div class="stat-item success">
-                  <span class="stat-label">已导入</span>
-                  <span class="stat-value">{{ libraryDetailImportProgress.imported }}</span>
-                </div>
-                <div class="stat-item warning">
-                  <span class="stat-label">已跳过</span>
-                  <span class="stat-value">{{ libraryDetailImportProgress.skipped }}</span>
-                </div>
-                <div class="stat-item error">
-                  <span class="stat-label">失败</span>
-                  <span class="stat-value">{{ libraryDetailImportProgress.failed }}</span>
-                </div>
-              </div>
-              <div v-if="libraryDetailImportErrors.length > 0" class="import-errors">
-                <h5>错误信息</h5>
-                <ul>
-                  <li v-for="(error, idx) in libraryDetailImportErrors" :key="idx">{{ error }}</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <!-- 已扫描但无文件 -->
-          <div v-else-if="!libraryDetailScanning && libraryDetailFolders.length > 0 && libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
-            <div class="empty-icon">🔍</div>
-            <div class="empty-text">该文件夹中未发现视频文件</div>
-          </div>
-
-          <!-- 未扫描引导 -->
-          <div v-else-if="!libraryDetailScanning && libraryDetailFolders.length > 0 && !libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
-            <div class="empty-icon">📂</div>
-            <div class="empty-text">点击上方"扫描"按钮开始扫描</div>
-            <div class="empty-hint">将扫描 {{ libraryDetailFolderKey === '__all__' ? '所有关联文件夹' : '当前文件夹' }} 中的视频文件</div>
-          </div>
-        </div>
       </div>
 
-      <!-- 批量导入标签页 -->
-      <div v-if="activeTab === 'import'" class="tab-content">
-        <div class="section-header">
-          <h3>批量导入视频</h3>
-        </div>
-
-        <div class="import-container">
-          <!-- 扫描配置 -->
-          <div class="import-config card">
-            <h4>扫描配置</h4>
-            <div class="form-group">
-              <label>文件夹路径 <span class="required">*</span></label>
-              <input
-                v-model="importFolder"
-                type="text"
-                placeholder="例如：D:\Videos 或 M:\Movies"
-                class="folder-input"
-              />
-              <small class="form-hint">支持递归扫描子文件夹中的所有视频文件</small>
+      <!-- ============ 视频库导入弹窗（替代原向下展开 + 独立批量导入Tab） ============ -->
+      <div v-if="expandedLibraryId" class="modal-overlay" @click="leaveLibraryDetail()">
+        <div class="modal-content import-modal" @click.stop>
+          <div class="modal-header import-modal-header">
+            <div class="import-modal-title">
+              <h3>{{ currentLibrary?.name || '视频库' }} · 导入视频</h3>
+              <p class="modal-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
             </div>
-
-            <div class="form-actions">
-              <button
-                class="action-btn"
-                @click="openFolderBrowser"
-                title="浏览文件夹"
-              >
-                📂 浏览
-              </button>
-              <button
-                class="action-btn primary"
-                @click="scanFolder"
-                :disabled="scanning || !importFolder.trim()"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                {{ scanning ? '扫描中...' : '扫描文件夹' }}
-              </button>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label>递归扫描</label>
-                <label class="checkbox-label">
-                  <input v-model="importRecursive" type="checkbox" />
-                  <span>包含子文件夹</span>
-                </label>
-              </div>
-
-              <div class="form-group">
-                <label>目标视频库 <span class="required">*</span></label>
-                <select v-model.number="targetLibrary" required>
-                  <option :value="null" disabled>请选择视频库</option>
-                  <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
-                    {{ lib.name }}
-                  </option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label>默认标签</label>
-                <input 
-                  v-model="importDefaultTags" 
-                  type="text" 
-                  placeholder="用逗号分隔多个标签，如：本地视频,电影"
-                />
-              </div>
-            </div>
+            <button class="close-btn" @click="leaveLibraryDetail()">×</button>
           </div>
 
-          <!-- 扫描结果 -->
-          <div v-if="scannedVideos.length > 0" class="scan-results card">
-            <div class="results-header">
-              <h4>扫描结果 ({{ scannedVideos.length }} 个视频)</h4>
+          <div class="modal-body import-modal-body">
+            <!-- 扫描控制：固定顶部，与文件列表分离 -->
+            <div class="import-toolbar">
+              <button
+                class="action-btn primary"
+                @click="scanDetailFolder()"
+                :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
+                :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请使用“选择其他文件夹”' : '扫描该库关联文件夹中的视频'"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {{ libraryDetailScanning ? '扫描中...' : '扫描关联文件夹' }}
+              </button>
+              <button
+                class="action-btn"
+                @click="openLibraryImportFolderBrowser()"
+                :disabled="libraryDetailScanning || libraryDetailImporting"
+              >
+                📂 选择其他文件夹…
+              </button>
+              <span v-if="libraryDetailScanInfo" class="scan-progress-inline">正在扫描：{{ libraryDetailScanInfo.folder }}（{{ libraryDetailScanInfo.index }}/{{ libraryDetailScanInfo.total }}，已发现 {{ libraryDetailScanInfo.found }}）</span>
+              <span v-else-if="libraryDetailScanning" class="scan-progress-inline">正在准备扫描…</span>
             </div>
 
-            <div class="results-toolbar">
-              <label class="checkbox-label select-all">
-                <input
-                  type="checkbox"
-                  :checked="selectedImportVideos.length > 0 && selectedImportVideos.length === scannedVideos.filter((v: any) => !v.exists).length"
-                  :indeterminate="selectedImportVideos.length > 0 && selectedImportVideos.length < scannedVideos.filter((v: any) => !v.exists).length"
-                  @change="toggleImportSelectAll"
-                />
-                <span>{{ selectedImportVideos.length === scannedVideos.filter((v: any) => !v.exists).length ? '取消全选' : '全选' }}</span>
-              </label>
-              <span class="selected-count">
-                已选择 {{ selectedImportVideos.length }} / {{ scannedVideos.filter((v: any) => !v.exists).length }} 个新视频
+            <!-- 扫描汇总 -->
+            <div v-if="libraryDetailScanSummary" class="scan-summary-banner">
+              <span class="scan-summary-text">
+                扫描完成：共 <b>{{ libraryDetailScanSummary.total }}</b> 个视频，
+                <b class="new-count">{{ libraryDetailScanSummary.newCount }}</b> 个新视频，
+                {{ libraryDetailScanSummary.existCount }} 个已存在
               </span>
             </div>
 
-            <div class="video-list">
-              <div 
-                v-for="video in scannedVideos" 
-                :key="video.path"
-                :class="['video-item', { 
-                  selected: selectedImportVideos.includes(video.path),
-                  existing: video.exists 
-                }]"
-                @click="!video.exists && toggleImportVideoSelection(video.path)"
-              >
-                <div class="video-checkbox">
-                  <input 
-                    v-if="!video.exists"
-                    type="checkbox" 
-                    :checked="selectedImportVideos.includes(video.path)"
-                    @click.stop
-                    @change="toggleImportVideoSelection(video.path)"
-                  />
-                  <span v-else class="exists-badge">已存在</span>
-                </div>
-                <div class="video-info">
-                  <div class="video-title">{{ video.title }}</div>
-                  <div class="video-meta">
-                    <span>📁 {{ video.path }}</span>
-                    <span>💾 {{ video.size_mb }} MB</span>
+            <!-- 扫描失败提示 -->
+            <div v-if="libraryDetailScanErrors.length > 0" class="scan-error-banner">
+              <div class="scan-error-title">⚠️ {{ libraryDetailScanErrors.length }} 个文件夹扫描失败：</div>
+              <ul class="scan-error-list">
+                <li v-for="(err, idx) in libraryDetailScanErrors" :key="idx">
+                  <b>{{ err.folder }}</b>：{{ err.message }}
+                </li>
+              </ul>
+            </div>
+
+            <!-- 关联文件夹标签页 -->
+            <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
+              <h4>关联文件夹</h4>
+              <div class="folder-tabs">
+                <button
+                  :class="['folder-tab', { active: libraryDetailFolderKey === '__all__' }]"
+                  @click="libraryDetailFolderKey = '__all__'"
+                >
+                  所有
+                  <span class="tab-count" v-if="libraryDetailFileCache['__all__']">
+                    {{ libraryDetailFileCache['__all__'].length }}
+                  </span>
+                </button>
+                <button
+                  v-for="folder in libraryDetailFolders"
+                  :key="getFolderKey(folder)"
+                  :class="['folder-tab', { active: libraryDetailFolderKey === getFolderKey(folder) }]"
+                  @click="libraryDetailFolderKey = getFolderKey(folder)"
+                >
+                  {{ getFolderLabel(folder) }}
+                  <span class="tab-count" v-if="libraryDetailFileCache[getFolderKey(folder)]">
+                    {{ libraryDetailFileCache[getFolderKey(folder)].length }}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 扫描中 -->
+            <div v-if="(libraryDetailScanning || libraryDetailImporting) && !libraryDetailCurrentFiles.length" class="loading-state">
+              <div class="loading-spinner"></div>
+              <span v-if="libraryDetailImporting" class="scan-progress">正在导入视频...</span>
+              <span v-else-if="libraryDetailScanInfo" class="scan-progress">正在扫描：{{ libraryDetailScanInfo.folder }}</span>
+              <span v-else class="scan-progress">正在准备扫描...</span>
+            </div>
+
+            <!-- 文件列表（可滚动） -->
+            <div v-if="libraryDetailCurrentFiles.length > 0" class="scan-results import-results">
+              <div class="video-list import-video-list">
+                <div
+                  v-for="video in libraryDetailCurrentFiles"
+                  :key="video.path"
+                  :class="['video-item', { selected: libraryDetailSelectedFiles.includes(video.path), existing: video.exists }]"
+                  @click="!video.exists && detailToggleFile(video.path)"
+                >
+                  <div class="video-checkbox">
+                    <input
+                      v-if="!video.exists"
+                      type="checkbox"
+                      :checked="libraryDetailSelectedFiles.includes(video.path)"
+                      @click.stop
+                      @change="detailToggleFile(video.path)"
+                    />
+                    <span v-else class="exists-badge">已存在</span>
+                  </div>
+                  <div class="video-info">
+                    <div class="video-title">{{ video.title }}</div>
+                    <div class="video-meta">
+                      <span>📁 {{ video.path }}</span>
+                      <span>💾 {{ video.size_mb }} MB</span>
+                    </div>
                   </div>
                 </div>
               </div>
+              <div v-if="libraryDetailImporting" class="import-progress-inline">
+                正在导入…（已导入 {{ libraryDetailImportProgress.imported }}，跳过 {{ libraryDetailImportProgress.skipped }}）
+              </div>
             </div>
 
-            <div class="import-actions">
-              <button 
-                class="action-btn primary large"
-                @click="importVideos"
-                :disabled="importing || selectedImportVideos.length === 0"
-              >
-                {{ importing ? '导入中...' : `导入 ${selectedImportVideos.length} 个视频` }}
-              </button>
+            <!-- 未扫描引导 -->
+            <div v-else-if="!libraryDetailScanning && !libraryDetailImporting && libraryDetailFolders.length > 0 && !libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
+              <div class="empty-icon">📂</div>
+              <div class="empty-text">点击上方“扫描”按钮开始扫描</div>
+              <div class="empty-hint">将扫描 {{ libraryDetailFolderKey === '__all__' ? '所有关联文件夹' : '当前文件夹' }} 中的视频文件</div>
             </div>
           </div>
 
-          <!-- 导入进度 -->
-          <div v-if="importing || importProgress.imported > 0" class="import-progress card">
-            <h4>导入进度</h4>
-            <div class="progress-stats">
-              <div class="stat-item success">
-                <span class="stat-label">已导入</span>
-                <span class="stat-value">{{ importProgress.imported }}</span>
-              </div>
-              <div class="stat-item warning">
-                <span class="stat-label">已跳过</span>
-                <span class="stat-value">{{ importProgress.skipped }}</span>
-              </div>
-              <div class="stat-item error">
-                <span class="stat-label">失败</span>
-                <span class="stat-value">{{ importProgress.failed }}</span>
-              </div>
-            </div>
-            
-            <div v-if="importErrors.length > 0" class="import-errors">
-              <h5>错误信息</h5>
-              <ul>
-                <li v-for="(error, idx) in importErrors" :key="idx">{{ error }}</li>
-              </ul>
-            </div>
+          <!-- 底部固定操作条：全选 + 已选数 + 导入 同处一行 -->
+          <div class="modal-footer import-action-bar" v-if="libraryDetailCurrentFiles.length > 0">
+            <label class="checkbox-label select-all">
+              <input
+                type="checkbox"
+                :checked="libraryDetailSelectedFiles.length > 0 && libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length"
+                @change="detailToggleSelectAll"
+              />
+              <span>{{ libraryDetailSelectedFiles.length === libraryDetailCurrentFiles.filter((v: any) => !v.exists).length ? '取消全选' : '全选' }}</span>
+            </label>
+            <span class="selected-count">
+              已选择 {{ libraryDetailSelectedFiles.length }} / {{ libraryDetailCurrentFiles.filter((v: any) => !v.exists).length }} 个新视频
+            </span>
+            <button
+              class="action-btn primary large"
+              @click="detailImportVideos"
+              :disabled="libraryDetailImporting || libraryDetailSelectedFiles.length === 0"
+            >
+              {{ libraryDetailImporting ? '导入中...' : `导入 ${libraryDetailSelectedFiles.length} 个视频` }}
+            </button>
           </div>
         </div>
       </div>
@@ -4654,37 +4236,7 @@ input:checked + .slider:before {
   gap: 24px;
 }
 
-/* ============ 视频库详情展开视图 ============ */
-.library-detail-view {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.detail-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 16px;
-  background: var(--card-bg, #fff);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  flex-wrap: wrap;
-}
-
-.detail-title h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary, #1a1a1a);
-}
-
-.detail-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #888;
-}
-
+/* ============ 视频库导入弹窗（文件夹/扫描/选择） ============ */
 .detail-folders-section h4 {
   margin: 0 0 12px;
   font-size: 15px;
@@ -4746,1713 +4298,3446 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 768px) {
-  .detail-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+
   .folder-tabs {
+
     overflow-x: auto;
+
     flex-wrap: nowrap;
+
     -webkit-overflow-scrolling: touch;
+
     padding-bottom: 4px;
+
   }
+
   .folder-tab {
+
     flex-shrink: 0;
+
   }
+
 }
+
+
 
 .import-config,
+
 .scan-results,
+
 .import-progress {
+
   background: white;
+
   border-radius: 12px;
+
   padding: 24px;
+
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
 }
+
+
 
 .import-config h4,
+
 .scan-results h4,
+
 .import-progress h4 {
+
   margin: 0 0 20px 0;
+
   font-size: 18px;
+
   color: #1a1a2e;
+
 }
+
+
 
 .input-group {
+
   display: flex;
+
   gap: 12px;
+
 }
+
+
 
 .folder-input {
+
   flex: 1;
+
   padding: 12px 16px;
+
   font-size: 14px;
+
   border: 2px solid #e0e0e0;
+
   border-radius: 8px;
+
   transition: border-color 0.3s;
+
 }
+
+
 
 .folder-input:focus {
+
   outline: none;
+
   border-color: #2196F3;
+
 }
+
+
 
 .form-hint {
+
   display: block;
+
   margin-top: 8px;
+
   color: #666;
+
   font-size: 12px;
+
 }
 
+
+
 .form-row {
+
   display: grid;
+
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+
   gap: 16px;
+
   margin-top: 16px;
+
 }
+
+
 
 .form-actions {
+
   display: flex;
+
   gap: 12px;
+
   margin-top: 16px;
+
 }
+
+
 
 .form-actions .action-btn {
+
   flex: 1;
+
   max-width: 200px;
+
 }
+
+
 
 .checkbox-label {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   cursor: pointer;
+
 }
+
+
 
 .checkbox-label input[type="checkbox"] {
+
   width: 18px;
+
   height: 18px;
+
   cursor: pointer;
+
 }
+
+
 
 .results-header {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
 }
+
+
 
 .results-header h4 {
+
   margin: 0;
+
 }
+
+
 
 .results-toolbar {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   padding: 12px 16px;
+
   background: #f5f7fa;
+
   border-radius: 8px;
+
   margin-bottom: 16px;
+
 }
+
+
 
 .results-toolbar .select-all {
+
   font-weight: 600;
+
   color: #1a1a2e;
+
 }
+
+
 
 .results-actions {
+
   display: flex;
+
   align-items: center;
+
   gap: 16px;
+
 }
+
+
 
 .selected-count {
+
   font-size: 14px;
+
   color: #2196F3;
+
   font-weight: 600;
+
 }
+
+
 
 .video-list {
+
   max-height: 500px;
+
   overflow-y: auto;
+
   border: 1px solid #e0e0e0;
+
   border-radius: 8px;
+
 }
+
+
 
 .video-item {
+
   display: flex;
+
   align-items: center;
+
   gap: 12px;
+
   padding: 16px;
+
   border-bottom: 1px solid #f0f0f0;
+
   cursor: pointer;
+
   transition: background-color 0.2s;
+
 }
+
+
 
 .video-item:last-child {
+
   border-bottom: none;
+
 }
+
+
 
 .video-item:hover:not(.existing) {
+
   background-color: #f5f5f5;
+
 }
+
+
 
 .video-item.selected {
+
   background-color: #e3f2fd;
+
   border-left: 4px solid #2196F3;
+
 }
+
+
 
 .video-item.existing {
+
   background-color: #f5f5f5;
+
   opacity: 0.6;
+
   cursor: not-allowed;
+
 }
+
+
 
 .video-checkbox {
+
   flex-shrink: 0;
+
 }
+
+
 
 .video-checkbox input[type="checkbox"] {
+
   width: 20px;
+
   height: 20px;
+
   cursor: pointer;
+
 }
+
+
 
 .exists-badge {
+
   padding: 4px 12px;
+
   background-color: #9e9e9e;
+
   color: white;
+
   border-radius: 4px;
+
   font-size: 12px;
+
 }
+
+
 
 .video-info {
+
   flex: 1;
+
   min-width: 0;
+
 }
+
+
 
 .video-title {
+
   font-size: 15px;
+
   font-weight: 600;
+
   color: #1a1a2e;
+
   margin-bottom: 4px;
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
   white-space: nowrap;
+
 }
+
+
 
 .video-meta {
+
   display: flex;
+
   gap: 16px;
+
   font-size: 12px;
+
   color: #666;
+
 }
+
+
 
 .video-meta span {
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
   white-space: nowrap;
+
 }
+
+
 
 .import-actions {
+
   margin-top: 24px;
+
   padding-top: 24px;
+
   border-top: 1px solid #e0e0e0;
+
   text-align: center;
+
 }
+
+
 
 .action-btn.large {
+
   padding: 16px 48px;
+
   font-size: 16px;
+
   font-weight: 600;
+
 }
+
+
 
 .progress-stats {
+
   display: grid;
+
   grid-template-columns: repeat(3, 1fr);
+
   gap: 16px;
+
   margin-top: 16px;
+
 }
+
+
 
 .stat-item {
+
   padding: 20px;
+
   border-radius: 8px;
+
   text-align: center;
+
 }
+
+
 
 .stat-item.success {
+
   background-color: #e8f5e9;
+
 }
+
+
 
 .stat-item.warning {
+
   background-color: #fff3e0;
+
 }
+
+
 
 .stat-item.error {
+
   background-color: #ffebee;
+
 }
+
+
 
 .stat-label {
+
   display: block;
+
   font-size: 14px;
+
   color: #666;
+
   margin-bottom: 8px;
+
 }
+
+
 
 .stat-value {
+
   display: block;
+
   font-size: 32px;
+
   font-weight: 700;
+
 }
+
+
 
 .stat-item.success .stat-value {
+
   color: #4caf50;
+
 }
+
+
 
 .stat-item.warning .stat-value {
+
   color: #ff9800;
+
 }
+
+
 
 .stat-item.error .stat-value {
+
   color: #f44336;
+
 }
+
+
 
 .import-errors {
+
   margin-top: 20px;
+
   padding: 16px;
+
   background-color: #ffebee;
+
   border-radius: 8px;
+
 }
+
+
 
 .import-errors h5 {
+
   margin: 0 0 12px 0;
+
   font-size: 14px;
+
   color: #c62828;
+
 }
+
+
 
 .import-errors ul {
+
   margin: 0;
+
   padding-left: 20px;
+
   font-size: 13px;
+
   color: #666;
+
 }
+
+
 
 .import-errors li {
+
   margin-bottom: 8px;
+
 }
+
+
 
 .card {
+
   background: white;
+
   border-radius: 12px;
+
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
 }
+
+
 
 .required {
+
   color: #f44336;
+
 }
+
+
 
 /* 文件夹浏览器样式 */
+
 .folder-browser-modal {
+
   width: 800px;
+
   max-width: 90vw;
+
   max-height: 85vh;
+
   display: flex;
+
   flex-direction: column;
+
 }
+
+
 
 .folder-browser-modal .modal-body {
+
   flex: 1;
+
   overflow: hidden;
+
   display: flex;
+
   flex-direction: column;
+
 }
+
+
 
 .current-path-display {
+
   padding: 12px 16px;
+
   background: #f5f5f5;
+
   border-radius: 8px;
+
   margin-bottom: 16px;
+
   font-size: 14px;
+
 }
+
+
 
 .path-label {
+
   color: #666;
+
   margin-right: 8px;
+
 }
+
+
 
 .path-value {
+
   color: #1a1a2e;
+
   font-weight: 600;
+
   word-break: break-all;
+
 }
+
+
 
 .browser-nav {
+
   display: flex;
+
   gap: 12px;
+
   margin-bottom: 16px;
+
 }
+
+
 
 .nav-btn {
+
   padding: 8px 16px;
+
   border: 1px solid #e0e0e0;
+
   background: white;
+
   border-radius: 6px;
+
   cursor: pointer;
+
   font-size: 14px;
+
   transition: all 0.2s;
+
 }
+
+
 
 .nav-btn:hover:not(:disabled) {
+
   background: #f5f5f5;
+
   border-color: #2196F3;
+
 }
+
+
 
 .nav-btn:disabled {
+
   opacity: 0.5;
+
   cursor: not-allowed;
+
 }
+
+
 
 .folder-list-container {
+
   flex: 1;
+
   overflow-y: auto;
+
   border: 1px solid #e0e0e0;
+
   border-radius: 8px;
+
   min-height: 300px;
+
   max-height: 400px;
+
 }
+
+
 
 .loading-state {
+
   display: flex;
+
   flex-direction: column;
+
   align-items: center;
+
   justify-content: center;
+
   padding: 60px;
+
   color: #666;
+
 }
+
+
 
 .loading-spinner {
+
   width: 40px;
+
   height: 40px;
+
   border: 3px solid #e0e0e0;
+
   border-top-color: #2196F3;
+
   border-radius: 50%;
+
   animation: spin 1s linear infinite;
+
 }
+
+
 
 @keyframes spin {
+
   to { transform: rotate(360deg); }
+
 }
+
+
 
 .folder-list {
+
   padding: 8px;
+
 }
 
+
+
 .folder-item {
+
   display: flex;
+
   align-items: center;
+
   gap: 12px;
+
   padding: 12px 16px;
+
   border-radius: 6px;
+
   cursor: pointer;
+
   transition: background-color 0.2s;
+
 }
+
+
 
 .folder-item:hover {
+
   background-color: #e3f2fd;
+
 }
+
+
 
 .folder-icon {
+
   font-size: 24px;
+
   flex-shrink: 0;
+
 }
+
+
 
 .folder-info {
+
   flex: 1;
+
   min-width: 0;
+
 }
 
+
+
 .folder-name {
+
   font-size: 15px;
+
   font-weight: 600;
+
   color: #1a1a2e;
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
   white-space: nowrap;
+
 }
+
+
 
 .folder-type {
+
   font-size: 12px;
+
   color: #666;
+
   margin-top: 2px;
+
 }
+
+
 
 .folder-arrow {
+
   color: #999;
+
   font-size: 12px;
+
 }
+
+
 
 .library-card {
+
   background: #fff;
+
   border-radius: 12px;
+
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+
   overflow: hidden;
+
   transition: transform 0.2s, box-shadow 0.2s;
+
 }
+
+
 
 .library-card:hover {
+
   transform: translateY(-2px);
+
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+
 }
+
+
 
 .library-card-header {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   padding: 16px;
+
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
   color: white;
+
 }
+
+
 
 .library-card-header h4 {
+
   margin: 0;
+
   font-size: 16px;
+
   flex: 1;
+
 }
+
+
 
 /* 右上角激活/禁用按钮 */
+
 .toggle-active-btn {
+
   padding: 6px 12px;
+
   border-radius: 16px;
+
   font-size: 12px;
+
   font-weight: 500;
+
   cursor: pointer;
+
   transition: all 0.2s ease;
+
   border: 2px solid transparent;
+
   white-space: nowrap;
+
 }
+
+
 
 .toggle-active-btn.active {
+
   background: #52c41a;
+
   color: white;
+
   border-color: rgba(255, 255, 255, 0.3);
+
 }
+
+
 
 .toggle-active-btn.active:hover {
+
   background: #73d13d;
+
   transform: scale(1.05);
+
 }
+
+
 
 .toggle-active-btn.inactive {
+
   background: #8c8c8c;
+
   color: white;
+
   border-color: rgba(255, 255, 255, 0.3);
+
 }
+
+
 
 .toggle-active-btn.inactive:hover {
+
   background: #595959;
+
   transform: scale(1.05);
+
 }
+
+
 
 .status-badge {
+
   padding: 4px 10px;
+
   border-radius: 12px;
+
   font-size: 12px;
+
 }
+
+
 
 .status-badge.active {
+
   background: #52c41a;
+
   color: white;
+
 }
+
+
 
 .status-badge.inactive {
+
   background: #8c8c8c;
+
   color: white;
+
 }
+
+
 
 .library-card-body {
+
   padding: 16px;
+
 }
+
+
 
 .library-desc {
+
   color: #666;
+
   font-size: 14px;
+
   margin: 0 0 12px 0;
+
 }
+
+
 
 .library-stats {
+
   display: flex;
+
   gap: 16px;
+
   margin-bottom: 12px;
+
   font-size: 13px;
+
   color: #888;
+
 }
+
+
 
 .library-path {
+
   font-size: 12px;
+
   color: #999;
+
   word-break: break-all;
+
   margin: 0;
+
 }
+
+
 
 .library-card-actions {
+
   display: flex;
+
   gap: 8px;
+
   padding: 12px 16px;
+
   background: #f5f5f5;
+
   border-top: 1px solid #eee;
+
 }
+
+
 
 .library-card-actions .action-btn {
+
   flex: 1;
+
   padding: 6px 12px;
+
   font-size: 12px;
+
 }
+
+
 
 /* 文件夹管理样式 */
+
 .folder-form {
+
   margin-bottom: 24px;
+
   padding: 16px;
+
 }
+
+
 
 .folder-form h4 {
+
   margin: 0 0 16px 0;
+
   color: #333;
+
 }
+
+
 
 .input-with-button {
+
   display: flex;
+
   gap: 8px;
+
 }
+
+
 
 .input-with-button input {
+
   flex: 1;
+
 }
+
+
 
 .folder-item-file {
+
   opacity: 0.85;
+
 }
+
+
 
 .folder-item-file:hover {
+
   background: #f0f7ff;
+
 }
+
+
 
 .folder-list-section h4 {
+
   margin: 0 0 16px 0;
+
   color: #333;
+
 }
+
+
 
 .folder-items {
+
   display: flex;
+
   flex-direction: column;
+
   gap: 12px;
+
 }
+
+
 
 .folder-item {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   padding: 12px 16px;
+
   gap: 16px;
+
 }
+
+
 
 .folder-info {
+
   flex: 1;
+
   min-width: 0;
+
 }
+
+
 
 .folder-name {
+
   font-weight: 500;
+
   color: #333;
+
   margin-bottom: 4px;
+
   word-break: break-all;
+
 }
+
+
 
 .folder-type-icon {
+
   margin-right: 4px;
+
 }
+
+
 
 .default-badge {
+
   display: inline-block;
+
   background: #4caf50;
+
   color: white;
+
   font-size: 11px;
+
   padding: 2px 6px;
+
   border-radius: 4px;
+
   margin-right: 8px;
+
 }
+
+
 
 .folder-path {
+
   color: #666;
+
   font-size: 13px;
+
   word-break: break-all;
+
   margin-bottom: 4px;
+
 }
+
+
 
 .folder-meta {
+
   font-size: 12px;
+
   color: #999;
+
 }
+
+
 
 .folder-meta span {
+
   margin-right: 16px;
+
 }
+
+
 
 .folder-actions {
+
   display: flex;
+
   gap: 8px;
+
   flex-shrink: 0;
+
 }
+
+
 
 /* 权限配置样式 */
+
 .modal-large {
+
   max-width: 800px;
+
 }
+
+
 
 .permission-form {
+
   margin-bottom: 24px;
+
   padding-bottom: 24px;
+
   border-bottom: 1px solid #eee;
+
 }
+
+
 
 .permission-form h4,
+
 .permission-list h4 {
+
   margin: 0 0 16px 0;
+
   font-size: 16px;
+
   color: #333;
+
 }
+
+
 
 .form-row {
+
   display: flex;
+
   gap: 16px;
+
   margin-bottom: 12px;
+
 }
+
+
 
 .form-row .form-group {
+
   flex: 1;
+
 }
+
+
 
 .permission-list {
+
   margin-top: 16px;
+
 }
+
+
 
 /* 视频库弹窗样式 */
+
 .library-modal {
+
   max-width: 520px;
+
 }
+
+
 
 .library-modal .modal-header h3 {
+
   font-size: 20px;
+
   color: #333;
+
 }
+
+
 
 .library-modal .form-group {
+
   margin-bottom: 20px;
+
 }
+
+
 
 .library-modal label {
+
   display: block;
+
   font-size: 15px;
+
   font-weight: 500;
+
   color: #333;
+
   margin-bottom: 8px;
+
 }
+
+
 
 .library-modal .required {
+
   color: #e74c3c;
+
   margin-left: 4px;
+
 }
+
+
 
 .library-modal input[type="text"],
+
 .library-modal textarea {
+
   width: 100%;
+
   padding: 12px 16px;
+
   font-size: 15px;
+
   border: 2px solid #e0e0e0;
+
   border-radius: 8px;
+
   transition: all 0.3s;
+
   box-sizing: border-box;
+
 }
+
+
 
 .library-modal input[type="text"]:focus,
+
 .library-modal textarea:focus {
+
   outline: none;
+
   border-color: #3498db;
+
   box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+
 }
+
+
 
 .library-modal textarea {
+
   resize: vertical;
+
   min-height: 100px;
+
 }
+
+
 
 .status-toggle {
+
   display: flex;
+
   align-items: center;
+
   gap: 12px;
+
 }
+
+
 
 .status-label {
+
   font-size: 14px;
+
   color: #666;
+
 }
+
+
 
 .form-tip {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   padding: 12px 16px;
+
   background: #f8f9fa;
+
   border-radius: 8px;
+
   font-size: 14px;
+
   color: #666;
+
   margin-top: 16px;
+
 }
+
+
 
 .tip-icon {
+
   font-size: 18px;
+
 }
+
+
 
 .btn {
+
   padding: 10px 24px;
+
   font-size: 15px;
+
   border-radius: 8px;
+
   cursor: pointer;
+
   transition: all 0.3s;
+
   border: none;
+
   font-weight: 500;
+
 }
+
+
 
 .btn-primary {
+
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
   color: white;
+
 }
+
+
 
 .btn-primary:hover:not(:disabled) {
+
   transform: translateY(-1px);
+
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+
 }
+
+
 
 .btn-primary:disabled {
+
   opacity: 0.6;
+
   cursor: not-allowed;
+
 }
+
+
 
 .btn-secondary {
+
   background: #f5f5f5;
+
   color: #666;
+
 }
 
+
+
 .btn-secondary:hover {
+
   background: #e0e0e0;
+
 }
+
+
 
 /* ============ 系统日志样式 ============ */
 
+
+
 .log-type-tabs {
+
   display: flex;
+
   gap: 8px;
+
   margin-bottom: 16px;
+
   flex-wrap: wrap;
+
 }
+
+
 
 .log-type-btn {
+
   padding: 6px 14px;
+
   border: 1px solid #ddd;
+
   border-radius: 6px;
+
   background: #fff;
+
   cursor: pointer;
+
   font-size: 13px;
+
   transition: all 0.2s;
+
 }
+
+
 
 .log-type-btn:hover {
+
   background: #f0f0f0;
+
 }
+
+
 
 .log-type-btn.active {
+
   background: #1976D2;
+
   color: #fff;
+
   border-color: #1976D2;
+
 }
+
+
 
 /* 服务筛选样式 */
+
 .log-service-filter {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   margin-bottom: 16px;
+
   flex-wrap: wrap;
+
 }
+
+
 
 .log-service-filter .filter-label {
+
   font-size: 13px;
+
   color: #666;
+
   font-weight: 500;
+
 }
+
+
 
 .log-service-filter .service-select {
+
   padding: 6px 12px;
+
   border: 1px solid #ddd;
+
   border-radius: 6px;
+
   background: #fff;
+
   font-size: 13px;
+
   cursor: pointer;
+
   min-width: 150px;
+
 }
+
+
 
 .log-service-filter .service-select:focus {
+
   outline: none;
+
   border-color: #1976D2;
+
 }
+
+
 
 .log-container {
+
   background: #fff;
+
   border-radius: 8px;
+
   border: 1px solid #e0e0e0;
+
   overflow: visible;
+
   color: #333;
+
   display: flex;
+
   flex-direction: column;
+
   flex: 1;
+
   min-height: 500px;
+
 }
+
+
 
 .log-table-wrapper {
+
   overflow-x: auto;
+
   overflow-y: auto;
+
   max-height: calc(100vh - 340px);
+
   flex: 1;
+
 }
+
+
 
 .log-table {
+
   width: 100%;
+
   border-collapse: collapse;
+
   font-size: 13px;
+
   color: #333;
+
 }
+
+
 
 .log-table th {
+
   background: #f5f5f5;
+
   padding: 10px 12px;
+
   text-align: left;
+
   font-weight: 600;
+
   border-bottom: 2px solid #e0e0e0;
+
   white-space: nowrap;
+
   color: #333;
+
 }
+
+
 
 .log-table td {
+
   padding: 8px 12px;
+
   border-bottom: 1px solid #f0f0f0;
+
   vertical-align: top;
+
   color: #333;
+
 }
+
+
 
 .log-table tr:hover {
+
   background: #fafafa;
+
 }
+
+
 
 .log-col-time {
+
   width: 150px;
+
   white-space: nowrap;
+
   color: #666;
+
 }
+
+
 
 .log-col-level {
+
   width: 90px;
+
   white-space: nowrap;
+
 }
+
+
 
 .log-col-module {
+
   width: 220px;
+
   white-space: nowrap;
+
   color: #666;
+
 }
+
+
 
 .log-col-content {
+
   word-break: break-all;
+
   min-width: 200px;
+
   color: #333;
+
 }
+
+
 
 .log-mono {
+
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+
   font-size: 12px;
+
 }
+
+
 
 /* 日志等级徽标 */
+
 .log-badge {
+
   display: inline-block;
+
   padding: 2px 8px;
+
   border-radius: 4px;
+
   font-size: 11px;
+
   font-weight: 600;
+
 }
+
+
 
 .log-level-info { background: #2196F3; color: #fff; }
+
 .log-level-warn { background: #FF9800; color: #fff; }
+
 .log-level-error { background: #f44336; color: #fff; }
+
 .log-level-fatal { background: #B71C1C; color: #fff; }
+
 .log-level-debug { background: #9E9E9E; color: #fff; }
 
+
+
 .log-source {
+
   color: #666;
+
   font-size: 12px;
+
   font-family: monospace;
+
 }
+
+
 
 /* 分页 */
+
 .log-pagination {
+
   display: flex;
+
   align-items: center;
+
   justify-content: space-between;
+
   padding: 12px 16px;
+
   border-top: 1px solid #e0e0e0;
+
   flex-wrap: wrap;
+
   gap: 8px;
+
 }
+
+
 
 .log-page-info {
+
   color: #666;
+
   font-size: 13px;
+
 }
+
+
 
 .log-page-btns {
+
   display: flex;
+
   align-items: center;
+
   gap: 6px;
+
 }
+
+
 
 .page-btn {
+
   padding: 4px 10px;
+
   border: 1px solid #ddd;
+
   border-radius: 4px;
+
   background: #fff;
+
   cursor: pointer;
+
   font-size: 12px;
+
 }
+
+
 
 .page-btn:hover:not(:disabled) {
+
   background: #f0f0f0;
+
 }
+
+
 
 .page-btn:disabled {
+
   opacity: 0.4;
+
   cursor: not-allowed;
+
 }
+
+
 
 .page-current {
+
   font-size: 13px;
+
   padding: 0 8px;
+
   color: #333;
+
 }
+
+
 
 .page-size-select {
+
   padding: 4px 8px;
+
   border: 1px solid #ddd;
+
   border-radius: 4px;
+
   font-size: 12px;
+
   cursor: pointer;
+
 }
+
+
 
 /* 加载和空状态 */
+
 .loading-text, .empty-text {
+
   text-align: center;
+
   padding: 40px;
+
   color: #999;
+
 }
+
+
 
 /* 移动端卡片 */
+
 .log-cards {
+
   display: none;
+
 }
 
+
+
 /* 移动端适配 */
+
 @media (max-width: 768px) {
+
   .log-table-wrapper {
+
     display: none;
+
   }
+
+
 
   .log-cards {
+
     display: block;
+
   }
+
+
 
   .log-container {
+
     overflow-y: auto;
+
     max-height: calc(100vh - 350px);
+
     -webkit-overflow-scrolling: touch;
+
     min-height: 300px;
+
   }
+
+
 
   .tab-content {
+
     min-height: auto;
+
   }
+
+
 
   .log-card {
+
     border-bottom: 1px solid #f0f0f0;
+
     padding: 12px;
+
   }
+
+
 
   .log-card:last-child {
+
     border-bottom: none;
+
   }
+
+
 
   .log-card-header {
+
     display: flex;
+
     align-items: center;
+
     gap: 8px;
+
     margin-bottom: 6px;
+
   }
+
+
 
   .log-card-module {
+
     font-size: 11px;
+
     color: #888;
+
   }
+
+
 
   .log-card-content {
+
     font-size: 13px;
+
     color: #333;
+
     word-break: break-all;
+
     margin-bottom: 6px;
+
   }
+
+
 
   .log-card-time {
+
     font-size: 11px;
+
     color: #999;
+
   }
+
+
 
   .log-pagination {
+
     flex-direction: column;
+
     align-items: stretch;
+
     text-align: center;
+
   }
+
+
 
   .log-page-btns {
+
     justify-content: center;
+
   }
+
 }
+
+
 
 /* ============ 系统监控样式 ============ */
+
 .monitor-overview {
+
   display: grid;
+
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+
   gap: 16px;
+
   margin-bottom: 24px;
+
 }
+
+
 
 .monitor-card {
+
   background: white;
+
   border-radius: 12px;
+
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+
   overflow: hidden;
+
 }
+
+
 
 .monitor-card-header {
+
   display: flex;
+
   align-items: center;
+
   gap: 10px;
+
   padding: 16px 20px;
+
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
   color: white;
+
 }
+
+
 
 .monitor-icon {
+
   font-size: 20px;
+
 }
+
+
 
 .monitor-title {
+
   font-size: 15px;
+
   font-weight: 600;
+
 }
+
+
 
 .monitor-card-body {
+
   padding: 20px;
+
 }
+
+
 
 .monitor-value {
+
   font-size: 36px;
+
   font-weight: 700;
+
   margin-bottom: 12px;
+
 }
+
+
 
 .monitor-value.normal { color: #22c55e; }
+
 .monitor-value.warning { color: #f59e0b; }
+
 .monitor-value.danger { color: #ef4444; }
 
+
+
 .monitor-bar-container {
+
   height: 8px;
+
   background: #e5e7eb;
+
   border-radius: 4px;
+
   overflow: hidden;
+
   margin-bottom: 12px;
+
 }
+
+
 
 .monitor-bar-container.small {
+
   height: 4px;
+
   flex: 1;
+
 }
+
+
 
 .monitor-bar {
+
   height: 100%;
+
   border-radius: 4px;
+
   transition: width 0.3s ease;
+
 }
+
+
 
 .monitor-bar.normal { background: linear-gradient(90deg, #22c55e, #4ade80); }
+
 .monitor-bar.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
 .monitor-bar.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
 
+
+
 .monitor-detail {
+
   display: flex;
+
   justify-content: space-between;
+
   font-size: 13px;
+
   color: #666;
+
   margin-bottom: 6px;
+
 }
+
+
 
 .monitor-detail:last-child {
+
   margin-bottom: 0;
+
 }
+
+
 
 .fs-type {
+
   color: #888;
+
   font-size: 12px;
+
 }
+
+
 
 .core-usage {
+
   margin-top: 16px;
+
   border-top: 1px solid #eee;
+
   padding-top: 12px;
+
 }
+
+
 
 .core-usage-item {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   margin-bottom: 8px;
+
 }
+
+
 
 .core-usage-item:last-child {
+
   margin-bottom: 0;
+
 }
+
+
 
 .core-label {
+
   font-size: 11px;
+
   color: #888;
+
   width: 45px;
+
 }
+
+
 
 .core-value {
+
   font-size: 11px;
+
   color: #666;
+
   width: 40px;
+
   text-align: right;
+
 }
+
+
 
 .monitor-uptime {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   padding: 12px 16px;
+
   background: #f8f9fa;
+
   border-radius: 8px;
+
   font-size: 14px;
+
 }
+
+
 
 .uptime-label {
+
   color: #666;
+
 }
+
+
 
 .uptime-value {
+
   color: #333;
+
   font-weight: 500;
+
 }
 
+
+
 /* 移动端适配 */
+
 @media (max-width: 768px) {
+
   .monitor-overview {
+
     grid-template-columns: 1fr;
+
   }
+
 }
+
+
 
 /* ============ 缩略图管理样式 ============ */
+
 .thumb-stats-grid {
+
   display: grid;
+
   grid-template-columns: repeat(4, 1fr);
+
   gap: 16px;
+
   margin-bottom: 24px;
+
 }
+
+
 
 .thumb-stat-card {
+
   background: var(--card-bg, #1e1e2e);
+
   border-radius: 12px;
+
   padding: 20px;
+
   display: flex;
+
   align-items: center;
+
   gap: 16px;
+
   border: 1px solid var(--border-color, #2d2d3f);
+
   transition: all 0.2s;
+
 }
+
+
 
 .thumb-stat-card:hover {
+
   transform: translateY(-1px);
+
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
 }
+
+
 
 .thumb-stat-card.stat-warning {
+
   border-color: #f59e0b;
+
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, var(--card-bg, #1e1e2e) 100%);
+
 }
+
+
 
 .stat-icon {
+
   font-size: 28px;
+
   line-height: 1;
+
 }
+
+
 
 .stat-info {
+
   display: flex;
+
   flex-direction: column;
+
 }
+
+
 
 .stat-value {
+
   font-size: 24px;
+
   font-weight: 700;
+
   color: var(--text-primary, #e1e1e1);
+
 }
+
+
 
 .stat-label {
+
   font-size: 13px;
+
   color: var(--text-secondary, #888);
+
   margin-top: 2px;
+
 }
+
+
 
 .status-ok {
+
   color: #10b981;
+
 }
+
+
 
 .status-error {
+
   color: #ef4444;
+
 }
+
+
 
 .status-unknown {
+
   color: #888;
+
 }
+
+
 
 .text-error {
+
   color: #ef4444;
+
 }
+
+
 
 .thumb-service-detail {
+
   background: var(--card-bg, #1e1e2e);
+
   border-radius: 12px;
+
   padding: 16px 20px;
+
   margin-bottom: 24px;
+
   border: 1px solid var(--border-color, #2d2d3f);
+
 }
+
+
 
 .thumb-service-detail h4 {
+
   margin: 0 0 12px;
+
   font-size: 15px;
+
   color: var(--text-secondary, #888);
+
 }
+
+
 
 .task-stats-row {
+
   display: flex;
+
   gap: 24px;
+
   font-size: 14px;
+
   color: var(--text-primary, #e1e1e1);
+
 }
+
+
 
 .task-stats-row span b {
+
   font-weight: 600;
+
 }
+
+
 
 .thumb-config-form {
+
   margin-top: 8px;
+
 }
+
+
 
 .config-section-title {
+
   font-size: 16px;
+
   font-weight: 600;
+
   margin: 0 0 20px;
+
   color: var(--text-primary, #e1e1e1);
+
   padding-bottom: 12px;
+
   border-bottom: 1px solid var(--border-color, #2d2d3f);
+
 }
+
+
 
 .form-row {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
 }
+
+
 
 .form-label-area {
+
   display: flex;
+
   flex-direction: column;
+
 }
+
+
 
 .form-label-area label {
+
   font-weight: 500;
+
   color: var(--text-primary, #e1e1e1);
+
 }
+
+
 
 .form-hint {
+
   font-size: 12px;
+
   color: var(--text-secondary, #888);
+
   margin-top: 4px;
+
 }
+
+
 
 .input-with-hint {
+
   display: flex;
+
   flex-direction: column;
+
   gap: 4px;
+
 }
+
+
 
 .input-with-hint input {
+
   width: 180px;
+
 }
+
+
 
 .input-hint {
+
   font-size: 12px;
+
   color: var(--text-secondary, #888);
+
 }
+
+
 
 .auto-status-banner {
+
   display: flex;
+
   align-items: center;
+
   gap: 10px;
+
   padding: 12px 16px;
+
   border-radius: 8px;
+
   margin: 16px 0;
+
   font-size: 14px;
+
   font-weight: 500;
+
 }
+
+
 
 .auto-status-banner.running {
+
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+
   border: 1px solid rgba(16, 185, 129, 0.3);
+
   color: #10b981;
+
 }
+
+
 
 .auto-status-dot {
+
   width: 8px;
+
   height: 8px;
+
   border-radius: 50%;
+
   background: #10b981;
+
   animation: pulse-dot 1.5s infinite;
+
 }
+
+
 
 @keyframes pulse-dot {
+
   0%, 100% { opacity: 1; }
+
   50% { opacity: 0.4; }
+
 }
+
+
 
 .auto-status-banner .action-btn.small {
+
   margin-left: auto;
+
   padding: 4px 12px;
+
   font-size: 13px;
+
 }
+
+
 
 .badge-count {
+
   display: inline-flex;
+
   align-items: center;
+
   justify-content: center;
+
   min-width: 20px;
+
   height: 20px;
+
   padding: 0 6px;
+
   border-radius: 10px;
+
   background: rgba(255, 255, 255, 0.2);
+
   font-size: 11px;
+
   font-weight: 600;
+
   margin-left: 8px;
+
 }
+
+
 
 .loading-placeholder {
+
   display: flex;
+
   flex-direction: column;
+
   align-items: center;
+
   justify-content: center;
+
   padding: 60px;
+
   color: var(--text-secondary, #888);
+
 }
+
+
 
 .loading-spinner {
+
   width: 32px;
+
   height: 32px;
+
   border: 3px solid var(--border-color, #2d2d3f);
+
   border-top-color: #667eea;
+
   border-radius: 50%;
+
   animation: spin 0.8s linear infinite;
+
   margin-bottom: 12px;
+
 }
+
+
 
 @keyframes spin {
+
   to { transform: rotate(360deg); }
+
 }
+
+
 
 /* 移动端适配 */
+
 @media (max-width: 768px) {
+
   .thumb-stats-grid {
+
     grid-template-columns: repeat(2, 1fr);
+
     gap: 12px;
+
   }
+
   
+
   .thumb-stat-card {
+
     padding: 14px;
+
   }
+
   
+
   .stat-value {
+
     font-size: 20px;
+
   }
+
   
+
   .form-row {
+
     flex-direction: column;
+
     align-items: flex-start;
+
     gap: 10px;
+
   }
+
   
+
   .task-stats-row {
+
     flex-wrap: wrap;
+
     gap: 12px;
+
   }
+
   
+
   .input-with-hint input {
+
     width: 100%;
+
   }
+
 }
+
+
 
 /* ============ 服务管理样式 ============ */
+
 .services-list {
+
   display: flex;
+
   flex-direction: column;
+
   gap: 16px;
+
 }
+
+
 
 .service-card {
+
   background: var(--card-bg, #1e1e2e);
+
   border-radius: 12px;
+
   border: 1px solid var(--border-color, #2d2d3f);
+
   overflow: hidden;
+
   transition: all 0.2s;
+
 }
+
+
 
 .service-card:hover {
+
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+
 }
+
+
 
 .service-card.svc-card-operating {
+
   border-color: rgba(102, 126, 234, 0.4);
+
   opacity: 0.9;
+
 }
+
+
 
 .svc-header {
+
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   padding: 16px 20px;
+
   border-bottom: 1px solid var(--border-color, #2d2d3f);
+
 }
+
+
 
 .svc-title-area {
+
   display: flex;
+
   align-items: center;
+
   gap: 10px;
+
 }
+
+
 
 .svc-title-area h4 {
+
   margin: 0;
+
   font-size: 16px;
+
   font-weight: 600;
+
   color: var(--text-primary, #e1e1e1);
+
 }
+
+
 
 .svc-name-tag {
+
   font-size: 11px;
+
   padding: 2px 8px;
+
   border-radius: 4px;
+
   background: rgba(102, 126, 234, 0.15);
+
   color: #667eea;
+
   font-family: monospace;
+
   font-weight: 500;
+
 }
+
+
 
 .svc-status-lights {
+
   display: flex;
+
   gap: 16px;
+
 }
+
+
 
 .health-light {
+
   display: flex;
+
   align-items: center;
+
   gap: 6px;
+
   padding: 4px 10px;
+
   border-radius: 6px;
+
   font-size: 12px;
+
   font-weight: 500;
+
 }
+
+
 
 .light-dot {
+
   width: 10px;
+
   height: 10px;
+
   border-radius: 50%;
+
   display: inline-block;
+
 }
+
+
 
 .light-label {
+
   color: var(--text-secondary, #888);
+
 }
+
+
 
 /* 状态颜色 */
+
 .health-light.svc-running .light-dot {
+
   background: #10b981;
+
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+
 }
+
 .health-light.svc-stopped .light-dot {
+
   background: #ef4444;
+
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+
 }
+
 .health-light.svc-paused .light-dot {
+
   background: #f59e0b;
+
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+
 }
+
 .health-light.svc-pending .light-dot {
+
   background: #3b82f6;
+
   box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+
   animation: pulse-dot 1s infinite;
+
 }
+
 .health-light.svc-unknown .light-dot {
+
   background: #555;
+
 }
+
+
 
 .svc-details {
+
   padding: 16px 20px;
+
 }
+
+
 
 .svc-desc {
+
   font-size: 13px;
+
   color: var(--text-secondary, #888);
+
   margin-bottom: 12px;
+
 }
+
+
 
 .svc-metrics {
+
   display: flex;
+
   flex-wrap: wrap;
+
   gap: 16px;
+
 }
+
+
 
 .metric-item {
+
   display: flex;
+
   flex-direction: column;
+
   gap: 2px;
+
   min-width: 80px;
+
 }
+
+
 
 .metric-label {
+
   font-size: 11px;
+
   color: var(--text-secondary, #888);
+
   text-transform: uppercase;
+
   letter-spacing: 0.5px;
+
 }
+
+
 
 .metric-value {
+
   font-size: 14px;
+
   font-weight: 600;
+
   color: var(--text-primary, #e1e1e1);
+
   display: flex;
+
   align-items: center;
+
   gap: 4px;
+
 }
+
+
 
 .metric-value.mono {
+
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+
   font-size: 13px;
+
 }
+
+
 
 .metric-value.svc-running { color: #10b981; }
+
 .metric-value.svc-stopped { color: #ef4444; }
+
 .metric-value.svc-paused { color: #f59e0b; }
+
 .metric-value.svc-pending { color: #3b82f6; }
+
 .metric-value.svc-unknown { color: #888; }
 
+
+
 .svc-health-detail {
+
   margin-top: 8px;
+
   font-size: 12px;
+
   color: var(--text-secondary, #888);
+
   padding: 4px 8px;
+
   background: rgba(255, 255, 255, 0.03);
+
   border-radius: 4px;
+
 }
+
+
 
 .svc-actions {
+
   padding: 12px 20px;
+
   border-top: 1px solid var(--border-color, #2d2d3f);
+
   display: flex;
+
   gap: 10px;
+
   justify-content: flex-end;
+
 }
+
+
 
 .svc-operating-indicator {
+
   display: flex;
+
   align-items: center;
+
   gap: 8px;
+
   color: #3b82f6;
+
   font-size: 13px;
+
   font-weight: 500;
+
   width: 100%;
+
   justify-content: center;
+
 }
+
+
 
 .loading-spinner.small {
+
   width: 16px;
+
   height: 16px;
+
   border-width: 2px;
+
   margin-bottom: 0;
+
 }
+
+
 
 .auto-refresh-hint {
+
   font-size: 12px;
+
   color: var(--text-secondary, #888);
+
   display: flex;
+
   align-items: center;
+
   gap: 4px;
+
 }
+
+
 
 .auto-refresh-hint::before {
+
   content: '';
+
   display: inline-block;
+
   width: 8px;
+
   height: 8px;
+
   border-radius: 50%;
+
   background: #10b981;
+
   animation: pulse-dot 2s infinite;
+
 }
+
+
 
 .empty-state {
+
   text-align: center;
+
   padding: 60px;
+
   color: var(--text-secondary, #888);
+
 }
+
+
 
 /* 移动端服务卡片适配 */
+
 @media (max-width: 768px) {
+
   .svc-header {
+
     flex-direction: column;
+
     align-items: flex-start;
+
     gap: 10px;
+
   }
+
+
 
   .svc-metrics {
+
     gap: 10px;
+
   }
+
+
 
   .metric-item {
+
     min-width: 60px;
+
   }
 
+
+
   .svc-actions {
+
     justify-content: center;
+
   }
+
 }
 
 
+
+
+
+
+
+/* 视频库导入弹窗（重设计：替代原向下展开 + 独立批量导入Tab） */
+
+.import-modal { max-width: 960px; width: 95%; display: flex; flex-direction: column; max-height: 90vh; }
+
+.import-modal-header { display: flex; justify-content: space-between; align-items: flex-start; }
+
+.import-modal-title h3 { margin: 0; }
+
+.import-modal-title .modal-subtitle { margin: 4px 0 0; color: #888; font-size: 13px; }
+
+.import-modal-body { overflow-y: auto; padding: 16px 20px; }
+
+.import-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+
+.scan-progress-inline { color: #666; font-size: 13px; }
+
+.import-results { padding: 0; }
+
+.import-video-list { max-height: 46vh; overflow-y: auto; border: 1px solid #f0f0f0; border-radius: 8px; }
+
+.import-progress-inline { padding: 10px 0; color: #555; font-size: 13px; }
+
+.import-action-bar { display: flex; align-items: center; gap: 14px; border-top: 1px solid #eee; padding: 14px 20px; background: #fff; }
+
+.import-action-bar .selected-count { color: #666; font-size: 13px; }
+
+.import-action-bar .action-btn.primary.large { margin-left: auto; }
+
 </style>
+
