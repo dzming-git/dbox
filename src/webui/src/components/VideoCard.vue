@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
@@ -78,16 +78,6 @@ const formatDuration = (seconds?: number): string => {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-// 卡片样式 - 使用响应式高度，宽度由网格控制
-const cardStyle = computed(() => {
-  const sizeMap = {
-    large: { height: '180px' },
-    normal: { height: '135px' },
-    small: { height: '101px' }
-  }
-  return sizeMap[props.size || 'normal']
-})
-
 const handleClick = () => {
   if (props.selectable) {
     emit('toggleSelect', props.video)
@@ -121,7 +111,7 @@ const handleImageError = () => {
     :data-hash="video.hash"
   >
     <!-- 缩略图容器 -->
-    <div class="thumbnail-container" :style="{ height: cardStyle.height }">
+    <div class="thumbnail-container">
       <!-- 加载占位符 -->
       <div v-if="isLoading" class="thumbnail-loading">
         <div class="loading-spinner"></div>
@@ -266,6 +256,7 @@ const handleImageError = () => {
   border-radius: 8px;
   background: #1a1a1a;
   width: 100%;
+  aspect-ratio: 16 / 9;
 }
 
 .thumbnail {
