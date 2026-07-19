@@ -158,6 +158,7 @@ class Video(db.Model):
     local_path = db.Column(db.String(500))  # 本地存储路径
     file_name = db.Column(db.String(500))  # 文件名（仅作为属性，绝不作为视频唯一标识/key）
     library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'))  # 所属视频库，NULL表示主数据库
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -216,6 +217,7 @@ class Video(db.Model):
             'is_downloaded': self.is_downloaded,
             'local_path': self.local_path,
             'file_name': self.file_name,
+            'owner_id': self.owner_id,
             'tags': [vt.tag.to_dict() for vt in self.tags if vt.tag is not None],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -813,6 +815,7 @@ class Comic(db.Model):
     folder_path = db.Column(db.String(600))            # 漫画文件夹本地路径
     cover_path = db.Column(db.String(600))             # 封面（第一页）本地路径
     library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     page_count = db.Column(db.Integer, default=0)
     like_count = db.Column(db.Integer, default=0)
     favorite_count = db.Column(db.Integer, default=0)
@@ -850,6 +853,7 @@ class Comic(db.Model):
             'title': self.title,
             'page_count': self.page_count,
             'library_id': self.library_id,
+            'owner_id': self.owner_id,
             'like_count': self.like_count,
             'favorite_count': self.favorite_count,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -1005,6 +1009,34 @@ def migrate_collection_videos_schema():
                     "ALTER TABLE collection_videos ADD COLUMN comic_id INTEGER"))
     except Exception as e:
         print(f'[WARN] collection_videos 迁移跳过: {e}')
+
+
+def migrate_owner_columns():
+    """为 videos / comics 增加 owner_id 列（资源归属者），并把历史资源归属 root。
+
+    仅当列不存在时执行 ALTER，兼容旧库；create_all 不会为已存在的表新增列。
+    历史资源（owner_id 为 NULL）统一归属到 root 用户（id=1），保证其可管理。
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(db.engine)
+        root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
+        root_id = root_user.id if root_user else 1
+
+        for table in ('videos', 'comics'):
+            cols = {c['name'] for c in insp.get_columns(table)}
+            if 'owner_id' not in cols:
+                with db.engine.begin() as conn:
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ADD COLUMN owner_id INTEGER"))
+                # 历史资源归属 root
+                with db.engine.begin() as conn:
+                    conn.execute(db.text(
+                        f"UPDATE {table} SET owner_id = :rid WHERE owner_id IS NULL"),
+                        {'rid': root_id})
+                print(f'[INFO] {table}.owner_id 迁移完成，历史资源归属 root(id={root_id})')
+    except Exception as e:
+        print(f'[WARN] owner_id 迁移跳过: {e}')
 
 
 

@@ -18,6 +18,7 @@ export interface Video {
   min_role_name: string
   is_downloaded: boolean
   local_path?: string
+  owner_id?: number | null
   disliked?: boolean
   is_favorited?: boolean
   is_liked?: boolean
@@ -85,6 +86,7 @@ export interface Comic {
   title: string
   page_count: number
   library_id: number | null
+  owner_id?: number | null
   cover_url: string
   like_count: number
   favorite_count: number

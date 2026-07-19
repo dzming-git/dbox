@@ -115,7 +115,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import migrate_collection_videos_schema
+from core.models import migrate_collection_videos_schema, migrate_owner_columns
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -191,6 +191,7 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
     migrate_collection_videos_schema()
+    migrate_owner_columns()
     init_root_user()
     print("[DEBUG] Database initialized")
 
@@ -1170,6 +1171,11 @@ def delete_video(video_hash):
         delete_file = request.json.get('delete_file', False) if request.json else False
 
         video = Video.query.filter_by(hash=video_hash).first_or_404()
+
+        # 资源所属权校验：仅本人或管理员/ROOT 可删除
+        user_id, user_role = resolve_identity()
+        if user_role not in (UserRole.ADMIN, UserRole.ROOT) and video.owner_id not in (None, user_id):
+            return jsonify({'success': False, 'message': '无权删除该资源（仅上传者或管理员可操作）', 'code': 403}), 403
 
         # 只有明确要求删除文件时才删除
         if delete_file and video.local_path and os.path.exists(video.local_path):
@@ -2410,6 +2416,7 @@ def update_config():
 def upload_video():
     """上传视频文件"""
     try:
+        user_id = g.user_id  # @auth_required 已确保存在
         if 'video' not in request.files:
             return jsonify({'success': False, 'message': '未找到视频文件'}), 400
 
@@ -2526,7 +2533,8 @@ def upload_video():
             file_size=file_size,
             duration='00:00',  # 后续可以提取真实时长
             thumbnail=f'/thumbnail/{video_hash}',
-            library_id=library_id
+            library_id=library_id,
+            owner_id=user_id  # 归属上传者
         )
 
         db.session.add(video)
@@ -2583,6 +2591,9 @@ def status():
 @app.route('/api/scan', methods=['POST'])
 def scan_videos():
     try:
+        # 扫描发现的资源归属 root（id=1），管理员对所有资源有权限
+        root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
+        root_id = root_user.id if root_user else 1
         total_added = 0
         for dir_cfg in app_config.get('scan_directories', []):
             if not dir_cfg.get('enabled', True):
@@ -2609,7 +2620,8 @@ def scan_videos():
                             url=f'/local_video/{quote(video_path.replace(chr(92), "/"), safe=":/")}',
                             thumbnail=f'/thumbnail/{video_hash}',
                             is_downloaded=True,
-                            local_path=video_path
+                            local_path=video_path,
+                            owner_id=root_id
                         )
                         db.session.add(video)
                         db.session.flush()
@@ -3439,6 +3451,9 @@ def import_videos():
     - errors: 错误信息列表
     """
     try:
+        # 导入的资源归属 root（id=1），管理员对所有资源有权限
+        root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
+        root_id = root_user.id if root_user else 1
         data = request.get_json()
         library_id = data.get('library_id')  # 必须指定有效的视频库ID
         videos = data.get('videos', [])
@@ -3503,7 +3518,8 @@ def import_videos():
                     is_downloaded=True,
                     local_path=video_path,
                     priority=app_config.get('default_priority', 0),
-                    library_id=library_id  # 绑定到指定的视频库
+                    library_id=library_id,  # 绑定到指定的视频库
+                    owner_id=root_id
                 )
                 db.session.add(video)
                 db.session.flush()

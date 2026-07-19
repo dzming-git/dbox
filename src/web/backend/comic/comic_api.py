@@ -643,6 +643,10 @@ def update_comic_info(comic_hash):
     """更新漫画信息（标题、所属视频库）"""
     try:
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+        # 资源所属权校验：仅本人或管理员/ROOT 可编辑
+        uid, role = _resolve_identity()
+        if not _is_admin() and c.owner_id not in (None, uid):
+            return jsonify({'success': False, 'message': '无权编辑该资源（仅上传者或管理员可操作）', 'code': 403}), 403
         data = request.get_json(silent=True) or {}
         if 'title' in data and data['title'] is not None:
             c.title = data['title'].strip()
@@ -666,6 +670,10 @@ def update_comic_info(comic_hash):
 def delete_comic_tags(comic_hash):
     try:
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+        # 资源所属权校验：仅本人或管理员/ROOT 可编辑
+        uid, role = _resolve_identity()
+        if not _is_admin() and c.owner_id not in (None, uid):
+            return jsonify({'success': False, 'message': '无权编辑该资源（仅上传者或管理员可操作）', 'code': 403}), 403
         data = request.get_json(silent=True) or {}
         tag_id = data.get('tag_id')
         if tag_id:

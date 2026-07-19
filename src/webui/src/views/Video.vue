@@ -16,6 +16,13 @@ const userStore = useUserStore()
 // 检查当前用户是否为管理员（使用 userStore 的统一判断）
 const isAdmin = computed(() => userStore.isAdmin)
 
+// 资源所属权：管理员或上传本人可编辑/删除
+const canManageVideo = computed(() => {
+  if (isAdmin.value) return true
+  const uid = userStore.user?.id
+  return !!uid && video.value?.owner_id === uid
+})
+
 // 视频编辑抽屉（管理员可编辑标题/简介/优先级/视频库/标签）
 const editDrawerVisible = ref(false)
 const editingItem = ref<any>(null)
@@ -1407,7 +1414,7 @@ const handleDelete = async () => {
         <div class="video-title-row">
           <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
           <button
-            v-if="isAdmin"
+            v-if="canManageVideo"
             class="edit-video-btn"
             @click="openEditDrawer"
             title="编辑视频信息"
@@ -1444,7 +1451,7 @@ const handleDelete = async () => {
             </span>
           </div>
           <!-- 管理员：添加标签（打开标签树对话框） -->
-          <button v-if="isAdmin" class="tag-add-btn" @click="openTagEditor" title="添加标签">
+          <button v-if="canManageVideo" class="tag-add-btn" @click="openTagEditor" title="添加标签">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
@@ -1607,8 +1614,8 @@ const handleDelete = async () => {
               <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
             </div>
 
-            <!-- 第二行：管理按钮 - 仅管理员可见 -->
-            <div v-if="isAdmin" class="action-buttons">
+            <!-- 第二行：管理按钮 - 管理员或本人可见 -->
+            <div v-if="canManageVideo" class="action-buttons">
               <button class="action-btn delete-btn" @click="confirmDelete" data-testid="delete-button" title="删除">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="3 6 5 6 21 6"/>
@@ -1769,7 +1776,7 @@ const handleDelete = async () => {
                     </template>
                     <template v-else>
                       <span class="tag-name">{{ tag.path || tag.name }}</span>
-                      <div class="tag-actions" v-if="isAdmin">
+                      <div class="tag-actions" v-if="canManageVideo">
                         <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>

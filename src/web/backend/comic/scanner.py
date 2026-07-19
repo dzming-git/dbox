@@ -75,9 +75,13 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
             print(msg)
 
     with app.app_context():
+        from core.models import User, UserRole
         lib = VideoLibrary.query.get(library_id)
         if not lib:
             return {'success': False, 'message': '视频库不存在'}
+        # 扫描发现的资源归属 root 用户（管理员对所有资源有权限）
+        root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
+        root_id = root_user.id if root_user else 1
         watcher = get_watcher()
         targets = watcher.library_disk_targets(library_id) if watcher else []
         if not targets:
@@ -133,6 +137,7 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                             cover_path=pages[0],
                             page_count=len(pages),
                             library_id=library_id,
+                            owner_id=root_id,  # 扫描发现的资源归属 root
                         )
                         db.session.add(c)
                         db.session.flush()
