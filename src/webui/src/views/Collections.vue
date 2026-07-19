@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { collectionSetApi, videoApi, comicApi } from '../api'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 const collections = ref<any[]>([])
 const activeId = ref<number | null>(null)
@@ -107,6 +108,17 @@ const removeItem = async (itemId: number) => {
   }
 }
 
+// 播放全部：从第一个视频（无视频则第一个资源）开始，带合集上下文跳转
+const playAll = () => {
+  if (!activeCollection.value || !items.value.length) return
+  const firstVideo = items.value.find((i: any) => i.media?.type === 'video')
+  const target = firstVideo || items.value[0]
+  const t = target.media?.type
+  const h = target.media?.hash
+  if (t === 'video') router.push(`/video/${h}?collection=${activeId.value}`)
+  else router.push(`/comic/${h}?collection=${activeId.value}`)
+}
+
 const move = async (index: number, dir: -1 | 1) => {
   if (!activeId.value) return
   const target = index + dir
@@ -187,8 +199,11 @@ watch(
           :class="{ active: c.id === activeId }"
           @click="select(c.id)"
         >
-          <div class="ci-name">{{ c.name }}</div>
-          <div class="ci-meta">{{ c.item_count }} 个资源</div>
+          <div class="ci-cover" :style="c.cover_url ? { backgroundImage: `url(${c.cover_url})` } : {}"></div>
+          <div class="ci-body">
+            <div class="ci-name">{{ c.name }}</div>
+            <div class="ci-meta">{{ c.item_count }} 个资源</div>
+          </div>
           <button class="ci-del" @click="deleteCollection(c.id, $event)" title="删除合集">✕</button>
         </div>
         <div v-if="!collections.length" class="sidebar-empty">还没有合集，点击「新建」创建</div>
@@ -197,8 +212,13 @@ watch(
 
     <div class="content">
       <div class="content-header" v-if="activeId">
-        <h3>{{ (collections.find((c) => c.id === activeId) || {}).name || '合集' }}</h3>
+        <div class="ch-cover" :style="activeCollection?.cover_url ? { backgroundImage: `url(${activeCollection.cover_url})` } : {}"></div>
+        <div class="ch-info">
+          <h3>{{ (collections.find((c) => c.id === activeId) || {}).name || '合集' }}</h3>
+          <span class="ch-meta">{{ items.length }} 个资源 · 点击「播放全部」从第一个视频连播</span>
+        </div>
         <button class="add-btn" @click="openAdd">+ 添加资源</button>
+        <button class="playall-btn" @click="playAll" :disabled="!items.length">▶ 播放全部</button>
       </div>
       <div class="content-header" v-else>
         <h3>合集</h3>
@@ -292,14 +312,25 @@ watch(
 .collection-list { flex: 1; overflow-y: auto; padding: 8px; }
 .collection-item {
   position: relative;
-  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 28px 8px 10px;
   border-radius: 8px;
   cursor: pointer;
   margin-bottom: 4px;
 }
 .collection-item:hover { background: #242424; }
 .collection-item.active { background: #1e3a5f; }
-.ci-name { font-size: 14px; font-weight: 500; }
+.ci-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  background: #2c2c2c center/cover no-repeat;
+  flex: 0 0 auto;
+}
+.ci-body { flex: 1; min-width: 0; }
+.ci-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ci-meta { font-size: 12px; color: #888; margin-top: 2px; }
 .ci-del {
   position: absolute;
@@ -318,11 +349,20 @@ watch(
 .content-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 14px;
   padding: 16px 20px;
   border-bottom: 1px solid #2a2a2a;
 }
-.content-header h3 { margin: 0; font-size: 16px; }
+.ch-cover {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  background: #2c2c2c center/cover no-repeat;
+  flex: 0 0 auto;
+}
+.ch-info { flex: 1; min-width: 0; }
+.ch-info h3 { margin: 0; font-size: 16px; }
+.ch-meta { font-size: 12px; color: #888; display: block; margin-top: 4px; }
 .add-btn {
   background: #2196F3;
   border: none;
@@ -333,6 +373,17 @@ watch(
   cursor: pointer;
 }
 .add-btn:hover { background: #1976D2; }
+.playall-btn {
+  background: #4caf50;
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.playall-btn:hover { background: #43a047; }
+.playall-btn:disabled { background: #555; cursor: not-allowed; }
 .items-grid {
   flex: 1;
   overflow-y: auto;

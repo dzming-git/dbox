@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { tagApi, videoApi } from '../api'
+import { tagApi, videoApi, collectionSetApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Video, Tag, VideoMarker } from '../types'
@@ -38,10 +38,49 @@ const currentTime = ref(0)
 
 const videoHash = computed(() => route.params.hash as string)
 
-// 切换视频时重新加载精彩片段标记
-watch(videoHash, async () => {
-  if (video.value) await loadMarkers()
-})
+// —— 合集连播上下文 ——
+const collectionId = ref<number | null>(null)
+const collectionItems = ref<{ type: string; hash: string; title?: string }[]>([])
+const collectionName = ref('')
+const inCollection = computed(() => collectionId.value !== null && collectionItems.value.length > 0)
+const currentIndex = computed(() =>
+  collectionItems.value.findIndex(i => i.type === 'video' && i.hash === videoHash.value)
+)
+const prevItem = computed(() =>
+  currentIndex.value > 0 ? collectionItems.value[currentIndex.value - 1] : null
+)
+const nextItem = computed(() =>
+  currentIndex.value >= 0 && currentIndex.value < collectionItems.value.length - 1
+    ? collectionItems.value[currentIndex.value + 1] : null
+)
+const loadCollectionContext = async () => {
+  const c = route.query.collection
+  collectionId.value = c ? Number(c) : null
+  collectionItems.value = []
+  collectionName.value = ''
+  if (!collectionId.value) return
+  try {
+    const itemsRes = await (collectionSetApi.getItems(collectionId.value) as any)
+    if (itemsRes?.success) {
+      collectionItems.value = (itemsRes.items || []).map((it: any) => ({
+        type: it.media?.type || it.item_type,
+        hash: it.media?.hash || it.item_hash,
+        title: it.media?.title,
+      }))
+    }
+    const colRes = await (collectionSetApi.getCollection(collectionId.value) as any)
+    if (colRes?.success) collectionName.value = colRes.collection.name
+  } catch (e) {
+    console.error(e)
+  }
+}
+const goCollectionItem = (it: { type: string; hash: string }) => {
+  const base = it.type === 'video' ? '/video/' : '/comic/'
+  router.push(`${base}${it.hash}?collection=${collectionId.value}`)
+}
+const onVideoEnded = () => {
+  if (nextItem.value) goCollectionItem(nextItem.value)
+}
 
 // 推荐视频相关状态
 const recommendedVideos = ref<Video[]>([])
@@ -65,32 +104,37 @@ const videoUrl = computed(() => {
   return token ? `${url}?token=${token}` : url
 })
 
+// 完整加载一个视频（含标记/历史/合集上下文）。供 onMounted 与切换视频复用。
+const loadVideo = async () => {
+  if (!videoHash.value) return
+  loading.value = true
+  try {
+    const response = await videoStore.fetchVideo(videoHash.value)
+    if (response && response.video) {
+      video.value = response.video
+      await loadMarkers()
+      await incrementViewCount()
+      await addToHistory()
+      loadUserInteractions()
+      fetchRecommendedVideos()
+      await loadCollectionContext()
+    }
+  } catch (error) {
+    console.error('Failed to load video:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(async () => {
   // 先检查是否是共享链接访问
   await checkSharedLink()
-  
-  if (videoHash.value) {
-    try {
-      const response = await videoStore.fetchVideo(videoHash.value)
-      if (response && response.video) {
-        video.value = response.video
-        // 加载精彩片段标记
-        await loadMarkers()
-        // 增加观看次数
-        await incrementViewCount()
-        // 记录观看历史
-        await addToHistory()
-        // 从localStorage加载点赞和收藏状态
-        loadUserInteractions()
-        // 获取推荐视频
-        fetchRecommendedVideos()
-      }
-    } catch (error) {
-      console.error('Failed to load video:', error)
-    } finally {
-      loading.value = false
-    }
-  }
+  await loadVideo()
+})
+
+// 切换视频（含合集内上一集/下一集）时重新加载
+watch(videoHash, async () => {
+  await loadVideo()
 })
 
 // 从后端加载用户交互状态（登录用户绑定账号，跨设备一致，以后端为准）
@@ -1336,9 +1380,24 @@ const handleDelete = async () => {
               @pause="onPause"
               @seeked="onSeeked"
               @timeupdate="onTimeUpdate"
+              @ended="onVideoEnded"
               preload="metadata"
               controls
             ></video>
+          </div>
+        </div>
+
+        <!-- 合集连播导航条 -->
+        <div class="collection-nav" v-if="inCollection">
+          <div class="cn-info">
+            <span class="cn-label">合集</span>
+            <span class="cn-name">{{ collectionName }}</span>
+            <span class="cn-progress">{{ currentIndex >= 0 ? currentIndex + 1 : '?' }} / {{ collectionItems.length }}</span>
+          </div>
+          <div class="cn-actions">
+            <button class="cn-btn" :disabled="!prevItem" @click="prevItem && goCollectionItem(prevItem)">← 上一集</button>
+            <button class="cn-btn primary" :disabled="!nextItem" @click="nextItem && goCollectionItem(nextItem)">下一集 →</button>
+            <button class="cn-btn" @click="router.push(`/collections?c=${collectionId}`)">查看合集</button>
           </div>
         </div>
 
@@ -2071,6 +2130,37 @@ const handleDelete = async () => {
   overflow: hidden;
   margin-bottom: 24px;
 }
+
+.collection-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #1e2740;
+  border: 1px solid #2c3a5e;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.cn-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cn-label { font-size: 12px; color: #9db4e0; background: #2c3a5e; padding: 2px 8px; border-radius: 4px; }
+.cn-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+.cn-progress { font-size: 12px; color: #9db4e0; }
+.cn-actions { display: flex; align-items: center; gap: 8px; }
+.cn-btn {
+  background: #2c3a5e;
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cn-btn:hover:not(:disabled) { background: #38507f; }
+.cn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cn-btn.primary { background: #2196F3; }
+.cn-btn.primary:hover:not(:disabled) { background: #1976D2; }
 
 .video-player-container {
   position: relative;

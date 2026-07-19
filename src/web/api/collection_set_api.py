@@ -5,6 +5,11 @@
 - 一个资源可同时属于多个合集；
 - owner_key 仅作为创建者审计字段保留，不再用于查询隔离。
 
+权限：
+- 查看：所有登录用户；
+- 删除/重命名合集：仅创建者（owner_key 匹配）或管理员（role 2/3）可操作。
+  其余变更（增删项、排序）开放给登录用户协作编辑。
+
 接口统一前缀 /api/collections。资源身份使用 hash（视频 Video.hash / 漫画 Comic.hash），
 与文件名称/路径解耦，与系统现有“hash 为唯一 key”的约定保持一致。
 """
@@ -19,6 +24,17 @@ def _owner():
     # 创建者审计字段（仅记录，不用于查询隔离）。延迟导入避免循环依赖。
     from main import current_interaction_key
     return current_interaction_key()
+
+
+def _can_manage(collection):
+    """删除/重命名等结构性操作：仅创建者或管理员可操作，否则返回 403 响应。"""
+    from main import current_interaction_key, resolve_identity
+    user_id, role = resolve_identity()
+    if user_id and role in (2, 3):
+        return None
+    if collection.owner_key == current_interaction_key():
+        return None
+    return jsonify({'success': False, 'message': '无权操作该合集（仅创建者或管理员可修改）'}), 403
 
 
 def _resolve_media(item_type, item_hash):
@@ -41,16 +57,33 @@ def _resolve_media(item_type, item_hash):
     return d
 
 
+def _collection_cover(cid):
+    """取合集内第一个资源作为封面（视频用 thumbnail，漫画用 comic-cover）。"""
+    first = MediaCollectionItem.query.filter_by(collection_id=cid).order_by(
+        MediaCollectionItem.position, MediaCollectionItem.id).first()
+    if not first:
+        return ''
+    media = _resolve_media(first.item_type, first.item_hash)
+    if not media:
+        return ''
+    return media.get('cover_url') or media.get('thumbnail') or ''
+
+
+def _serialize(collection, item_count=None):
+    d = collection.to_dict(item_count=item_count)
+    d['cover_url'] = _collection_cover(collection.id)
+    return d
+
+
 @collection_set_api.route('/', methods=['GET'], strict_slashes=False)
 def list_collections():
     try:
-        # 全局共享：不按 owner_key 过滤
         cols = MediaCollection.query.order_by(
             MediaCollection.position, MediaCollection.id).all()
         result = []
         for c in cols:
             count = MediaCollectionItem.query.filter_by(collection_id=c.id).count()
-            result.append(c.to_dict(item_count=count))
+            result.append(_serialize(c, item_count=count))
         return jsonify({'success': True, 'collections': result})
     except Exception as e:
         db.session.rollback()
@@ -64,10 +97,9 @@ def create_collection():
         name = (data.get('name') or '').strip()
         if not name:
             return jsonify({'success': False, 'message': '名称不能为空'}), 400
-        # 全局排序位置（取现有最大值 + 1）
         max_pos = db.session.query(db.func.max(MediaCollection.position)).scalar() or 0
         col = MediaCollection(
-            owner_key=_owner(),  # 仅作创建者审计
+            owner_key=_owner(),
             name=name,
             description=data.get('description'),
             is_public=bool(data.get('is_public', True)),
@@ -75,7 +107,7 @@ def create_collection():
         )
         db.session.add(col)
         db.session.commit()
-        return jsonify({'success': True, 'collection': col.to_dict(item_count=0)})
+        return jsonify({'success': True, 'collection': _serialize(col, item_count=0)})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -86,7 +118,7 @@ def get_collection(cid):
     try:
         col = MediaCollection.query.filter_by(id=cid).first_or_404()
         count = MediaCollectionItem.query.filter_by(collection_id=col.id).count()
-        return jsonify({'success': True, 'collection': col.to_dict(item_count=count)})
+        return jsonify({'success': True, 'collection': _serialize(col, item_count=count)})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -96,6 +128,9 @@ def get_collection(cid):
 def update_collection(cid):
     try:
         col = MediaCollection.query.filter_by(id=cid).first_or_404()
+        denied = _can_manage(col)
+        if denied:
+            return denied
         data = request.get_json(silent=True) or {}
         if 'name' in data and data['name']:
             col.name = data['name'].strip()
@@ -107,7 +142,7 @@ def update_collection(cid):
             col.position = int(data['position'])
         db.session.commit()
         count = MediaCollectionItem.query.filter_by(collection_id=col.id).count()
-        return jsonify({'success': True, 'collection': col.to_dict(item_count=count)})
+        return jsonify({'success': True, 'collection': _serialize(col, item_count=count)})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -117,6 +152,9 @@ def update_collection(cid):
 def delete_collection(cid):
     try:
         col = MediaCollection.query.filter_by(id=cid).first_or_404()
+        denied = _can_manage(col)
+        if denied:
+            return denied
         db.session.delete(col)
         db.session.commit()
         return jsonify({'success': True})
@@ -135,9 +173,9 @@ def list_collection_items(cid):
         for it in items:
             media = _resolve_media(it.item_type, it.item_hash)
             if media is None:
-                continue  # 资源已被删除则不展示
+                continue
             result.append(it.to_dict(media=media))
-        return jsonify({'success': True, 'items': result, 'collection': col.to_dict(item_count=len(result))})
+        return jsonify({'success': True, 'items': result, 'collection': _serialize(col, item_count=len(result))})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -222,7 +260,7 @@ def collections_by_item():
             if not col:
                 continue
             count = MediaCollectionItem.query.filter_by(collection_id=cid).count()
-            d = col.to_dict(item_count=count)
+            d = _serialize(col, item_count=count)
             d['item_position'] = next((r.position for r in rows if r.collection_id == cid), None)
             result.append(d)
         result.sort(key=lambda x: (x['position'] or 0, x['id']))

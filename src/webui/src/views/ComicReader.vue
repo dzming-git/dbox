@@ -280,8 +280,51 @@ const updateViewportInsets = () => {
   root.style.setProperty('--vv-bottom', bottom + 'px')
 }
 
-onMounted(async () => {
-  const hash = route.params.hash as string
+// —— 合集连播上下文（漫画）——
+const collectionId = ref<number | null>(null)
+const collectionItems = ref<{ type: string; hash: string; title?: string }[]>([])
+const collectionName = ref('')
+const inCollection = computed(() => collectionId.value !== null && collectionItems.value.length > 0)
+const currentIndex = computed(() =>
+  collectionItems.value.findIndex(i => i.type === 'comic' && i.hash === (route.params.hash as string))
+)
+const prevItem = computed(() =>
+  currentIndex.value > 0 ? collectionItems.value[currentIndex.value - 1] : null
+)
+const nextItem = computed(() =>
+  currentIndex.value >= 0 && currentIndex.value < collectionItems.value.length - 1
+    ? collectionItems.value[currentIndex.value + 1] : null
+)
+const loadCollectionContext = async () => {
+  const c = route.query.collection
+  collectionId.value = c ? Number(c) : null
+  collectionItems.value = []
+  collectionName.value = ''
+  if (!collectionId.value) return
+  try {
+    const api = await import('../api')
+    const itemsRes = await (api.collectionSetApi.getItems(collectionId.value) as any)
+    if (itemsRes?.success) {
+      collectionItems.value = (itemsRes.items || []).map((it: any) => ({
+        type: it.media?.type || it.item_type,
+        hash: it.media?.hash || it.item_hash,
+        title: it.media?.title,
+      }))
+    }
+    const colRes = await (api.collectionSetApi.getCollection(collectionId.value) as any)
+    if (colRes?.success) collectionName.value = colRes.collection.name
+  } catch (e) {
+    console.error(e)
+  }
+}
+const goCollectionItem = (it: { type: string; hash: string }) => {
+  const base = it.type === 'video' ? '/video/' : '/comic/'
+  router.push(`${base}${it.hash}?collection=${collectionId.value}`)
+}
+
+const loadComic = async (hash: string) => {
+  loading.value = true
+  error.value = ''
   try {
     const res: any = await (await import('../api')).comicApi.getComic(hash)
     if (res.success) {
@@ -305,6 +348,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+onMounted(async () => {
+  await loadComic(route.params.hash as string)
+  await loadCollectionContext()
   window.visualViewport?.addEventListener('resize', updateViewportInsets)
   window.visualViewport?.addEventListener('scroll', updateViewportInsets)
   window.addEventListener('resize', updateViewportInsets)
@@ -314,6 +362,14 @@ onMounted(async () => {
   document.addEventListener('webkitfullscreenchange', onFullscreenChange)
   // 进入阅读器：隐藏全局导航，避免其固定定位遮挡阅读器顶部工具栏
   document.body.classList.add('reader-active')
+})
+
+// 合集内“上一话/下一话”跳转时重载漫画
+watch(() => route.params.hash, async (h) => {
+  if (h) {
+    await loadComic(h as string)
+    await loadCollectionContext()
+  }
 })
 onUnmounted(() => {
   window.visualViewport?.removeEventListener('resize', updateViewportInsets)
@@ -371,6 +427,12 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <span class="divider"></span>
         <button class="bar-btn" :class="{active: mode==='scroll'}" @click="setMode('scroll')" title="滚动模式">滚动</button>
         <button class="bar-btn" :class="{active: mode==='page'}" @click="setMode('page')" title="翻页模式">翻页</button>
+        <template v-if="inCollection">
+          <span class="divider"></span>
+          <span class="cn-reader-info">合集·{{ collectionName }} ({{ currentIndex >= 0 ? currentIndex + 1 : '?' }}/{{ collectionItems.length }})</span>
+          <button class="bar-btn" :disabled="!prevItem" @click="prevItem && goCollectionItem(prevItem)">‹ 上一话</button>
+          <button class="bar-btn" :disabled="!nextItem" @click="nextItem && goCollectionItem(nextItem)">下一话 ›</button>
+        </template>
         <span class="divider"></span>
         <button class="bar-btn" :class="{active: fit==='width'}" @click="setFit('width')" title="适应宽度">宽</button>
         <button class="bar-btn" :class="{active: fit==='height'}" @click="setFit('height')" title="适应高度">高</button>
@@ -468,6 +530,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .rp-fill { height: 100%; background: #2196F3; transition: width 0.2s; }
 .bar-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .divider { width: 1px; height: 22px; background: #333; margin: 0 2px; }
+.cn-reader-info { font-size: 12px; color: #9db4e0; margin: 0 4px; white-space: nowrap; }
 .thumbs-strip { display: flex; gap: 6px; padding: 8px; background: #161616; border-bottom: 1px solid #2a2a2a; overflow-x: auto; max-height: 110px; transition: opacity 0.2s ease; }
 .thumbs-strip.ui-hidden { display: none; }
 .thumb-item { position: relative; flex-shrink: 0; width: 64px; height: 88px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 2px solid transparent; background: #000; }
