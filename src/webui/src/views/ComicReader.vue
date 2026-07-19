@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { useComicStore } from '../stores/comicStore'
+import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Comic } from '../types'
 
 const route = useRoute()
@@ -366,6 +367,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <button class="bar-btn" :class="{active: comic.is_liked}" @click="interact('like')" title="点赞">♥</button>
         <button class="bar-btn" :class="{active: comic.is_favorited}" @click="interact('favorite')" title="收藏">★</button>
         <button class="bar-btn" :class="{active: comic.is_disliked}" @click="interact('dislike')" title="不喜欢">✕</button>
+        <CollectionPanel item-type="comic" :item-hash="(comic && comic.hash) || (route.params.hash as string)" />
         <span class="divider"></span>
         <button class="bar-btn" :class="{active: mode==='scroll'}" @click="setMode('scroll')" title="滚动模式">滚动</button>
         <button class="bar-btn" :class="{active: mode==='page'}" @click="setMode('page')" title="翻页模式">翻页</button>

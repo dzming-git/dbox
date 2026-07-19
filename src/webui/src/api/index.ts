@@ -90,7 +90,7 @@ export const videoApi = {
     api.post(`/api/favorite-collections/${id}/videos`, { type, hash }),
   removeFromCollection: (id: number, type: 'video' | 'comic', hash: string) =>
     api.delete(`/api/favorite-collections/${id}/videos`, { data: { type, hash } }),
-  
+
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
   
@@ -106,6 +106,25 @@ export const videoApi = {
   
   getStatus: () =>
     api.get('/api/status')
+}
+
+// 合集模块（独立于收藏夹）：视频+漫画通用、支持排序与多归属、反向查询
+export const collectionSetApi = {
+  getCollections: () => api.get('/api/collections'),
+  createCollection: (data: { name: string; description?: string; is_public?: boolean }) =>
+    api.post('/api/collections', data),
+  getCollection: (id: number) => api.get(`/api/collections/${id}`),
+  updateCollection: (id: number, data: any) => api.put(`/api/collections/${id}`, data),
+  deleteCollection: (id: number) => api.delete(`/api/collections/${id}`),
+  getItems: (id: number) => api.get(`/api/collections/${id}/items`),
+  addItem: (id: number, data: { item_type: 'video' | 'comic'; item_hash: string; position?: number }) =>
+    api.post(`/api/collections/${id}/items`, data),
+  reorderItems: (id: number, orderedIds: number[]) =>
+    api.post(`/api/collections/${id}/items/reorder`, { ordered_ids: orderedIds }),
+  removeItem: (id: number, itemId: number) =>
+    api.delete(`/api/collections/${id}/items/${itemId}`),
+  getByItem: (itemType: 'video' | 'comic', itemHash: string) =>
+    api.get('/api/collections/by-item', { params: { item_type: itemType, item_hash: itemHash } }),
 }
 
 // 标签相关API - 支持多级标签

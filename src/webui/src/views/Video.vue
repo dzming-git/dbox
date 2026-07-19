@@ -5,6 +5,7 @@ import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
+import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Video, Tag, VideoMarker } from '../types'
 
 const route = useRoute()
@@ -1542,6 +1543,9 @@ const handleDelete = async () => {
                 </svg>
                 <span class="btn-label">分享</span>
               </button>
+
+              <!-- 合集 -->
+              <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
             </div>
 
             <!-- 第二行：管理按钮 - 仅管理员可见 -->

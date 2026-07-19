@@ -57,6 +57,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '我的收藏', requiresAuth: true }
   },
   {
+    path: '/collections',
+    name: 'Collections',
+    component: () => import('../views/Collections.vue'),
+    meta: { title: '合集', requiresAuth: true }
+  },
+  {
     path: '/likes',
     name: 'Likes',
     component: () => import('../views/Likes.vue'),

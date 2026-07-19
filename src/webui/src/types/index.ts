@@ -130,6 +130,30 @@ export interface ComicPlaylist {
   updated_at?: string
 }
 
+// ============ 合集（独立于收藏夹，视频+漫画通用）============
+export interface CollectionItem {
+  id: number
+  collection_id: number
+  item_type: 'video' | 'comic'
+  item_hash: string
+  position: number
+  added_at?: string
+  media: any  // 解析后的视频/漫画信息（含 type/hash/title/cover 等）
+}
+
+export interface Collection {
+  id: number
+  owner_key?: string
+  name: string
+  description?: string
+  is_public?: boolean
+  position: number
+  item_count: number
+  created_at?: string
+  updated_at?: string
+  item_position?: number | null  // 反向查询时：该资源在合集内的排序位
+}
+
 // 标签列表响应
 export interface TagListResponse {
   success: boolean

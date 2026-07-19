@@ -402,6 +402,61 @@ class CollectionVideo(db.Model):
         }
 
 
+class MediaCollection(db.Model):
+    """合集（独立于收藏夹）：用户把视频/漫画按主题归组，支持排序与多归属。"""
+    __tablename__ = 'media_collections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    owner_key = db.Column(db.String(64), nullable=False, index=True)  # current_interaction_key
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    is_public = db.Column(db.Boolean, default=False)
+    position = db.Column(db.Integer, default=0)  # 合集之间的排序
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self, item_count=None):
+        return {
+            'id': self.id,
+            'owner_key': self.owner_key,
+            'name': self.name,
+            'description': self.description,
+            'is_public': self.is_public,
+            'position': self.position,
+            'item_count': item_count if item_count is not None else 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class MediaCollectionItem(db.Model):
+    """合集项（视频/漫画）。一个资源可同时属于多个合集。"""
+    __tablename__ = 'media_collection_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    collection_id = db.Column(db.Integer, db.ForeignKey('media_collections.id', ondelete='CASCADE'), nullable=False, index=True)
+    owner_key = db.Column(db.String(64), nullable=False, index=True)
+    item_type = db.Column(db.String(16), nullable=False)  # 'video' | 'comic'
+    item_hash = db.Column(db.String(64), nullable=False)    # 资源身份用 hash（与路径解耦）
+    position = db.Column(db.Integer, default=0)             # 合集内排序
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('collection_id', 'item_type', 'item_hash', name='uq_media_collection_item'),
+    )
+
+    def to_dict(self, media=None):
+        return {
+            'id': self.id,
+            'collection_id': self.collection_id,
+            'item_type': self.item_type,
+            'item_hash': self.item_hash,
+            'position': self.position,
+            'added_at': self.created_at.isoformat() if self.created_at else None,
+            'media': media,
+        }
+
+
 class UserPreference(db.Model):
     """用户偏好模型"""
     __tablename__ = 'user_preferences'

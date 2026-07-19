@@ -161,6 +161,7 @@ from api.playlist_api import playlist_bp
 from api.system_api import system_bp
 from api.history_api import history_bp, init_history_api
 from api.collection_api import collection_bp, init_collection_api
+from api.collection_set_api import collection_set_api  # 独立合集模块（视频+漫画）
 from api.search_api import search_bp, init_search_api
 from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
@@ -201,6 +202,7 @@ app.register_blueprint(playlist_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(history_bp)  # 播放历史API
 app.register_blueprint(collection_bp)  # 收藏夹API
+app.register_blueprint(collection_set_api)  # 独立合集模块（视频+漫画）
 app.register_blueprint(search_bp)  # 搜索API
 app.register_blueprint(suggestion_bp)  # 建议反馈API
 app.register_blueprint(shared_watch_bp)  # 共享观看API
