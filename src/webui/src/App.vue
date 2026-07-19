@@ -629,6 +629,16 @@ body.reader-immersive .main-content {
   padding-top: 0 !important;
 }
 
+/* 进入漫画阅读器（非沉浸也生效）：隐藏全局导航，避免其固定定位遮挡阅读器
+   自己的顶部工具栏（移动端全局导航会换行变高，navHeight 测量不准会盖住工具栏）。
+   阅读器本身已有「返回」和完整工具栏，无需再显示全局导航。 */
+body.reader-active .nav {
+  display: none !important;
+}
+body.reader-active .main-content {
+  padding-top: 0 !important;
+}
+
 /* 响应式导航 */
 @media (max-width: 600px) {
   .nav {

@@ -36,7 +36,9 @@ const resumePrefix = ref(0)       // 续读时前缀图片设为 eager 加载，
 const pendingScroll = ref<number | null>(null)  // 待滚动定位的目标页（图片加载完成后执行）
 const suppressScroll = ref(false) // 程序化滚动后短暂屏蔽 onScroll 的页码重算
 
-// 滚动时自动隐藏工具栏（下滑隐藏 / 上滑显示，只留底部进度条）
+// 顶部工具栏在滚动模式下：下滑自动收起（只留底部进度条），上滑再出现。
+// 底部进度条始终常驻（fixed + visualViewport），不受此影响。
+// lastScrollTop 同时用于翻页/续读时的页码计算基准。
 const uiHidden = ref(false)
 let lastScrollTop = 0
 const suppressDir = ref(false) // 主动翻页/跳转时短暂屏蔽方向误判
@@ -101,12 +103,18 @@ const onScroll = () => {
   scrollThrottle = window.setTimeout(() => {
     scrollThrottle = null
     const container = scrollContainer.value!
-    // 滚动方向自动隐藏/显示工具栏：下滑隐藏（只留进度条），上滑显示
-    if (!immersive.value && !suppressDir.value) {
+    // 滚动方向自动收起/显示顶部工具栏：下滑收起（只留底部进度条），上滑显示。
+    // 非沉浸用 uiHidden（顶栏滑出并折叠占位），沉浸用 controlsVisible（顶栏隐藏、留出全屏）。
+    if (!suppressDir.value) {
       const top = container.scrollTop
       const d = top - lastScrollTop
-      if (d > 6) uiHidden.value = true
-      else if (d < -6) uiHidden.value = false
+      if (d > 6) {
+        if (immersive.value) controlsVisible.value = false
+        else uiHidden.value = true
+      } else if (d < -6) {
+        if (immersive.value) controlsVisible.value = true
+        else uiHidden.value = false
+      }
       lastScrollTop = top
     }
     const imgs = container.querySelectorAll('img.comic-page-img')
@@ -229,6 +237,7 @@ const onFullscreenChange = () => {
 }
 const setImmersive = (v: boolean) => {
   immersive.value = v
+  updateViewportInsets() // 进入/退出沉浸时可视区基准变化，立即重算安全偏移
   uiHidden.value = false // 进出沉浸模式都复位工具栏显隐
   localStorage.setItem('dplayer_comic_immersive', v ? '1' : '0')
   document.body.classList.toggle('reader-immersive', v)
@@ -253,6 +262,23 @@ const interact = (type: 'like' | 'favorite' | 'dislike') => {
 // 当前页图片（page 模式仅渲染当前页）
 const currentImage = computed(() => pages.value[currentPage.value - 1]?.url || '')
 
+// 移动端浏览器地址栏/手势栏会动态显隐，固定定位的顶/底工具栏必须贴合“可视区域”
+// 边缘而非布局视口，否则会被地址栏遮住。用 visualViewport 实时计算上/下安全偏移，
+// 挂到根元素 CSS 变量（--vv-top / --vv-bottom）上，供 fixed 工具栏使用。
+const updateViewportInsets = () => {
+  const root = document.documentElement
+  const vv = window.visualViewport
+  if (!vv) {
+    root.style.setProperty('--vv-top', '0px')
+    root.style.setProperty('--vv-bottom', '0px')
+    return
+  }
+  const top = Math.max(0, vv.offsetTop)
+  const bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+  root.style.setProperty('--vv-top', top + 'px')
+  root.style.setProperty('--vv-bottom', bottom + 'px')
+}
+
 onMounted(async () => {
   const hash = route.params.hash as string
   try {
@@ -262,6 +288,7 @@ onMounted(async () => {
       const lp = res.comic.last_page || 1
       currentPage.value = clampPage(lp)
       await nextTick()
+      updateViewportInsets()
       if (mode.value === 'scroll' && lp > 1) {
         // 续读：先 eager 加载前缀图片（1..lp），待其全部加载完成后再精确滚动，
         // 否则图片未加载时高度未知，滚动位置会错位导致进度/页码错误。
@@ -277,15 +304,25 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  window.visualViewport?.addEventListener('resize', updateViewportInsets)
+  window.visualViewport?.addEventListener('scroll', updateViewportInsets)
+  window.addEventListener('resize', updateViewportInsets)
+  updateViewportInsets()
   window.addEventListener('keydown', onKey)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+  // 进入阅读器：隐藏全局导航，避免其固定定位遮挡阅读器顶部工具栏
+  document.body.classList.add('reader-active')
 })
 onUnmounted(() => {
+  window.visualViewport?.removeEventListener('resize', updateViewportInsets)
+  window.visualViewport?.removeEventListener('scroll', updateViewportInsets)
+  window.removeEventListener('resize', updateViewportInsets)
   window.removeEventListener('keydown', onKey)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
   document.body.classList.remove('reader-immersive')
+  document.body.classList.remove('reader-active')
   exitFullscreen()
   if (saveTimer) clearTimeout(saveTimer)
   // 离开时再保存一次进度
@@ -412,9 +449,9 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 </template>
 
 <style scoped>
-.reader { position: relative; height: calc(100vh - var(--nav-height, 60px)); display: flex; flex-direction: column; background: #0e0e0e; }
-.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; transition: transform 0.25s ease, opacity 0.25s ease; }
-.reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+.reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: #0e0e0e; }
+.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: hidden; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
+.reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; }
 .bar-btn { background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
 .bar-btn:hover:not(:disabled) { background: #333; color: #fff; }
 .bar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -423,7 +460,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .bar-page { display: flex; align-items: center; gap: 6px; }
 .page-input { width: 56px; height: 32px; text-align: center; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
 .page-total { color: #999; font-size: 13px; }
-.reader-progress { display: flex; align-items: center; gap: 10px; padding: 5px 14px; background: #161616; border-top: 1px solid #2a2a2a; }
+.reader-progress { position: fixed; left: 0; right: 0; bottom: var(--vv-bottom, 0px); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 7px 14px; padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px)); background: #161616; border-top: 1px solid #2a2a2a; }
 .rp-text { color: #bbb; font-size: 12px; white-space: nowrap; }
 .rp-track { flex: 1; height: 5px; background: #2a2a2a; border-radius: 3px; cursor: pointer; overflow: hidden; }
 .rp-fill { height: 100%; background: #2196F3; transition: width 0.2s; }
@@ -435,7 +472,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .thumb-item.active { border-color: #2196F3; }
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; }
 .thumb-idx { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px; }
-.reader-body { flex: 1; overflow: hidden; position: relative; }
+.reader-body { flex: 1; min-height: 0; overflow: hidden; position: relative; padding-bottom: 44px; }
 .scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: #0e0e0e; }
 .page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: #0e0e0e; position: relative; }
 .comic-page-img { background: #000; }
@@ -443,24 +480,24 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .page-nav:hover { background: rgba(0,0,0,0.65); }
 .page-nav.prev { left: 12px; }
 .page-nav.next { right: 12px; }
-.reader-loading, .reader-error { height: calc(100vh - var(--nav-height, 60px)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: #888; }
+.reader-loading, .reader-error { height: 100vh; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: #888; }
 .spinner { width: 48px; height: 48px; border: 3px solid #333; border-top-color: #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============ 沉浸全屏阅读模式 ============ */
 /* 进入沉浸：占满整个视口（忽略全局导航高度），并隐藏顶栏/缩略图 */
-.reader.immersive { height: 100vh; height: 100dvh; max-height: 100vh; width: 100%; }
+.reader.immersive { height: 100vh; height: 100dvh; max-height: 100dvh; width: 100%; }
 .reader.immersive .reader-bar { display: none; }
 .reader.immersive.controls-shown .reader-bar { display: flex; animation: slideDown 0.2s ease; }
 .reader.immersive .thumbs-strip { display: none; }
 .reader.immersive.controls-shown .thumbs-strip { display: flex; }
 .reader.immersive .reader-bar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  position: fixed; top: var(--vv-top, 0px); left: 0; right: 0; z-index: 50;
   background: rgba(20,20,20,0.92); backdrop-filter: blur(6px);
 }
 .reader.immersive .reader-body { height: 100%; padding-top: 0; }
 /* 沉浸模式：底部进度条常驻可见，半透明叠在图片上 */
-.reader.immersive .reader-progress { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(20,20,20,0.85); border-top: none; z-index: 40; }
+.reader.immersive .reader-progress { position: fixed; bottom: var(--vv-bottom, 0px); left: 0; right: 0; background: rgba(20,20,20,0.85); border-top: none; z-index: 40; }
 /* 点击图片区域光标提示 */
 .reader.immersive .reader-body { cursor: none; }
 .reader.immersive.controls-shown .reader-body { cursor: default; }
