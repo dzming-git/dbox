@@ -94,8 +94,15 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 <template>
   <div class="collection-panel">
     <button ref="triggerRef" class="cp-trigger" type="button" @click.stop="toggle">
-      <span class="cp-icon">📚</span>
-      <span class="cp-text">合集</span>
+          <span class="cp-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </span>
+          <span class="cp-text">合集</span>
       <span v-if="belonging.length" class="cp-badge">{{ belonging.length }}</span>
     </button>
 
@@ -152,7 +159,8 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   white-space: nowrap;
 }
 .cp-trigger:hover { background: #333; color: #fff; }
-.cp-icon { font-size: 14px; }
+.cp-icon { display: inline-flex; align-items: center; }
+.cp-icon svg { width: 16px; height: 16px; }
 .cp-badge {
   background: #2196F3;
   color: #fff;

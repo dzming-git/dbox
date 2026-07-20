@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { collectionSetApi, videoApi, comicApi } from '../api'
+import { useUserStore } from '../stores/userStore'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const collections = ref<any[]>([])
 const activeId = ref<number | null>(null)
@@ -95,6 +97,60 @@ const deleteCollection = async (id: number, e: Event) => {
     }
   } catch (e) {
     console.error(e)
+  }
+}
+
+// 仅作者（owner_key 与当前登录用户一致）或管理员可编辑/删除
+const canManage = (c: any): boolean => {
+  if (userStore.isAdmin) return true
+  const uid = userStore.user?.id
+  if (uid && c.owner_key === `u${uid}`) return true
+  return false
+}
+
+// 编辑合集（重命名 / 简介 / 公开性）
+const editingId = ref<number | null>(null)
+const editName = ref('')
+const editDesc = ref('')
+const editPublic = ref(false)
+const savingEdit = ref(false)
+
+const startEdit = (c: any, e: Event) => {
+  e.stopPropagation()
+  editingId.value = c.id
+  editName.value = c.name || ''
+  editDesc.value = c.description || ''
+  editPublic.value = !!c.is_public
+}
+const cancelEdit = (e: Event) => {
+  e.stopPropagation()
+  editingId.value = null
+}
+const saveEdit = async (id: number, e: Event) => {
+  e.stopPropagation()
+  if (!editName.value.trim()) {
+    toastMsg('名称不能为空')
+    return
+  }
+  savingEdit.value = true
+  try {
+    const r = await (collectionSetApi.updateCollection(id, {
+      name: editName.value.trim(),
+      description: editDesc.value,
+      is_public: editPublic.value,
+    }) as any)
+    if (r?.success) {
+      editingId.value = null
+      await loadCollections()
+      toastMsg('已保存')
+    } else {
+      toastMsg(r?.message || '保存失败')
+    }
+  } catch (err) {
+    console.error(err)
+    toastMsg('保存失败')
+  } finally {
+    savingEdit.value = false
   }
 }
 
@@ -204,7 +260,23 @@ watch(
             <div class="ci-name">{{ c.name }}</div>
             <div class="ci-meta">{{ c.item_count }} 个资源</div>
           </div>
-          <button class="ci-del" @click="deleteCollection(c.id, $event)" title="删除合集">✕</button>
+          <!-- 编辑态：内联表单 -->
+          <div class="ci-edit" v-if="editingId === c.id" @click.stop>
+            <input class="ci-edit-name" v-model="editName" placeholder="合集名称" />
+            <textarea class="ci-edit-desc" v-model="editDesc" placeholder="简介（可选）" rows="2"></textarea>
+            <label class="ci-edit-public">
+              <input type="checkbox" v-model="editPublic" /> 公开合集
+            </label>
+            <div class="ci-edit-actions">
+              <button class="ci-save" :disabled="savingEdit" @click="saveEdit(c.id, $event)">{{ savingEdit ? '保存中' : '保存' }}</button>
+              <button class="ci-cancel" @click="cancelEdit($event)">取消</button>
+            </div>
+          </div>
+          <!-- 常态：作者/管理员显示编辑与删除 -->
+          <template v-else>
+            <button v-if="canManage(c)" class="ci-edit-btn" @click="startEdit(c, $event)" title="编辑合集">✎</button>
+            <button class="ci-del" @click="deleteCollection(c.id, $event)" title="删除合集">✕</button>
+          </template>
         </div>
         <div v-if="!collections.length" class="sidebar-empty">还没有合集，点击「新建」创建</div>
       </div>
@@ -343,6 +415,65 @@ watch(
   font-size: 12px;
 }
 .ci-del:hover { color: #f44336; }
+.ci-edit-btn {
+  position: absolute;
+  top: 8px;
+  right: 28px;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.ci-edit-btn:hover { color: #2196F3; }
+.ci-edit {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  left: 4px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #262626;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.ci-edit-name, .ci-edit-desc {
+  width: 100%;
+  background: #141414;
+  border: 1px solid #444;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+}
+.ci-edit-public {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #bbb;
+}
+.ci-edit-actions { display: flex; gap: 8px; }
+.ci-edit-actions button {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ci-save { background: #2196F3; color: #fff; }
+.ci-save:hover { background: #1976D2; }
+.ci-save:disabled { background: #555; cursor: not-allowed; }
+.ci-cancel { background: #3a3a3a; color: #ccc; }
+.ci-cancel:hover { background: #4a4a4a; }
 .sidebar-empty { padding: 16px; color: #777; font-size: 13px; line-height: 1.6; }
 
 .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -509,7 +640,43 @@ watch(
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
 @media (max-width: 767px) {
-  .sidebar { width: 140px; }
-  .items-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .collections { flex-direction: column; height: auto; min-height: 100%; }
+  .sidebar {
+    width: 100%;
+    max-height: 116px;
+    border-right: none;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .sidebar-header { padding: 10px 12px; }
+  .collection-list {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .collection-item {
+    flex: 0 0 auto;
+    width: 150px;
+    margin-bottom: 0;
+    padding: 6px 10px 6px 8px;
+  }
+  .ci-del { top: 4px; right: 4px; }
+  .ci-edit-btn { top: 4px; right: 24px; }
+  .ci-edit {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 320px;
+    max-width: 90vw;
+  }
+  .content { overflow: visible; }
+  .content-header { flex-wrap: wrap; gap: 10px; padding: 12px; }
+  .ch-cover { width: 48px; height: 48px; }
+  .ch-info { min-width: 130px; }
+  .add-btn, .playall-btn { flex: 1 1 auto; }
+  .items-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); padding: 12px; gap: 10px; }
 }
 </style>

@@ -129,7 +129,6 @@ const handleSubmitSuggestion = async () => {
       <div class="nav-left">
         <RouterLink to="/" class="logo">DPlayer</RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
-        <RouterLink to="/collections" class="nav-link">合集</RouterLink>
         <div class="nav-search">
           <input
             v-model="searchText"
@@ -169,7 +168,7 @@ const handleSubmitSuggestion = async () => {
           </RouterLink>
           <RouterLink to="/collections" class="nav-link nav-icon-link" title="合集">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h16v2H4z"/>
+              <path d="M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z"/>
             </svg>
             <span>合集</span>
           </RouterLink>
