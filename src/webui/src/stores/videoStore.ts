@@ -18,8 +18,8 @@ export const useVideoStore = defineStore('video', () => {
   
   const selectedTagId = ref<number | null>(null)
   const selectedUntagged = ref(false)  // 是否仅看「未标记（待整理）」的视频
-  const selectedLibraryId = ref<number | null>(null)  // 按视频库筛选，null=全部
-  const libraries = ref<any[]>([])  // 当前用户可访问的视频库列表
+  const selectedLibraryId = ref<number | null>(null)  // 按资源库筛选，null=全部
+  const libraries = ref<any[]>([])  // 当前用户可访问的资源库列表
   const searchQuery = ref('')
   const sortBy = ref('recommended')  // 排序方式
   const sortOrder = ref('desc')  // 排序方向: asc, desc
@@ -343,7 +343,7 @@ export const useVideoStore = defineStore('video', () => {
     await fetchVideos(true)
   }
 
-  // 按视频库筛选
+  // 按资源库筛选
   const filterByLibrary = async (libraryId: number | null) => {
     selectedLibraryId.value = libraryId
     await fetchVideos(true)
@@ -363,7 +363,7 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
 
-  // 获取当前用户可访问的视频库列表
+  // 获取当前用户可访问的资源库列表
   const fetchUserLibraries = async () => {
     try {
       const response = await videoApi.getLibraries() as any

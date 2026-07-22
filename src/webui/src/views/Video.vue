@@ -23,7 +23,7 @@ const canManageVideo = computed(() => {
   return !!uid && video.value?.owner_id === uid
 })
 
-// 视频编辑抽屉（管理员可编辑标题/简介/优先级/视频库/标签）
+// 视频编辑抽屉（管理员可编辑标题/简介/优先级/资源库/标签）
 const editDrawerVisible = ref(false)
 const editingItem = ref<any>(null)
 
@@ -734,7 +734,7 @@ onUnmounted(() => {
   stopSyncLoop()
 })
 
-// 打开编辑抽屉（管理员可编辑标题/简介/优先级/视频库/标签）
+// 打开编辑抽屉（管理员可编辑标题/简介/优先级/资源库/标签）
 const openEditDrawer = () => {
   if (!video.value) return
   editingItem.value = video.value
@@ -1917,7 +1917,7 @@ const handleDelete = async () => {
       <button @click="goBack" class="back-link">返回首页</button>
     </div>
 
-    <!-- 编辑视频抽屉（标题/简介/优先级/视频库/标签） -->
+    <!-- 编辑视频抽屉（标题/简介/优先级/资源库/标签） -->
     <ItemEditDrawer
       :visible="editDrawerVisible"
       type="video"

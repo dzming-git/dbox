@@ -37,7 +37,7 @@ onMounted(loadTags)
 <template>
   <div class="comic-tags-container">
     <h1 class="page-title">漫画标签</h1>
-    <p class="page-desc">按标签浏览漫画（数量基于你有权限查看的视频库）。</p>
+    <p class="page-desc">按标签浏览漫画（数量基于你有权限查看的资源库）。</p>
     <div v-if="loading" class="loading">加载中...</div>
     <div v-else-if="tags.length === 0" class="empty">暂无标签</div>
     <ul v-else class="tag-tree">

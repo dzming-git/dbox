@@ -18,10 +18,10 @@ const allTagsList = ref<Tag[]>([])
 const searchQuery = ref('')
 const expandedTags = ref<Set<number>>(new Set())
 
-// 获取标签列表 - 使用融合模式，自动合并用户有权限的视频库中的相同标签
+// 获取标签列表 - 使用融合模式，自动合并用户有权限的资源库中的相同标签
 const fetchAllTags = async () => {
   try {
-    // 使用 merge=true 获取融合后的标签列表，用户能看到所有有权限的视频库的标签
+    // 使用 merge=true 获取融合后的标签列表，用户能看到所有有权限的资源库的标签
     const response = await tagApi.getTags({ tree: false, merge: true }) as any
     if (response.success && response.tags) {
       allTagsList.value = response.tags

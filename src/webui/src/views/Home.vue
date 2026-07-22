@@ -230,7 +230,7 @@ const handleOrderChange = (event: Event) => {
   updateUrl()
 }
 
-// 按视频库筛选
+// 按资源库筛选
 const handleLibraryChange = (event: Event) => {
   const target = event.target as HTMLSelectElement
   const val = target.value
@@ -606,9 +606,9 @@ const onListImgError = (e: Event) => {
           <option value="desc">倒序</option>
           <option value="asc">正序</option>
         </select>
-        <!-- 视频库筛选 -->
+        <!-- 资源库筛选 -->
         <select class="library-select" :value="selectedLibraryId || ''" @change="handleLibraryChange">
-          <option value="">全部视频库</option>
+          <option value="">全部资源库</option>
           <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
             {{ lib.name }}
           </option>
@@ -1296,7 +1296,7 @@ const onListImgError = (e: Event) => {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 
-/* 视频库筛选下拉，风格与排序下拉一致 */
+/* 资源库筛选下拉，风格与排序下拉一致 */
 .library-select {
   height: 40px;
   padding: 0 12px;

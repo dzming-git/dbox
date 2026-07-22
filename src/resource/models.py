@@ -108,7 +108,7 @@ class ResourceLibrary:
 
 @dataclass
 class ResourceFolder:
-    """文件夹/文件模型 - 视频库的下一级"""
+    """文件夹/文件模型 - 资源库的下一级"""
     id: Optional[int] = None
     library_id: int = 0
     name: str = ""

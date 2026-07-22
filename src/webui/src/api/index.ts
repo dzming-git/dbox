@@ -47,7 +47,7 @@ export const videoApi = {
   getVideos: (params?: { limit?: number; offset?: number; tag_id?: number; library_id?: number; search?: string; sort?: string; order?: string; exclude_disliked?: string }) =>
     api.get('/api/videos', { params }),
 
-  // 获取当前用户可访问的视频库列表（用于筛选）
+  // 获取当前用户可访问的资源库列表（用于筛选）
   getLibraries: () =>
     api.get('/api/user/libraries'),
   
@@ -182,26 +182,26 @@ export const healthApi = {
     axios.get(`${THUMB_BASE}/health`)
 }
 
-// 视频库管理 API
+// 资源库管理 API
 export const libraryApi = {
-  // 获取所有视频库列表
+  // 获取所有资源库列表
   getLibraries: () => api.get('/api/admin/libraries'),
 
-  // 创建视频库
+  // 创建资源库
   createLibrary: (data: { name: string; description?: string; db_file: string; config?: object }) =>
     api.post('/api/admin/libraries', data),
 
-  // 获取视频库详情
+  // 获取资源库详情
   getLibrary: (id: number) => api.get(`/api/admin/libraries/${id}`),
 
-  // 更新视频库
+  // 更新资源库
   updateLibrary: (id: number, data: { name?: string; description?: string; is_active?: boolean; config?: object }) =>
     api.put(`/api/admin/libraries/${id}`, data),
 
-  // 删除视频库
+  // 删除资源库
   deleteLibrary: (id: number) => api.delete(`/api/admin/libraries/${id}`),
 
-  // 获取视频库权限列表
+  // 获取资源库权限列表
   getLibraryPermissions: (libraryId: number) => api.get(`/api/admin/libraries/${libraryId}/permissions`),
 
   // 添加用户权限
@@ -216,16 +216,16 @@ export const libraryApi = {
   deleteLibraryPermission: (libraryId: number, permId: number) =>
     api.delete(`/api/admin/libraries/${libraryId}/permissions/${permId}`),
 
-  // 获取用户可访问的视频库
+  // 获取用户可访问的资源库
   getUserLibraries: () => api.get('/api/user/libraries'),
 
-  // 切换当前视频库
+  // 切换当前资源库
   switchLibrary: (libraryId: number) => api.post('/api/user/libraries/switch', { library_id: libraryId }),
 
   // 启动扫描（异步）
   scanLibrary: (libraryId: number) => api.post(`/api/admin/libraries/${libraryId}/scan`, {}),
 
-  // 一键扫描所有视频库（异步）
+  // 一键扫描所有资源库（异步）
   scanAllLibraries: () => api.post(`/api/admin/libraries/scan-all`, {}),
   // 获取全量扫描进度
   getScanAllStatus: () => api.get(`/api/admin/libraries/scan-all/status`),
@@ -339,7 +339,7 @@ export const comicApi = {
 
   // 标签（复用主应用 tags 表，对齐视频标签体系）
   getComicTags: (params?: { tree?: boolean }) => api.get('/api/comics/tags', { params }),
-  // 更新漫画信息（标题、所属视频库）
+  // 更新漫画信息（标题、所属资源库）
   updateComic: (hash: string, data: { title?: string; library_id?: number | null }) =>
     api.post(`/api/comic/${hash}/update`, data),
   getComicTagsByHash: (hash: string) => api.get(`/api/comic/${hash}/tags`),

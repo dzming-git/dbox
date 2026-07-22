@@ -9,39 +9,39 @@ const router = useRouter()
 const videoStore = useVideoStore()
 const userStore = useUserStore()
 
-// 视频库列表
+// 资源库列表
 const libraries = ref<any[]>([])
 const selectedLibraryId = ref<number | null>(null)
 const isLoadingLibraries = ref(true)
 
-// 获取视频库列表
+// 获取资源库列表
 const fetchLibraries = async () => {
   try {
-    console.log('开始获取视频库列表...')
+    console.log('开始获取资源库列表...')
     isLoadingLibraries.value = true
     const res = await api.get('/api/user/libraries') as any
-    console.log('视频库 API 响应:', res)
+    console.log('资源库 API 响应:', res)
     
     if (res.success) {
       libraries.value = res.data || []
-      console.log('获取到的视频库数量:', libraries.value.length)
+      console.log('获取到的资源库数量:', libraries.value.length)
       
-      // 默认选择第一个有写权限的视频库
+      // 默认选择第一个有写权限的资源库
       const writableLib = libraries.value.find((lib: any) => lib.access_level === 'full' || lib.access_level === 'write')
       if (writableLib) {
         selectedLibraryId.value = writableLib.id
-        console.log('✓ 自动选择视频库:', writableLib.name, 'ID:', writableLib.id)
+        console.log('✓ 自动选择资源库:', writableLib.name, 'ID:', writableLib.id)
       } else {
-        console.warn('没有找到有写权限的视频库')
+        console.warn('没有找到有写权限的资源库')
       }
     } else {
-      console.error('获取视频库失败:', res.message)
+      console.error('获取资源库失败:', res.message)
     }
   } catch (error) {
-    console.error('获取视频库列表失败:', error)
+    console.error('获取资源库列表失败:', error)
   } finally {
     isLoadingLibraries.value = false
-    console.log('✓ 视频库加载完成')
+    console.log('✓ 资源库加载完成')
   }
 }
 
@@ -141,16 +141,16 @@ const handleFileSelect = (e: Event) => {
   console.log(`【文件选择】当前状态: isLoadingLibraries=${isLoadingLibraries.value}, selectedLibraryId=${selectedLibraryId.value}`)
   console.log(`【文件选择】文件名列表:`, Array.from(input.files).map(f => f.name))
   
-  // 如果视频库还在加载中，提示用户等待
+  // 如果资源库还在加载中，提示用户等待
   if (isLoadingLibraries.value) {
-    showToast('视频库列表正在加载中，请稍后再试')
-    console.log('【文件选择】视频库正在加载，显示错误提示')
+    showToast('资源库列表正在加载中，请稍后再试')
+    console.log('【文件选择】资源库正在加载，显示错误提示')
     // 清空文件选择
     input.value = ''
     return
   }
   
-  console.log(`【文件选择】视频库已选择: ${selectedLibraryId.value}，准备处理文件`)
+  console.log(`【文件选择】资源库已选择: ${selectedLibraryId.value}，准备处理文件`)
   
   try {
     const files = Array.from(input.files)
@@ -177,14 +177,14 @@ const validateFile = (file: File): string | null => {
 const handleFiles = async (files: File[]) => {
   console.log('【handleFiles】=== 开始 ===')
   console.log('【handleFiles】文件数量:', files.length)
-  console.log('【handleFiles】当前视频库 ID:', selectedLibraryId.value)
+  console.log('【handleFiles】当前资源库 ID:', selectedLibraryId.value)
   console.log('【handleFiles】文件名列表:', files.map(f => f.name))
   
   try {
-    // 验证视频库选择（先检查，避免用户浪费时间）
+    // 验证资源库选择（先检查，避免用户浪费时间）
     if (!selectedLibraryId.value) {
-      showToast('请先选择目标视频库')
-      console.error('【handleFiles】视频库未选择')
+      showToast('请先选择目标资源库')
+      console.error('【handleFiles】资源库未选择')
       // 重置文件输入框，允许重新选择
       if (fileInput.value) {
         fileInput.value.value = ''
@@ -341,7 +341,7 @@ const startUpload = async () => {
         if (error?.response?.status === 413) {
           reason = '文件过大（超过服务器限制）'
         } else if (error?.response?.status === 403) {
-          reason = '无权限上传到该视频库'
+          reason = '无权限上传到该资源库'
         } else if (error?.response?.status === 409) {
           reason = '该视频已存在'
         } else if (error?.response?.data?.message) {
@@ -393,7 +393,7 @@ const startUpload = async () => {
 // 获取标签列表
 const availableTags = computed(() => videoStore.tags)
 
-// 有写权限的视频库
+// 有写权限的资源库
 const writableLibraries = computed(() => {
   return libraries.value.filter((lib: any) => 
     lib.access_level === 'full' || lib.access_level === 'write'
@@ -416,7 +416,7 @@ const handleUploadZoneClick = () => {
   uploadError.value = ''
   
   // 确保文件输入元素存在，直接触发文件选择
-  // 视频库的检查放到 handleFileSelect 中进行
+  // 资源库的检查放到 handleFileSelect 中进行
   if (fileInput.value) {
     fileInput.value.click()
   } else {
@@ -456,10 +456,10 @@ const clearError = () => {
     <div class="upload-container">
       <h1 class="page-title">上传视频</h1>
       
-      <!-- 视频库选择 - 始终显示在最上方 -->
+      <!-- 资源库选择 - 始终显示在最上方 -->
       <div v-if="!isUploading && !uploadedVideo" class="library-section" :class="{ 'has-error': !selectedLibraryId }">
         <h3 class="section-title">
-          <span class="required-mark">*</span> 选择目标视频库
+          <span class="required-mark">*</span> 选择目标资源库
           <span v-if="!selectedLibraryId" class="hint-text">（必选）</span>
         </h3>
         <div class="library-grid">
@@ -476,7 +476,7 @@ const clearError = () => {
           </div>
         </div>
         <p v-if="writableLibraries.length === 0" class="no-library-hint">
-          暂无可用的视频库，请联系管理员
+          暂无可用的资源库，请联系管理员
         </p>
       </div>
 
@@ -512,7 +512,7 @@ const clearError = () => {
           </svg>
         </div>
         <p class="upload-text">
-          <span v-if="isLoadingLibraries">正在加载视频库...</span>
+          <span v-if="isLoadingLibraries">正在加载资源库...</span>
           <span v-else><span class="highlight">点击选择文件</span> 或拖拽视频到此处</span>
         </p>
         <p class="upload-hint" v-if="!isLoadingLibraries">
@@ -664,7 +664,7 @@ const clearError = () => {
   text-align: center;
 }
 
-/* 视频库选择 */
+/* 资源库选择 */
 .library-section {
   margin-bottom: 24px;
   padding: 20px;

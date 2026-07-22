@@ -42,7 +42,7 @@ from functools import wraps
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
-from core.models import migrate_collection_videos_schema
+from core.models import migrate_collection_videos_schema, migrate_video_libraries_rename
 from auth_service import AuthService, init_root_user
 
 # 导入API蓝图
@@ -102,6 +102,7 @@ def internal_error(error):
 # ============ 启动服务 ============
 if __name__ == '__main__':
     with app.app_context():
+        migrate_video_libraries_rename()
         db.create_all()
         migrate_collection_videos_schema()
         init_root_user()

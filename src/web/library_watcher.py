@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-视频库文件夹自动感知
+资源库文件夹自动感知
 
-监控视频库对应的磁盘文件夹，将文件系统的变化实时同步到 web 的 Video 表：
+监控资源库对应的磁盘文件夹，将文件系统的变化实时同步到 web 的 Video 表：
   - 新增视频文件        -> 计算内容指纹(hash) 后入库（UPSERT，已存在则跳过/更新）
   - 视频文件被删除      -> 从 Video 表移除对应记录
   - 视频文件名变动      -> 更新 local_path / file_name（保留点赞、收藏、历史等数据）
@@ -10,7 +10,7 @@
 设计要点：
   - 直接操作用户可见的 Video 表，不依赖 resourced 的扫描/索引（两者 hash 算法不同，
     但 Video.local_path 与磁盘文件同源，可用路径关联）。
-  - 监控路径优先从 resourced 查询（视频库/文件夹的磁盘路径），resourced 不可用时
+  - 监控路径优先从 resourced 查询（资源库/文件夹的磁盘路径），resourced 不可用时
     回退到从现有 Video.local_path 收集目录。
   - 监控方式：优先使用 watchdog（实时事件）；若环境未安装 watchdog，则自动回退到
     定时轮询目录 diff（同样覆盖新增/删除/重命名三种情况）。
@@ -44,7 +44,7 @@ _COMIC_COOLDOWN = 8.0  # 漫画重扫去抖时间（秒，重于视频，避免�
 
 if WATCHDOG_AVAILABLE:
     class _VideoEventHandler(FileSystemEventHandler):
-        """watchdog 事件处理器：把事件转发给 watcher，并标注所属视频库"""
+        """watchdog 事件处理器：把事件转发给 watcher，并标注所属资源库"""
 
         def __init__(self, watcher, library_id):
             super().__init__()
@@ -89,7 +89,7 @@ else:
     _VideoEventHandler = None
 
 
-class VideoLibraryWatcher:
+class ResourceLibraryWatcher:
     def __init__(self, app, resource_bus=None, app_config=None, thumbnail_bus=None, log=None):
         self._app = app
         self._resource_bus = resource_bus
@@ -127,10 +127,10 @@ class VideoLibraryWatcher:
         """返回 [(root_path, web_library_id), ...]"""
         targets = []
         try:
-            from core.models import VideoLibrary, Video
+            from core.models import ResourceLibrary, Video
 
             with self._app.app_context():
-                libraries = VideoLibrary.query.filter_by(is_active=True).all()
+                libraries = ResourceLibrary.query.filter_by(is_active=True).all()
             name_to_web = {lib.name: lib.id for lib in libraries}
 
             res_libs = None
@@ -189,15 +189,15 @@ class VideoLibraryWatcher:
 
     # ---------- 单库扫描（驱动 Video 索引）----------
     def _targets_for_library(self, library_id: int):
-        """返回该 web 视频库对应的磁盘监控目标 [(path, library_id)]。
+        """返回该 web 资源库对应的磁盘监控目标 [(path, library_id)]。
 
         路径来源：resourced 中同名库的 path + 其文件夹 path（与 _collect_watch_targets 同源）。
         """
         targets = []
         try:
-            from core.models import VideoLibrary
+            from core.models import ResourceLibrary
             with self._app.app_context():
-                lib = VideoLibrary.query.get(library_id)
+                lib = ResourceLibrary.query.get(library_id)
                 if not lib:
                     return targets
                 name = lib.name
@@ -237,7 +237,7 @@ class VideoLibraryWatcher:
         return targets
 
     def scan_library(self, library_id: int):
-        """对单个视频库执行全量同步：磁盘 -> Video 表（web 唯一索引源）。
+        """对单个资源库执行全量同步：磁盘 -> Video 表（web 唯一索引源）。
 
         新增/更新/重命名/删除均复用已验证的 _diff_sync。只针对该库监控目标，
         不会误删其它库。返回实际扫描的目录数。
@@ -251,14 +251,14 @@ class VideoLibraryWatcher:
         return len(targets)
 
     def library_disk_targets(self, library_id: int):
-        """返回该视频库在磁盘上的监控根目录列表（供漫画等扫描复用）。"""
+        """返回该资源库在磁盘上的监控根目录列表（供漫画等扫描复用）。"""
         return [p for p, _ in self._targets_for_library(library_id)]
 
     # ---------- 启动 / 停止 ----------
     def start(self):
         targets = self._collect_watch_targets()
         if not targets:
-            self._debug('INFO', '[LibWatcher] 没有可监控的视频库目录，自动感知未启动')
+            self._debug('INFO', '[LibWatcher] 没有可监控的资源库目录，自动感知未启动')
             return
 
         if WATCHDOG_AVAILABLE:
@@ -578,7 +578,7 @@ def start_library_watchers(app, resource_bus=None, app_config=None, thumbnail_bu
             _watcher_instance.stop_all()
         except Exception:
             pass
-    _watcher_instance = VideoLibraryWatcher(app, resource_bus, app_config, thumbnail_bus, log)
+    _watcher_instance = ResourceLibraryWatcher(app, resource_bus, app_config, thumbnail_bus, log)
     _watcher_instance.start()
     return _watcher_instance
 

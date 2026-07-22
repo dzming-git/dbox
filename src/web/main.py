@@ -114,8 +114,8 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
 from core.models import FavoriteCollection, CollectionVideo, Comic
-from core.models import VideoLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import migrate_collection_videos_schema, migrate_owner_columns
+from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -126,14 +126,14 @@ try:
 except Exception:
     _HAS_RESOURCE_DB = False
 
-# 视频库扫描进度（web 侧，驱动 Video 表作为唯一索引源）
+# 资源库扫描进度（web 侧，驱动 Video 表作为唯一索引源）
 _library_scan_progress = {}
-# 全量扫描进度（一键扫描所有视频库）
+# 全量扫描进度（一键扫描所有资源库）
 _library_scan_all_progress = {'status': 'idle', 'total': 0, 'done': 0, 'message': ''}
 
 def _resolve_resource_library_id(dplayer_library_id: int) -> int:
     """
-    将 dplayer.db 的视频库 ID 映射为 resource.db 的资源库 ID
+    将 dplayer.db 的资源库 ID 映射为 resource.db 的资源库 ID
     通过库名称匹配（库名称在两个系统中都唯一）
     
     Returns:
@@ -142,7 +142,7 @@ def _resolve_resource_library_id(dplayer_library_id: int) -> int:
     if not _HAS_RESOURCE_DB:
         return dplayer_library_id
     
-    library = VideoLibrary.query.get(dplayer_library_id)
+    library = ResourceLibrary.query.get(dplayer_library_id)
     if not library:
         return dplayer_library_id
     
@@ -189,6 +189,7 @@ log.maintenance('INFO', 'DPlayer Web 服务日志系统初始化完成')
 print("[DEBUG] Initializing database...")
 db.init_app(app)
 with app.app_context():
+    migrate_video_libraries_rename()
     db.create_all()
     migrate_collection_videos_schema()
     migrate_owner_columns()
@@ -432,7 +433,7 @@ def health():
 
 def get_allowed_library_ids():
     """
-    获取当前用户允许访问的视频库ID列表
+    获取当前用户允许访问的资源库ID列表
     返回: allowed_library_ids (list)
     """
     allowed_library_ids = []
@@ -458,14 +459,14 @@ def get_allowed_library_ids():
 
     # 管理员和ROOT可以访问所有激活的库
     if user_role in [UserRole.ADMIN, UserRole.ROOT]:
-        all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
+        all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
         allowed_library_ids = [lib.id for lib in all_active_libs]
     elif user_id:
         # 已登录的普通用户：查询用户直接权限 + 用户组权限
         # 1. 获取用户直接权限的库
         user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
         for perm in user_perms:
-            lib = VideoLibrary.query.get(perm.library_id)
+            lib = ResourceLibrary.query.get(perm.library_id)
             if lib and lib.is_active:
                 allowed_library_ids.append(perm.library_id)
         
@@ -474,14 +475,14 @@ def get_allowed_library_ids():
         for ugm in user_groups:
             group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
             for perm in group_perms:
-                lib = VideoLibrary.query.get(perm.library_id)
+                lib = ResourceLibrary.query.get(perm.library_id)
                 if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                     allowed_library_ids.append(perm.library_id)
         
         # 3. 获取通用权限（user_id=NULL，表示所有人都可以访问）
         general_perms = LibraryPermission.query.filter_by(user_id=None).all()
         for perm in general_perms:
-            lib = VideoLibrary.query.get(perm.library_id)
+            lib = ResourceLibrary.query.get(perm.library_id)
             if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                 allowed_library_ids.append(perm.library_id)
     else:
@@ -490,7 +491,7 @@ def get_allowed_library_ids():
         # 1. 获取通用权限的库
         general_perms = LibraryPermission.query.filter_by(user_id=None).all()
         for perm in general_perms:
-            lib = VideoLibrary.query.get(perm.library_id)
+            lib = ResourceLibrary.query.get(perm.library_id)
             if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                 allowed_library_ids.append(perm.library_id)
     
@@ -542,8 +543,8 @@ def get_videos():
 
         query = Video.query
 
-        # ============ 过滤被禁用的视频库 ============
-        # 获取当前用户可访问的激活视频库ID列表
+        # ============ 过滤被禁用的资源库 ============
+        # 获取当前用户可访问的激活资源库ID列表
         allowed_library_ids = []
 
         # 检查 Video 模型是否有 library_id 属性
@@ -555,14 +556,14 @@ def get_videos():
 
             # 管理员和ROOT可以访问所有激活的库
             if user_role in [UserRole.ADMIN, UserRole.ROOT]:
-                all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
+                all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
                 allowed_library_ids = [lib.id for lib in all_active_libs]
             elif user_id:
                 # 已登录的普通用户：查询用户直接权限 + 用户组权限
                 # 1. 获取用户直接权限的库
                 user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
                 for perm in user_perms:
-                    lib = VideoLibrary.query.get(perm.library_id)
+                    lib = ResourceLibrary.query.get(perm.library_id)
                     if lib and lib.is_active:
                         allowed_library_ids.append(perm.library_id)
 
@@ -571,7 +572,7 @@ def get_videos():
                 for ugm in user_groups:
                     group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
                     for perm in group_perms:
-                        lib = VideoLibrary.query.get(perm.library_id)
+                        lib = ResourceLibrary.query.get(perm.library_id)
                         if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                             allowed_library_ids.append(perm.library_id)
             
@@ -579,11 +580,11 @@ def get_videos():
             # 这个在用户没有特定权限时也生效
             general_perms = LibraryPermission.query.filter_by(user_id=None).all()
             for perm in general_perms:
-                lib = VideoLibrary.query.get(perm.library_id)
+                lib = ResourceLibrary.query.get(perm.library_id)
                 if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                     allowed_library_ids.append(perm.library_id)
 
-            # 过滤条件：library_id 为 NULL（主数据库的视频）或在允许的视频库中
+            # 过滤条件：library_id 为 NULL（主数据库的视频）或在允许的资源库中
             if allowed_library_ids:
                 query = query.filter(
                     (Video.library_id == None) |
@@ -712,12 +713,12 @@ def get_videos():
 
 @app.route('/api/video/<video_hash>', methods=['GET'])
 def get_video(video_hash):
-    """获取单个视频详情 - 需要检查视频库权限"""
+    """获取单个视频详情 - 需要检查资源库权限"""
     try:
         video = Video.query.filter_by(hash=video_hash).first_or_404()
         
         # ============ 权限检查 ============
-        # 检查视频是否属于某个视频库
+        # 检查视频是否属于某个资源库
         if video.library_id:
             # 获取用户ID和角色
             user_id = None
@@ -966,11 +967,11 @@ def batch_interact():
 
 @app.route('/api/stats/overview', methods=['GET'])
 def stats_overview():
-    """统计概览：视频总数、各视频库数量、按标签视频数 Top、最热视频"""
+    """统计概览：视频总数、各资源库数量、按标签视频数 Top、最热视频"""
     try:
         total = Video.query.count()
         by_library = []
-        for lib in VideoLibrary.query.filter_by(is_active=True).all():
+        for lib in ResourceLibrary.query.filter_by(is_active=True).all():
             cnt = Video.query.filter_by(library_id=lib.id).count()
             by_library.append({'id': lib.id, 'name': lib.name, 'count': cnt})
 
@@ -1215,14 +1216,14 @@ def increment_view_count(video_hash):
 @app.route('/api/videos/<int:video_id>/play', methods=['GET'])
 @auth_required
 def play_video(video_id):
-    """播放视频 - 需要检查视频库权限"""
+    """播放视频 - 需要检查资源库权限"""
     try:
         video = Video.query.get(video_id)
         if not video:
             return jsonify({'success': False, 'message': '视频不存在'}), 404
         
         # ============ 权限检查 ============
-        # 检查视频是否属于某个视频库
+        # 检查视频是否属于某个资源库
         if video.library_id:
             # 获取用户ID和角色
             user_id = g.user_id
@@ -1305,14 +1306,14 @@ def play_video(video_id):
 
 @app.route('/api/tags', methods=['GET'])
 def get_tags():
-    """获取标签列表 - 支持树形结构，融合模式可跨视频库聚合"""
+    """获取标签列表 - 支持树形结构，融合模式可跨资源库聚合"""
     try:
         # 获取参数
         tree_mode = request.args.get('tree', 'false').lower() == 'true'
-        library_id = request.args.get('library_id', type=int)  # 可选，按视频库筛选
+        library_id = request.args.get('library_id', type=int)  # 可选，按资源库筛选
         merge_mode = request.args.get('merge', 'false').lower() == 'true'  # 融合模式
         
-        # ============ 获取用户可访问的视频库 ============
+        # ============ 获取用户可访问的资源库 ============
         user_id = None
         user_role = 0
         auth_header = request.headers.get('Authorization', '')
@@ -1331,12 +1332,12 @@ def get_tags():
         
         if user_id:
             if user_role in [UserRole.ADMIN, UserRole.ROOT]:
-                all_active_libs = VideoLibrary.query.filter_by(is_active=True).all()
+                all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
                 allowed_library_ids = [lib.id for lib in all_active_libs]
             else:
                 user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
                 for perm in user_perms:
-                    lib = VideoLibrary.query.get(perm.library_id)
+                    lib = ResourceLibrary.query.get(perm.library_id)
                     if lib and lib.is_active:
                         allowed_library_ids.append(perm.library_id)
                 
@@ -1344,18 +1345,18 @@ def get_tags():
                 for ugm in user_groups:
                     group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
                     for perm in group_perms:
-                        lib = VideoLibrary.query.get(perm.library_id)
+                        lib = ResourceLibrary.query.get(perm.library_id)
                         if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                             allowed_library_ids.append(perm.library_id)
         
         is_admin = user_id and user_role in [2, 3]
         
-        # 检查用户是否有视频库权限
+        # 检查用户是否有资源库权限
         has_library_access = is_admin or (user_id and allowed_library_ids)
         
         # ============ 融合模式：合并相同路径的标签 ============
         if merge_mode:
-            # 查询所有用户可见的标签（只有有视频库权限时才过滤）
+            # 查询所有用户可见的标签（只有有资源库权限时才过滤）
             if has_library_access and not is_admin:
                 query = Tag.query.filter(
                     (Tag.library_id == None) | 
@@ -1398,10 +1399,10 @@ def get_tags():
                 seen_paths.add(tag.path)
                 
                 video_count = path_video_map.get(tag.path, 0)
-                # 非管理员用户：如果没有视频库权限，不显示任何标签
+                # 非管理员用户：如果没有资源库权限，不显示任何标签
                 if not has_library_access:
                     continue
-                # 如果没有可访问的活跃视频库（即使管理员），也不显示标签
+                # 如果没有可访问的活跃资源库（即使管理员），也不显示标签
                 if not allowed_library_ids:
                     continue
                 if video_count > 0:
@@ -1450,11 +1451,11 @@ def get_tags():
             
             video_count = video_query.count()
             
-            # 非管理员用户：如果没有视频库权限，不显示任何标签
+            # 非管理员用户：如果没有资源库权限，不显示任何标签
             if not has_library_access:
                 continue
 
-            # 如果没有可访问的活跃视频库（即使管理员），也不显示标签
+            # 如果没有可访问的活跃资源库（即使管理员），也不显示标签
             if not allowed_library_ids:
                 continue
 
@@ -1517,7 +1518,7 @@ def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型')
     
     Args:
         tag_path: 标签路径，如 "/动物/狗/哈士奇"
-        library_id: 视频库ID（可选，null表示全局标签）
+        library_id: 资源库ID（可选，null表示全局标签）
         category: 分类
     
     Returns:
@@ -1574,7 +1575,7 @@ def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型')
 
 @app.route('/api/tags', methods=['POST'])
 def create_tag():
-    """创建新标签 - 支持多级标签，按路径+视频库判断唯一性"""
+    """创建新标签 - 支持多级标签，按路径+资源库判断唯一性"""
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
@@ -1584,7 +1585,7 @@ def create_tag():
         if len(name) < 1 or len(name) > 20:
             return jsonify({'success': False, 'message': '标签名长度需在1-20字符之间'}), 400
         
-        # 获取视频库ID（可选，null表示全局标签）
+        # 获取资源库ID（可选，null表示全局标签）
         library_id = data.get('library_id')
         
         # 计算路径
@@ -1602,7 +1603,7 @@ def create_tag():
         else:
             tag_path = f"/{name}"
         
-        # 基于路径+视频库判断唯一性
+        # 基于路径+资源库判断唯一性
         existing = Tag.query.filter_by(path=tag_path, library_id=library_id).first()
         if existing:
             return jsonify({'success': False, 'message': f'标签路径已存在: {tag_path}'}), 400
@@ -1646,7 +1647,7 @@ def set_video_tags(video_hash):
         data = request.get_json()
         tag_paths = data.get('tags', []) or []
         
-        # 获取视频库ID（用于标签隔离）
+        # 获取资源库ID（用于标签隔离）
         library_id = video.library_id
         
         # 先移除所有现有标签关联
@@ -1738,7 +1739,7 @@ def search_tags():
     """搜索标签 - 用于智能提示，按路径匹配"""
     try:
         keyword = request.args.get('q', '').strip()
-        library_id = request.args.get('library_id', type=int)  # 可选，按视频库筛选
+        library_id = request.args.get('library_id', type=int)  # 可选，按资源库筛选
         limit = request.args.get('limit', 20, type=int)
 
         if not keyword:
@@ -1754,12 +1755,12 @@ def search_tags():
         # 构建查询：匹配路径包含关键词的标签
         query = Tag.query.filter(Tag.path.like(f'%{keyword}%'))
 
-        # ============ 优先级：如果指定了 library_id，优先返回该视频库的标签 ============
+        # ============ 优先级：如果指定了 library_id，优先返回该资源库的标签 ============
         if library_id:
-            # 验证用户是否有权限访问该视频库
+            # 验证用户是否有权限访问该资源库
             if not is_admin:
-                # 管理员/ROOT 可以搜索任何视频库的标签
-                # 检查用户是否有权限访问该视频库
+                # 管理员/ROOT 可以搜索任何资源库的标签
+                # 检查用户是否有权限访问该资源库
                 user_perm = LibraryPermission.query.filter_by(
                     library_id=library_id, user_id=user_id
                 ).first()
@@ -1780,13 +1781,13 @@ def search_tags():
                 if not has_access:
                     query = query.filter(Tag.library_id == None)
                 else:
-                    # 有权限：全局标签 + 该视频库标签
+                    # 有权限：全局标签 + 该资源库标签
                     query = query.filter(
                         (Tag.library_id == None) |
                         (Tag.library_id == library_id)
                     )
             else:
-                # 管理员：全局标签 + 该视频库标签
+                # 管理员：全局标签 + 该资源库标签
                 query = query.filter(
                     (Tag.library_id == None) |
                     (Tag.library_id == library_id)
@@ -1797,7 +1798,7 @@ def search_tags():
                 allowed_library_ids = []
 
                 if user_id:
-                    # 已登录普通用户：获取有权限的视频库ID
+                    # 已登录普通用户：获取有权限的资源库ID
                     # 直接权限
                     perms = LibraryPermission.query.filter_by(user_id=user_id).all()
                     allowed_library_ids.extend([p.library_id for p in perms])
@@ -1808,7 +1809,7 @@ def search_tags():
                         group_perms = LibraryPermission.query.filter_by(group_id=gm.group_id).all()
                         allowed_library_ids.extend([p.library_id for p in group_perms])
 
-                    # 允许查看：全局标签(null) + 有权限的视频库标签
+                    # 允许查看：全局标签(null) + 有权限的资源库标签
                     if allowed_library_ids:
                         query = query.filter(
                             (Tag.library_id == None) |
@@ -2126,13 +2127,13 @@ def update_video_info(video_hash):
                 return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
             video.priority = int(priority)
 
-        # 支持修改所属视频库
+        # 支持修改所属资源库
         if 'library_id' in data:
             library_id = data['library_id']
             if library_id is not None:
-                library = VideoLibrary.query.get(int(library_id))
+                library = ResourceLibrary.query.get(int(library_id))
                 if not library:
-                    return jsonify({'success': False, 'message': '视频库不存在'}), 400
+                    return jsonify({'success': False, 'message': '资源库不存在'}), 400
             video.library_id = library_id
 
         db.session.commit()
@@ -2186,7 +2187,7 @@ def batch_update_priority():
 
 @app.route('/thumbnail/<video_hash>')
 def get_thumbnail(video_hash):
-    """获取缩略图，支持懒加载生成 - 需要检查视频库权限"""
+    """获取缩略图，支持懒加载生成 - 需要检查资源库权限"""
     thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
 
     # 先尝试查找已存在的文件
@@ -2206,7 +2207,7 @@ def get_thumbnail(video_hash):
             abort(404)
 
         # ============ 权限检查 ============
-        # 检查视频是否属于某个视频库
+        # 检查视频是否属于某个资源库
         if video.library_id:
             # 获取用户ID和角色
             user_id = None
@@ -2492,12 +2493,12 @@ def upload_video():
 
         # 检查视频集权限（仅管理员可上传到任意视频集）
         if library_id:
-            library = VideoLibrary.query.get(library_id)
+            library = ResourceLibrary.query.get(library_id)
             if not library:
                 os.remove(file_path)
                 return jsonify({'success': False, 'message': '视频集不存在'}), 400
 
-            # 检查权限 - ROOT 和管理员可以上传到任意视频库
+            # 检查权限 - ROOT 和管理员可以上传到任意资源库
             if g.role not in [UserRole.ADMIN, UserRole.ROOT]:
                 # 检查直接权限
                 perm = LibraryPermission.query.filter_by(
@@ -2564,7 +2565,7 @@ def status():
         allowed_library_ids = get_allowed_library_ids()
         
         if allowed_library_ids:
-            # 过滤：library_id 为 NULL（主数据库的视频）或在允许的视频库中
+            # 过滤：library_id 为 NULL（主数据库的视频）或在允许的资源库中
             filtered_query = Video.query.filter(
                 (Video.library_id == None) |
                 (Video.library_id.in_(allowed_library_ids))
@@ -2689,14 +2690,14 @@ def serve_local_video(video_path):
         log.debug('ERROR', f"[serve_local_video] 错误: {str(e)}, 路径: {video_path if 'video_path' in dir() else 'unknown'}")
         abort(500)
 
-# ============ 视频库管理 API =================
+# ============ 资源库管理 API =================
 
 @app.route('/api/admin/libraries', methods=['GET'])
 @admin_required
 def get_libraries():
-    """获取所有视频库列表"""
+    """获取所有资源库列表"""
     try:
-        libraries = VideoLibrary.query.order_by(VideoLibrary.created_at.desc()).all()
+        libraries = ResourceLibrary.query.order_by(ResourceLibrary.created_at.desc()).all()
         result = []
         for lib in libraries:
             lib_dict = lib.to_dict(include_stats=True)
@@ -2707,14 +2708,14 @@ def get_libraries():
             result.append(lib_dict)
         return jsonify({'success': True, 'data': result})
     except Exception as e:
-        log.debug('ERROR', f"获取视频库列表失败: {e}")
+        log.debug('ERROR', f"获取资源库列表失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/admin/libraries', methods=['POST'])
 @admin_required
 def create_library():
-    """创建新视频库"""
+    """创建新资源库"""
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
@@ -2723,11 +2724,11 @@ def create_library():
         # 自动生成数据库文件名：直接使用库名
         import re
         if not name:
-            return jsonify({'success': False, 'message': '请输入视频库名称'}), 400
+            return jsonify({'success': False, 'message': '请输入资源库名称'}), 400
 
         # 检查名称是否重复
-        if VideoLibrary.query.filter_by(name=name).first():
-            return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
+        if ResourceLibrary.query.filter_by(name=name).first():
+            return jsonify({'success': False, 'message': '资源库名称已存在'}), 400
 
         # 直接使用库名作为数据库文件名（保留中文、英文、数字、下划线）
         safe_name = re.sub(r'[^\w\u4e00-\u9fff]', '_', name)  # 保留中文、字母、数字、下划线
@@ -2736,12 +2737,12 @@ def create_library():
         # 确保文件名唯一（如果已存在则追加序号）
         base_db_file = db_file
         counter = 1
-        while VideoLibrary.query.filter_by(db_file=db_file).first():
+        while ResourceLibrary.query.filter_by(db_file=db_file).first():
             db_file = f"{base_db_file.rstrip('.db')}_{counter}.db"
             counter += 1
 
-        # 创建视频库
-        library = VideoLibrary(
+        # 创建资源库
+        library = ResourceLibrary(
             name=name,
             description=description,
             db_path='libraries',
@@ -2796,16 +2797,16 @@ def create_library():
         return jsonify({'success': True, 'data': library.to_dict()})
     except Exception as e:
         db.session.rollback()
-        log.debug('ERROR', f"创建视频库失败: {e}")
+        log.debug('ERROR', f"创建资源库失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/admin/libraries/<int:library_id>', methods=['GET'])
 @admin_required
 def get_library(library_id):
-    """获取视频库详情"""
+    """获取资源库详情"""
     try:
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
         lib_dict = library.to_dict(include_stats=True)
         return jsonify({'success': True, 'data': lib_dict})
     except Exception as e:
@@ -2815,18 +2816,18 @@ def get_library(library_id):
 @app.route('/api/admin/libraries/<int:library_id>', methods=['PUT'])
 @admin_required
 def update_library(library_id):
-    """更新视频库配置"""
+    """更新资源库配置"""
     try:
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
         data = request.get_json()
         import re
 
         if 'name' in data:
             # 检查名称重复
             new_name = data['name'].strip()
-            existing = VideoLibrary.query.filter(VideoLibrary.name == new_name, VideoLibrary.id != library_id).first()
+            existing = ResourceLibrary.query.filter(ResourceLibrary.name == new_name, ResourceLibrary.id != library_id).first()
             if existing:
-                return jsonify({'success': False, 'message': '视频库名称已存在'}), 400
+                return jsonify({'success': False, 'message': '资源库名称已存在'}), 400
 
             old_name = library.name
             library.name = new_name
@@ -2838,7 +2839,7 @@ def update_library(library_id):
                 new_db_file = f"{safe_name}.db"
 
                 # 确保新文件名不冲突
-                while VideoLibrary.query.filter(VideoLibrary.db_file == new_db_file, VideoLibrary.id != library_id).first():
+                while ResourceLibrary.query.filter(ResourceLibrary.db_file == new_db_file, ResourceLibrary.id != library_id).first():
                     new_db_file = f"{safe_name}_{random.randint(1,999)}.db"
 
                 # 重命名数据库文件
@@ -2864,16 +2865,16 @@ def update_library(library_id):
         return jsonify({'success': True, 'data': library.to_dict()})
     except Exception as e:
         db.session.rollback()
-        log.debug('ERROR', f'更新视频库失败: {e}')
+        log.debug('ERROR', f'更新资源库失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/admin/libraries/<int:library_id>', methods=['DELETE'])
 @admin_required
 def delete_library(library_id):
-    """删除视频库"""
+    """删除资源库"""
     try:
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
 
         # 可选：删除数据库文件
         # db_file = library.full_db_path
@@ -2882,7 +2883,7 @@ def delete_library(library_id):
 
         db.session.delete(library)
         db.session.commit()
-        return jsonify({'success': True, 'message': '视频库已删除'})
+        return jsonify({'success': True, 'message': '资源库已删除'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2893,7 +2894,7 @@ def delete_library(library_id):
 @app.route('/api/admin/libraries/<int:library_id>/folders', methods=['GET'])
 @admin_required
 def get_library_folders(library_id):
-    """获取视频库的所有文件夹"""
+    """获取资源库的所有文件夹"""
     try:
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
@@ -2949,7 +2950,7 @@ def test_add_folder():
 @app.route('/api/admin/libraries/<int:library_id>/folders', methods=['POST'])
 @admin_required
 def add_library_folder(library_id):
-    """添加文件夹到视频库"""
+    """添加文件夹到资源库"""
     try:
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
@@ -3068,12 +3069,12 @@ def set_default_folder(folder_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-# ============ 视频库扫描 API =================
+# ============ 资源库扫描 API =================
 
 @app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
 @admin_required
 def scan_library(library_id):
-    """启动视频库扫描（异步，立即返回）。
+    """启动资源库扫描（异步，立即返回）。
 
     统一索引源：扫描直接驱动 web 的 Video 表（由 library_watcher 维护），
     不再依赖 resourced 的 ResourceItem（已于 2026-07-12 废弃，双索引问题根因）。
@@ -3085,7 +3086,7 @@ def scan_library(library_id):
         from library_watcher import get_watcher
         watcher = get_watcher()
         if not watcher:
-            return jsonify({'success': False, 'message': '视频库监控器未初始化'}), 500
+            return jsonify({'success': False, 'message': '资源库监控器未初始化'}), 500
 
         # 防止重复扫描
         if _library_scan_progress.get(library_id, {}).get('status') == 'scanning':
@@ -3122,7 +3123,7 @@ def scan_library(library_id):
 @app.route('/api/admin/libraries/<int:library_id>/scan-status', methods=['GET'])
 @admin_required
 def get_library_scan_status(library_id):
-    """获取视频库扫描进度（轮询接口，web 侧驱动 Video 索引）"""
+    """获取资源库扫描进度（轮询接口，web 侧驱动 Video 索引）"""
     try:
         prog = _library_scan_progress.get(library_id)
         if not prog:
@@ -3137,7 +3138,7 @@ def get_library_scan_status(library_id):
 @app.route('/api/admin/libraries/scan-all', methods=['POST'])
 @admin_required
 def scan_all_libraries():
-    """一键扫描所有（启用中的）视频库（异步，立即返回）。
+    """一键扫描所有（启用中的）资源库（异步，立即返回）。
 
     底层复用 library_watcher 的全量 diff：新增/删除/重命名/文件名对齐
     均会自动同步到 Video 表，覆盖「软件未运行时改名」「旧逻辑漏更新」
@@ -3150,22 +3151,22 @@ def scan_all_libraries():
         from library_watcher import get_watcher
         watcher = get_watcher()
         if not watcher:
-            return jsonify({'success': False, 'message': '视频库监控器未初始化'}), 500
+            return jsonify({'success': False, 'message': '资源库监控器未初始化'}), 500
         if _library_scan_all_progress.get('status') == 'scanning':
             return jsonify({'success': False, 'message': '全量扫描已在进行中，请稍候...'}), 400
 
         _library_scan_all_progress = {
-            'status': 'scanning', 'total': 0, 'done': 0, 'message': '正在扫描所有视频库...'
+            'status': 'scanning', 'total': 0, 'done': 0, 'message': '正在扫描所有资源库...'
         }
 
         def _run_all():
             global _library_scan_all_progress
             try:
-                from core.models import VideoLibrary
+                from core.models import ResourceLibrary
                 # 后台线程无请求上下文，需显式进入 Flask 应用上下文
                 # 才能执行 DB 查询与 watcher 内的 ORM 操作
                 with app.app_context():
-                    libs = VideoLibrary.query.filter_by(is_active=True).all()
+                    libs = ResourceLibrary.query.filter_by(is_active=True).all()
                     _library_scan_all_progress['total'] = len(libs)
                     for i, lib in enumerate(libs, 1):
                         try:
@@ -3173,9 +3174,9 @@ def scan_all_libraries():
                         except Exception as e:
                             log.debug('ERROR', f'扫描库 {lib.id} 失败: {e}')
                         _library_scan_all_progress['done'] = i
-                        _library_scan_all_progress['message'] = f'已扫描 {i}/{len(libs)} 个视频库'
+                        _library_scan_all_progress['message'] = f'已扫描 {i}/{len(libs)} 个资源库'
                     _library_scan_all_progress['status'] = 'done'
-                    _library_scan_all_progress['message'] = f'全量扫描完成，共处理 {len(libs)} 个视频库'
+                    _library_scan_all_progress['message'] = f'全量扫描完成，共处理 {len(libs)} 个资源库'
                     print('[web] scan-all done', flush=True)
             except Exception as e:
                 _library_scan_all_progress['status'] = 'error'
@@ -3205,9 +3206,9 @@ def get_scan_all_status():
 @app.route('/api/admin/libraries/<int:library_id>/permissions', methods=['GET'])
 @admin_required
 def get_library_permissions(library_id):
-    """获取视频库的权限列表"""
+    """获取资源库的权限列表"""
     try:
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
         permissions = LibraryPermission.query.filter_by(library_id=library_id).all()
         return jsonify({
             'success': True,
@@ -3222,7 +3223,7 @@ def get_library_permissions(library_id):
 def add_library_permission(library_id):
     """添加用户权限"""
     try:
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
         data = request.get_json()
 
         user_id = data.get('user_id')
@@ -3432,10 +3433,10 @@ def scan_folder():
 @app.route('/api/admin/import-videos', methods=['POST'])
 @admin_required
 def import_videos():
-    """批量导入视频到指定视频库
+    """批量导入视频到指定资源库
     
     请求参数:
-    - library_id: 目标视频库ID（可选，默认导入到主数据库）
+    - library_id: 目标资源库ID（可选，默认导入到主数据库）
     - videos: 视频列表，每个视频包含:
         - path: 视频文件路径
         - title: 标题（可选，默认使用文件名）
@@ -3455,7 +3456,7 @@ def import_videos():
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
         data = request.get_json()
-        library_id = data.get('library_id')  # 必须指定有效的视频库ID
+        library_id = data.get('library_id')  # 必须指定有效的资源库ID
         videos = data.get('videos', [])
         skip_existing = data.get('skip_existing', True)
         default_tags = data.get('default_tags', app_config.get('default_tags', []))
@@ -3463,17 +3464,17 @@ def import_videos():
         if not videos:
             return jsonify({'success': False, 'message': '请选择要导入的视频'}), 400
 
-        # 验证视频库：必须指定有效的激活视频库
+        # 验证资源库：必须指定有效的激活资源库
         if not library_id:
-            return jsonify({'success': False, 'message': '请选择目标视频库'}), 400
+            return jsonify({'success': False, 'message': '请选择目标资源库'}), 400
 
-        # 检查视频库是否存在且已激活
-        library = VideoLibrary.query.get(library_id)
+        # 检查资源库是否存在且已激活
+        library = ResourceLibrary.query.get(library_id)
         if not library:
-            return jsonify({'success': False, 'message': '视频库不存在'}), 400
+            return jsonify({'success': False, 'message': '资源库不存在'}), 400
 
         if not library.is_active:
-            return jsonify({'success': False, 'message': '该视频库已被禁用，无法导入'}), 400
+            return jsonify({'success': False, 'message': '该资源库已被禁用，无法导入'}), 400
         
         imported = 0
         skipped = 0
@@ -3518,7 +3519,7 @@ def import_videos():
                     is_downloaded=True,
                     local_path=video_path,
                     priority=app_config.get('default_priority', 0),
-                    library_id=library_id,  # 绑定到指定的视频库
+                    library_id=library_id,  # 绑定到指定的资源库
                     owner_id=root_id
                 )
                 db.session.add(video)
@@ -3681,11 +3682,11 @@ def browse_folders():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-# ============ 用户可访问视频库 API =================
+# ============ 用户可访问资源库 API =================
 
 @app.route('/api/user/libraries', methods=['GET'])
 def get_user_libraries():
-    """获取当前用户可访问的视频库列表"""
+    """获取当前用户可访问的资源库列表"""
     try:
         user_id = None
         user_role = 0
@@ -3710,8 +3711,8 @@ def get_user_libraries():
         # 方式3: 从 session 获取（传统方式）
         user_id, user_role = resolve_identity()
 
-        # 获取所有激活的视频库
-        libraries = VideoLibrary.query.filter_by(is_active=True).all()
+        # 获取所有激活的资源库
+        libraries = ResourceLibrary.query.filter_by(is_active=True).all()
 
         if not user_id:
             # 未登录用户，只能看到公开的（暂时返回空）
@@ -3734,7 +3735,7 @@ def get_user_libraries():
             # 合并权限（用户权限 > 用户组权限）
             perm = user_perm or (group_perms[0] if group_perms else None)
 
-            # 管理员和 ROOT 可以访问所有视频库
+            # 管理员和 ROOT 可以访问所有资源库
             if perm or user_role in [UserRole.ADMIN, UserRole.ROOT]:
                 lib_dict = lib.to_dict()
                 lib_dict['access_level'] = perm.access_level if perm else 'full'
@@ -3756,7 +3757,7 @@ def get_user_libraries():
 
                 result.append(lib_dict)
 
-        # 获取当前选中的视频库
+        # 获取当前选中的资源库
         current_library_id = session.get('current_library_id')
         if not current_library_id and result:
             current_library_id = result[0]['id']
@@ -3767,19 +3768,19 @@ def get_user_libraries():
             'current_library': current_library_id
         })
     except Exception as e:
-        log.debug('ERROR', f"获取用户视频库失败: {e}")
+        log.debug('ERROR', f"获取用户资源库失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/user/libraries/switch', methods=['POST'])
 def switch_user_library():
-    """切换当前视频库"""
+    """切换当前资源库"""
     try:
         data = request.get_json()
         library_id = data.get('library_id')
 
         if not library_id:
-            return jsonify({'success': False, 'message': '请指定视频库'}), 400
+            return jsonify({'success': False, 'message': '请指定资源库'}), 400
 
         # 验证用户身份：优先 JWT token，其次 session
         user_id = None
@@ -3803,11 +3804,11 @@ def switch_user_library():
         if not user_id:
             return jsonify({'success': False, 'message': '请先登录'}), 401
 
-        library = VideoLibrary.query.get_or_404(library_id)
+        library = ResourceLibrary.query.get_or_404(library_id)
 
-        # 检查视频库是否被禁用
+        # 检查资源库是否被禁用
         if not library.is_active:
-            return jsonify({'success': False, 'message': '该视频库已被禁用'}), 403
+            return jsonify({'success': False, 'message': '该资源库已被禁用'}), 403
 
         # 管理员/ROOT 可以访问所有库；普通用户检查权限
         if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
@@ -3818,12 +3819,12 @@ def switch_user_library():
                 for ugm in group_perms
             ))
             if not has_access:
-                return jsonify({'success': False, 'message': '无权访问该视频库'}), 403
+                return jsonify({'success': False, 'message': '无权访问该资源库'}), 403
 
         session['current_library_id'] = library_id
         return jsonify({
             'success': True,
-            'message': f'已切换到视频库: {library.name}',
+            'message': f'已切换到资源库: {library.name}',
             'current_library': library_id
         })
     except Exception as e:
@@ -3936,7 +3937,7 @@ def remove_user_from_group(group_id, user_id):
 @app.route('/api/admin/libraries/<int:library_id>/audit-logs', methods=['GET'])
 @admin_required
 def get_library_audit_logs(library_id):
-    """获取视频库权限变更日志"""
+    """获取资源库权限变更日志"""
     try:
         logs = LibraryAuditLog.query.filter_by(library_id=library_id).order_by(
             LibraryAuditLog.created_at.desc()
@@ -4851,22 +4852,22 @@ def control_service(service_name):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-# ============ 视频库文件夹自动感知 ============
+# ============ 资源库文件夹自动感知 ============
 def _restart_library_watchers():
-    """（重新）启动视频库文件夹监控，供服务启动 / 新增文件夹后调用。
+    """（重新）启动资源库文件夹监控，供服务启动 / 新增文件夹后调用。
 
-    监控路径优先从 resourced 查询（视频库/文件夹的磁盘路径），回退到现有 Video.local_path。
+    监控路径优先从 resourced 查询（资源库/文件夹的磁盘路径），回退到现有 Video.local_path。
     文件的新增/删除/重命名会实时同步到 Video 表，无需手动扫描。
     """
     if not app_config.get('library_watch_enabled', True):
-        log.debug('INFO', '视频库文件夹自动感知已通过配置禁用')
+        log.debug('INFO', '资源库文件夹自动感知已通过配置禁用')
         return
     try:
         from library_watcher import start_library_watchers as _sw
         _sw(app=app, resource_bus=resource_bus, app_config=app_config,
             thumbnail_bus=thumbnail_bus, log=log)
     except Exception as e:
-        log.debug('ERROR', f'启动视频库文件夹监控失败: {e}')
+        log.debug('ERROR', f'启动资源库文件夹监控失败: {e}')
 
 
 try:
@@ -4874,7 +4875,7 @@ try:
     _tw.Thread(target=_restart_library_watchers, daemon=True,
                name='library-watcher-boot').start()
 except Exception as e:
-    print(f'[WARNING] 视频库文件夹监控模块不可用: {e}')
+    print(f'[WARNING] 资源库文件夹监控模块不可用: {e}')
 
 
 # ============ 主入口 ============

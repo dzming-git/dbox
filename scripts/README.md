@@ -86,10 +86,10 @@ firewall_manager.bat 8080 list       # 查看规则
 python scripts/init_root.py
 ```
 
-### `restore_users.py` — 从视频库 DB 恢复丢失用户到主库
+### `restore_users.py` — 从资源库 DB 恢复丢失用户到主库
 扫描 `data/libraries/*.db`，将缺失用户去重后写入 `data/databases/dplayer.db`。
 
-### `restore_libraries.py` — 修正视频库注册
+### `restore_libraries.py` — 修正资源库注册
 按文件名 `{库名}_{时间戳}.db` 推断真实库名并修正主库中的库注册记录。
 
 ### `migrate_unify_index.py` — 统一双索引源迁移（2026-07-12）

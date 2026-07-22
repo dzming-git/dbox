@@ -2,7 +2,7 @@
 """
 漫画扫描器
 
-把视频库磁盘目录里的「扁平图片文件夹」识别为一本漫画：
+把资源库磁盘目录里的「扁平图片文件夹」识别为一本漫画：
   - 漫画 = 一个目录，其直接子文件里图片数 >= MIN_PAGES 且不含「带图片的子目录」
   - 支持递归（子目录若自身满足上述条件，也会被识别为独立的一本）
   - 每本漫画按 内容指纹(hash) 去重入库；重命名（改变 folder_path）会被识别为同一本并更新路径
@@ -70,8 +70,8 @@ def _resolve_comic_targets(library_id, app=None):
             name = None
             if app:
                 with app.app_context():
-                    from core.models import VideoLibrary
-                    lib = VideoLibrary.query.get(library_id)
+                    from core.models import ResourceLibrary
+                    lib = ResourceLibrary.query.get(library_id)
                     name = lib.name if lib else None
             rl = {x['name']: x for x in res.get('libraries', [])}.get(name) if name else None
             paths = []
@@ -130,10 +130,10 @@ def _sync_pages(comic, pages):
 
 
 def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
-    """扫描单个视频库，识别其中的漫画并写入 comics 表。
+    """扫描单个资源库，识别其中的漫画并写入 comics 表。
 
     Args:
-        library_id: web 视频库 ID
+        library_id: web 资源库 ID
         app: Flask app（用于 app_context）
         min_pages: 一个目录至少包含多少张图片才算漫画
         max_depth: 从库根目录向下的最大递归层数
@@ -141,7 +141,7 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
     Returns:
         dict: {success, added, updated, removed, total, message}
     """
-    from core.models import db, Comic, VideoLibrary
+    from core.models import db, Comic, ResourceLibrary
 
     def debug(level, msg):
         if log:
@@ -154,9 +154,9 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
 
     with app.app_context():
         from core.models import User, UserRole
-        lib = VideoLibrary.query.get(library_id)
+        lib = ResourceLibrary.query.get(library_id)
         if not lib:
-            return {'success': False, 'message': '视频库不存在'}
+            return {'success': False, 'message': '资源库不存在'}
         # 扫描发现的资源归属 root 用户（管理员对所有资源有权限）
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
@@ -236,11 +236,11 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
 
 
 def scan_all_comics(app, log=None):
-    """扫描所有视频库（供需要时一次性全量扫描）。"""
-    from core.models import VideoLibrary
+    """扫描所有资源库（供需要时一次性全量扫描）。"""
+    from core.models import ResourceLibrary
     results = []
     with app.app_context():
-        libs = VideoLibrary.query.filter_by(is_active=True).all()
+        libs = ResourceLibrary.query.filter_by(is_active=True).all()
     for lib in libs:
         results.append(scan_library_comics(lib.id, app, log=log))
     return results

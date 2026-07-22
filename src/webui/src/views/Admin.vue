@@ -41,7 +41,7 @@ watch(activeTab, (val) => {
 // 系统信息
 const systemInfo = ref<any>(null)
 const systemStats = ref<any>(null)
-// 热门视频排行（点赞/收藏最多）与各视频库数量
+// 热门视频排行（点赞/收藏最多）与各资源库数量
 const hotStats = ref<any>(null)
 const systemPaths = ref<any>(null)
 const loading = ref({
@@ -64,7 +64,7 @@ const videos = ref<any[]>([])
 const videoSearch = ref('')
 const videoPage = ref(1)
 const videoTotal = ref(0)
-const videoLibraryFilter = ref<number | ''>('')  // 当前筛选的视频库ID，空字符串表示全部
+const resourceLibraryFilter = ref<number | ''>('')  // 当前筛选的资源库ID，空字符串表示全部
 const selectedVideos = ref<string[]>([])
 const editingVideo = ref<any>(null)
 const editingVideoTags = ref<string>('')  // 标签输入（用 "/" 分隔）
@@ -110,7 +110,7 @@ const servicesLoading = ref(false)
 const servicesInterval = ref<number | null>(null)
 const serviceControlLoading = ref<string | null>(null)  // 当前正在操作的服务名
 
-// 视频库管理
+// 资源库管理
 const libraries = ref<any[]>([])
 const showLibraryModal = ref(false)
 const showPermissionModal = ref(false)
@@ -224,7 +224,7 @@ const manageFolders = (lib: any) => {
 }
 
 
-// ============ 视频库详情展开视图（在"视频库管理"标签页中使用） ============
+// ============ 资源库详情展开视图（在"资源库管理"标签页中使用） ============
 const expandedLibraryId = ref<number | null>(null)
 const libraryDetailFolders = ref<any[]>([])
 const libraryDetailFolderKey = ref('__all__')       // '__all__' = 所有文件夹
@@ -241,7 +241,7 @@ const libraryDetailScanSummary = ref<{ total: number; newCount: number; existCou
 // 扫描过程中各文件夹的失败原因（如路径不存在/无权限），用于向用户解释为什么是 0
 const libraryDetailScanErrors = ref<{ folder: string; message: string }[]>([])
 
-// 当前展开的视频库对象
+// 当前展开的资源库对象
 const currentLibrary = computed(() => {
   return libraries.value.find(l => l.id === expandedLibraryId.value) || null
 })
@@ -251,11 +251,11 @@ const libraryDetailCurrentFiles = computed(() => {
   return libraryDetailFileCache.value[libraryDetailFolderKey.value] || []
 })
 
-// 展开视频库详情
+// 展开资源库详情
 const enterLibraryDetail = async (lib: any) => {
   expandedLibraryId.value = lib.id
 
-  // 切换视频库时清空上一库的扫描缓存与状态，避免串库显示旧数据
+  // 切换资源库时清空上一库的扫描缓存与状态，避免串库显示旧数据
   libraryDetailFileCache.value = {}
   libraryDetailSelectedFiles.value = []
   libraryDetailScanSummary.value = null
@@ -279,7 +279,7 @@ const enterLibraryDetail = async (lib: any) => {
   libraryDetailFolderKey.value = '__all__'
 }
 
-// 收起视频库详情
+// 收起资源库详情
 const leaveLibraryDetail = () => {
   expandedLibraryId.value = null
   libraryDetailFileCache.value = {}
@@ -393,7 +393,7 @@ const scanDetailFolder = async (folderKey?: string) => {
   }
 }
 
-// 一键扫描全部视频库（自动对齐文件名/标题，覆盖软件未运行或旧逻辑漏更新的情况）
+// 一键扫描全部资源库（自动对齐文件名/标题，覆盖软件未运行或旧逻辑漏更新的情况）
 const scanAllScanning = ref(false)
 const scanAllMessage = ref('')
 let scanAllTimer: any = null
@@ -546,7 +546,7 @@ const accessLevelOptions = [
   { value: 'custom', label: '自定义' }
 ]
 
-// 获取所有视频库
+// 获取所有资源库
 const fetchLibraries = async () => {
   loading.value.libraries = true
   try {
@@ -555,23 +555,23 @@ const fetchLibraries = async () => {
       libraries.value = res.data
     }
   } catch (error) {
-    console.error('获取视频库列表失败:', error)
+    console.error('获取资源库列表失败:', error)
   } finally {
     loading.value.libraries = false
   }
 }
 
-// 创建视频库
+// 创建资源库
 const createLibrary = async () => {
   if (!libraryForm.value.name.trim()) {
-    showToast('请输入视频库名称')
+    showToast('请输入资源库名称')
     return
   }
   try {
     creatingLibrary.value = true
     const res = await api.post('/api/admin/libraries', libraryForm.value) as any
     if (res.success) {
-      showToast('视频库创建成功')
+      showToast('资源库创建成功')
       showLibraryModal.value = false
       libraryForm.value = { name: '', description: '', db_file: '', config: {} }
       fetchLibraries()
@@ -579,14 +579,14 @@ const createLibrary = async () => {
       showToast(res.message || '创建失败')
     }
   } catch (error: any) {
-    console.error('创建视频库失败:', error)
+    console.error('创建资源库失败:', error)
     showToast(error.response?.data?.message || '创建失败')
   } finally {
     creatingLibrary.value = false
   }
 }
 
-// 更新视频库
+// 更新资源库
 const updateLibrary = async () => {
   if (!editingLibrary.value) return
   try {
@@ -598,14 +598,14 @@ const updateLibrary = async () => {
       fetchLibraries()
     }
   } catch (error) {
-    console.error('更新视频库失败:', error)
+    console.error('更新资源库失败:', error)
     showToast('更新失败')
   }
 }
 
-// 删除视频库
+// 删除资源库
 const deleteLibrary = async (id: number) => {
-  if (!confirm('确定要删除该视频库吗？')) return
+  if (!confirm('确定要删除该资源库吗？')) return
   try {
     const res = await api.delete(`/api/admin/libraries/${id}`) as any
     if (res.success) {
@@ -613,12 +613,12 @@ const deleteLibrary = async (id: number) => {
       fetchLibraries()
     }
   } catch (error) {
-    console.error('删除视频库失败:', error)
+    console.error('删除资源库失败:', error)
     showToast('删除失败')
   }
 }
 
-// 切换视频库激活状态
+// 切换资源库激活状态
 const toggleLibraryActive = async (lib: any) => {
   try {
     const newStatus = !lib.is_active
@@ -627,22 +627,22 @@ const toggleLibraryActive = async (lib: any) => {
       is_active: newStatus
     }) as any
     if (res.success) {
-      showToast(newStatus ? '视频库已激活' : '视频库已禁用')
+      showToast(newStatus ? '资源库已激活' : '资源库已禁用')
       fetchLibraries()
     }
   } catch (error) {
-    console.error('切换视频库状态失败:', error)
+    console.error('切换资源库状态失败:', error)
     showToast('操作失败')
   }
 }
 
-// 编辑视频库
+// 编辑资源库
 const editLibrary = (lib: any) => {
   editingLibrary.value = { ...lib }
   showLibraryModal.value = true
 }
 
-// 获取视频库权限
+// 获取资源库权限
 const fetchLibraryPermissions = async (libraryId: number) => {
   selectedLibraryId.value = libraryId
   try {
@@ -708,7 +708,7 @@ const fetchUserGroups = async () => {
 // ============ 文件夹浏览器功能 ============
 
 
-// 打开文件夹浏览器（用于向当前视频库导入：选择其他文件夹）
+// 打开文件夹浏览器（用于向当前资源库导入：选择其他文件夹）
 const openLibraryImportFolderBrowser = async () => {
   if (expandedLibraryId.value == null) return
   showFolderBrowser.value = true
@@ -718,7 +718,7 @@ const openLibraryImportFolderBrowser = async () => {
   await loadFolderList('', false)
 }
 
-// 选择文件夹后：作为“其他文件夹”扫描并导入到当前视频库
+// 选择文件夹后：作为“其他文件夹”扫描并导入到当前资源库
 const selectCurrentFolder = () => {
   const p = browserPath.value
   showFolderBrowser.value = false
@@ -784,7 +784,7 @@ const fetchSystemInfo = async () => {
   }
 }
 
-// 获取热门视频排行与视频库分布
+// 获取热门视频排行与资源库分布
 const loadHotStats = async () => {
   try {
     const r = await videoApi.getStats() as any
@@ -877,7 +877,7 @@ const fetchVideos = async (resetPage = true) => {
       order: videoSortOrder.value
     }
     if (videoSearch.value.trim()) params.search = videoSearch.value.trim()
-    if (videoLibraryFilter.value !== '') params.library_id = videoLibraryFilter.value
+    if (resourceLibraryFilter.value !== '') params.library_id = resourceLibraryFilter.value
     const res = await api.get('/api/videos', { params }) as any
     console.log('[Admin fetchVideos] response:', res)
     if (res.success) {
@@ -1380,7 +1380,7 @@ onUnmounted(() => {
           :class="{ active: activeTab === 'libraries' }"
           @click="switchTab('libraries')"
           v-if="userStore.isRoot"
-        >📁 视频库管理</button>
+        >📁 资源库管理</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'thumbnail' }"
@@ -1536,10 +1536,10 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 视频库分布卡片 -->
+          <!-- 资源库分布卡片 -->
           <div class="info-card libdist-card" v-if="hotStats">
             <div class="card-header">
-              <h3>视频库分布</h3>
+              <h3>资源库分布</h3>
             </div>
             <div class="card-body">
               <div class="stat-item" v-for="lib in hotStats.by_library" :key="lib.id">
@@ -1548,7 +1548,7 @@ onUnmounted(() => {
                   <span class="stat-label">{{ lib.name }}</span>
                 </div>
               </div>
-              <div v-if="!(hotStats.by_library && hotStats.by_library.length)" class="hot-empty">暂无视频库</div>
+              <div v-if="!(hotStats.by_library && hotStats.by_library.length)" class="hot-empty">暂无资源库</div>
             </div>
           </div>
 
@@ -1636,14 +1636,14 @@ onUnmounted(() => {
         <div class="section-header">
           <h3>视频管理</h3>
           <div class="section-actions">
-            <!-- 视频库筛选 -->
+            <!-- 资源库筛选 -->
             <select
-              v-model="videoLibraryFilter"
+              v-model="resourceLibraryFilter"
               @change="fetchVideos()"
               class="search-input"
               style="min-width: 140px"
             >
-              <option value="">全部视频库</option>
+              <option value="">全部资源库</option>
               <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
             </select>
             <!-- 排序选择 -->
@@ -2166,21 +2166,21 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 视频库管理标签页 -->
+      <!-- 资源库管理标签页 -->
       <div v-if="activeTab === 'libraries'" class="tab-content">
         <div class="section-header">
-          <h3>视频库管理</h3>
+          <h3>资源库管理</h3>
           <div class="header-actions">
             <button class="action-btn" @click="scanAllLibraries()" :disabled="scanAllScanning">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               {{ scanAllScanning ? '全量扫描中...' : '🔄 扫描全部库（同步文件名/标题）' }}
             </button>
-            <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true">+ 新建视频库</button>
+            <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true">+ 新建资源库</button>
           </div>
         </div>
         <div v-if="scanAllMessage" class="scan-all-status">{{ scanAllMessage }}</div>
 
-        <!-- 视频库列表 -->
+        <!-- 资源库列表 -->
         <div class="library-grid">
           <div v-for="lib in libraries" :key="lib.id" class="library-card">
             <div class="library-card-header">
@@ -2206,7 +2206,7 @@ onUnmounted(() => {
               <button
                 :class="['action-btn', 'primary', { active: expandedLibraryId === lib.id }]"
                 @click="expandedLibraryId === lib.id ? leaveLibraryDetail() : enterLibraryDetail(lib)"
-                :title="expandedLibraryId === lib.id ? '收起详情' : '展开查看视频库详情、关联文件夹与文件列表'"
+                :title="expandedLibraryId === lib.id ? '收起详情' : '展开查看资源库详情、关联文件夹与文件列表'"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
                 导入
@@ -2232,17 +2232,17 @@ onUnmounted(() => {
         </div>
 
         <div v-if="libraries.length === 0 && !loading.libraries" class="empty-state">
-          <p>暂无视频库，请创建一个</p>
+          <p>暂无资源库，请创建一个</p>
         </div>
 
       </div>
 
-      <!-- ============ 视频库导入弹窗（替代原向下展开 + 独立批量导入Tab） ============ -->
+      <!-- ============ 资源库导入弹窗（替代原向下展开 + 独立批量导入Tab） ============ -->
       <div v-if="expandedLibraryId" class="modal-overlay" @click="leaveLibraryDetail()">
         <div class="modal-content import-modal" @click.stop>
           <div class="modal-header import-modal-header">
             <div class="import-modal-title">
-              <h3>{{ currentLibrary?.name || '视频库' }} · 导入视频</h3>
+              <h3>{{ currentLibrary?.name || '资源库' }} · 导入视频</h3>
               <p class="modal-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
             </div>
             <button class="close-btn" @click="leaveLibraryDetail()">×</button>
@@ -2497,21 +2497,21 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 视频库编辑弹窗 -->
+    <!-- 资源库编辑弹窗 -->
     <div v-if="showLibraryModal" class="modal-overlay" @click="showLibraryModal = false">
       <div class="modal-content library-modal" @click.stop>
         <div class="modal-header">
-          <h3>{{ editingLibrary ? '✏️ 编辑视频库' : '📁 新建视频库' }}</h3>
+          <h3>{{ editingLibrary ? '✏️ 编辑资源库' : '📁 新建资源库' }}</h3>
           <button class="close-btn" @click="showLibraryModal = false">×</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>视频库名称 <span class="required">*</span></label>
+            <label>资源库名称 <span class="required">*</span></label>
             <input 
               v-if="editingLibrary" 
               v-model="editingLibrary.name" 
               type="text" 
-              placeholder="请输入视频库名称"
+              placeholder="请输入资源库名称"
             />
             <input 
               v-else 
@@ -2527,7 +2527,7 @@ onUnmounted(() => {
               v-if="editingLibrary" 
               v-model="editingLibrary.description" 
               rows="4"
-              placeholder="请输入视频库描述（可选）"
+              placeholder="请输入资源库描述（可选）"
             ></textarea>
             <textarea 
               v-else 
@@ -2549,7 +2549,7 @@ onUnmounted(() => {
             :disabled="creatingLibrary || (!editingLibrary && !libraryForm.name.trim())"
           >
             <span v-if="creatingLibrary">创建中...</span>
-            <span v-else>{{ editingLibrary ? '保存修改' : '创建视频库' }}</span>
+            <span v-else>{{ editingLibrary ? '保存修改' : '创建资源库' }}</span>
           </button>
         </div>
       </div>
@@ -4283,7 +4283,7 @@ input:checked + .slider:before {
   }
 }
 
-/* 视频库管理样式 */
+/* 资源库管理样式 */
 .library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -4298,7 +4298,7 @@ input:checked + .slider:before {
   gap: 24px;
 }
 
-/* ============ 视频库导入弹窗（文件夹/扫描/选择） ============ */
+/* ============ 资源库导入弹窗（文件夹/扫描/选择） ============ */
 .detail-folders-section h4 {
   margin: 0 0 12px;
   font-size: 15px;
@@ -5731,7 +5731,7 @@ input:checked + .slider:before {
 
 
 
-/* 视频库弹窗样式 */
+/* 资源库弹窗样式 */
 
 .library-modal {
 
@@ -7773,7 +7773,7 @@ input:checked + .slider:before {
 
 
 
-/* 视频库导入弹窗（重设计：替代原向下展开 + 独立批量导入Tab） */
+/* 资源库导入弹窗（重设计：替代原向下展开 + 独立批量导入Tab） */
 
 .import-modal { max-width: 960px; width: 95%; display: flex; flex-direction: column; max-height: 90vh; }
 

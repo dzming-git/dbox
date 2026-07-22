@@ -13,7 +13,7 @@ const route = useRoute()
 const comicStore = useComicStore()
 const userStore = useUserStore()
 
-// 标签筛选（对齐视频库的标签下拉）
+// 标签筛选（对齐资源库的标签下拉）
 const allTags = ref<any[]>([])
 const loadTags = async () => {
   try {
@@ -200,7 +200,7 @@ watch(() => route.query, async (newQuery) => {
           <option value="asc">正序</option>
         </select>
         <select class="library-select" :value="comicStore.selectedLibraryId || ''" @change="handleLibraryChange">
-          <option value="">全部视频库</option>
+          <option value="">全部资源库</option>
           <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
         </select>
         <select class="library-select tag-select" :value="comicStore.selectedTagId || ''" @change="handleTagChange">
@@ -277,7 +277,7 @@ watch(() => route.query, async (newQuery) => {
       <div v-if="comics.length === 0" class="empty-state">
         <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <p>暂无漫画</p>
-        <p class="empty-tip" v-if="userStore.isAdmin">在视频库里放入「扁平的图片文件夹」（每本 >=2 张图）即可自动收录。</p>
+        <p class="empty-tip" v-if="userStore.isAdmin">在资源库里放入「扁平的图片文件夹」（每本 >=2 张图）即可自动收录。</p>
       </div>
 
       <div v-if="totalPages > 1" class="pagination">

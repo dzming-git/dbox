@@ -17,7 +17,7 @@ from werkzeug.exceptions import HTTPException
 
 from core.models import (
     db, Comic, ComicPage, ComicInteraction, ComicProgress, UserRole,
-    VideoLibrary, LibraryPermission, LibraryUserGroupMember,
+    ResourceLibrary, LibraryPermission, LibraryUserGroupMember,
     ComicTag, ComicPlaylist, ComicPlaylistItem, Tag,
 )
 
@@ -96,10 +96,10 @@ _MIME_MAP = {
 
 
 def _allowed_library_ids():
-    """返回当前用户可访问的视频库ID列表（与 main.get_allowed_library_ids 对齐）。
+    """返回当前用户可访问的资源库ID列表（与 main.get_allowed_library_ids 对齐）。
 
-    漫画复用 video_libraries 表，权限模型与视频一致：
-    - 管理员/ROOT：返回全部「激活」视频库ID；
+    漫画复用 resource_libraries 表，权限模型与视频一致：
+    - 管理员/ROOT：返回全部「激活」资源库ID；
     - 登录普通用户：自身直接权限 + 所属用户组权限 + 通用权限(user_id=None)；
     - 游客：仅通用权限。
     返回永远是 list（可能为空）。调用方据此过滤 Comic.library_id。
@@ -107,24 +107,24 @@ def _allowed_library_ids():
     uid, role = _resolve_identity()
     allowed = []
     if role in (UserRole.ADMIN, UserRole.ROOT):
-        libs = VideoLibrary.query.filter_by(is_active=True).all()
+        libs = ResourceLibrary.query.filter_by(is_active=True).all()
         return [lib.id for lib in libs]
     if uid:
         perms = LibraryPermission.query.filter_by(user_id=uid).all()
         for p in perms:
-            lib = VideoLibrary.query.get(p.library_id)
+            lib = ResourceLibrary.query.get(p.library_id)
             if lib and getattr(lib, 'is_active', True):
                 allowed.append(p.library_id)
         groups = LibraryUserGroupMember.query.filter_by(user_id=uid).all()
         for ugm in groups:
             gperms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
             for p in gperms:
-                lib = VideoLibrary.query.get(p.library_id)
+                lib = ResourceLibrary.query.get(p.library_id)
                 if lib and getattr(lib, 'is_active', True) and p.library_id not in allowed:
                     allowed.append(p.library_id)
     general = LibraryPermission.query.filter_by(user_id=None).all()
     for p in general:
-        lib = VideoLibrary.query.get(p.library_id)
+        lib = ResourceLibrary.query.get(p.library_id)
         if lib and getattr(lib, 'is_active', True) and p.library_id not in allowed:
             allowed.append(p.library_id)
     return allowed
@@ -191,7 +191,7 @@ def list_comics():
 
         query = Comic.query
 
-        # ============ 视频库权限过滤（与视频 /api/videos 对齐）============
+        # ============ 资源库权限过滤（与视频 /api/videos 对齐）============
         allowed_libs = _allowed_library_ids()
         if allowed_libs:
             query = query.filter(
@@ -284,12 +284,12 @@ def list_comics():
 def get_comic(comic_hash):
     try:
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
-        # ============ 视频库权限校验（与视频详情 /api/video/<hash> 对齐）============
+        # ============ 资源库权限校验（与视频详情 /api/video/<hash> 对齐）============
         if c.library_id:
             _uid, _role = _resolve_identity()
             if _role not in (UserRole.ADMIN, UserRole.ROOT):
                 if c.library_id not in _allowed_library_ids():
-                    return jsonify({'success': False, 'message': '无权访问该漫画所在的视频库', 'code': 403}), 403
+                    return jsonify({'success': False, 'message': '无权访问该漫画所在的资源库', 'code': 403}), 403
         key = current_interaction_key()
         d = c.to_dict()
         pages = ComicPage.query.filter_by(comic_id=c.id).order_by(ComicPage.page_index).all()
@@ -640,7 +640,7 @@ def set_comic_tags(comic_hash):
 
 @comic_bp.route('/api/comic/<comic_hash>/update', methods=['POST'])
 def update_comic_info(comic_hash):
-    """更新漫画信息（标题、所属视频库）"""
+    """更新漫画信息（标题、所属资源库）"""
     try:
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
         # 资源所属权校验：仅本人或管理员/ROOT 可编辑
@@ -653,9 +653,9 @@ def update_comic_info(comic_hash):
         if 'library_id' in data:
             library_id = data['library_id']
             if library_id is not None:
-                library = VideoLibrary.query.get(int(library_id))
+                library = ResourceLibrary.query.get(int(library_id))
                 if not library:
-                    return jsonify({'success': False, 'message': '视频库不存在'}), 400
+                    return jsonify({'success': False, 'message': '资源库不存在'}), 400
             c.library_id = library_id
         db.session.commit()
         return jsonify({'success': True, 'comic': c.to_dict()})

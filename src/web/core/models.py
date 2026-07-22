@@ -157,7 +157,7 @@ class Video(db.Model):
     is_downloaded = db.Column(db.Boolean, default=False)  # 是否已下载到本地
     local_path = db.Column(db.String(500))  # 本地存储路径
     file_name = db.Column(db.String(500))  # 文件名（仅作为属性，绝不作为视频唯一标识/key）
-    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'))  # 所属视频库，NULL表示主数据库
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'))  # 所属资源库，NULL表示主数据库
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -225,7 +225,7 @@ class Video(db.Model):
 
 
 class Tag(db.Model):
-    """标签模型 - 支持多视频库独立标签体系"""
+    """标签模型 - 支持多资源库独立标签体系"""
     __tablename__ = 'tags'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -233,15 +233,15 @@ class Tag(db.Model):
     path = db.Column(db.String(200), nullable=False, index=True)  # 完整路径，如 /动物/狗/哈士奇
     category = db.Column(db.String(50))  # 标签分类：如 "类型", "作者", "地区" 等
     parent_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=True)  # 父标签ID，支持多级
-    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=True)  # 视频库ID，null表示全局标签
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)  # 资源库ID，null表示全局标签
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # 关系
     videos = db.relationship('VideoTag', back_populates='tag', cascade='all, delete-orphan')
     parent = db.relationship('Tag', remote_side=[id], backref='children')  # 自关联：父标签 / 子标签
-    library = db.relationship('VideoLibrary', backref='tags')  # 视频库关系
+    library = db.relationship('ResourceLibrary', backref='tags')  # 资源库关系
 
-    # 唯一约束：同一视频库下路径唯一
+    # 唯一约束：同一资源库下路径唯一
     __table_args__ = (db.UniqueConstraint('path', 'library_id', name='_path_library_uc'),)
 
     def __repr__(self):
@@ -559,11 +559,11 @@ class PlaylistItem(db.Model):
         }
 
 
-# ==================== 多数据库视频库管理模型 ====================
+# ==================== 多数据库资源库管理模型 ====================
 
-class VideoLibrary(db.Model):
-    """视频库模型 - 每个视频库对应一个独立的数据库"""
-    __tablename__ = 'video_libraries'
+class ResourceLibrary(db.Model):
+    """资源库模型 - 每个资源库对应一个独立的数据库"""
+    __tablename__ = 'resource_libraries'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
@@ -579,7 +579,7 @@ class VideoLibrary(db.Model):
     permissions = db.relationship('LibraryPermission', back_populates='library', cascade='all, delete-orphan')
 
     def __repr__(self):
-        return f'<VideoLibrary {self.name}>'
+        return f'<ResourceLibrary {self.name}>'
 
     @property
     def full_db_path(self):
@@ -627,11 +627,11 @@ class VideoLibrary(db.Model):
 
 
 class LibraryPermission(db.Model):
-    """视频库权限模型"""
+    """资源库权限模型"""
     __tablename__ = 'library_permissions'
 
     id = db.Column(db.Integer, primary_key=True)
-    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=False)
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # 用户ID，为NULL表示用户组权限
     group_id = db.Column(db.Integer, db.ForeignKey('library_user_groups.id'))  # 用户组ID
     role = db.Column(db.String(20), nullable=False, default='user')  # admin 或 user
@@ -641,7 +641,7 @@ class LibraryPermission(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
 
     # 关系
-    library = db.relationship('VideoLibrary', back_populates='permissions')
+    library = db.relationship('ResourceLibrary', back_populates='permissions')
     user = db.relationship('User', foreign_keys=[user_id])
     group = db.relationship('LibraryUserGroup', back_populates='permissions')
 
@@ -727,7 +727,7 @@ class LibraryAuditLog(db.Model):
     __tablename__ = 'library_audit_log'
 
     id = db.Column(db.Integer, primary_key=True)
-    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'))
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'))
     target_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     action = db.Column(db.String(20), nullable=False)  # create, update, delete
     old_value = db.Column(db.JSON)
@@ -814,7 +814,7 @@ class Comic(db.Model):
     title = db.Column(db.String(300), nullable=False)
     folder_path = db.Column(db.String(600))            # 漫画文件夹本地路径
     cover_path = db.Column(db.String(600))             # 封面（第一页）本地路径
-    library_id = db.Column(db.Integer, db.ForeignKey('video_libraries.id'), nullable=True)
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     page_count = db.Column(db.Integer, default=0)
     like_count = db.Column(db.Integer, default=0)
@@ -910,7 +910,7 @@ class ComicProgress(db.Model):
 
 
 class ComicTag(db.Model):
-    """漫画-标签关联表（复用主应用的 tags 表，支持多视频库独立标签体系）"""
+    """漫画-标签关联表（复用主应用的 tags 表，支持多资源库独立标签体系）"""
     __tablename__ = 'comic_tags'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -1037,6 +1037,24 @@ def migrate_owner_columns():
                 print(f'[INFO] {table}.owner_id 迁移完成，历史资源归属 root(id={root_id})')
     except Exception as e:
         print(f'[WARN] owner_id 迁移跳过: {e}')
+
+
+def migrate_video_libraries_rename():
+    """将旧表 video_libraries 重命名为 resource_libraries（兼容历史库）。
+
+    仅当 video_libraries 表仍存在时执行 ALTER，已重命名过的库不受影响。
+    SQLite 会自动将 videos / comics / tags 等表的 library_id 外键引用同步到新表名。
+    """
+    try:
+        with db.engine.connect() as conn:
+            res = conn.execute(db.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='video_libraries'"))
+            if res.fetchone():
+                conn.execute(db.text('ALTER TABLE video_libraries RENAME TO resource_libraries'))
+                conn.commit()
+                print('[MIGRATE] video_libraries 已重命名为 resource_libraries')
+    except Exception as e:
+        print(f'[WARN] video_libraries 重命名跳过: {e}')
 
 
 

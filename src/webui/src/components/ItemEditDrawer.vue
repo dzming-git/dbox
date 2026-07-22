@@ -148,7 +148,7 @@ const save = async () => {
           </label>
 
           <label class="field">
-            <span class="field-label">所属视频库</span>
+            <span class="field-label">所属资源库</span>
             <select v-model="form.library_id" class="field-input">
               <option value="">未分类 / 全局</option>
               <option v-for="lib in libraries" :key="lib.id" :value="String(lib.id)">
