@@ -162,6 +162,10 @@ class Video(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # 回收站（软删除）标记
+    in_trash = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    trashed_at = db.Column(db.DateTime, nullable=True)
+
     # 关系
     tags = db.relationship('VideoTag', back_populates='video', cascade='all, delete-orphan')
     user_interactions = db.relationship('UserInteraction', back_populates='video', cascade='all, delete-orphan')
@@ -822,6 +826,10 @@ class Comic(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # 回收站（软删除）标记
+    in_trash = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    trashed_at = db.Column(db.DateTime, nullable=True)
+
     pages = db.relationship('ComicPage', back_populates='comic', cascade='all, delete-orphan',
                             order_by='ComicPage.page_index')
     interactions = db.relationship('ComicInteraction', back_populates='comic', cascade='all, delete-orphan')
@@ -1055,6 +1063,25 @@ def migrate_video_libraries_rename():
                 print('[MIGRATE] video_libraries 已重命名为 resource_libraries')
     except Exception as e:
         print(f'[WARN] video_libraries 重命名跳过: {e}')
+
+
+def migrate_trash_columns():
+    """为 videos / comics 增加回收站字段 in_trash / trashed_at（兼容历史库）。"""
+    try:
+        with db.engine.connect() as conn:
+            for table in ('videos', 'comics'):
+                cols = [r[1] for r in conn.execute(
+                    db.text(f"PRAGMA table_info({table})")).fetchall()]
+                if 'in_trash' not in cols:
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ADD COLUMN in_trash BOOLEAN NOT NULL DEFAULT 0"))
+                if 'trashed_at' not in cols:
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ADD COLUMN trashed_at DATETIME"))
+            conn.commit()
+            print('[MIGRATE] trash 字段已就绪')
+    except Exception as e:
+        print(f'[WARN] trash 字段迁移跳过: {e}')
 
 
 

@@ -96,6 +96,21 @@ const openEdit = (c: any) => {
   editDrawerVisible.value = true
 }
 
+const confirmDeleteComic = async (c: Comic) => {
+  if (!window.confirm(`确定要将漫画「${c.title}」移入回收站吗？管理员可在回收站中恢复或彻底删除。`)) return
+  try {
+    const res = await comicApi.deleteComic(c.hash)
+    if (res.data.success) {
+      ElMessage.success(res.data.message || '已移入回收站')
+      comics.value = comics.value.filter(x => x.hash !== c.hash)
+    } else {
+      ElMessage.error(res.data.message || '删除失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  }
+}
+
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选漫画
 const onTagClick = (tag: any) => {
   if (editMode.value) return
@@ -265,6 +280,14 @@ watch(() => route.query, async (newQuery) => {
                 title="编辑"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              </button>
+              <button
+                v-if="editMode"
+                class="list-action-btn delete"
+                @click.stop="confirmDeleteComic(c)"
+                title="删除（移入回收站）"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
               </button>
               <template v-else>
                 <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="comicStore.interact(c.hash,'like')">♥</button>

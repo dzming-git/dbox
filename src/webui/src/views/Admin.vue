@@ -1285,6 +1285,88 @@ const toggleSelectAll = () => {
   }
 }
 
+// ============ 回收站 ============
+const trashItems = ref<any[]>([])
+const trashLoading = ref(false)
+
+const loadTrash = async () => {
+  trashLoading.value = true
+  try {
+    const res = await api.getTrash()
+    if (res.data.success) {
+      trashItems.value = res.data.items || []
+    } else {
+      ElMessage.error(res.data.message || '加载回收站失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '加载回收站失败')
+  } finally {
+    trashLoading.value = false
+  }
+}
+
+const restoreTrashItem = async (item: any) => {
+  try {
+    const res = await api.restoreTrash(item.type, item.hash)
+    if (res.data.success) {
+      ElMessage.success('已恢复')
+      loadTrash()
+    } else {
+      ElMessage.error(res.data.message || '恢复失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '恢复失败')
+  }
+}
+
+const purgeTrashItem = async (item: any) => {
+  if (!window.confirm(`确定要永久删除「${item.title}」吗？此操作不可恢复。`)) return
+  try {
+    const res = await api.purgeTrash(item.type, item.hash)
+    if (res.data.success) {
+      ElMessage.success('已永久删除')
+      loadTrash()
+    } else {
+      ElMessage.error(res.data.message || '删除失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  }
+}
+
+const emptyTrash = async () => {
+  if (trashItems.value.length === 0) return
+  if (!window.confirm('确定要清空回收站吗？所有资源将被永久删除，不可恢复。')) return
+  try {
+    const res = await api.emptyTrash()
+    if (res.data.success) {
+      ElMessage.success(res.data.message || '已清空回收站')
+      loadTrash()
+    } else {
+      ElMessage.error(res.data.message || '清空失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '清空失败')
+  }
+}
+
+const formatTrashTime = (iso: string | null) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const formatSize = (bytes: number) => {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let n = bytes
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
 
 
 
@@ -1319,6 +1401,7 @@ const syncStatusColor = computed(() => {
 const switchTab = (tab: string) => {
   activeTab.value = tab
   if (tab === 'videos') { fetchLibraries(); fetchVideos() }
+  if (tab === 'trash') { loadTrash() }
   if (tab === 'thumbnail') fetchThumbnailConfig()
   if (tab === 'services') { fetchServices(); startServicePolling() }
   if (tab === 'libraries') {
@@ -1377,6 +1460,12 @@ onUnmounted(() => {
         >🎬 视频管理</button>
         <button
           class="tab-btn"
+          :class="{ active: activeTab === 'trash' }"
+          @click="switchTab('trash')"
+          v-if="userStore.isAdmin"
+        >🗑️ 回收站</button>
+        <button
+          class="tab-btn"
           :class="{ active: activeTab === 'libraries' }"
           @click="switchTab('libraries')"
           v-if="userStore.isRoot"
@@ -1431,6 +1520,46 @@ onUnmounted(() => {
     </div>
 
     <div class="admin-content">
+      <!-- 回收站标签页 -->
+      <div v-if="activeTab === 'trash'" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h3>回收站</h3>
+            <div class="header-actions">
+              <button class="btn btn-primary" @click="loadTrash" :disabled="trashLoading">刷新</button>
+              <button class="btn btn-danger" @click="emptyTrash" :disabled="trashItems.length === 0">清空回收站</button>
+            </div>
+          </div>
+          <div v-if="trashLoading" class="empty-tip">加载中…</div>
+          <div v-else-if="trashItems.length === 0" class="empty-tip">回收站为空</div>
+          <table v-else class="data-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>标题</th>
+                <th>上传者</th>
+                <th>删除时间</th>
+                <th>大小</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in trashItems" :key="item.type + item.hash">
+                <td>{{ item.type === 'video' ? '视频' : '漫画' }}</td>
+                <td class="cell-title">{{ item.title }}</td>
+                <td>{{ item.owner || '—' }}</td>
+                <td>{{ formatTrashTime(item.trashed_at) }}</td>
+                <td>{{ formatSize(item.size) }}</td>
+                <td class="cell-actions">
+                  <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
+                  <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- 仪表板标签页 -->
       <div v-if="activeTab === 'dashboard'" class="tab-content">
         <!-- 系统概览卡片 -->

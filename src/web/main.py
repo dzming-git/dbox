@@ -115,13 +115,13 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
 try:
     sys.path.insert(0, os.path.join(_SRC_DIR, 'resource'))
-    from resource.models import ResourceLibraryDB, ResourceLibrary
+    from resource.models import ResourceLibraryDB
     _HAS_RESOURCE_DB = True
 except Exception:
     _HAS_RESOURCE_DB = False
@@ -167,6 +167,7 @@ from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
 from backend.comic.comic_api import comic_bp
+from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_trash_list, get_trash_obj
 from backend.api.markers_api import markers_bp
 
 # ============ 配置 ============
@@ -190,6 +191,7 @@ print("[DEBUG] Initializing database...")
 db.init_app(app)
 with app.app_context():
     migrate_video_libraries_rename()
+    migrate_trash_columns()
     db.create_all()
     migrate_collection_videos_schema()
     migrate_owner_columns()
@@ -511,7 +513,7 @@ def get_videos_by_hashes():
         if not isinstance(hashes, list) or len(hashes) == 0 or len(hashes) > 300:
             return jsonify({'success': True, 'videos': []})
 
-        videos = Video.query.filter(Video.hash.in_(hashes)).all()
+        videos = Video.query.filter(Video.hash.in_(hashes), Video.in_trash == False).all()
         result = [{
             'hash': v.hash,
             'title': v.title,
@@ -541,7 +543,7 @@ def get_videos():
         only_liked = request.args.get('only_liked', '').lower() == 'true'
         only_favorited = request.args.get('only_favorited', '').lower() == 'true'
 
-        query = Video.query
+        query = Video.query.filter(Video.in_trash == False)
 
         # ============ 过滤被禁用的资源库 ============
         # 获取当前用户可访问的激活资源库ID列表
@@ -854,7 +856,7 @@ def get_favorites():
         videos = []
         for row in rows:
             video = Video.query.get(row.video_id)
-            if not video:
+            if not video or video.in_trash:
                 continue
             v = video.to_dict()
             v['favorited_at'] = row.created_at.isoformat() if row.created_at else None
@@ -878,7 +880,7 @@ def get_likes():
         videos = []
         for row in rows:
             video = Video.query.get(row.video_id)
-            if not video:
+            if not video or video.in_trash:
                 continue
             v = video.to_dict()
             v['liked_at'] = row.created_at.isoformat() if row.created_at else None
@@ -902,7 +904,7 @@ def get_disliked():
         videos = []
         for row in rows:
             video = Video.query.get(row.video_id)
-            if not video:
+            if not video or video.in_trash:
                 continue
             v = video.to_dict()
             v['disliked_at'] = row.created_at.isoformat() if row.created_at else None
@@ -984,8 +986,8 @@ def stats_overview():
         top_tags = [{'name': t[0], 'count': t[1]} for t in tag_counts]
 
         # 最热视频（点赞最多 / 收藏最多）
-        top_liked = [v.to_dict() for v in Video.query.order_by(Video.like_count.desc()).limit(10).all()]
-        top_favorited = [v.to_dict() for v in Video.query.order_by(Video.favorite_count.desc()).limit(10).all()]
+        top_liked = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.like_count.desc()).limit(10).all()]
+        top_favorited = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.favorite_count.desc()).limit(10).all()]
 
         return jsonify({
             'success': True,
@@ -1065,7 +1067,7 @@ def list_collection_videos(collection_id):
                 videos.append(d)
             else:
                 video = Video.query.get(it.video_id)
-                if not video:
+                if not video or video.in_trash:
                     continue
                 v = video.to_dict()
                 v['type'] = 'video'
@@ -1168,8 +1170,9 @@ def toggle_dislike(video_hash):
 @app.route('/api/video/<video_hash>', methods=['DELETE'])
 def delete_video(video_hash):
     try:
-        # 获取是否同时删除文件的选项（默认不删除文件）
-        delete_file = request.json.get('delete_file', False) if request.json else False
+        body = request.get_json(silent=True) or {}
+        # delete_file / permanent 表示「永久删除」（仅管理员可用），否则移入回收站
+        permanent = bool(body.get('delete_file', False) or body.get('permanent', False))
 
         video = Video.query.filter_by(hash=video_hash).first_or_404()
 
@@ -1178,20 +1181,16 @@ def delete_video(video_hash):
         if user_role not in (UserRole.ADMIN, UserRole.ROOT) and video.owner_id not in (None, user_id):
             return jsonify({'success': False, 'message': '无权删除该资源（仅上传者或管理员可操作）', 'code': 403}), 403
 
-        # 只有明确要求删除文件时才删除
-        if delete_file and video.local_path and os.path.exists(video.local_path):
-            os.remove(video.local_path)
-            # 同时删除缩略图
-            thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
-            for ext in ['gif', 'jpg', 'png']:
-                thumb_path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
-                if os.path.exists(thumb_path):
-                    os.remove(thumb_path)
-
-        db.session.delete(video)
-        db.session.commit()
-        log.maintenance('INFO', f"删除视频: {video.title} (hash: {video_hash}), 删除文件: {delete_file}")
-        return jsonify({'success': True, 'message': '视频已删除'})
+        if permanent:
+            if user_role not in (UserRole.ADMIN, UserRole.ROOT):
+                return jsonify({'success': False, 'message': '仅管理员可永久删除', 'code': 403}), 403
+            purge_trash(video, 'video')
+            log.maintenance('INFO', f"永久删除视频: {video.title} (hash: {video_hash})")
+            return jsonify({'success': True, 'message': '视频已永久删除'})
+        else:
+            move_to_trash(video, 'video')
+            log.maintenance('INFO', f"视频移入回收站: {video.title} (hash: {video_hash})")
+            return jsonify({'success': True, 'message': '已移入回收站'})
     except Exception as e:
         db.session.rollback()
         log.debug('ERROR', f"删除视频失败: {video_hash}, {e}")
@@ -1373,7 +1372,7 @@ def get_tags():
             
             for tag in all_tags:
                 tag_ids = tag.get_all_child_ids()
-                video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+                video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids)).filter(Video.in_trash == False)
                 
                 if has_library_access and not is_admin:
                     video_query = video_query.filter(
@@ -1439,7 +1438,7 @@ def get_tags():
         result_tags = []
         for tag in tags:
             tag_ids = tag.get_all_child_ids()
-            video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids))
+            video_query = Video.query.join(VideoTag).filter(VideoTag.tag_id.in_(tag_ids)).filter(Video.in_trash == False)
             
             if has_library_access and not is_admin:
                 video_query = video_query.filter(
@@ -2079,21 +2078,15 @@ def batch_delete_videos():
         deleted_count = 0
         for video_hash in hashes:
             video = Video.query.filter_by(hash=video_hash).first()
-            if video:
-                # 如果选择删除文件，同时删除视频文件和缩略图
-                if delete_file and video.local_path and os.path.exists(video.local_path):
-                    os.remove(video.local_path)
-                    thumb_dir = os.path.join(_DATA_DIR, 'thumbnails')
-                    for ext in ['gif', 'jpg', 'png']:
-                        thumb_path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
-                        if os.path.exists(thumb_path):
-                            os.remove(thumb_path)
-
-                # 删除关联记录
-                UserInteraction.query.filter_by(video_id=video.id).delete()
-                VideoTag.query.filter_by(video_id=video.id).delete()
-                db.session.delete(video)
-                deleted_count += 1
+            if not video:
+                continue
+            if delete_file:
+                # 管理员选择「永久删除」
+                purge_trash(video, 'video')
+            else:
+                # 默认移入回收站（软删除，保留关联记录以便恢复）
+                move_to_trash(video, 'video')
+            deleted_count += 1
 
         db.session.commit()
         log.maintenance('INFO', f"批量删除视频: {deleted_count}个, 删除文件: {delete_file}")
@@ -2105,6 +2098,70 @@ def batch_delete_videos():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+
+# --- 回收站管理（管理员） ---
+@app.route('/api/admin/trash', methods=['GET'])
+@admin_required
+def admin_trash_list():
+    """列出回收站中的所有资源（视频 + 漫画）。"""
+    try:
+        items = get_trash_list()
+        return jsonify({'success': True, 'items': items, 'total': len(items)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/trash/restore', methods=['POST'])
+@admin_required
+def admin_trash_restore():
+    """将回收站中的资源恢复到原位置。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        kind = data.get('type')
+        h = data.get('hash')
+        obj = get_trash_obj(kind, h)
+        if not obj:
+            return jsonify({'success': False, 'message': '资源不存在或不在回收站中'}), 404
+        restore_from_trash(obj, kind)
+        return jsonify({'success': True, 'message': '已恢复'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/trash/purge', methods=['POST'])
+@admin_required
+def admin_trash_purge():
+    """永久删除回收站中的资源。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        kind = data.get('type')
+        h = data.get('hash')
+        obj = get_trash_obj(kind, h)
+        if not obj:
+            return jsonify({'success': False, 'message': '资源不存在或不在回收站中'}), 404
+        purge_trash(obj, kind)
+        return jsonify({'success': True, 'message': '已永久删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/trash/empty', methods=['POST'])
+@admin_required
+def admin_trash_empty():
+    """清空回收站（永久删除全部）。"""
+    try:
+        items = get_trash_list()
+        for it in items:
+            obj = get_trash_obj(it['type'], it['hash'])
+            if obj:
+                purge_trash(obj, it['type'])
+        return jsonify({'success': True, 'message': f'已清空回收站（{len(items)} 项）'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/videos/<video_hash>/update', methods=['POST'])
 @auth_required
@@ -2569,11 +2626,11 @@ def status():
             filtered_query = Video.query.filter(
                 (Video.library_id == None) |
                 (Video.library_id.in_(allowed_library_ids))
-            )
+            ).filter(Video.in_trash == False)
             video_count = filtered_query.count()
         else:
             # 未登录或无权限用户只能看到主数据库的视频
-            video_count = Video.query.filter(Video.library_id == None).count()
+            video_count = Video.query.filter(Video.library_id == None, Video.in_trash == False).count()
         
         return jsonify({
             'success': True,

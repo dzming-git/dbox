@@ -93,7 +93,19 @@ export const videoApi = {
 
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
+
+  deleteComic: (hash: string, deleteFile = false) =>
+    api.delete(`/api/comic/${hash}`, { data: { delete_file: deleteFile } }),
+
+  // 回收站（管理员）
+  getTrash: () => api.get('/api/admin/trash'),
+  restoreTrash: (type: 'video' | 'comic', hash: string) =>
+    api.post('/api/admin/trash/restore', { type, hash }),
+  purgeTrash: (type: 'video' | 'comic', hash: string) =>
+    api.post('/api/admin/trash/purge', { type, hash }),
+  emptyTrash: () => api.post('/api/admin/trash/empty'),
   
+
   updateVideo: (hash: string, data: Record<string, unknown>) =>
     api.post(`/api/videos/${hash}/update`, data),
 
@@ -314,6 +326,10 @@ export const comicApi = {
   // 详情（含全部页面）
   getComic: (hash: string) =>
     api.get(`/api/comic/${hash}`),
+
+  // 删除（移入回收站；管理员传 deleteFile=true 可永久删除）
+  deleteComic: (hash: string, deleteFile = false) =>
+    api.delete(`/api/comic/${hash}`, { data: { delete_file: deleteFile } }),
 
   // 点赞 / 收藏 / 不喜欢
   interact: (hash: string, type: 'like' | 'favorite' | 'dislike') =>

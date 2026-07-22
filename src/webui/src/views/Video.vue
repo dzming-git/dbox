@@ -1847,11 +1847,11 @@ const handleDelete = async () => {
       <div v-if="showDeleteConfirm" class="dialog-overlay" data-testid="delete-confirm-dialog">
         <div class="dialog">
           <h3>确认删除</h3>
-          <p>确定要删除视频 "{{ video.title }}" 吗？</p>
+          <p>确定要将视频 "{{ video.title }}" 移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
           <div class="dialog-checkbox">
             <label>
               <input type="checkbox" v-model="deleteFileOption" />
-              同时删除视频文件（不可恢复）
+              永久删除（不可恢复，将同时删除文件）
             </label>
           </div>
           <div class="dialog-actions">

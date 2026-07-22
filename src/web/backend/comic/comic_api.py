@@ -20,6 +20,7 @@ from core.models import (
     ResourceLibrary, LibraryPermission, LibraryUserGroupMember,
     ComicTag, ComicPlaylist, ComicPlaylistItem, Tag,
 )
+from backend.trash import move_to_trash, purge_trash
 
 comic_bp = Blueprint('comic', __name__, url_prefix='')
 
@@ -189,7 +190,7 @@ def list_comics():
         limit = request.args.get('limit', 24, type=int)
         offset = request.args.get('offset', 0, type=int)
 
-        query = Comic.query
+        query = Comic.query.filter(Comic.in_trash == False)
 
         # ============ 资源库权限过滤（与视频 /api/videos 对齐）============
         allowed_libs = _allowed_library_ids()
@@ -393,7 +394,7 @@ def _comic_interaction_rows(key, itype, date_field):
     items = []
     for row in rows:
         c = Comic.query.get(row.comic_id)
-        if not c:
+        if not c or c.in_trash:
             continue
         d = c.to_dict()
         d['cover_url'] = _comic_url(c.cover_path)
@@ -735,6 +736,33 @@ def get_comic_playlist(pid):
     except HTTPException:
         raise
     except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@comic_bp.route('/api/comic/<comic_hash>', methods=['DELETE'])
+def delete_comic(comic_hash):
+    """删除漫画：默认移入回收站；管理员可传 delete_file/permanent 永久删除。"""
+    try:
+        body = request.get_json(silent=True) or {}
+        permanent = bool(body.get('delete_file', False) or body.get('permanent', False))
+        c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+
+        uid, urole = _resolve_identity()
+        if urole not in (UserRole.ADMIN, UserRole.ROOT) and c.owner_id not in (None, uid):
+            return jsonify({'success': False, 'message': '无权删除该漫画（仅上传者或管理员可操作）', 'code': 403}), 403
+
+        if permanent:
+            if urole not in (UserRole.ADMIN, UserRole.ROOT):
+                return jsonify({'success': False, 'message': '仅管理员可永久删除', 'code': 403}), 403
+            purge_trash(c, 'comic')
+            log.maintenance('INFO', f"永久删除漫画: {c.title} (hash: {comic_hash})")
+            return jsonify({'success': True, 'message': '漫画已永久删除'})
+        else:
+            move_to_trash(c, 'comic')
+            log.maintenance('INFO', f"漫画移入回收站: {c.title} (hash: {comic_hash})")
+            return jsonify({'success': True, 'message': '已移入回收站'})
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
