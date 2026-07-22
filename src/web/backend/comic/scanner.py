@@ -13,9 +13,88 @@
 
 import os
 import re
+import json
 from datetime import datetime
 
 IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif')
+
+
+def _load_app_config():
+    """读取项目根目录的 configs/web/config.json（兜底目标来源）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    proj = os.path.abspath(os.path.join(here, '..', '..', '..', '..'))
+    p = os.path.join(proj, 'configs', 'web', 'config.json')
+    if os.path.isfile(p):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _comic_targets_from_scan_directories():
+    """兜底：使用 config.json 中的 scan_directories（已配置的扫描根目录）。"""
+    cfg = _load_app_config()
+    out = []
+    for d in cfg.get('scan_directories', []) or []:
+        path = d.get('path') if isinstance(d, dict) else None
+        if path and os.path.isdir(path):
+            out.append(path)
+    return out
+
+
+def _resolve_comic_targets(library_id, app=None):
+    """漫画扫描的磁盘目标解析，按优先级回退，保证即使 resourced/watcher 不可用也能扫描已配置目录：
+    1) 通过 library_watcher 单例（来自 resourced 的库路径 + 子文件夹）；
+    2) 直接调用 resourced 服务获取库路径与其文件夹；
+    3) config.json 的 scan_directories（兜底，已配置的扫描根目录）。
+    """
+    # 1) watcher 单例
+    try:
+        from library_watcher import get_watcher
+        w = get_watcher()
+        if w:
+            t = w.library_disk_targets(library_id)
+            if t:
+                return t
+    except Exception:
+        pass
+
+    # 2) 直接调用 resourced
+    try:
+        from servicebus import BusClient
+        bus = BusClient(f'comic-scan-{os.getpid()}', host='127.0.0.1', rpc_port=15555, pub_port=15556)
+        res = bus.call_method('com.dplayer.resourced', 'com.dplayer.Resourced', 'ListLibraries', {}, timeout=5000)
+        if res and res.get('success'):
+            name = None
+            if app:
+                with app.app_context():
+                    from core.models import VideoLibrary
+                    lib = VideoLibrary.query.get(library_id)
+                    name = lib.name if lib else None
+            rl = {x['name']: x for x in res.get('libraries', [])}.get(name) if name else None
+            paths = []
+            if rl:
+                if rl.get('path') and os.path.isdir(rl['path']):
+                    paths.append(rl['path'])
+                try:
+                    fr = bus.call_method('com.dplayer.resourced', 'com.dplayer.Resourced', 'ListFolders',
+                                         {'library_id': rl['id']}, timeout=5000)
+                    if fr and fr.get('success'):
+                        for f in fr.get('folders', []) or []:
+                            fp = f.get('path')
+                            if fp and os.path.isdir(fp):
+                                paths.append(fp)
+                except Exception:
+                    pass
+            if paths:
+                return paths
+    except Exception:
+        pass
+
+    # 3) 兜底：scan_directories
+    return _comic_targets_from_scan_directories()
 
 
 def _natural_key(s: str):
@@ -63,7 +142,6 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
         dict: {success, added, updated, removed, total, message}
     """
     from core.models import db, Comic, VideoLibrary
-    from library_watcher import get_watcher
 
     def debug(level, msg):
         if log:
@@ -82,10 +160,9 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
         # 扫描发现的资源归属 root 用户（管理员对所有资源有权限）
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
-        watcher = get_watcher()
-        targets = watcher.library_disk_targets(library_id) if watcher else []
+        targets = _resolve_comic_targets(library_id, app)
         if not targets:
-            return {'success': False, 'message': '未找到该库的磁盘目录（resourced 不可用或路径缺失）'}
+            return {'success': False, 'message': '未找到该库的磁盘目录（resourced 不可用或配置缺失）'}
 
     added = updated = removed = 0
     seen_hashes = set()
