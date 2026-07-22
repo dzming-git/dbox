@@ -49,6 +49,8 @@ const videoHash = computed(() => route.params.hash as string)
 const collectionId = ref<number | null>(null)
 const collectionItems = ref<{ type: string; hash: string; title?: string }[]>([])
 const collectionName = ref('')
+// 视频所属合集（分类归属展示，与合集连播上下文无关）
+const videoCollections = ref<{ id: number; name: string }[]>([])
 const inCollection = computed(() => collectionId.value !== null && collectionItems.value.length > 0)
 const currentIndex = computed(() =>
   collectionItems.value.findIndex(i => i.type === 'video' && i.hash === videoHash.value)
@@ -85,6 +87,18 @@ const goCollectionItem = (it: { type: string; hash: string }) => {
   const base = it.type === 'video' ? '/video/' : '/comic/'
   router.push(`${base}${it.hash}?collection=${collectionId.value}`)
 }
+// 查询视频所属的全部合集（用于信息区“分类归属”展示）
+const loadVideoCollections = () => {
+  const h = (video.value && video.value.hash) || videoHash.value
+  if (!h) return
+  collectionSetApi.getByItem('video', h)
+    .then((res: any) => {
+      if (res?.success && Array.isArray(res.collections)) {
+        videoCollections.value = res.collections.map((c: any) => ({ id: c.id, name: c.name }))
+      }
+    })
+    .catch(() => {})
+}
 const onVideoEnded = () => {
   if (nextItem.value) goCollectionItem(nextItem.value)
 }
@@ -99,6 +113,7 @@ const sharedSession = ref<any>(null)
 const isSharedMode = ref(false)
 const isCreator = ref(false)
 const showShareDialog = ref(false)
+const showMoreMenu = ref(false)
 const shareUrl = ref('')
 const syncInterval = ref<number | null>(null)
 const lastSyncTime = ref(0)
@@ -125,6 +140,7 @@ const loadVideo = async () => {
       loadUserInteractions()
       fetchRecommendedVideos()
       await loadCollectionContext()
+      loadVideoCollections()
     }
   } catch (error) {
     console.error('Failed to load video:', error)
@@ -1433,6 +1449,21 @@ const handleDelete = async () => {
           <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
           <span class="meta-item" v-if="video.created_at">{{ new Date(video.created_at).toLocaleDateString() }}</span>
           <span class="meta-item" v-if="video.priority > 0">优先级: {{ video.priority }}</span>
+          <!-- 合集是分类归属，放在信息区而非操作按钮排 -->
+          <span
+            v-for="col in videoCollections"
+            :key="col.id"
+            class="meta-item collection-meta"
+            @click="router.push(`/collections?c=${col.id}`)"
+            :title="`查看合集：${col.name}`"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="4" rx="1"/>
+              <rect x="3" y="10" width="18" height="4" rx="1"/>
+              <rect x="3" y="16" width="18" height="4" rx="1"/>
+            </svg>
+            合集：{{ col.name }}
+          </span>
         </div>
 
         <p class="video-description" data-testid="video-description">
@@ -1535,21 +1566,6 @@ const handleDelete = async () => {
                 <span class="btn-label">{{ video.favorite_count || 0 }}</span>
               </button>
 
-              <!-- 不喜欢 -->
-              <button
-                class="interact-btn dislike-btn"
-                :class="{ active: isDisliked }"
-                @click="handleDislike"
-                data-testid="dislike-button"
-              >
-                <div class="btn-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
-                  </svg>
-                </div>
-                <span class="btn-label">不喜欢</span>
-              </button>
-
               <!-- 稍后看 -->
               <button
                 class="interact-btn watchlater-btn"
@@ -1610,8 +1626,32 @@ const handleDelete = async () => {
                 <span class="btn-label">分享</span>
               </button>
 
-              <!-- 合集 -->
-              <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
+              <!-- 更多（不常用的操作收进此处，如“不喜欢”） -->
+              <div class="more-wrap">
+                <button class="action-btn more-btn" @click="showMoreMenu = !showMoreMenu" data-testid="more-button">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="5" cy="12" r="2"/>
+                    <circle cx="12" cy="12" r="2"/>
+                    <circle cx="19" cy="12" r="2"/>
+                  </svg>
+                  <span class="btn-label">更多</span>
+                </button>
+                <div v-if="showMoreMenu" class="more-menu" @click.self="showMoreMenu = false">
+                  <button
+                    class="more-item dislike-item"
+                    :class="{ active: isDisliked }"
+                    @click="handleDislike(); showMoreMenu = false"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
+                    </svg>
+                    <span>{{ isDisliked ? '取消不喜欢' : '不喜欢' }}</span>
+                  </button>
+                  <div class="more-item collection-item">
+                    <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- 第二行：管理按钮 - 管理员或本人可见 -->
@@ -2532,6 +2572,77 @@ const handleDelete = async () => {
   font-size: 11px;
   color: #888;
   line-height: 1.2;
+}
+
+/* 合集作为分类归属展示 */
+.collection-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: rgba(33, 150, 243, 0.12);
+  color: #64b5f6;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.collection-meta:hover {
+  background: rgba(33, 150, 243, 0.22);
+}
+
+/* 更多菜单 */
+.more-wrap {
+  position: relative;
+}
+
+.more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 140px;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.more-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.more-item.active {
+  color: #ff7043;
+}
+
+.more-item.collection-item {
+  padding: 4px 6px;
+  cursor: default;
+}
+
+.more-item.collection-item:hover {
+  background: transparent;
 }
 
 .error-container {
