@@ -48,6 +48,7 @@ import cv2
 from PIL import Image
 import io
 import hashlib
+import numpy as np
 from utils.network_optimize import optimize_flask_app
 from utils.system_optimizer import optimize_system
 
@@ -263,6 +264,26 @@ task_manager = TaskManager()
 
 # ========== 缩略图生成函数 ==========
 
+def _resize_letterbox(frame, target_w, target_h):
+    """保持原始宽高比缩放并居中填充黑边到目标尺寸，避免拉伸变形。
+
+    竖屏视频会完整显示在中央（左右黑边），横屏视频保持 16:9，
+    不会再被强行拉伸成横向画面。
+    """
+    h, w = frame.shape[:2]
+    if w <= 0 or h <= 0:
+        return cv2.resize(frame, (target_w, target_h))
+    scale = min(target_w / w, target_h / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((target_h, target_w, 3), dtype=resized.dtype)
+    x = (target_w - new_w) // 2
+    y = (target_h - new_h) // 2
+    canvas[y:y + new_h, x:x + new_w] = resized
+    return canvas
+
+
 def generate_thumbnail(task):
     """生成缩略图（在后台线程中执行）"""
     video_path = task.video_path
@@ -304,8 +325,8 @@ def generate_thumbnail(task):
             if not ret:
                 raise RuntimeError(f"读取视频帧失败: {video_path}")
             
-            # 调整大小
-            frame = cv2.resize(frame, (320, 180))
+            # 调整大小（保持原比例 + 黑边，避免竖屏被拉伸成横屏）
+            frame = _resize_letterbox(frame, 320, 180)
             
             # 确定输出路径
             if output_format == 'gif':
@@ -334,8 +355,8 @@ def generate_thumbnail(task):
                         ret, f = cap.read()
                         if not ret:
                             break
-                        # 调整大小（降低分辨率减轻CPU负担）
-                        f = cv2.resize(f, (240, 135))
+                        # 调整大小（保持原比例 + 黑边，降低分辨率减轻CPU负担）
+                        f = _resize_letterbox(f, 240, 135)
                         f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
                         frames.append(Image.fromarray(f))
 
