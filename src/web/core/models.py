@@ -910,6 +910,7 @@ class ComicProgress(db.Model):
     user_session = db.Column(db.String(100), nullable=False)
     page = db.Column(db.Integer, default=0)         # 当前阅读到的页码（从 1 开始）
     progress = db.Column(db.Float, default=0.0)     # 0~1 阅读进度
+    in_continue = db.Column(db.Boolean, default=False, nullable=False, index=True)  # 是否主动加入「继续阅读」列表
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     comic = db.relationship('Comic', back_populates='progress')

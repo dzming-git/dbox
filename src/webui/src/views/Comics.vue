@@ -239,12 +239,22 @@ watch(() => route.query, async (newQuery) => {
       </div>
     </div>
 
-    <!-- 续读 -->
+    <!-- 继续阅读（默认收起，可点击展开；数量受控） -->
     <div v-if="continueComics.length > 0" class="continue-section">
-      <h2 class="section-title">继续阅读</h2>
-      <div class="comic-grid">
-        <ComicCard v-for="c in continueComics" :key="c.hash" :comic="c" @click="handleComicClick" />
+      <div class="continue-header" :class="{ expanded: continueExpanded }" @click="continueExpanded = !continueExpanded">
+        <div class="continue-title">
+          <svg class="chev" :class="{ open: continueExpanded }" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <h2 class="section-title">继续阅读</h2>
+          <span class="continue-count">{{ continueComics.length }}</span>
+        </div>
+        <span class="continue-hint">{{ continueExpanded ? '收起' : `展开全部 (${continueComics.length})` }}</span>
       </div>
+      <div v-show="continueExpanded" class="comic-grid">
+        <ComicCard v-for="c in continueComics.slice(0, CONTINUE_MAX)" :key="c.hash" :comic="c" @click="handleComicClick" />
+      </div>
+      <p v-if="continueExpanded && continueComics.length > CONTINUE_MAX" class="continue-more">仅显示最近 {{ CONTINUE_MAX }} 本</p>
     </div>
 
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
@@ -382,4 +392,37 @@ watch(() => route.query, async (newQuery) => {
   .search-box { max-width: 100%; width: 100%; }
   .action-bar { flex-direction: column; align-items: stretch; }
 }
+
+/* 继续阅读：默认收起，点击展开，避免遮挡界面 */
+.continue-section { margin-bottom: 24px; }
+.continue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.continue-header:hover { background: #212121; }
+.continue-header.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.continue-title { display: flex; align-items: center; gap: 8px; }
+.continue-title .section-title { margin: 0; font-size: 17px; font-weight: 600; color: #fff; }
+.continue-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  background: #2196F3;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 12px;
+  text-align: center;
+}
+.chev { color: #aaa; transition: transform 0.2s ease; }
+.chev.open { transform: rotate(90deg); }
+.continue-hint { color: #888; font-size: 13px; }
+.continue-more { margin: 10px 2px 0; color: #666; font-size: 12px; }
+.continue-section .comic-grid { margin-top: 14px; }
 </style>

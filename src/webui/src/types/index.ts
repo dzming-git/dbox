@@ -95,6 +95,7 @@ export interface Comic {
   is_disliked?: boolean
   last_page?: number
   progress?: number
+  in_continue?: boolean
   pages?: ComicPage[]
   created_at?: string
   updated_at?: string

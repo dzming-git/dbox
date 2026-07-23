@@ -287,8 +287,10 @@ const handleVideoClick = (video: Video) => {
   router.push({ name: 'Video', params: { hash: video.hash }, query: fromQuery })
 }
 
-// ============ 继续观看（来自 localStorage 观看历史） ============
+// ============ 继续观看（用户主动加入的列表，存于 localStorage） ============
 const continueWatching = ref<any[]>([])
+const continueExpanded = ref(false)   // 默认收起，点击展开
+const CONTINUE_WATCH_MAX = 8          // 展开后最多显示的数量，避免遮挡界面
 
 // 缩略图加载失败时的占位图（内联 SVG，无需额外文件）
 const PLACEHOLDER_THUMB =
@@ -306,41 +308,29 @@ const onContinueImgError = (e: Event) => {
 }
 
 const loadContinueWatching = async () => {
-  let history: any[] = []
+  let list: any[] = []
   try {
-    const raw = localStorage.getItem('watchHistory')
-    if (raw) history = JSON.parse(raw) || []
+    const raw = localStorage.getItem('continueWatch')
+    if (raw) list = JSON.parse(raw) || []
   } catch {
-    history = []
+    list = []
   }
 
-  // 筛选出仍在观看中（有进度且未看完）的记录，并按 hash 保留进度/标题
-  const metaByHash = new Map<string, any>()
-  const candidates = history.filter((h: any) => {
-    if (!h || !h.hash || !h.duration) return false
-    const progress = Number(h.progress) || 0
-    if (progress <= 0 || progress >= h.duration - 5) return false
-    metaByHash.set(h.hash, {
-      progress,
-      title: h.title || '',
-      duration: h.duration
-    })
-    return true
-  })
-
-  if (candidates.length === 0) {
+  if (!Array.isArray(list) || list.length === 0) {
     continueWatching.value = []
     return
   }
 
-  // 以后端权威数据重建：解决迁移前旧 hash / 空 thumbnail 导致缩略图空白的问题，
-  // 同时过滤掉数据库中已不存在（hash 失效）的视频。
+  // 按最近加入 / 操作时间倒序
+  list.sort((a: any, b: any) => (b.updated_at || 0) - (a.updated_at || 0))
+
+  // 以后端权威数据重建：过滤失效视频，刷新标题 / 缩略图
   try {
-    const hashes = [...metaByHash.keys()]
+    const hashes = list.map((x: any) => x.hash)
     const res: any = await videoApi.getVideosByHashes(hashes)
     const videos = (res && res.videos) || []
     const items = videos.map((v: any) => {
-      const meta = metaByHash.get(v.hash) || {}
+      const meta = list.find((x: any) => x.hash === v.hash) || {}
       return {
         hash: v.hash,
         title: v.title || meta.title || '',
@@ -349,18 +339,18 @@ const loadContinueWatching = async () => {
         progress: meta.progress || 0
       }
     })
-    continueWatching.value = items.slice(0, 12)
+    continueWatching.value = items
     return
   } catch {
-    // 接口失败（如未登录）时回退到本地数据，用 hash 推导缩略图
+    // 接口失败（如未登录）时回退到本地数据
   }
 
-  continueWatching.value = candidates.slice(0, 12).map((h: any) => ({
-    hash: h.hash,
-    title: h.title || '',
-    thumbnail: h.thumbnail || `/thumbnail/${h.hash}`,
-    duration: h.duration || 0,
-    progress: Number(h.progress) || 0
+  continueWatching.value = list.map((x: any) => ({
+    hash: x.hash,
+    title: x.title || '',
+    thumbnail: x.thumbnail || x.cover_url || `/thumbnail/${x.hash}`,
+    duration: x.duration || 0,
+    progress: x.progress || 0
   }))
 }
 
@@ -783,12 +773,21 @@ const onListImgError = (e: Event) => {
     <!-- 视频内容（仅视频 tab 显示） -->
     <div v-if="mediaTab === 'video'">
 
-    <!-- 继续观看 -->
+    <!-- 继续观看（默认收起，可点击展开；数量受控） -->
     <div v-if="continueWatching.length > 0" class="continue-section">
-      <h2 class="section-title">继续观看</h2>
-      <div class="video-grid">
+      <div class="continue-header" :class="{ expanded: continueExpanded }" @click="continueExpanded = !continueExpanded">
+        <div class="continue-title-row">
+          <svg class="chev" :class="{ open: continueExpanded }" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <h2 class="section-title">继续观看</h2>
+          <span class="continue-count">{{ continueWatching.length }}</span>
+        </div>
+        <span class="continue-hint">{{ continueExpanded ? '收起' : `展开全部 (${continueWatching.length})` }}</span>
+      </div>
+      <div v-show="continueExpanded" class="video-grid">
         <div
-          v-for="item in continueWatching"
+          v-for="item in continueWatching.slice(0, CONTINUE_WATCH_MAX)"
           :key="item.hash"
           class="continue-card"
           @click="continueWatch(item)"
@@ -807,6 +806,7 @@ const onListImgError = (e: Event) => {
           </div>
         </div>
       </div>
+      <p v-if="continueExpanded && continueWatching.length > CONTINUE_WATCH_MAX" class="continue-more">仅显示最近 {{ CONTINUE_WATCH_MAX }} 个</p>
     </div>
 
     <!-- 加载中 -->
@@ -1870,6 +1870,36 @@ const onListImgError = (e: Event) => {
 .continue-section {
   margin-bottom: 32px;
 }
+.continue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.continue-header:hover { background: #212121; }
+.continue-header.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.continue-title-row { display: flex; align-items: center; gap: 8px; }
+.continue-title-row .section-title { margin: 0; font-size: 17px; }
+.continue-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  background: #2196F3;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 12px;
+  text-align: center;
+}
+.chev { color: #aaa; transition: transform 0.2s ease; }
+.chev.open { transform: rotate(90deg); }
+.continue-hint { color: #888; font-size: 13px; }
+.continue-more { margin: 10px 2px 0; color: #666; font-size: 12px; }
+.continue-section .video-grid { margin-top: 14px; }
 
 .section-title {
   font-size: 20px;

@@ -19,6 +19,7 @@ const mode = ref<'scroll' | 'page'>((localStorage.getItem('dplayer_comic_mode') 
 const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dplayer_comic_fit') as any) || 'width')
 const currentPage = ref(1)
 const showThumbs = ref(false)
+const isInContinue = ref(false)   // 是否已在「继续阅读」列表（用户主动加入）
 
 // 沉浸全屏阅读模式
 const immersive = ref(localStorage.getItem('dplayer_comic_immersive') === '1')
@@ -260,6 +261,20 @@ const interact = (type: 'like' | 'favorite' | 'dislike') => {
   comicStore.interact(comic.value.hash, type)
 }
 
+// 显式加入 / 移出「继续阅读」列表（用户主动选择，不自动按打开行为加入）
+const toggleContinue = async () => {
+  if (!comic.value) return
+  const add = !isInContinue.value
+  try {
+    const res: any = await (await import('../api')).comicApi.setContinue(comic.value.hash, add)
+    if (res.success) {
+      isInContinue.value = !!res.in_continue
+    }
+  } catch (e) {
+    console.error('toggleContinue failed', e)
+  }
+}
+
 // 当前页图片（page 模式仅渲染当前页）
 const currentImage = computed(() => pages.value[currentPage.value - 1]?.url || '')
 
@@ -329,6 +344,7 @@ const loadComic = async (hash: string) => {
     const res: any = await (await import('../api')).comicApi.getComic(hash)
     if (res.success) {
       comic.value = res.comic
+      isInContinue.value = !!(res.comic && res.comic.in_continue)
       const lp = res.comic.last_page || 1
       currentPage.value = clampPage(lp)
       await nextTick()
@@ -422,6 +438,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       <div class="bar-tools">
         <button class="bar-btn" :class="{active: comic.is_liked}" @click="interact('like')" title="点赞">♥</button>
         <button class="bar-btn" :class="{active: comic.is_favorited}" @click="interact('favorite')" title="收藏">★</button>
+        <button class="bar-btn" :class="{active: isInContinue}" @click="toggleContinue" :title="isInContinue ? '已在继续阅读' : '加入继续阅读'">🔖</button>
         <button class="bar-btn" :class="{active: comic.is_disliked}" @click="interact('dislike')" title="不喜欢">✕</button>
         <CollectionPanel item-type="comic" :item-hash="(comic && comic.hash) || (route.params.hash as string)" />
         <span class="divider"></span>

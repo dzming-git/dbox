@@ -14,6 +14,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session, send_file, abort, current_app
 from urllib.parse import quote, unquote
 from werkzeug.exceptions import HTTPException
+from sqlalchemy import text
 
 from core.models import (
     db, Comic, ComicPage, ComicInteraction, ComicProgress, UserRole,
@@ -239,12 +240,9 @@ def list_comics():
             if only_favorited:
                 query = query.filter(Comic.id.in_(favorited_ids) if favorited_ids else Comic.id.in_([-1]))
             if continue_only:
-                cont_ids = []
-                for pid in [r[0] for r in db.session.query(ComicProgress.comic_id)
-                            .filter_by(user_session=key).all()]:
-                    pr = ComicProgress.query.filter_by(comic_id=pid, user_session=key).first()
-                    if pr and 0 < pr.progress < 1:
-                        cont_ids.append(pid)
+                _ensure_comic_progress_in_continue()
+                cont_ids = [r[0] for r in db.session.query(ComicProgress.comic_id)
+                            .filter_by(user_session=key, in_continue=True).all()]
                 query = query.filter(Comic.id.in_(cont_ids) if cont_ids else Comic.id.in_([-1]))
 
         total = query.count()
@@ -306,10 +304,12 @@ def get_comic(comic_hash):
             pr = ComicProgress.query.filter_by(comic_id=c.id, user_session=key).first()
             d['last_page'] = pr.page if pr else 0
             d['progress'] = pr.progress if pr else 0.0
+            d['in_continue'] = bool(pr.in_continue) if pr else False
         else:
             d['is_liked'] = d['is_favorited'] = d['is_disliked'] = False
             d['last_page'] = 0
             d['progress'] = 0.0
+            d['in_continue'] = False
         return jsonify({'success': True, 'comic': d})
     except HTTPException:
         raise
@@ -358,6 +358,7 @@ def comic_progress(comic_hash):
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
         key = current_interaction_key()
         if request.method == 'POST':
+            _ensure_comic_progress_in_continue()
             data = request.get_json(silent=True) or {}
             page = int(data.get('page', 0) or 0)
             progress = float(data.get('progress', 0.0) or 0.0)
@@ -366,16 +367,54 @@ def comic_progress(comic_hash):
                 pr.page = page
                 pr.progress = progress
                 pr.updated_at = datetime.utcnow()
+                if progress >= 1.0:
+                    pr.in_continue = False
             else:
                 pr = ComicProgress(comic_id=c.id, user_session=key, page=page, progress=progress)
                 db.session.add(pr)
             db.session.commit()
-            return jsonify({'success': True, 'page': page, 'progress': progress})
+            return jsonify({'success': True, 'page': page, 'progress': progress, 'in_continue': bool(pr.in_continue)})
         else:
             pr = ComicProgress.query.filter_by(comic_id=c.id, user_session=key).first() if key else None
             return jsonify({'success': True,
                             'page': pr.page if pr else 0,
                             'progress': pr.progress if pr else 0.0})
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _ensure_comic_progress_in_continue():
+    """兼容旧库：为 comic_progress 表补充 in_continue 列（显式加入「继续阅读」列表的标志）。"""
+    try:
+        db.session.execute(text(
+            "ALTER TABLE comic_progress ADD COLUMN in_continue BOOLEAN NOT NULL DEFAULT 0"
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+@comic_bp.route('/api/comic/<comic_hash>/continue', methods=['POST'])
+def set_comic_continue(comic_hash):
+    """显式加入 / 移出「继续阅读」列表（由用户主动选择，而非打开即加入）。"""
+    try:
+        c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+        data = request.get_json(silent=True) or {}
+        add = bool(data.get('add', False))
+        key = current_interaction_key()
+        if not key:
+            return jsonify({'success': False, 'message': '请先登录'}), 401
+        _ensure_comic_progress_in_continue()
+        pr = ComicProgress.query.filter_by(comic_id=c.id, user_session=key).first()
+        if not pr:
+            pr = ComicProgress(comic_id=c.id, user_session=key, page=0, progress=0.0)
+        pr.in_continue = add
+        db.session.add(pr)
+        db.session.commit()
+        return jsonify({'success': True, 'in_continue': bool(pr.in_continue)})
     except HTTPException:
         raise
     except Exception as e:

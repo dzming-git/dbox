@@ -51,6 +51,8 @@ const collectionItems = ref<{ type: string; hash: string; title?: string }[]>([]
 const collectionName = ref('')
 // 视频所属合集（分类归属展示，与合集连播上下文无关）
 const videoCollections = ref<{ id: number; name: string }[]>([])
+// 是否已在「继续观看」列表（用户主动加入，不自动按打开行为加入）
+const inContinueWatch = ref(false)
 const inCollection = computed(() => collectionId.value !== null && collectionItems.value.length > 0)
 const currentIndex = computed(() =>
   collectionItems.value.findIndex(i => i.type === 'video' && i.hash === videoHash.value)
@@ -99,6 +101,44 @@ const loadVideoCollections = () => {
     })
     .catch(() => {})
 }
+
+// 「继续观看」列表（显式加入，存于本地，避免打开即占用首页面板）
+const CONTINUE_WATCH_KEY = 'continueWatch'
+const loadContinueWatchState = () => {
+  if (!video.value) return
+  try {
+    const arr = JSON.parse(localStorage.getItem(CONTINUE_WATCH_KEY) || '[]')
+    inContinueWatch.value = Array.isArray(arr) && arr.some((x: any) => x.hash === video.value!.hash)
+  } catch {
+    inContinueWatch.value = false
+  }
+}
+const toggleContinueWatch = () => {
+  if (!video.value) return
+  let arr: any[] = []
+  try {
+    arr = JSON.parse(localStorage.getItem(CONTINUE_WATCH_KEY) || '[]')
+    if (!Array.isArray(arr)) arr = []
+  } catch {
+    arr = []
+  }
+  const idx = arr.findIndex((x: any) => x.hash === video.value!.hash)
+  if (idx >= 0) {
+    arr.splice(idx, 1)
+    inContinueWatch.value = false
+  } else {
+    arr.push({
+      hash: video.value.hash,
+      title: video.value.title,
+      thumbnail: video.value.thumbnail || video.value.cover_url || '',
+      cover_url: video.value.cover_url || video.value.thumbnail || '',
+      duration: video.value.duration || 0,
+      updated_at: Date.now(),
+    })
+    inContinueWatch.value = true
+  }
+  localStorage.setItem(CONTINUE_WATCH_KEY, JSON.stringify(arr))
+}
 const onVideoEnded = () => {
   if (nextItem.value) goCollectionItem(nextItem.value)
 }
@@ -141,6 +181,7 @@ const loadVideo = async () => {
       fetchRecommendedVideos()
       await loadCollectionContext()
       loadVideoCollections()
+      loadContinueWatchState()
     }
   } catch (error) {
     console.error('Failed to load video:', error)
@@ -1586,6 +1627,21 @@ const handleDelete = async () => {
                 <span class="btn-label">稍后看</span>
               </button>
 
+              <!-- 继续观看（用户主动加入，不自动按打开行为加入） -->
+              <button
+                class="interact-btn continuewatch-btn"
+                :class="{ active: inContinueWatch }"
+                @click="toggleContinueWatch"
+                data-testid="continue-watch-button"
+              >
+                <div class="btn-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                  </svg>
+                </div>
+                <span class="btn-label">{{ inContinueWatch ? '继续观看' : '加入继续' }}</span>
+              </button>
+
               <!-- 共享观看 -->
               <button
                 class="interact-btn sharewatch-btn"
@@ -2510,6 +2566,12 @@ const handleDelete = async () => {
 .interact-btn.watchlater-btn:hover,
 .interact-btn.watchlater-btn.active {
   color: #69dbff;
+}
+
+/* 继续观看按钮 */
+.interact-btn.continuewatch-btn:hover,
+.interact-btn.continuewatch-btn.active {
+  color: #ffa94d;
 }
 
 .interact-btn.watchlater-btn:hover .btn-icon,

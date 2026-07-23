@@ -336,10 +336,12 @@ export const comicApi = {
     api.post(`/api/comic/${hash}/${type}`),
 
   // 阅读进度
-  getProgress: (hash: string) =>
-    api.get(`/api/comic/${hash}/progress`),
-  saveProgress: (hash: string, page: number, progress: number) =>
-    api.post(`/api/comic/${hash}/progress`, { page, progress }),
+    getProgress: (hash: string) =>
+      api.get(`/api/comic/${hash}/progress`),
+    saveProgress: (hash: string, page: number, progress: number) =>
+      api.post(`/api/comic/${hash}/progress`, { page, progress }),
+    setContinue: (hash: string, add: boolean) =>
+      api.post(`/api/comic/${hash}/continue`, { add }),
 
   // 我的漫画列表（与视频的 /api/favorites|likes|disliked|history 对齐，地位等同）
   getFavorites: () => api.get('/api/comics/favorites'),
