@@ -767,6 +767,11 @@ const onListImgError = (e: Event) => {
           <span class="tag-nav-badge untagged-badge">{{ untaggedCount }}</span>
         </div>
 
+        <!-- 合集：与标签同属分类维度，放在标签旁边 -->
+        <RouterLink to="/collections" class="tag-nav-item collection-entry" title="查看我的合集">
+          <span class="tag-nav-name">合集</span>
+        </RouterLink>
+
 
         <!-- 当前层级的标签 -->
         <div
