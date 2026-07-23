@@ -1533,6 +1533,8 @@ const handleDelete = async () => {
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
+          <!-- 合集：与标签同属分类维度，放在标签旁边 -->
+          <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
         </div>
 
         <!-- 精彩片段标记 -->
@@ -1707,9 +1709,6 @@ const handleDelete = async () => {
                     </svg>
                     <span>{{ isDisliked ? '取消不喜欢' : '不喜欢' }}</span>
                   </button>
-                  <div class="more-item collection-item">
-                    <CollectionPanel item-type="video" :item-hash="(video && video.hash) || videoHash" />
-                  </div>
                 </div>
               </div>
             </div>
