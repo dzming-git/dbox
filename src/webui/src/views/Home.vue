@@ -715,14 +715,6 @@ const onListImgError = (e: Event) => {
           ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
         </span>
       </button>
-
-      <!-- 合集：与标签同属分类维度，放在标签栏同一侧 -->
-      <RouterLink to="/collections" class="tags-toggle-btn collection-toggle-btn" title="查看我的合集">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-        </svg>
-        合集
-      </RouterLink>
     </div>
 
     <!-- 标签区域 - 可折叠 -->
@@ -1251,19 +1243,6 @@ const onListImgError = (e: Event) => {
   background: #333;
   color: #fff;
   border-color: #444;
-}
-
-/* 合集入口：与标签同维度的分类入口，放在标签栏同一侧并高亮区分 */
-.collection-toggle-btn {
-  color: #fff;
-  border-color: #2e6da4;
-  background: rgba(33, 150, 243, 0.12);
-}
-
-.collection-toggle-btn:hover {
-  background: rgba(33, 150, 243, 0.24);
-  color: #fff;
-  border-color: #2196F3;
 }
 
 .selected-tag-name {
