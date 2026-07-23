@@ -279,6 +279,38 @@ const toggleContinue = async () => {
   }
 }
 
+// 资源所属权：管理员或上传本人可删除（对齐视频方案）
+const isAdmin = computed(() => userStore.isAdmin)
+const canManageComic = computed(() => {
+  if (isAdmin.value) return true
+  const uid = userStore.user?.id
+  return !!uid && comic.value?.owner_id === uid
+})
+
+// “更多”菜单（收起不常用的“不喜欢”）
+const showMoreMenu = ref(false)
+
+// 删除确认（对齐视频方案：二次确认 + 可选永久删除文件）
+const showDeleteConfirm = ref(false)
+const deleteFileOption = ref(false)
+const confirmDelete = () => {
+  deleteFileOption.value = false
+  showDeleteConfirm.value = true
+}
+const handleDelete = async () => {
+  if (!comic.value) return
+  try {
+    const api = await import('../api')
+    const res: any = await api.comicApi.deleteComic(comic.value.hash, deleteFileOption.value)
+    if (res?.data?.success || res?.success) {
+      showDeleteConfirm.value = false
+      router.push({ name: 'Comics' })
+    }
+  } catch (e) {
+    console.error('deleteComic failed', e)
+  }
+}
+
 // 当前页图片（page 模式仅渲染当前页）
 const currentImage = computed(() => pages.value[currentPage.value - 1]?.url || '')
 
@@ -440,11 +472,42 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <button class="bar-btn" @click="next" :disabled="currentPage>=total">›</button>
       </div>
       <div class="bar-tools">
-        <button class="bar-btn" :class="{active: comic.is_liked}" @click="interact('like')" title="点赞">♥</button>
-        <button class="bar-btn" :class="{active: comic.is_favorited}" @click="interact('favorite')" title="收藏">★</button>
-        <button class="bar-btn" :class="{active: isInContinue}" @click="toggleContinue" :title="isInContinue ? '已在继续阅读' : '加入继续阅读'">🔖</button>
-        <button class="bar-btn" :class="{active: comic.is_disliked}" @click="interact('dislike')" title="不喜欢">✕</button>
+        <!-- 点赞 -->
+        <button class="bar-action" :class="{active: comic.is_liked}" @click="interact('like')" title="点赞">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          <span>点赞</span>
+        </button>
+        <!-- 收藏 -->
+        <button class="bar-action" :class="{active: comic.is_favorited}" @click="interact('favorite')" title="收藏">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          <span>收藏</span>
+        </button>
+        <!-- 加入 / 移出继续阅读（清晰文字标签） -->
+        <button class="bar-action" :class="{active: isInContinue}" @click="toggleContinue" :title="isInContinue ? '已在继续阅读' : '加入继续阅读'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          <span>{{ isInContinue ? '已加入' : '加入继续' }}</span>
+        </button>
+        <!-- 合集 -->
         <CollectionPanel item-type="comic" :item-hash="(comic && comic.hash) || (route.params.hash as string)" />
+        <!-- 更多（“不喜欢”收进此处，与视频方案一致） -->
+        <div class="more-wrap">
+          <button class="bar-action" @click="showMoreMenu = !showMoreMenu" title="更多">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            <span>更多</span>
+          </button>
+          <div v-if="showMoreMenu" class="more-menu" @click.self="showMoreMenu = false">
+            <button class="more-item" :class="{active: comic.is_disliked}" @click="interact('dislike'); showMoreMenu = false">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+              <span>{{ comic.is_disliked ? '取消不喜欢' : '不喜欢' }}</span>
+            </button>
+          </div>
+        </div>
+        <span class="divider"></span>
+        <!-- 删除（仅管理员 / 上传本人可见） -->
+        <button v-if="canManageComic" class="bar-action danger" @click="confirmDelete" title="删除漫画">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          <span>删除</span>
+        </button>
         <span class="divider"></span>
         <button class="bar-btn" :class="{active: mode==='scroll'}" @click="setMode('scroll')" title="滚动模式">滚动</button>
         <button class="bar-btn" :class="{active: mode==='page'}" @click="setMode('page')" title="翻页模式">翻页</button>
@@ -522,6 +585,22 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <div class="rp-fill" :style="{ width: progressPercent + '%' }"></div>
       </div>
     </div>
+
+    <!-- 删除确认对话框 -->
+    <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
+      <div class="dialog">
+        <h3>删除漫画</h3>
+        <p>确定将漫画「{{ comic?.title }}」移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
+        <label class="delete-file-option">
+          <input type="checkbox" v-model="deleteFileOption" />
+          永久删除（不可恢复，将同时删除文件）
+        </label>
+        <div class="dialog-actions">
+          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+          <button class="btn-danger" @click="handleDelete">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="reader-loading" v-else-if="loading">
@@ -535,7 +614,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 
 <style scoped>
 .reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: #0e0e0e; }
-.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: hidden; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
+.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: visible; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
 .reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; }
 .bar-btn { background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
 .bar-btn:hover:not(:disabled) { background: #333; color: #fff; }
@@ -595,6 +674,33 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   display: flex; align-items: center; gap: 4px; transition: all 0.2s;
 }
 .immersive-exit:hover { background: rgba(0,0,0,0.85); }
+
+/* 操作台：带文字标签的按钮（与视频详情页操作栏风格一致） */
+.bar-action { display: inline-flex; align-items: center; gap: 5px; background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.bar-action:hover:not(:disabled) { background: #333; color: #fff; }
+.bar-action.active { background: #2196F3; color: #fff; border-color: #2196F3; }
+.bar-action.danger { color: #ff8585; border-color: #5a2a2a; }
+.bar-action.danger:hover { background: #3a1a1a; color: #ff9b9b; }
+
+/* 更多菜单（收起不常用的“不喜欢”） */
+.more-wrap { position: relative; display: inline-flex; }
+.more-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 10px; padding: 6px; min-width: 150px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+.more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; background: transparent; border: none; color: #ddd; cursor: pointer; font-size: 13px; border-radius: 6px; text-align: left; }
+.more-item:hover { background: #333; color: #fff; }
+.more-item.active { color: #ffd93d; }
+
+/* 删除确认对话框 */
+.dialog-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.dialog { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 20px 22px; max-width: 440px; width: 100%; }
+.dialog h3 { margin: 0 0 12px; color: #fff; font-size: 16px; }
+.dialog p { color: #bbb; font-size: 14px; line-height: 1.6; margin: 0; }
+.delete-file-option { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #aaa; font-size: 13px; cursor: pointer; }
+.delete-file-option input { width: 16px; height: 16px; accent-color: #e53935; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.btn-secondary { background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-secondary:hover { background: #333; color: #fff; }
+.btn-danger { background: #e53935; border: 1px solid #e53935; color: #fff; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-danger:hover { background: #f44336; }
 .reader.immersive.controls-shown .immersive-exit { top: 64px; }
 
 @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
