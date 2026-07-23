@@ -444,6 +444,10 @@ const showToast = (message: string) => {
 }
 
 const goBack = () => {
+  // 记录刚看过的视频，返回首页后将其置顶到随机推荐的第一个
+  if (video.value?.hash) {
+    try { sessionStorage.setItem('lastViewedVideo', video.value.hash) } catch {}
+  }
   // 优先使用 from 参数回到正确的首页状态
   if (route.query.from) {
     try {

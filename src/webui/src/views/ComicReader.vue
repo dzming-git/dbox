@@ -203,6 +203,10 @@ const onKey = (e: KeyboardEvent) => {
 }
 
 const back = () => {
+  // 记录刚看过的漫画，返回列表后将其置顶到随机推荐的第一个
+  if (route.params.hash) {
+    try { sessionStorage.setItem('lastViewedComic', route.params.hash as string) } catch {}
+  }
   if (window.history.length > 1) router.back()
   else router.push({ name: 'Comics' })
 }

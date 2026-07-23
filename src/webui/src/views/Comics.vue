@@ -48,6 +48,25 @@ const loading = computed(() => comicStore.loading)
 const comics = computed(() => comicStore.comics)
 const libraries = computed(() => comicStore.libraries)
 
+// 返回顶部：把上次在详情页查看过的漫画置顶到随机推荐第一个
+const displayComics = computed(() => {
+  const list = [...comics.value]
+  try {
+    const last = sessionStorage.getItem('lastViewedComic')
+    if (last) {
+      const idx = list.findIndex((c) => c.hash === last)
+      if (idx > 0) {
+        const [item] = list.splice(idx, 1)
+        list.unshift(item)
+      } else if (idx === 0) {
+        // 已经在第一位，无需调整
+      }
+      sessionStorage.removeItem('lastViewedComic')
+    }
+  } catch {}
+  return list
+})
+
 const searchQuery = computed({
   get: () => comicStore.searchQuery,
   set: (v) => comicStore.searchQuery = v
@@ -263,7 +282,7 @@ watch(() => route.query, async (newQuery) => {
       <div v-if="comics.length > 0" class="comic-section">
         <div v-if="comicStore.viewMode === 'grid'" class="comic-grid">
           <ComicCard
-            v-for="c in comics"
+            v-for="c in displayComics"
             :key="c.hash"
             :comic="c"
             :editable="editMode"
@@ -273,7 +292,7 @@ watch(() => route.query, async (newQuery) => {
           />
         </div>
         <div v-else class="comic-list">
-          <div v-for="c in comics" :key="c.hash" class="comic-list-row" @click="editMode ? openEdit(c) : handleComicClick(c)">
+          <div v-for="c in displayComics" :key="c.hash" class="comic-list-row" @click="editMode ? openEdit(c) : handleComicClick(c)">
             <div class="list-thumb" @click.stop="editMode ? openEdit(c) : handleComicClick(c)">
               <img :src="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'" loading="lazy" @error="(e:any)=>e.target.src='/placeholder.jpg'" />
               <span class="list-pages">{{ c.page_count }}P</span>

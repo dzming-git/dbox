@@ -37,6 +37,23 @@ const userStore = useUserStore()
 const loading = computed(() => videoStore.loading)
 const videos = computed(() => videoStore.videos)
 const tags = computed(() => videoStore.tags)
+
+// 返回顶部：把上次在详情页查看过的视频置顶到随机推荐第一个
+const displayVideos = computed(() => {
+  const list = [...videos.value]
+  try {
+    const last = sessionStorage.getItem('lastViewedVideo')
+    if (last) {
+      const idx = list.findIndex((v) => v.hash === last)
+      if (idx > 0) {
+        const [item] = list.splice(idx, 1)
+        list.unshift(item)
+      }
+      sessionStorage.removeItem('lastViewedVideo')
+    }
+  } catch {}
+  return list
+})
 const selectedTagId = computed(() => videoStore.selectedTagId)
 const selectedUntagged = computed(() => videoStore.selectedUntagged)
 // 「未标记（待整理）」视频数量，仅在展开标签面板时拉取，不在主界面暴露
@@ -821,7 +838,7 @@ const onListImgError = (e: Event) => {
         <!-- 缩略图模式 -->
         <div v-if="videoStore.viewMode === 'grid'" class="video-grid">
           <VideoCard
-            v-for="video in videos"
+            v-for="video in displayVideos"
             :key="video.hash"
             :video="video"
             :selectable="selectionMode && !editMode"
@@ -836,7 +853,7 @@ const onListImgError = (e: Event) => {
         <!-- 列表模式 -->
         <div v-else class="video-list">
           <div
-            v-for="video in videos"
+            v-for="video in displayVideos"
             :key="video.hash"
             class="video-list-row"
             :class="{ selected: selectedHashes.includes(video.hash) }"
