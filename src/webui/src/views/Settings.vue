@@ -1,308 +1,327 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useVideoStore } from '../stores/videoStore'
-
-// 设置状态
-const settings = ref({
-  // 播放设置
-  autoplay: false,
-  defaultQuality: 'auto',
-  subtitleLanguage: 'zh',
-  // 界面设置
-  theme: 'dark',
-  language: 'zh-CN',
-  // 内容过滤
-  blockDisliked: true,  // 默认屏蔽不喜欢的视频
-  // 列表默认排序（视频 / 漫画首页通用）
-  defaultSort: 'recommended',
-  defaultOrder: 'desc',
-  // 通知设置
-  enableNotifications: true,
-  notifyOnNewVideos: true
-})
+import { useUserStore } from '../stores/userStore'
+import {
+  DEFAULT_SETTINGS,
+  SETTING_KEYS,
+  getEffectiveSettings,
+  getSettingSource,
+  getUserSettings,
+  getGlobalSettings,
+  loadBrowserSettings,
+  saveBrowserSettings,
+  resetBrowserSettings,
+  saveUserSettings,
+  saveGlobalSettings,
+  fetchServerSettings,
+  getIsAdmin,
+  type SettingsData,
+  type SettingScope,
+} from '../utils/settings'
 
 const videoStore = useVideoStore()
+const userStore = useUserStore()
 
+type FieldType = 'toggle' | 'select' | 'radio'
+
+interface FieldDef {
+  key: keyof SettingsData
+  label: string
+  desc: string
+  type: FieldType
+  options?: { v: string; t: string }[]
+  showIf?: keyof SettingsData
+  testid?: string
+}
+
+const fields: FieldDef[] = [
+  { key: 'autoplay', label: '自动播放', desc: '打开视频时自动开始播放', type: 'toggle', testid: 'autoplay-toggle' },
+  {
+    key: 'defaultQuality', label: '默认画质', desc: '选择视频默认播放画质', type: 'select', testid: 'default-quality-select',
+    options: [
+      { v: 'auto', t: '自动' }, { v: '1080p', t: '1080p' }, { v: '720p', t: '720p' },
+      { v: '480p', t: '480p' }, { v: '360p', t: '360p' },
+    ],
+  },
+  {
+    key: 'subtitleLanguage', label: '字幕语言', desc: '选择默认字幕语言', type: 'select', testid: 'subtitle-language-select',
+    options: [
+      { v: 'off', t: '关闭' }, { v: 'zh', t: '中文' }, { v: 'en', t: 'English' },
+      { v: 'ja', t: '日本語' }, { v: 'ko', t: '한국어' },
+    ],
+  },
+  {
+    key: 'theme', label: '主题', desc: '选择界面主题颜色', type: 'radio', testid: 'theme-dark-radio',
+    options: [{ v: 'dark', t: '深色' }, { v: 'light', t: '浅色' }],
+  },
+  {
+    key: 'language', label: '界面语言', desc: '选择界面显示语言', type: 'select', testid: 'interface-language-select',
+    options: [
+      { v: 'zh-CN', t: '简体中文' }, { v: 'zh-TW', t: '繁體中文' },
+      { v: 'en-US', t: 'English' }, { v: 'ja-JP', t: '日本語' },
+    ],
+  },
+  { key: 'blockDisliked', label: '屏蔽不喜欢的视频', desc: '开启后，标记为"不喜欢"的视频不会出现在列表中', type: 'toggle', testid: 'block-disliked-toggle' },
+  {
+    key: 'defaultSort', label: '默认排序方式', desc: '视频 / 漫画列表首页的默认排序，未单独指定时生效', type: 'select', testid: 'default-sort-select',
+    options: [
+      { v: 'recommended', t: '推荐' }, { v: 'name', t: '名称' }, { v: 'created_at', t: '文件时间' },
+    ],
+  },
+  {
+    key: 'defaultOrder', label: '默认排序顺序', desc: '与排序方式搭配', type: 'select', testid: 'default-order-select',
+    options: [{ v: 'desc', t: '倒序' }, { v: 'asc', t: '正序' }],
+  },
+  { key: 'enableNotifications', label: '启用通知', desc: '接收应用内通知', type: 'toggle' },
+  { key: 'notifyOnNewVideos', label: '新视频提醒', desc: '有新视频时通知我', type: 'toggle', showIf: 'enableNotifications' },
+]
+
+const tabs: { scope: SettingScope; label: string; desc: string }[] = [
+  { scope: 'user', label: '我的设置', desc: '跟随你的账号，在所有设备上生效' },
+  { scope: 'browser', label: '此浏览器', desc: '仅保存在当前浏览器（本机），优先级最高，覆盖其他层' },
+  { scope: 'global', label: '全局默认', desc: '由管理员设置，作为全站默认；普通用户只读' },
+]
+
+const activeTab = ref<SettingScope>('user')
+const form = ref<SettingsData>({ ...DEFAULT_SETTINGS })
+const baseline = ref<SettingsData>({ ...DEFAULT_SETTINGS })
 const loading = ref(false)
 const saved = ref(false)
 
-// 加载设置
-onMounted(() => {
-  const stored = localStorage.getItem('userSettings')
-  if (stored) {
-    settings.value = { ...settings.value, ...JSON.parse(stored) }
+const isAdmin = computed(() => getIsAdmin())
+const tabDef = computed(() => tabs.find((t) => t.scope === activeTab.value)!)
+// 全局层：仅管理员可写
+const tabReadOnly = computed(() => activeTab.value === 'global' && !isAdmin.value)
+// 用户层：未登录不可编辑
+const userEditable = computed(() => userStore.isLoggedIn)
+
+function sourceLabel(key: string): string {
+  const s = getSettingSource(key)
+  return s === 'browser' ? '此浏览器' : s === 'user' ? '我的账号' : s === 'global' ? '全局' : '系统默认'
+}
+
+function layerRaw(scope: SettingScope): Partial<SettingsData> {
+  if (scope === 'user') return getUserSettings()
+  if (scope === 'global') return getGlobalSettings()
+  return loadBrowserSettings()
+}
+
+function loadTab(scope: SettingScope) {
+  const data = layerRaw(scope)
+  form.value = { ...DEFAULT_SETTINGS, ...data } as SettingsData
+  baseline.value = { ...form.value }
+}
+
+function switchTab(scope: SettingScope) {
+  if (scope === 'user' && !userStore.isLoggedIn) {
+    showToast('请先登录后再设置「我的设置」')
+    return
   }
-})
+  activeTab.value = scope
+  loadTab(scope)
+}
 
-// 保存设置
-const saveSettings = () => {
+const isDirty = computed(() =>
+  SETTING_KEYS.some((k) => (form.value as Record<string, unknown>)[k] !== (baseline.value as Record<string, unknown>)[k])
+)
+
+function applyTheme() {
+  document.body.className = form.value.theme === 'dark' ? 'dark-theme' : 'light-theme'
+}
+
+async function saveSettings() {
+  if (tabReadOnly.value || (activeTab.value === 'user' && !userEditable.value)) return
   loading.value = true
-  const prevBlock = JSON.parse(localStorage.getItem('userSettings') || '{}').blockDisliked
-  localStorage.setItem('userSettings', JSON.stringify(settings.value))
+  const scope = activeTab.value
+  const original = layerRaw(scope)
+  const settings: Record<string, unknown> = {}
+  const reset: string[] = []
+  const def = DEFAULT_SETTINGS as Record<string, unknown>
+  for (const k of SETTING_KEYS) {
+    const origVal = k in original ? (original as Record<string, unknown>)[k] : def[k]
+    const cur = (form.value as Record<string, unknown>)[k]
+    if (cur !== origVal) {
+      if (k in original && cur === def[k]) reset.push(k)
+      else settings[k] = cur
+    }
+  }
 
-  // 应用主题
-  document.body.className = settings.value.theme === 'dark' ? 'dark-theme' : 'light-theme'
+  const prevBlock = (baseline.value as Record<string, unknown>).blockDisliked
 
-  // 屏蔽开关变化后刷新首页列表，使屏蔽/取消屏蔽立即生效
-  if (prevBlock !== settings.value.blockDisliked) {
+  if (scope === 'browser') {
+    saveBrowserSettings(settings as Partial<SettingsData>)
+    if (reset.length) resetBrowserSettings(reset)
+  } else if (scope === 'user') {
+    await saveUserSettings(settings as Partial<SettingsData>, reset)
+  } else {
+    await saveGlobalSettings(settings as Partial<SettingsData>, reset)
+  }
+
+  // 重新加载基线，刷新来源徽章
+  loadTab(scope)
+  applyTheme()
+  if (prevBlock !== (form.value as Record<string, unknown>).blockDisliked) {
     videoStore.fetchVideos(true).catch(() => {})
   }
 
   setTimeout(() => {
     loading.value = false
     saved.value = true
-    setTimeout(() => {
-      saved.value = false
-    }, 2000)
-  }, 500)
+    setTimeout(() => (saved.value = false), 2000)
+  }, 400)
 }
 
-// 重置设置
-const resetSettings = () => {
-  if (confirm('确定要重置所有设置为默认值吗？')) {
-    settings.value = {
-      autoplay: false,
-      defaultQuality: 'auto',
-      subtitleLanguage: 'zh',
-      theme: 'dark',
-      language: 'zh-CN',
-      blockDisliked: true,
-      defaultSort: 'recommended',
-      defaultOrder: 'desc',
-      enableNotifications: true,
-      notifyOnNewVideos: true
-    }
-    saveSettings()
+async function resetLayer() {
+  const scope = activeTab.value
+  if (scope === 'browser') {
+    resetBrowserSettings()
+  } else if (scope === 'user') {
+    await saveUserSettings({}, SETTING_KEYS as string[])
+  } else {
+    await saveGlobalSettings({}, SETTING_KEYS as string[])
   }
+  loadTab(scope)
+  applyTheme()
+  showToast('已重置本层设置，回落到下一层')
 }
 
-// 清除所有数据
-const clearAllData = () => {
+// 清除所有本地数据
+function clearAllData() {
   if (confirm('确定要清除所有本地数据吗？这将删除您的收藏、观看历史等数据。')) {
     localStorage.removeItem('favorites')
     localStorage.removeItem('favoritedVideos')
     localStorage.removeItem('likedVideos')
     localStorage.removeItem('dislikedVideos')
     localStorage.removeItem('watchHistory')
-    localStorage.removeItem('userSettings')
-    showToast('所有数据已清除')
+    localStorage.removeItem('dplayer_browser_settings')
+    showToast('所有本地数据已清除')
+    loadTab(activeTab.value)
   }
 }
 
-// 提示消息
 const toastMessage = ref('')
 const showToastFlag = ref(false)
-const showToast = (message: string) => {
+function showToast(message: string) {
   toastMessage.value = message
   showToastFlag.value = true
-  setTimeout(() => {
-    showToastFlag.value = false
-  }, 2000)
+  setTimeout(() => (showToastFlag.value = false), 2000)
 }
+
+onMounted(async () => {
+  await fetchServerSettings()
+  if (!userStore.isLoggedIn) activeTab.value = 'browser'
+  loadTab(activeTab.value)
+})
+
+watch(
+  () => userStore.isLoggedIn,
+  () => {
+    if (!userStore.isLoggedIn && activeTab.value === 'user') {
+      activeTab.value = 'browser'
+      loadTab('browser')
+    }
+  }
+)
 </script>
 
 <template>
   <div class="settings-page">
     <div class="page-header">
       <h1 class="page-title">设置</h1>
+      <p class="page-sub">设置分为三层，优先级从高到低：此浏览器 &gt; 我的设置 &gt; 全局默认 &gt; 系统默认。上层未设置的项会自动继承下层。</p>
+    </div>
+
+    <!-- 三层切换 -->
+    <div class="tab-bar">
+      <button
+        v-for="t in tabs"
+        :key="t.scope"
+        class="tab-btn"
+        :class="{ active: activeTab === t.scope, locked: t.scope === 'user' && !userStore.isLoggedIn }"
+        @click="switchTab(t.scope)"
+      >
+        {{ t.label }}
+      </button>
+    </div>
+
+    <div class="tab-desc">
+      <span class="tab-desc-text">{{ tabDef.desc }}</span>
+      <span v-if="activeTab === 'global' && !isAdmin" class="tab-desc-warn">（仅管理员可修改）</span>
+      <span v-else-if="activeTab === 'user' && !userStore.isLoggedIn" class="tab-desc-warn">（请先登录）</span>
     </div>
 
     <div class="settings-content">
-      <!-- 播放设置 -->
       <section class="settings-section">
-        <h2 class="section-title">播放设置</h2>
-        
-        <div class="setting-item">
+        <div
+          v-for="f in fields"
+          :key="f.key"
+          class="setting-item"
+          v-show="!f.showIf || form[f.showIf]"
+        >
           <div class="setting-info">
-            <label class="setting-label">自动播放</label>
-            <p class="setting-desc">打开视频时自动开始播放</p>
-          </div>
-          <label class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="settings.autoplay"
-              data-testid="autoplay-toggle"
-            >
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">默认画质</label>
-            <p class="setting-desc">选择视频默认播放画质</p>
-          </div>
-          <select 
-            v-model="settings.defaultQuality"
-            class="setting-select"
-            data-testid="default-quality-select"
-          >
-            <option value="auto">自动</option>
-            <option value="1080p">1080p</option>
-            <option value="720p">720p</option>
-            <option value="480p">480p</option>
-            <option value="360p">360p</option>
-          </select>
-        </div>
-
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">字幕语言</label>
-            <p class="setting-desc">选择默认字幕语言</p>
-          </div>
-          <select 
-            v-model="settings.subtitleLanguage"
-            class="setting-select"
-            data-testid="subtitle-language-select"
-          >
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-          </select>
-        </div>
-      </section>
-
-      <!-- 界面设置 -->
-      <section class="settings-section">
-        <h2 class="section-title">界面设置</h2>
-        
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">主题</label>
-            <p class="setting-desc">选择界面主题颜色</p>
-          </div>
-          <div class="radio-group">
-            <label class="radio-label" data-testid="theme-dark-radio">
-              <input 
-                type="radio" 
-                v-model="settings.theme" 
-                value="dark"
-              >
-              <span class="radio-text">深色</span>
+            <label class="setting-label">
+              {{ f.label }}
+              <span class="source-badge" :class="'src-' + getSettingSource(f.key)">
+                {{ sourceLabel(f.key) }}
+              </span>
             </label>
-            <label class="radio-label">
-              <input 
-                type="radio" 
-                v-model="settings.theme" 
-                value="light"
-              >
-              <span class="radio-text">浅色</span>
+            <p class="setting-desc">{{ f.desc }}</p>
+          </div>
+
+          <div class="setting-control">
+            <!-- toggle -->
+            <label v-if="f.type === 'toggle'" class="toggle-switch">
+              <input
+                type="checkbox"
+                v-model="(form as any)[f.key]"
+                :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+                :data-testid="f.testid"
+              />
+              <span class="toggle-slider"></span>
             </label>
-          </div>
-        </div>
 
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">界面语言</label>
-            <p class="setting-desc">选择界面显示语言</p>
-          </div>
-          <select 
-            v-model="settings.language"
-            class="setting-select"
-            data-testid="interface-language-select"
-          >
-            <option value="zh-CN">简体中文</option>
-            <option value="zh-TW">繁體中文</option>
-            <option value="en-US">English</option>
-            <option value="ja-JP">日本語</option>
-          </select>
-        </div>
+            <!-- radio -->
+            <div v-else-if="f.type === 'radio'" class="radio-group">
+              <label
+                v-for="opt in f.options"
+                :key="opt.v"
+                class="radio-label"
+                :data-testid="f.testid"
+              >
+                <input
+                  type="radio"
+                  v-model="(form as any)[f.key]"
+                  :value="opt.v"
+                  :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+                />
+                <span class="radio-text">{{ opt.t }}</span>
+              </label>
+            </div>
 
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">屏蔽不喜欢的视频</label>
-            <p class="setting-desc">开启后，标记为"不喜欢"的视频不会出现在列表中</p>
-          </div>
-          <label class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="settings.blockDisliked"
-              data-testid="block-disliked-toggle"
-            >
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </section>
-
-      <!-- 列表设置 -->
-      <section class="settings-section">
-        <h2 class="section-title">列表设置</h2>
-
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">默认排序方式</label>
-            <p class="setting-desc">设置视频 / 漫画列表首页的默认排序，未单独指定时生效</p>
-          </div>
-          <div class="sort-setting-controls">
+            <!-- select -->
             <select
-              v-model="settings.defaultSort"
+              v-else
+              v-model="(form as any)[f.key]"
               class="setting-select"
-              data-testid="default-sort-select"
+              :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+              :data-testid="f.testid"
             >
-              <option value="recommended">推荐</option>
-              <option value="name">名称</option>
-              <option value="created_at">文件时间</option>
-            </select>
-            <select
-              v-model="settings.defaultOrder"
-              class="setting-select"
-              data-testid="default-order-select"
-            >
-              <option value="desc">倒序</option>
-              <option value="asc">正序</option>
+              <option v-for="opt in f.options" :key="opt.v" :value="opt.v">{{ opt.t }}</option>
             </select>
           </div>
         </div>
       </section>
 
-      <!-- 通知设置 -->
-      <section class="settings-section">
-        <h2 class="section-title">通知设置</h2>
-        
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">启用通知</label>
-            <p class="setting-desc">接收应用内通知</p>
-          </div>
-          <label class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="settings.enableNotifications"
-            >
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="setting-item" v-if="settings.enableNotifications">
-          <div class="setting-info">
-            <label class="setting-label">新视频提醒</label>
-            <p class="setting-desc">有新视频时通知我</p>
-          </div>
-          <label class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="settings.notifyOnNewVideos"
-            >
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </section>
-
-      <!-- 数据管理 -->
+      <!-- 数据管理（仅浏览器层可见，操作本地数据） -->
       <section class="settings-section">
         <h2 class="section-title">数据管理</h2>
-        
         <div class="setting-item">
           <div class="setting-info">
-            <label class="setting-label">清除所有数据</label>
-            <p class="setting-desc">删除所有本地存储的数据，包括收藏、观看历史等</p>
+            <label class="setting-label">清除所有本地数据</label>
+            <p class="setting-desc">删除当前浏览器存储的数据，包括收藏、观看历史等</p>
           </div>
-          <button 
-            class="danger-btn"
-            @click="clearAllData"
-            data-testid="clear-all-data-button"
-          >
+          <button class="danger-btn" @click="clearAllData" data-testid="clear-all-data-button">
             清除数据
           </button>
         </div>
@@ -310,33 +329,22 @@ const showToast = (message: string) => {
 
       <!-- 操作按钮 -->
       <div class="actions">
-        <button 
-          class="reset-btn"
-          @click="resetSettings"
-          data-testid="reset-settings-button"
-        >
-          重置为默认
+        <button class="reset-btn" @click="resetLayer" :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)">
+          重置本层
         </button>
-        <button 
+        <button
           class="save-btn"
           @click="saveSettings"
-          :disabled="loading"
+          :disabled="loading || tabReadOnly || (activeTab === 'user' && !userEditable) || !isDirty"
           data-testid="save-settings-button"
         >
-          {{ loading ? '保存中...' : '保存设置' }}
+          {{ loading ? '保存中...' : (activeTab === 'global' ? '保存全局默认' : activeTab === 'browser' ? '保存到此浏览器' : '保存我的设置') }}
         </button>
       </div>
     </div>
 
-    <!-- 保存成功提示 -->
-    <div v-if="saved" class="toast success" data-testid="save-success">
-      设置已保存
-    </div>
-
-    <!-- Toast 提示 -->
-    <div v-if="showToastFlag" class="toast">
-      {{ toastMessage }}
-    </div>
+    <div v-if="saved" class="toast success" data-testid="save-success">设置已保存</div>
+    <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
   </div>
 </template>
 
@@ -351,14 +359,64 @@ const showToast = (message: string) => {
 }
 
 .page-header {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .page-title {
   font-size: 28px;
   font-weight: 600;
-  margin: 0;
+  margin: 0 0 8px 0;
   color: #fff;
+}
+
+.page-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #999;
+  line-height: 1.6;
+}
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  padding: 10px 18px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  background: #252525;
+}
+
+.tab-btn.active {
+  background: #2196F3;
+  border-color: #2196F3;
+  color: #fff;
+}
+
+.tab-btn.locked {
+  opacity: 0.6;
+}
+
+.tab-desc {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 16px;
+}
+
+.tab-desc-warn {
+  color: #ff9800;
 }
 
 .settings-content {
@@ -398,7 +456,9 @@ const showToast = (message: string) => {
 }
 
 .setting-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 500;
   color: #fff;
@@ -409,6 +469,25 @@ const showToast = (message: string) => {
   margin: 0;
   font-size: 13px;
   color: #999;
+}
+
+/* 来源徽章 */
+.source-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.src-browser { background: rgba(33, 150, 243, 0.18); color: #64b5f6; }
+.src-user { background: rgba(76, 175, 80, 0.18); color: #81c784; }
+.src-global { background: rgba(255, 152, 0, 0.18); color: #ffb74d; }
+.src-default { background: rgba(158, 158, 158, 0.18); color: #bdbdbd; }
+
+.setting-control {
+  flex-shrink: 0;
+  margin-left: 16px;
 }
 
 /* Toggle Switch */
@@ -433,7 +512,7 @@ const showToast = (message: string) => {
   right: 0;
   bottom: 0;
   background-color: #444;
-  transition: .3s;
+  transition: 0.3s;
   border-radius: 24px;
 }
 
@@ -445,7 +524,7 @@ const showToast = (message: string) => {
   left: 3px;
   bottom: 3px;
   background-color: white;
-  transition: .3s;
+  transition: 0.3s;
   border-radius: 50%;
 }
 
@@ -455,6 +534,11 @@ input:checked + .toggle-slider {
 
 input:checked + .toggle-slider:before {
   transform: translateX(24px);
+}
+
+input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Select */
@@ -474,14 +558,9 @@ input:checked + .toggle-slider:before {
   border-color: #2196F3;
 }
 
-/* 默认排序：两个下拉并排 */
-.sort-setting-controls {
-  display: flex;
-  gap: 10px;
-}
-
-.sort-setting-controls .setting-select {
-  min-width: 110px;
+.setting-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Radio Group */
@@ -501,6 +580,10 @@ input:checked + .toggle-slider:before {
 
 .radio-label input[type="radio"] {
   accent-color: #2196F3;
+}
+
+.radio-label input:disabled {
+  cursor: not-allowed;
 }
 
 /* Buttons */
@@ -537,7 +620,7 @@ input:checked + .toggle-slider:before {
   transition: all 0.2s;
 }
 
-.reset-btn:hover {
+.reset-btn:hover:not(:disabled) {
   background: #333;
   color: #fff;
 }
@@ -554,11 +637,12 @@ input:checked + .toggle-slider:before {
 }
 
 .save-btn:hover:not(:disabled) {
-  background: #1976D2;
+  background: #1976d2;
 }
 
-.save-btn:disabled {
-  opacity: 0.6;
+.save-btn:disabled,
+.reset-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -601,6 +685,10 @@ input:checked + .toggle-slider:before {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .setting-control {
+    margin-left: 0;
   }
 
   .radio-group {

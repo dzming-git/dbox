@@ -1,3 +1,4 @@
+import json
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import hashlib
@@ -476,6 +477,42 @@ class UserPreference(db.Model):
 
     def __repr__(self):
         return f'<UserPreference {self.user_session} - {self.preference_score}>'
+
+
+class AppSetting(db.Model):
+    """通用应用设置存储（分层：global / user）。
+
+    浏览器层（device）由前端 localStorage 管理，不入库。
+    合并优先级（高->低）：browser > user > global > defaults
+    """
+    __tablename__ = 'app_settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scope = db.Column(db.String(20), nullable=False)        # 'global' 或 'user'
+    owner = db.Column(db.String(50), nullable=False, default='')  # 用户层为 user_id 字符串，全局层为 ''
+    data = db.Column(db.Text, nullable=False, default='{}')  # JSON 字符串
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('scope', 'owner', name='uq_app_settings_scope_owner'),
+    )
+
+    def get_data(self):
+        try:
+            return json.loads(self.data) if self.data else {}
+        except Exception:
+            return {}
+
+    def set_data(self, value):
+        self.data = json.dumps(value or {}, ensure_ascii=False)
+
+    def to_dict(self):
+        return {
+            'scope': self.scope,
+            'owner': self.owner,
+            'data': self.get_data(),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 class Playlist(db.Model):

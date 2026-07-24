@@ -3,6 +3,7 @@ import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { submitSuggestion } from './api/suggestion'
+import { fetchServerSettings, clearServerSettings } from './utils/settings'
 
 const router = useRouter()
 const route = useRoute()
@@ -40,6 +41,10 @@ onMounted(() => {
   document.addEventListener('click', closeUserDropdown)
   updateNavHeight()
   window.addEventListener('resize', updateNavHeight)
+  // 已登录则拉取后端分层设置（用户层 + 全局层），供默认排序等生效
+  if (userStore.isLoggedIn) {
+    fetchServerSettings()
+  }
 })
 
 onUnmounted(() => {
@@ -52,6 +57,18 @@ watch(
   async () => {
     await nextTick()
     updateNavHeight()
+  }
+)
+
+// 登录态变化：登录后拉取后端设置，登出后清空（回落到浏览器层 + 默认值）
+watch(
+  () => userStore.isLoggedIn,
+  (logged) => {
+    if (logged) {
+      fetchServerSettings()
+    } else {
+      clearServerSettings()
+    }
   }
 )
 

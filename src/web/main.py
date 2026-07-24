@@ -112,7 +112,7 @@ except Exception as e:
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 
 # 导入核心模块
-from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
+from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns
@@ -291,6 +291,91 @@ def admin_required(f):
             return jsonify({'success': False, 'message': f'无效的 token: {str(e)}', 'code': 401}), 401
     
     return decorated
+
+# ============ 分层设置（用户 / 全局 / 浏览器） ============
+# 合并优先级（高 -> 低）：browser > user > global > defaults
+SETTINGS_DEFAULTS = {
+    'autoplay': False,
+    'defaultQuality': 'auto',
+    'subtitleLanguage': 'off',
+    'theme': 'dark',
+    'language': 'zh-CN',
+    'blockDisliked': False,
+    'defaultSort': 'recommended',
+    'defaultOrder': 'desc',
+    'enableNotifications': True,
+    'notifyOnNewVideos': True,
+}
+
+
+@app.route('/api/settings', methods=['GET'])
+def api_get_settings():
+    """获取当前用户可见的分层设置（游客仅返回全局层与默认值）。
+
+    返回 defaults / global / user 三层原始数据，浏览器层由前端自行合并。
+    无需登录即可访问，以便游客也能继承管理员的全局默认。
+    """
+    user_id, role = resolve_identity()
+    global_setting = AppSetting.query.filter_by(scope='global', owner='').first()
+    global_data = global_setting.get_data() if global_setting else {}
+    user_data = {}
+    if user_id:
+        user_setting = AppSetting.query.filter_by(scope='user', owner=str(user_id)).first()
+        user_data = user_setting.get_data() if user_setting else {}
+    return jsonify({
+        'success': True,
+        'defaults': SETTINGS_DEFAULTS,
+        'global': global_data,
+        'user': user_data,
+        'is_admin': role >= UserRole.ADMIN,
+    })
+
+
+@app.route('/api/settings', methods=['POST'])
+@auth_required
+def api_save_settings():
+    """保存设置。
+
+    body: { scope: 'user'|'global', settings: {...partial}, reset?: [keys] }
+    - scope='global' 需要管理员权限，写入全站默认（owner=''）
+    - scope='user'   写入当前登录用户（owner=用户ID），跨设备生效
+    - reset 中的键会从该层删除（回落到下一层）
+    """
+    user_id, role = resolve_identity()
+    body = request.get_json(silent=True) or {}
+    scope = body.get('scope')
+    settings = body.get('settings') or {}
+    reset_keys = body.get('reset') or []
+
+    if not isinstance(settings, dict):
+        return jsonify({'success': False, 'message': 'settings 必须是对象', 'code': 400}), 400
+
+    if scope == 'global':
+        if role < UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+        owner = ''
+    elif scope == 'user':
+        if not user_id:
+            return jsonify({'success': False, 'message': '未登录', 'code': 401}), 401
+        owner = str(user_id)
+    else:
+        return jsonify({'success': False, 'message': 'scope 必须是 user 或 global', 'code': 400}), 400
+
+    record = AppSetting.query.filter_by(scope=scope, owner=owner).first()
+    existing = record.get_data() if record else {}
+    existing.update(settings)
+    # 仅保留白名单内的键
+    existing = {k: v for k, v in existing.items() if k in SETTINGS_DEFAULTS}
+    for k in (reset_keys or []):
+        existing.pop(k, None)
+
+    if record is None:
+        record = AppSetting(scope=scope, owner=owner)
+        db.session.add(record)
+    record.set_data(existing)
+    db.session.commit()
+    return jsonify({'success': True, 'scope': scope, 'data': record.get_data()})
+
 
 # ============ 配置管理 ============
 CONFIG_FILE = os.path.join(_CONFIGS_DIR, 'web', 'config.json')
