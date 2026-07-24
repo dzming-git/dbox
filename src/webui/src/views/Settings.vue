@@ -13,6 +13,9 @@ const settings = ref({
   language: 'zh-CN',
   // 内容过滤
   blockDisliked: true,  // 默认屏蔽不喜欢的视频
+  // 列表默认排序（视频 / 漫画首页通用）
+  defaultSort: 'recommended',
+  defaultOrder: 'desc',
   // 通知设置
   enableNotifications: true,
   notifyOnNewVideos: true
@@ -64,6 +67,8 @@ const resetSettings = () => {
       theme: 'dark',
       language: 'zh-CN',
       blockDisliked: true,
+      defaultSort: 'recommended',
+      defaultOrder: 'desc',
       enableNotifications: true,
       notifyOnNewVideos: true
     }
@@ -217,6 +222,37 @@ const showToast = (message: string) => {
             >
             <span class="toggle-slider"></span>
           </label>
+        </div>
+      </section>
+
+      <!-- 列表设置 -->
+      <section class="settings-section">
+        <h2 class="section-title">列表设置</h2>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label class="setting-label">默认排序方式</label>
+            <p class="setting-desc">设置视频 / 漫画列表首页的默认排序，未单独指定时生效</p>
+          </div>
+          <div class="sort-setting-controls">
+            <select
+              v-model="settings.defaultSort"
+              class="setting-select"
+              data-testid="default-sort-select"
+            >
+              <option value="recommended">推荐</option>
+              <option value="name">名称</option>
+              <option value="created_at">文件时间</option>
+            </select>
+            <select
+              v-model="settings.defaultOrder"
+              class="setting-select"
+              data-testid="default-order-select"
+            >
+              <option value="desc">倒序</option>
+              <option value="asc">正序</option>
+            </select>
+          </div>
         </div>
       </section>
 
@@ -436,6 +472,16 @@ input:checked + .toggle-slider:before {
 .setting-select:focus {
   outline: none;
   border-color: #2196F3;
+}
+
+/* 默认排序：两个下拉并排 */
+.sort-setting-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.sort-setting-controls .setting-select {
+  min-width: 110px;
 }
 
 /* Radio Group */

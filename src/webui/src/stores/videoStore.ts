@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { videoApi, tagApi } from '../api'
+import { getDefaultSort } from '../utils/userSettings'
 import type { Video, Tag } from '../types'
 
 export const useVideoStore = defineStore('video', () => {
@@ -21,8 +22,8 @@ export const useVideoStore = defineStore('video', () => {
   const selectedLibraryId = ref<number | null>(null)  // 按资源库筛选，null=全部
   const libraries = ref<any[]>([])  // 当前用户可访问的资源库列表
   const searchQuery = ref('')
-  const sortBy = ref('recommended')  // 排序方式
-  const sortOrder = ref('desc')  // 排序方向: asc, desc
+  const sortBy = ref(getDefaultSort().sort)  // 排序方式（默认读取用户设置，回退推荐）
+  const sortOrder = ref(getDefaultSort().order)  // 排序方向: asc, desc
   const viewMode = ref<'grid' | 'list'>(
     (localStorage.getItem('dplayer_view_mode') as 'grid' | 'list') || 'grid'
   )  // 显示模式: grid=缩略图, list=列表
@@ -433,10 +434,10 @@ export const useVideoStore = defineStore('video', () => {
     if (searchQuery.value) {
       query.search = searchQuery.value
     }
-    if (sortBy.value && sortBy.value !== 'recommended') {
+    if (sortBy.value && sortBy.value !== getDefaultSort().sort) {
       query.sort = sortBy.value
     }
-    if (sortOrder.value && sortOrder.value !== 'desc') {
+    if (sortOrder.value && sortOrder.value !== getDefaultSort().order) {
       query.order = sortOrder.value
     }
     if (pagination.value.offset > 0) {
@@ -464,8 +465,9 @@ export const useVideoStore = defineStore('video', () => {
     }
     // 缺失的参数恢复默认值（切换模式时清空 URL，其他参数应回到默认）
     searchQuery.value = query.search || ''
-    sortBy.value = query.sort || 'recommended'
-    sortOrder.value = query.order || 'desc'
+    const defSort = getDefaultSort()
+    sortBy.value = query.sort || defSort.sort
+    sortOrder.value = query.order || defSort.order
     // 根据 page 参数计算 offset（不存在则回到第 1 页）
     const page = query.page ? (parseInt(query.page) || 1) : 1
     const offset = (page - 1) * pagination.value.limit

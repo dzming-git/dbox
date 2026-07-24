@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { comicApi } from '../api'
+import { getDefaultSort } from '../utils/userSettings'
 import type { Comic } from '../types'
 
 export const useComicStore = defineStore('comic', () => {
@@ -13,8 +14,8 @@ export const useComicStore = defineStore('comic', () => {
   const selectedTagId = ref<number | null>(null)
   const libraries = ref<any[]>([])
   const searchQuery = ref('')
-  const sortBy = ref('recommended')
-  const sortOrder = ref('desc')
+  const sortBy = ref(getDefaultSort().sort)
+  const sortOrder = ref(getDefaultSort().order)
   const viewMode = ref<'grid' | 'list'>(
     (localStorage.getItem('dplayer_comic_view_mode') as 'grid' | 'list') || 'grid'
   )
@@ -112,10 +113,10 @@ export const useComicStore = defineStore('comic', () => {
     if (searchQuery.value.trim()) {
       query.search = searchQuery.value.trim()
     }
-    if (sortBy.value && sortBy.value !== 'recommended') {
+    if (sortBy.value && sortBy.value !== getDefaultSort().sort) {
       query.sort = sortBy.value
     }
-    if (sortOrder.value && sortOrder.value !== 'desc') {
+    if (sortOrder.value && sortOrder.value !== getDefaultSort().order) {
       query.order = sortOrder.value
     }
     if (pagination.value.offset > 0) {
@@ -133,8 +134,9 @@ export const useComicStore = defineStore('comic', () => {
     selectedTagId.value = query.tag ? (parseInt(query.tag) || null) : null
     searchQuery.value = query.search || ''
     // 缺失的参数恢复默认值（切换模式时清空 URL，其他参数应回到默认）
-    sortBy.value = query.sort || 'recommended'
-    sortOrder.value = query.order || 'desc'
+    const defSort = getDefaultSort()
+    sortBy.value = query.sort || defSort.sort
+    sortOrder.value = query.order || defSort.order
     const page = query.page ? (parseInt(query.page) || 1) : 1
     const offset = (page - 1) * pagination.value.limit
     await fetchComicsByOffset(offset)
