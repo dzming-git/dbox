@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '上传视频', requiresAuth: true }
   },
   {
+    path: '/feedback',
+    name: 'Feedback',
+    component: () => import('../views/Feedback.vue'),
+    meta: { title: '反馈中心', requiresAuth: true }
+  },
+  {
     path: '/admin',
     name: 'Admin',
     component: () => import('../views/Admin.vue'),

@@ -2,7 +2,6 @@
 import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import SuggestionsModal from './components/SuggestionsModal.vue'
 import { fetchServerSettings, clearServerSettings } from './utils/settings'
 
 const router = useRouter()
@@ -28,9 +27,6 @@ const navHeight = ref(60)
 const updateNavHeight = () => {
   navHeight.value = navEl.value ? navEl.value.offsetHeight : 0
 }
-
-// 建议对话框状态
-const showSuggestionDialog = ref(false)
 
 onMounted(() => {
   document.addEventListener('click', closeUserDropdown)
@@ -79,17 +75,6 @@ const closeUserDropdown = (event: MouseEvent) => {
   if (!target.closest('.user-avatar-wrapper')) {
     showUserDropdown.value = false
   }
-}
-
-// 打开建议对话框
-const openSuggestionDialog = () => {
-  showUserDropdown.value = false
-  showSuggestionDialog.value = true
-}
-
-// 关闭建议对话框
-const closeSuggestionDialog = () => {
-  showSuggestionDialog.value = false
 }
 </script>
 
@@ -190,12 +175,12 @@ const closeSuggestionDialog = () => {
               </svg>
               不喜欢
             </RouterLink>
-            <div class="dropdown-item" @click="openSuggestionDialog">
+            <RouterLink to="/feedback" class="dropdown-item" @click="showUserDropdown = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
               </svg>
-              意见建议
-            </div>
+              反馈中心
+            </RouterLink>
             <div class="dropdown-divider"></div>
             <div class="dropdown-item logout" @click="handleLogout">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -211,9 +196,6 @@ const closeSuggestionDialog = () => {
     <main class="main-content" :class="{ 'no-nav': isLoginPage }">
       <RouterView />
     </main>
-
-    <!-- 意见建议（GitHub Issue 风格） -->
-    <SuggestionsModal v-if="showSuggestionDialog" @close="closeSuggestionDialog" />
   </div>
 </template>
 
