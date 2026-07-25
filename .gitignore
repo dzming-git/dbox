@@ -137,3 +137,4 @@ scripts/clean_*.py
 # ============================================
 extensions/scripts/*/
 !extensions/scripts/demo_download/
+!extensions/scripts/x_downloader/
