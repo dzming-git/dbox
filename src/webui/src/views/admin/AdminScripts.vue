@@ -42,6 +42,7 @@
 
           <!-- 运行表单 -->
           <div v-if="selected && selected.id === sc.id" class="run-form">
+            <div class="run-form-title">运行参数</div>
             <div v-for="p in sc.params" :key="p.name" class="form-row">
               <label>{{ p.label || p.name }} <span v-if="p.required" class="req">*</span></label>
 
@@ -395,11 +396,23 @@ onUnmounted(() => {
 .script-cookies { color: #ffcf80; font-size: 12px; margin-top: 4px; }
 .script-actions { display: flex; align-items: center; gap: 10px; }
 .switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aaa; cursor: pointer; }
-.run-form { margin-top: 14px; border-top: 1px solid var(--border-color, #333); padding-top: 14px; }
-.form-row { margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
-.form-row > label { font-size: 13px; color: #ccc; }
+.run-form {
+  margin-top: 14px; background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, #333); border-radius: 10px;
+  padding: 16px; max-width: 720px;
+}
+.run-form-title {
+  font-size: 13px; font-weight: 600; color: #c9d1d9; margin-bottom: 14px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-color, #333);
+}
+.form-row {
+  margin-bottom: 14px; display: grid; grid-template-columns: 150px 1fr;
+  column-gap: 14px; row-gap: 4px; align-items: start;
+}
+.form-row > label { font-size: 13px; color: #ccc; text-align: right; padding-top: 9px; }
+.form-row > input[type="checkbox"] { justify-self: start; margin-top: 9px; width: 16px; height: 16px; accent-color: var(--accent, #4f8cff); }
 .req { color: #ff8080; }
-.param-hint { color: #888; font-size: 12px; }
+.param-hint { grid-column: 2; color: #888; font-size: 12px; }
 .multi-enum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .checkbox-inline {
   display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #ddd;
@@ -411,11 +424,17 @@ onUnmounted(() => {
   border: 1px dashed var(--border-color, #333); border-radius: 8px; padding: 6px 10px;
   font-size: 13px; min-width: 180px;
 }
-.form-row input[type="text"], .form-row select, .form-row textarea {
+.form-row input[type="text"], .form-row select, .form-row textarea,
+.enum-editable input {
   background: var(--input-bg, #141414); color: var(--text-color, #e6e6e6);
   border: 1px solid var(--border-color, #333); border-radius: 8px; padding: 8px 10px; font-size: 14px;
 }
-.run-buttons { display: flex; gap: 10px; margin-top: 6px; }
+.form-row input[type="text"], .form-row select, .form-row textarea,
+.enum-editable, .multi-enum { width: 100%; box-sizing: border-box; }
+.run-buttons {
+  display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;
+  border-top: 1px solid var(--border-color, #333); padding-top: 14px;
+}
 .action-btn {
   padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border-color, #333);
   background: var(--card-bg, #1c1c1c); color: var(--text-color, #e6e6e6); cursor: pointer;
@@ -449,4 +468,9 @@ onUnmounted(() => {
 }
 .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+@media (max-width: 560px) {
+  .form-row { grid-template-columns: 1fr; row-gap: 6px; }
+  .form-row > label { text-align: left; padding-top: 0; }
+  .run-form { max-width: 100%; }
+}
 </style>
