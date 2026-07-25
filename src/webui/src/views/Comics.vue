@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'Comics' })
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useComicStore } from '../stores/comicStore'

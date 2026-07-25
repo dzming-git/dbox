@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'Tags' })
 import { ref, onMounted, computed } from 'vue'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'

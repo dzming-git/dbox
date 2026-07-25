@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'Home' })
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'

@@ -3,6 +3,12 @@ import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings } from './utils/settings'
+import { routes } from './router'
+
+// 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
+const cachedViews = routes
+  .filter((r) => (r.meta as any)?.keepAlive)
+  .map((r) => r.name as string)
 
 const router = useRouter()
 const route = useRoute()
@@ -194,7 +200,11 @@ const closeUserDropdown = (event: MouseEvent) => {
       </div>
     </nav>
     <main class="main-content" :class="{ 'no-nav': isLoginPage }">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <KeepAlive :include="cachedViews">
+          <component :is="Component" />
+        </KeepAlive>
+      </RouterView>
     </main>
   </div>
 </template>

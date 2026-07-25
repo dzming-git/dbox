@@ -6,7 +6,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Home',
     component: () => import('../views/Home.vue'),
-    meta: { title: '首页', requiresAuth: true }
+    meta: { title: '首页', requiresAuth: true, keepAlive: true }
   },
   {
     path: '/login',
@@ -30,13 +30,13 @@ const routes: RouteRecordRaw[] = [
     path: '/tags',
     name: 'Tags',
     component: () => import('../views/Tags.vue'),
-    meta: { title: '标签管理', requiresAuth: true }
+    meta: { title: '标签管理', requiresAuth: true, keepAlive: true }
   },
   {
     path: '/comics',
     name: 'Comics',
     component: () => import('../views/Comics.vue'),
-    meta: { title: '漫画', requiresAuth: true }
+    meta: { title: '漫画', requiresAuth: true, keepAlive: true }
   },
   {
     path: '/comic/:hash',
@@ -48,7 +48,7 @@ const routes: RouteRecordRaw[] = [
     path: '/search',
     name: 'Search',
     component: () => import('../views/Search.vue'),
-    meta: { title: '搜索', requiresAuth: true }
+    meta: { title: '搜索', requiresAuth: true, keepAlive: true }
   },
   {
     path: '/favorites',
@@ -115,10 +115,15 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior() {
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    }
     return { top: 0 }
   }
 })
+
+export { routes }
 
 // 路由守卫 - 全局认证拦截
 router.beforeEach((to, from, next) => {
