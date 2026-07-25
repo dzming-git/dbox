@@ -6,6 +6,7 @@ from backend.utils.validators import validate_username, validate_password, valid
 from authlib.common.security import generate_token
 import datetime
 from liblog import get_service_logger
+from backend.audit import log_operation
 log = get_service_logger('dplayer-web')
 
 auth_v2_bp = Blueprint('auth_v2', __name__, url_prefix='/api/v2/auth')
@@ -106,6 +107,8 @@ def register():
         db.session.commit()
         
         log.runtime('INFO', f"新用户注册成功: {username}")
+        log_operation('user register', target=username, detail='role=user', success=True,
+                      user={'user_id': user.id, 'username': user.username, 'role': user.role})
         
         return jsonify({
             'success': True,
@@ -128,6 +131,7 @@ def register():
         
     except Exception as e:
         log.debug('ERROR', f"注册失败: {e}", exc_info=True)
+        log_operation('user register', target=username, success=False, detail=str(e))
         db.session.rollback()
         return jsonify({
             'success': False,
@@ -167,6 +171,7 @@ def login():
         user = User.query.filter_by(username=username).first()
         if not user:
             log.debug('WARN', f"登录失败 - 用户不存在: {username}")
+            log_operation('user login', target=username, success=False, detail='user not found')
             return jsonify({
                 'success': False,
                 'data': None,
@@ -177,6 +182,7 @@ def login():
         # 验证密码
         if not user.check_password(password):
             log.debug('WARN', f"登录失败 - 密码错误: {username}")
+            log_operation('user login', target=username, success=False, detail='wrong password')
             return jsonify({
                 'success': False,
                 'data': None,
@@ -186,6 +192,7 @@ def login():
 
         if not user.is_active:
             log.debug('WARN', f"登录失败 - 账号已禁用: {username}")
+            log_operation('user login', target=username, success=False, detail='account disabled')
             return jsonify({
                 'success': False,
                 'data': None,
@@ -213,6 +220,8 @@ def login():
         db.session.commit()
         
         log.runtime('INFO', f"用户登录成功: {username}")
+        log_operation('user login', target=username, success=True,
+                      user={'user_id': user.id, 'username': user.username, 'role': user.role})
         
         return jsonify({
             'success': True,
@@ -235,6 +244,7 @@ def login():
         
     except Exception as e:
         log.debug('ERROR', f"登录失败: {e}", exc_info=True)
+        log_operation('user login', target=username if 'username' in dir() else '', success=False, detail=str(e))
         return jsonify({
             'success': False,
             'data': None,
@@ -350,8 +360,13 @@ def logout():
                 session.is_active = False
                 db.session.commit()
                 log.runtime('INFO', f"用户登出成功（会话ID: {session.id}）")
+                log_operation('user logout', target=f'id={session.user_id}', success=True,
+                              user={'user_id': session.user_id, 'username': '', 'role': 0})
+            else:
+                log_operation('user logout', success=False, detail='no session for refresh_token')
         else:
             log.runtime('INFO', "用户登出成功（未提供refresh_token）")
+            log_operation('user logout', success=True, detail='no refresh_token provided')
         
         return jsonify({
             'success': True,

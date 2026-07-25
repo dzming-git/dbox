@@ -213,6 +213,11 @@ app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API
 
+# ============ 操作审计日志 ============
+# after_request 钩子：对所有 /api 写操作自动记录「是谁触发的」（含游客/登录用户与来源 IP）
+from backend.audit import auto_audit_hook, log_operation
+app.after_request(auto_audit_hook)
+
 # ============ 初始化 API 总线客户端 ============
 init_history_api(history_bus)
 init_collection_api(collection_bus)
@@ -374,6 +379,7 @@ def api_save_settings():
         db.session.add(record)
     record.set_data(existing)
     db.session.commit()
+    log_operation('save settings', target=f'层={scope}', detail=f'键={list(settings.keys())}', success=True)
     return jsonify({'success': True, 'scope': scope, 'data': record.get_data()})
 
 
@@ -2039,6 +2045,7 @@ def create_admin_user():
         db.session.add(user)
         db.session.commit()
         log.maintenance('INFO', f"创建用户: {username} (角色: {user.role_name})")
+        log_operation('create user', target=username, detail=f'角色={user.role_name}', success=True)
         
         return jsonify({
             'success': True,
@@ -2088,6 +2095,7 @@ def update_admin_user(user_id):
 
         db.session.commit()
         log.maintenance('INFO', f"更新用户信息: {user.username} (ID: {user_id})")
+        log_operation('update user', target=user.username, detail=f'角色={user.role_name}', success=True)
 
         return jsonify({
             'success': True,
@@ -2114,6 +2122,7 @@ def delete_admin_user(user_id):
         db.session.delete(user)
         db.session.commit()
         log.maintenance('INFO', f"删除用户: {user.username} (ID: {user_id})")
+        log_operation('delete user', target=user.username, success=True)
         return jsonify({'success': True, 'message': '用户已删除'})
     except Exception as e:
         db.session.rollback()
@@ -2175,6 +2184,7 @@ def batch_delete_videos():
 
         db.session.commit()
         log.maintenance('INFO', f"批量删除视频: {deleted_count}个, 删除文件: {delete_file}")
+        log_operation('batch delete videos', target=f'{deleted_count}个', detail=f'删除文件={delete_file}', success=True)
         return jsonify({
             'success': True,
             'message': f'已删除 {deleted_count} 个视频',
@@ -2226,6 +2236,7 @@ def admin_trash_purge():
         if not obj:
             return jsonify({'success': False, 'message': '资源不存在或不在回收站中'}), 404
         purge_trash(obj, kind)
+        log_operation('permanently delete recycle-bin item', target=f'{kind}:{h}', success=True)
         return jsonify({'success': True, 'message': '已永久删除'})
     except Exception as e:
         db.session.rollback()
@@ -2242,6 +2253,7 @@ def admin_trash_empty():
             obj = get_trash_obj(it['type'], it['hash'])
             if obj:
                 purge_trash(obj, it['type'])
+        log_operation('empty recycle bin', target=f'{len(items)}项', success=True)
         return jsonify({'success': True, 'message': f'已清空回收站（{len(items)} 项）'})
     except Exception as e:
         db.session.rollback()
@@ -2687,6 +2699,7 @@ def upload_video():
         # 异步生成缩略图（这里简化处理）
         # TODO: 调用缩略图服务生成真实缩略图
 
+        log_operation('upload video', target=video.hash, detail=f'标题={title}', success=True)
         return jsonify({
             'success': True,
             'message': '上传成功',
@@ -2781,6 +2794,7 @@ def scan_videos():
                         total_added += 1
         
         db.session.commit()
+        log_operation('scan new videos', target=f'{total_added}个', success=True)
         return jsonify({'success': True, 'message': f'添加了 {total_added} 个视频', 'total_added': total_added})
     except Exception as e:
         db.session.rollback()
@@ -2910,6 +2924,7 @@ def create_library():
 
         db.session.add(library)
         db.session.commit()
+        log_operation('create library', target=name, success=True)
 
         # 同步创建 resource.db 中的资源库（供 resourced 服务使用）
         if resource_bus:
@@ -3025,6 +3040,7 @@ def delete_library(library_id):
 
         db.session.delete(library)
         db.session.commit()
+        log_operation('delete library', target=f'{library.name}(id={library_id})', success=True)
         return jsonify({'success': True, 'message': '资源库已删除'})
     except Exception as e:
         db.session.rollback()
@@ -3410,6 +3426,7 @@ def add_library_permission(library_id):
         db.session.add(audit_log)
 
         db.session.commit()
+        log_operation('add library permission', target=f'library={library_id},user={user_id or group_id}', detail=f'role={role},access={access_level}', success=True)
         return jsonify({'success': True, 'data': permission.to_dict()})
     except Exception as e:
         db.session.rollback()
@@ -3449,6 +3466,7 @@ def update_library_permission(library_id, perm_id):
         db.session.add(audit_log)
 
         db.session.commit()
+        log_operation('update library permission', target=f'library={library_id},user={permission.user_id}', detail=f'role={permission.role},access={permission.access_level}', success=True)
         return jsonify({'success': True, 'data': permission.to_dict()})
     except Exception as e:
         db.session.rollback()
@@ -3474,6 +3492,7 @@ def delete_library_permission(library_id, perm_id):
 
         db.session.delete(permission)
         db.session.commit()
+        log_operation('delete library permission', target=f'library={library_id},user={permission.user_id}', success=True)
         return jsonify({'success': True, 'message': '权限已删除'})
     except Exception as e:
         db.session.rollback()
@@ -4098,32 +4117,44 @@ def get_library_audit_logs(library_id):
 @admin_required
 def get_system_logs():
     """
-    获取系统日志（从 liblog 日志文件读取）
-    
+    获取系统日志（从 liblog 日志文件读取），支持多维筛选。
+
     参数:
-    - type: 日志类型 (maintenance/runtime/debug/operation)，默认 maintenance
-    - service: 服务名筛选（可选），如 'dplayer-web'
-    - page: 页码，默认 1
-    - limit: 每页条数，默认 20
+    - type:    日志类型 (maintenance/runtime/debug/operation)，默认 maintenance
+    - service: 模块/服务名筛选（可选），如 'dplayer-web'
+    - level:   日志等级筛选（可选，仅对非 operation 类型有效），如 INFO/WARN/ERROR
+    - user:    操作人筛选（可选，仅对 operation 类型有效），模糊匹配
+    - keyword: 关键字筛选（可选），匹配 content（大小写不敏感）
+    - date:    日期筛选 YYYY-MM-DD（可选），匹配该日产生的日志
+    - page:    页码，默认 1
+    - limit:   每页条数，默认 20
     """
     log_type = request.args.get('type', 'maintenance').strip().lower()
     service = request.args.get('service', '').strip() or None
+    level = request.args.get('level', '').strip().upper() or None
+    user = request.args.get('user', '').strip() or None
+    keyword = request.args.get('keyword', '').strip() or None
+    date = request.args.get('date', '').strip() or None
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 20, type=int)
-    
+
     # 验证日志类型
     valid_types = ['maintenance', 'runtime', 'debug', 'operation']
     if log_type not in valid_types:
         return jsonify({'success': False, 'message': f'无效的日志类型，可选: {", ".join(valid_types)}'}), 400
-    
+
     # 限制每页条数范围
     limit = max(1, min(limit, 200))
     page = max(1, page)
-    
+
+    # 日期筛选仅保留前缀（YYYY-MM-DD）
+    if date:
+        date = date[:10]
+
     # 日志文件路径
     log_dir = os.path.join(_DATA_DIR, 'logs')
     log_file = os.path.join(log_dir, f'{log_type}.log')
-    
+
     if not os.path.exists(log_file):
         return jsonify({
             'success': True,
@@ -4134,47 +4165,79 @@ def get_system_logs():
             'total_pages': 0,
             'type': log_type,
             'service': service,
-            'services': []
+            'level': level,
+            'user': user,
+            'keyword': keyword,
+            'date': date,
+            'services': [],
+            'modules': [],
+            'levels': [],
+            'users': []
         })
-    
+
     # 读取并解析日志文件
     try:
-        # 尝试 UTF-8 读取，失败则尝试 GBK
         try:
             with open(log_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
         except UnicodeDecodeError:
             with open(log_file, 'r', encoding='gbk', errors='replace') as f:
                 lines = f.readlines()
-        
-        # 解析日志行
+
         parsed_logs = []
         services_set = set()
+        levels_set = set()
+        users_set = set()
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             parsed = parse_log_line(line, log_type)
-            if parsed:
-                # 按服务名筛选
-                if service and parsed.get('service') != service:
+            if not parsed:
+                continue
+
+            # ---- 多维筛选 ----
+            # 模块/服务
+            if service and parsed.get('service') != service:
+                continue
+            # 等级（非 operation 类型）
+            if log_type != 'operation' and level and parsed.get('level') != level:
+                continue
+            # 操作人（operation 类型）
+            if user:
+                entry_user = parsed.get('user') or ''
+                if user.lower() not in entry_user.lower():
                     continue
-                parsed_logs.append(parsed)
-                # 收集所有服务名
-                if parsed.get('service'):
-                    services_set.add(parsed['service'])
-        
+            # 关键字（content，大小写不敏感）
+            if keyword and keyword.lower() not in parsed.get('content', '').lower():
+                continue
+            # 日期（时间戳前缀匹配 YYYY-MM-DD）
+            if date and not parsed.get('timestamp', '').startswith(date):
+                continue
+
+            parsed_logs.append(parsed)
+            if parsed.get('service'):
+                services_set.add(parsed['service'])
+            if log_type != 'operation' and parsed.get('level'):
+                levels_set.add(parsed['level'])
+            if parsed.get('user'):
+                users_set.add(parsed['user'])
+
         # 倒序排列（最新在前）
         parsed_logs.reverse()
-        
+        # 倒序后，facet 集合保持原始去重即可
+        services_set.update(services_set)
+        levels_set.update(levels_set)
+        users_set.update(users_set)
+
         # 计算分页
         total = len(parsed_logs)
         total_pages = (total + limit - 1) // limit if total > 0 else 0
         start = (page - 1) * limit
         end = start + limit
         page_logs = parsed_logs[start:end]
-        
+
         return jsonify({
             'success': True,
             'logs': page_logs,
@@ -4184,9 +4247,16 @@ def get_system_logs():
             'total_pages': total_pages,
             'type': log_type,
             'service': service,
-            'services': sorted(services_set)
+            'level': level,
+            'user': user,
+            'keyword': keyword,
+            'date': date,
+            'services': sorted(services_set),
+            'modules': sorted(services_set),
+            'levels': sorted(levels_set),
+            'users': sorted(users_set)
         })
-    
+
     except Exception as e:
         log.debug('ERROR', f'读取日志文件失败: {e}')
         return jsonify({'success': False, 'message': f'读取日志失败: {str(e)}'}), 500
@@ -4211,15 +4281,25 @@ def parse_log_line(line: str, log_type: str) -> dict | None:
     field2 = match.group(2).strip()  # 等级（或 IP）
     service = match.group(3).strip()
     content = match.group(4).strip()
-    
-    return {
+
+    result = {
         'timestamp': timestamp,
         'level': field2 if log_type != 'operation' else '',
         'source': field2 if log_type == 'operation' else '',
         'service': service,
         'content': content,
-        'type': log_type
+        'type': log_type,
+        'user': ''
     }
+
+    # 操作日志：从内容段提取「user=xxx」（兼容旧格式「用户=xxx」）作为独立字段，
+    # 便于审计查看谁触发的
+    if log_type == 'operation':
+        user_match = re.search(r'(?:用户|user)=([^|]+)', content)
+        if user_match:
+            result['user'] = user_match.group(1).strip()
+
+    return result
 
 
 # ============ 缩略图管理 API =================

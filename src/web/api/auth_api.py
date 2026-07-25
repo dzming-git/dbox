@@ -7,6 +7,7 @@ from core.models import db, User, UserRole, ROLE_NAMES
 from auth_service import AuthService
 from functools import wraps
 from liblog import get_service_logger
+from backend.audit import log_operation
 log = get_service_logger('dplayer-web')
 
 # 创建蓝图
@@ -111,16 +112,20 @@ def register():
         )
 
         if success:
+            log_operation('user register', target=user.username, detail='role=user', success=True,
+                          user={'user_id': user.id, 'username': user.username, 'role': user.role})
             return jsonify({
                 'success': True,
                 'message': message,
                 'user': user.to_dict()
             }), 201
         else:
+            log_operation('user register', target=username, success=False, detail=message)
             return jsonify({'success': False, 'message': message}), 400
 
     except Exception as e:
         log.debug('ERROR', f"注册失败: {e}")
+        log_operation('user register', target=username, success=False, detail=str(e))
         return jsonify({'success': False, 'message': f'注册失败: {str(e)}'}), 500
 
 
@@ -148,16 +153,20 @@ def login():
         )
 
         if success:
+            log_operation('user login', target=user.username, success=True,
+                          user={'user_id': user.id, 'username': user.username, 'role': user.role})
             return jsonify({
                 'success': True,
                 'message': message,
                 'user': user.to_dict()
             })
         else:
+            log_operation('user login', target=username, success=False, detail=message)
             return jsonify({'success': False, 'message': message}), 401
 
     except Exception as e:
         log.debug('ERROR', f"登录失败: {e}")
+        log_operation('user login', target=username, success=False, detail=str(e))
         return jsonify({'success': False, 'message': f'登录失败: {str(e)}'}), 500
 
 
@@ -165,13 +174,17 @@ def login():
 def logout():
     """用户登出"""
     try:
+        current_user = AuthService.get_current_user()
+        actor = {'user_id': current_user.id, 'username': current_user.username, 'role': current_user.role} if current_user else None
         AuthService.logout()
+        log_operation('用户登出', success=True, user=actor)
         return jsonify({
             'success': True,
             'message': '已退出登录'
         })
     except Exception as e:
         log.debug('ERROR', f"登出失败: {e}")
+        log_operation('用户登出', success=False, detail=str(e))
         return jsonify({'success': False, 'message': f'登出失败: {str(e)}'}), 500
 
 
@@ -232,8 +245,11 @@ def change_password():
         )
 
         if success:
+            log_operation('change password', target=user.username if user else '', success=True,
+                          user={'user_id': user.id, 'username': user.username, 'role': user.role} if user else None)
             return jsonify({'success': True, 'message': message})
         else:
+            log_operation('change password', target=user.username if user else '', success=False, detail=message)
             return jsonify({'success': False, 'message': message}), 400
 
     except Exception as e:
@@ -401,12 +417,14 @@ def create_user():
         )
 
         if success:
+            log_operation('create user', target=user.username, detail=f'role={role}', success=True)
             return jsonify({
                 'success': True,
                 'message': message,
                 'user': user.to_dict()
             }), 201
         else:
+            log_operation('create user', target=username, success=False, detail=message)
             return jsonify({'success': False, 'message': message}), 400
 
     except Exception as e:
@@ -504,6 +522,7 @@ def update_user(user_id):
         db.session.commit()
 
         log.runtime('INFO', f"用户信息已更新: {user.username} by {current_user.username}")
+        log_operation('update user', target=user.username, detail=f'操作者={current_user.username}', success=True)
         return jsonify({
             'success': True,
             'message': '用户信息已更新',
@@ -549,6 +568,7 @@ def delete_user(user_id):
         db.session.commit()
 
         log.runtime('INFO', f"用户已删除: {username} by {current_user.username}")
+        log_operation('delete user', target=username, detail=f'操作者={current_user.username}', success=True)
         return jsonify({
             'success': True,
             'message': f'用户 {username} 已删除'
@@ -596,6 +616,7 @@ def reset_user_password(user_id):
         db.session.commit()
 
         log.runtime('INFO', f"用户密码已重置: {user.username} by {current_user.username}")
+        log_operation('重置用户密码', target=user.username, detail=f'操作者={current_user.username}', success=True)
         return jsonify({
             'success': True,
             'message': f'用户 {user.username} 的密码已重置'
