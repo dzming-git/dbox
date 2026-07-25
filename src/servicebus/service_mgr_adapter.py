@@ -90,8 +90,8 @@ _SERVICE_META = {
     'dplayer-downloader': {
         'display_name': 'DPlayer 资源下载器',
         'description': '独立进程：外部脚本 / 下载器服务（与主服务解耦，崩溃不影响主服务）',
-        'health_url': 'http://127.0.0.1:8082/api/health',
-        'port': 8082,
+        'health_url': 'http://127.0.0.1:8092/api/health',
+        'port': 8092,
     },
 }
 

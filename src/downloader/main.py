@@ -4,7 +4,7 @@
 
 将「外部脚本 / 下载器」从主 Web 服务彻底剥离为独立服务：
 
-  - 下载器以独立进程运行在 8082 端口，即使它崩溃 / 卡死 / 被脚本拖垮，
+  - 下载器以独立进程运行在 8092 端口，即使它崩溃 / 卡死 / 被脚本拖垮，
     也绝不会影响主 Web 服务（8080）及其他服务。
   - 对外暴露 /api/scripts/* 接口，鉴权方式与主服务完全一致（JWT Bearer），
     密钥直接读取与主服务相同的 DPLAYER_JWT_SECRET 环境变量 / 默认密钥。
@@ -90,5 +90,5 @@ def health():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('DOWNLOADER_PORT', 8082))
+    port = int(os.environ.get('DOWNLOADER_PORT', 8092))
     app.run(host='0.0.0.0', port=port, threaded=True)

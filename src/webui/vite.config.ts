@@ -14,27 +14,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api/scripts': {
-        target: 'http://127.0.0.1:8082',
-        changeOrigin: true,
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
-      '/api/admin/scripts': {
-        target: 'http://127.0.0.1:8082',
-        changeOrigin: true,
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
-      '/api/admin/cookies': {
-        target: 'http://127.0.0.1:8082',
-        changeOrigin: true,
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
+      # 脚本/下载器接口统一打到主服务 8080，由主服务网关转发到独立下载器（8092）。
+      # 这样开发/生产行为一致，且主服务不直接执行脚本代码。
       '/api': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,

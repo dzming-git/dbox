@@ -333,8 +333,52 @@ app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API
-# 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8082），
-#     由前端经 Vite 代理 /api/scripts 转发，与主服务解耦，下载器崩溃不影响主服务。
+# 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8092），
+#     主服务作为网关将脚本相关接口反向代理过去（见下方 _gateway_script_routes）。
+#     前端仍统一访问 8080（开发/生产一致），主服务不直接执行脚本代码：
+#     即使下载器崩溃，主服务也只返回 503 而不会抛异常、不影响其他功能。
+
+# ===== 资源下载器网关代理 =====
+_DOWNLOADER_BASE_URL = 'http://127.0.0.1:8092'
+_SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies')
+
+
+def _proxy_to_downloader(path):
+    """将请求原样转发给资源下载器服务（8092），透传方法/头/查询/Body/Cookie。"""
+    import requests as _requests
+    target = _DOWNLOADER_BASE_URL + path
+    _hop = {'host', 'content-length', 'connection', 'transfer-encoding'}
+    fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _hop}
+    try:
+        resp = _requests.request(
+            method=request.method,
+            url=target,
+            params=request.args,
+            headers=fwd_headers,
+            data=request.get_data(cache=True),
+            cookies=request.cookies,
+            allow_redirects=False,
+            timeout=30,
+        )
+    except _requests.exceptions.RequestException:
+        return jsonify({
+            'success': False,
+            'message': '资源下载器服务不可用，请检查下载器进程是否运行',
+            'code': 503,
+        }), 503
+    _excluded = {'content-length', 'transfer-encoding', 'connection', 'content-encoding'}
+    resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _excluded}
+    return resp.content, resp.status_code, resp_headers
+
+
+@app.before_request
+def _gateway_script_routes():
+    """脚本/下载器相关接口统一经主服务网关转发到独立下载器进程。"""
+    path = request.path
+    for _p in _SCRIPT_PREFIXES:
+        if path == _p or path.startswith(_p + '/'):
+            return _proxy_to_downloader(path)
+    return None
 
 # ============ 操作审计日志 ============
 # after_request 钩子：对所有 /api 写操作自动记录「是谁触发的」（含游客/登录用户与来源 IP）
@@ -4868,8 +4912,8 @@ _SERVICE_META = {
     'dplayer-downloader': {
         'display_name': 'DPlayer 资源下载器',
         'description': '独立进程：外部脚本 / 下载器服务（与主服务解耦，崩溃不影响主服务）',
-        'health_url': 'http://127.0.0.1:8082/api/health',
-        'port': 8082,
+        'health_url': 'http://127.0.0.1:8092/api/health',
+        'port': 8092,
     },
 }
 
