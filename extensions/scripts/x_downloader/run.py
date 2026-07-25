@@ -333,6 +333,14 @@ def extract_media(url, cookie_header, proxy_cfg):
         log(f'页面抓取失败: {e}', level='warn')
 
     media = extract_from_html(html, cookie_header) if html else []
+    # 带 Cookie 却解析不到（很可能是 Cookie 过期，X 返回登录页），回退无 Cookie 访客页
+    if not media and cookie_header:
+        log('带 Cookie 未解析到媒体，尝试无 Cookie 重新抓取…')
+        try:
+            html2 = fetch_text(url, opener, build_headers(''), timeout=45)
+            media = extract_from_html(html2, '') if html2 else []
+        except Exception as e:
+            log(f'无 Cookie 抓取失败: {e}', level='warn')
     if not media and tweet_id != 'x':
         log('页面未解析到媒体，尝试接口方式…')
         media = extract_from_api(tweet_id, cookie_header, opener)
@@ -354,80 +362,151 @@ def download_image(url, cookie_header, working_dir, index, proxy_cfg):
     return dest
 
 
-def parse_m3u8_segments(m3u8_text, base_url):
-    """从 m3u8 文本中提取分片 URL 列表（解析相对地址）。"""
+def parse_m3u8(m3u8_text, base_url):
+    """解析单个 rendition 的 m3u8：返回 (init_url_or_None, [segment_urls])。
+
+    X 的视频为 fMP4（分片为 .m4s，初始化段由 #EXT-X-MAP 指定）。
+    """
+    init_url = None
     segments = []
-    for line in m3u8_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        if line.startswith('http://') or line.startswith('https://'):
-            segments.append(line)
-        else:
-            segments.append(urllib.parse.urljoin(base_url, line))
-    return segments
-
-
-def resolve_rendition(m3u8_url, opener, headers):
-    """若是 master  playlist（含 STREAM-INF），选最高分辨率 rendition。"""
-    text = fetch_text(m3u8_url, opener, headers, timeout=45)
-    if '#EXT-X-STREAM-INF' not in text:
-        return m3u8_url, text
-    best = None
-    best_w = -1
-    lines = text.splitlines()
+    lines = m3u8_text.splitlines()
     for i, line in enumerate(lines):
-        if line.startswith('#EXT-X-STREAM-INF'):
-            m = re.search(r'RESOLUTION=(\d+)x(\d+)', line)
-            w = int(m.group(1)) if m else 0
-            # 下一行是对应 URL
-            uri = lines[i + 1].strip() if i + 1 < len(lines) else ''
-            if uri and w >= best_w:
-                best_w = w
-                best = uri
-    if best:
-        best = urllib.parse.urljoin(m3u8_url, best)
-        return best, fetch_text(best, opener, headers, timeout=45)
-    return m3u8_url, text
+        line = line.strip()
+        if line.startswith('#EXT-X-MAP:'):
+            mm = re.search(r'URI="([^"]+)"', line)
+            if mm:
+                init_url = urllib.parse.urljoin(base_url, mm.group(1))
+        elif line.startswith('#'):
+            continue
+        elif line:
+            if line.startswith('http://') or line.startswith('https://'):
+                segments.append(line)
+            else:
+                segments.append(urllib.parse.urljoin(base_url, line))
+    return init_url, segments
+
+
+def select_renditions(master_text, base_url):
+    """从 master playlist 选出：最高分辨率视频 rendition + 对应音频 rendition。
+
+    返回 (video_url, audio_url_or_None)。
+    """
+    lines = master_text.splitlines()
+    audio_map = {}      # group-id -> uri（取带宽最大的）
+    audio_bw = {}       # group-id -> bandwidth
+    streams = []        # (width, audio_group, uri)
+    cur = {}
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if line.startswith('#EXT-X-MEDIA:'):
+            if 'TYPE=AUDIO' in line:
+                g = re.search(r'GROUP-ID="([^"]+)"', line)
+                u = re.search(r'URI="([^"]+)"', line)
+                bw = re.search(r'BANDWIDTH=(\d+)', line)
+                if g and u:
+                    gid = g.group(1)
+                    uri = urllib.parse.urljoin(base_url, u.group(1))
+                    b = int(bw.group(1)) if bw else 0
+                    if b >= audio_bw.get(gid, -1):
+                        audio_map[gid] = uri
+                        audio_bw[gid] = b
+        elif line.startswith('#EXT-X-STREAM-INF:'):
+            cur = {}
+            rm = re.search(r'RESOLUTION=(\d+)x(\d+)', line)
+            am = re.search(r'AUDIO="([^"]+)"', line)
+            cur['w'] = int(rm.group(1)) if rm else 0
+            cur['audio'] = am.group(1) if am else None
+        elif line and not line.startswith('#'):
+            if 'w' in cur:
+                streams.append((cur['w'], cur['audio'],
+                                urllib.parse.urljoin(base_url, line)))
+    if not streams:
+        return base_url, None
+    streams.sort(key=lambda x: x[0], reverse=True)
+    w, audio_group, vurl = streams[0]
+    aurl = audio_map.get(audio_group) if audio_group else None
+    return vurl, aurl
+
+
+def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
+    """下载一个 fMP4 流（init + 分片），用 ffmpeg concat 协议拼为单个 mp4。
+
+    返回生成的 mp4 路径。
+    """
+    text = fetch_text(stream_url, opener, headers, timeout=45)
+    init_url, segments = parse_m3u8(text, stream_url)
+    if not segments:
+        raise RuntimeError(f'流 {prefix} 未解析到分片')
+    if '#EXT-X-KEY' in text:
+        log(f'流 {prefix} 检测到加密分片，可能无法合并', level='warn')
+
+    n = len(segments)
+    log(f'下载流 {prefix}：{n} 个分片' + (f' + init' if init_url else ''))
+    names = []
+    if init_url:
+        init_path = os.path.join(working_dir, f'{prefix}_init.mp4')
+        with open(init_path, 'wb') as f:
+            f.write(fetch_bytes(init_url, opener, headers, timeout=90))
+        names.append(f'{prefix}_init.mp4')
+    for i, seg_url in enumerate(segments, start=1):
+        seg_path = os.path.join(working_dir, f'{prefix}_{i:04d}.m4s')
+        with open(seg_path, 'wb') as f:
+            f.write(fetch_bytes(seg_url, opener, headers, timeout=90))
+        names.append(f'{prefix}_{i:04d}.m4s')
+        if i % 5 == 0 or i == n:
+            log(f'  分片 {i}/{n}')
+
+    # concat 协议要求相对路径（避免 Windows 盘符冒号冲突），故以 working_dir 为 cwd
+    concat_in = 'concat:' + '|'.join(names)
+    out_path = os.path.join(working_dir, f'{prefix}.mp4').replace(chr(92), '/')
+    cmd = ['ffmpeg', '-y', '-i', concat_in, '-c', 'copy', out_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                          cwd=working_dir)
+    if proc.returncode != 0 or not os.path.exists(out_path):
+        err = (proc.stderr or '')[max(0, len(proc.stderr or '')) - 800:]
+        raise RuntimeError(f'ffmpeg 拼接流 {prefix} 失败: ' + err)
+    return out_path
 
 
 def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg):
+    """下载 X 视频。X 视频为 fMP4，且音视频分离：
+       1) 解析 master -> 选最高分辨率视频流 + 对应音频流；
+       2) 各自下载 init+分片，ffmpeg concat 协议拼为 mp4；
+       3) 有音频时再混流为最终 mp4。
+       若 m3u8 直接是单个 rendition 或只有视频，则仅拼视频流。
+    """
     opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header)
     log('解析视频播放列表（m3u8）…')
-    rendition_url, text = resolve_rendition(m3u8_url, opener, headers)
-    segments = parse_m3u8_segments(text, rendition_url)
-    if not segments:
-        raise RuntimeError('未从 m3u8 中解析到任何视频分片')
-    # 检测加密（暂不处理 EXT-X-KEY，仅告警）
-    if '#EXT-X-KEY' in text:
-        log('检测到加密分片（EXT-X-KEY），合并可能失败', level='warn')
 
-    n = len(segments)
-    log(f'共 {n} 个分片，开始下载…')
-    seg_files = []
-    for i, seg_url in enumerate(segments, start=1):
-        seg_path = os.path.join(working_dir, f'seg_{i:04d}.ts')
-        data = fetch_bytes(seg_url, opener, headers, timeout=90)
-        with open(seg_path, 'wb') as f:
-            f.write(data)
-        seg_files.append(seg_path)
-        if i % 5 == 0 or i == n:
-            log(f'分片 {i}/{n}')
+    # 直链 mp4（如某些 GIF）直接下载，无需 ffmpeg
+    if m3u8_url.lower().endswith('.mp4'):
+        dest = os.path.join(working_dir, f'{tweet_id}.mp4')
+        with open(dest, 'wb') as f:
+            f.write(fetch_bytes(m3u8_url, opener, headers, timeout=120))
+        return dest
 
-    # 用 ffmpeg 合并
-    out_path = os.path.join(working_dir, f'{tweet_id}.mp4')
-    list_path = os.path.join(working_dir, 'segments.txt')
-    with open(list_path, 'w', encoding='utf-8') as f:
-        for s in seg_files:
-            f.write(f"file '{os.path.abspath(s)}'\n")
-    cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
-           '-i', list_path, '-c', 'copy', out_path]
-    log('用 ffmpeg 合并分片…')
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if proc.returncode != 0 or not os.path.exists(out_path):
-        raise RuntimeError('ffmpeg 合并失败: ' + (proc.stderr or '')[:500])
-    return out_path
+    master_text = fetch_text(m3u8_url, opener, headers, timeout=45)
+    if '#EXT-X-STREAM-INF' in master_text:
+        v_url, a_url = select_renditions(master_text, m3u8_url)
+    else:
+        v_url, a_url = m3u8_url, None
+
+    v_out = download_fmp4_stream(v_url, 'video', working_dir, opener, headers)
+    if not a_url:
+        return v_out
+    a_out = download_fmp4_stream(a_url, 'audio', working_dir, opener, headers)
+
+    # 混流
+    final = os.path.join(working_dir, f'{tweet_id}.mp4').replace(chr(92), '/')
+    cmd = ['ffmpeg', '-y', '-i', 'video.mp4', '-i', 'audio.mp4',
+           '-c', 'copy', final]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                          cwd=working_dir)
+    if proc.returncode != 0 or not os.path.exists(final):
+        err = (proc.stderr or '')[max(0, len(proc.stderr or '')) - 800:]
+        raise RuntimeError('ffmpeg 混流失败: ' + err)
+    return final
 
 
 def simulate_media():
