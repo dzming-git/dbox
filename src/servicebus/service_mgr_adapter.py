@@ -153,7 +153,13 @@ class BusServiceMgrAdapter(BaseDBusService):
         """执行一次服务扫描"""
         try:
             service_names = self._scan_nssm_services()
-            for name in service_names:
+            # 合并静态元信息中定义的服务（如以独立进程方式运行的下载器），
+            # 保证它们始终出现在服务列表中，即使未注册为 Windows 服务。
+            merged = list(service_names)
+            for name in _SERVICE_META.keys():
+                if name not in merged:
+                    merged.append(name)
+            for name in merged:
                 try:
                     info = self._get_service_info(name)
                     with self._lock:
@@ -210,6 +216,7 @@ class BusServiceMgrAdapter(BaseDBusService):
             'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
             'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
             'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
+            'dplayer-downloader',
         ]
         verified = []
         try:
@@ -229,8 +236,9 @@ class BusServiceMgrAdapter(BaseDBusService):
         if verified:
             return verified
 
-        # 最终 fallback: 返回缓存的服务列表
-        return list(self._cached_services.keys())
+        # 最终 fallback: 返回静态元信息中定义的所有服务名
+        # （包括未注册为 Windows 服务、以独立进程方式运行的下载器等）
+        return list(_SERVICE_META.keys())
 
     def _get_service_info(self, service_name: str) -> Dict[str, Any]:
         """获取单个服务的详细信息"""

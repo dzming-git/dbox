@@ -4986,6 +4986,7 @@ def _scan_services() -> list:
         'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
         'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
         'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
+        'dplayer-downloader',
     ]
     verified = []
     try:
@@ -5002,9 +5003,16 @@ def _scan_services() -> list:
     except Exception:
         pass
 
-    if verified:
-        log.debug('DEBUG', f'[服务管理] 逐个探测找到 {len(verified)} 个服务: {verified}')
-        return verified
+    # 合并静态元信息中定义的所有服务（如独立进程方式运行的下载器），
+    # 保证它们始终出现在服务列表中，即使未注册为 Windows 服务。
+    merged = list(verified)
+    for name in _SERVICE_META.keys():
+        if name not in merged:
+            merged.append(name)
+
+    if merged:
+        log.debug('DEBUG', f'[服务管理] 探测/合并找到 {len(merged)} 个服务: {merged}')
+        return merged
 
     log.debug('DEBUG', '[服务管理] 扫描服务失败: 所有方法均无法获取服务列表')
     return []
