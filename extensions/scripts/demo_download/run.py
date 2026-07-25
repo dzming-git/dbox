@@ -1,13 +1,18 @@
-#!/usr/bin/env python3
-"""演示外部脚本：模拟下载并把文件落到资源库，再调用 notify 上报。
+"""演示脚本：下载视频（离线可运行版，演示 Cookie 注入全链路）。
 
-真实场景下，把"下载"部分替换为实际下载逻辑（如 yt-dlp / requests），
-其余契约（stdin 读参、stdout 输出 JSONL、移动到库路径、调用 notify）保持不变。
+真实使用时把下面注释里的 yt-dlp 命令替换掉模拟逻辑即可。
+关键演示点：
+1. 通过 stdin 接收 {job_id, params, context}
+2. context.cookies 是管理器按 required_cookies / cookie_select 物化到 working_dir 的
+   cookie 文件路径，例如 {".bilibili.com": {"path": ".../cookies.txt", "format": "netscape"}}
+3. 通过 stdout 逐行输出 JSON 上报进度 / 日志
+4. 通过 context.notify 回调通知 DPlayer 新资源入库（最终移动与入库由管理器统一完成）
 """
 import sys
 import os
 import json
 import time
+import urllib.request
 
 
 def emit(obj):
@@ -19,46 +24,59 @@ def main():
     data = json.loads(raw)
     params = data.get('params', {})
     ctx = data.get('context', {})
+
+    url = params.get('url', '')
+    quality = params.get('quality', 'best')
     working_dir = ctx.get('working_dir', '.')
-    libs = ctx.get('libraries', [])
+
+    emit({'type': 'log', 'message': f'收到任务，url={url}, quality={quality}'})
+
+    # ---- Cookie 注入演示 ----
+    cookies = ctx.get('cookies') or {}
+    cookie_args = []
+    for domain, info in cookies.items():
+        path = info.get('path')
+        if path and os.path.isfile(path):
+            cookie_args.append(f'--cookies "{path}"')
+            emit({'type': 'log', 'message': f'使用 {domain} 的 cookie 文件: {path}'})
+
+    # 真实下载命令示例（需 pip install yt-dlp）：
+    # cmd = f'yt-dlp {" ".join(cookie_args)} -f {quality} -o "{os.path.join(working_dir, "%(title)s.%(ext)s)")}" {url}'
+    emit({'type': 'log', 'message': '(演示) 真实命令将类似: yt-dlp '
+         + ' '.join(cookie_args) + f' -f {quality} "{url}"'})
+
+    emit({'type': 'progress', 'percent': 10, 'message': '准备下载'})
+    time.sleep(0.3)
+    emit({'type': 'progress', 'percent': 40, 'message': '下载中...'})
+    time.sleep(0.3)
+
+    # 生成占位产物（真实场景由下载器产出），放在 working_dir 下，由管理器移动到资源库
+    safe = ''.join(c if c.isalnum() else '_' for c in (url or 'video'))[:40]
+    out = os.path.join(working_dir, f'{safe}.mp4')
+    with open(out, 'w', encoding='utf-8') as f:
+        f.write('demo placeholder for ' + url + '\n')
+
+    emit({'type': 'progress', 'percent': 80, 'message': '生成完成，通知入库'})
+    time.sleep(0.2)
+
+    # 回调通知（与契约一致）
     notify = ctx.get('notify', {})
-    dest_dir = libs[0]['path'] if libs else working_dir
-
-    url = params.get('url', 'http://example.com/video')
-    quality = params.get('quality', '1080')
-    emit({"type": "log", "level": "info", "message": f"开始处理: {url}  清晰度={quality}"})
-
-    # 模拟下载进度
-    for p in range(0, 101, 20):
-        emit({"type": "progress", "percent": p, "message": f"下载中 {p}%"})
-        time.sleep(0.3)
-
-    # 在临时目录生成一个占位"视频"文件（真实场景应写入实际视频字节）
-    fname = "demo_" + os.urandom(4).hex() + ".mp4"
-    tmp = os.path.join(working_dir, fname)
-    with open(tmp, 'wb') as f:
-        f.write(b'\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom\x00\x00\x00\x08free')
-
-    emit({"type": "log", "level": "info", "message": f"已生成文件: {tmp}（由管理器移动到资源库并入库）"})
-
-    # 直接调用 notify 接口，把产出文件交给 DPlayer（管理器负责移动+入库）
     nurl = notify.get('url')
     token = notify.get('token')
     if nurl and token:
         try:
-            import urllib.request
             req = urllib.request.Request(
-                nurl + '?token=' + token,
-                data=json.dumps({"files": [{"path": tmp, "type": "video"}]}).encode('utf-8'),
+                nurl,
+                data=json.dumps({'token': token, 'files': [{'path': out, 'type': 'video'}]}).encode('utf-8'),
                 headers={'Content-Type': 'application/json'},
                 method='POST',
             )
-            with urllib.request.urlopen(req, timeout=15) as r:
-                emit({"type": "log", "level": "info", "message": "上报结果: " + r.read().decode('utf-8')})
+            urllib.request.urlopen(req, timeout=10)
         except Exception as e:
-            emit({"type": "error", "message": f"上报失败: {e}"})
+            emit({'type': 'error', 'message': f'notify 失败: {e}'})
 
-    emit({"type": "result", "files": [tmp]})
+    emit({'type': 'progress', 'percent': 100, 'message': '完成'})
+    emit({'type': 'result', 'files': [{'path': out, 'type': 'video'}]})
 
 
 if __name__ == '__main__':

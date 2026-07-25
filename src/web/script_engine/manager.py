@@ -15,6 +15,7 @@ from datetime import datetime
 
 from .manifest import load_all, scripts_base_dir
 from .ingest import ingest_file
+from .cookie_vault import CookieVault
 
 STATE_FILE = 'script_state.json'  # 持久化 enabled 覆盖，避免 reload 重置
 
@@ -37,6 +38,7 @@ class ScriptJobManager:
         self._reported = {}
         self._state_path = None
         self._initialized = False
+        self.vault = None
 
     # ---------- 初始化 ----------
     def init(self, app, base_dir=None, max_workers=2):
@@ -49,6 +51,7 @@ class ScriptJobManager:
         data_dir = self._data_dir()
         os.makedirs(os.path.join(data_dir, 'script_jobs'), exist_ok=True)
         self._state_path = os.path.join(data_dir, STATE_FILE)
+        self.vault = CookieVault(data_dir)
         self._db = sqlite3.connect(os.path.join(data_dir, 'script_jobs.db'),
                                    check_same_thread=False)
         self._init_db()
@@ -162,6 +165,53 @@ class ScriptJobManager:
             pass
         return {'id': lib_id, 'type': sel.get('media_type', 'any'), 'path': ''}
 
+    # ---------- Cookie 校验 / 物化 ----------
+    def _check_cookies(self, manifest, params):
+        """运行前校验 cookie 配置是否齐全（仅管理员能配置，故此处只检查存在性）。"""
+        if not self.vault:
+            return None
+        for domain in (manifest.get('required_cookies') or []):
+            if not self.vault.get_by_domain(domain):
+                return f'缺少 {domain} 的 cookie 配置（请在「Cookie 保险库」中添加）'
+        for p in manifest.get('params', []):
+            if p.get('type') == 'cookie_select':
+                pid = params.get(p.get('name'))
+                if p.get('required') and not pid:
+                    return f'请选择 cookie: {p.get("label", p.get("name"))}'
+                if pid and not self.vault.get(pid):
+                    return f'cookie 配置不存在: {pid}'
+        return None
+
+    def _resolve_cookies(self, manifest, params, working_dir):
+        """物化 cookie 到 working_dir，返回 (params, cookie_ctx)。
+
+        - required_cookies（按域名）：自动匹配 vault 中对应域名 profile 并物化，写入 context.cookies[domain]。
+        - cookie_select 参数：把用户选中的 profile id 物化，并将该参数值替换为文件路径（脚本直接拿到路径）。
+        """
+        cookie_ctx = {}
+        if self.vault:
+            for domain in (manifest.get('required_cookies') or []):
+                rec = self.vault.get_by_domain(domain)
+                if not rec:
+                    raise KeyError(f'缺少 {domain} 的 cookie 配置')
+                path, fmt = self.vault.materialize(rec['id'], working_dir)
+                cookie_ctx[domain] = {'path': path, 'format': fmt}
+            for p in manifest.get('params', []):
+                if p.get('type') == 'cookie_select':
+                    pid = params.get(p.get('name'))
+                    if pid:
+                        path, fmt = self.vault.materialize(pid, working_dir)
+                        params[p['name']] = path
+                        dom = p.get('domain_filter') or self.vault.get(pid).get('domain')
+                        cookie_ctx[dom] = {'path': path, 'format': fmt}
+        return params, cookie_ctx
+
+    def _cleanup(self, job_id):
+        """删除任务临时目录（含临时 cookie 文件与未移动的产物）。"""
+        job = self._get_job_row(job_id)
+        if job and job['working_dir'] and os.path.isdir(job['working_dir']):
+            shutil.rmtree(job['working_dir'], ignore_errors=True)
+
     # ---------- 命令构建（安全：仅允许白名单目录内的文件，绝不使用 shell） ----------
     def _build_cmd(self, manifest, script_dir):
         cmd_name = manifest.get('command')
@@ -197,6 +247,9 @@ class ScriptJobManager:
             validated = self._validate_params(sc, params)
             if isinstance(validated, str):
                 return None, validated
+            ck_err = self._check_cookies(sc, validated)
+            if ck_err:
+                return None, ck_err
             job_id = 'job_' + uuid.uuid4().hex[:16]
             token = secrets.token_hex(16)
             self._notify_base = notify_base
@@ -245,6 +298,13 @@ class ScriptJobManager:
                 'token': job['token'],
             },
         }
+        # 解析 cookie：把 vault 中的 profile 物化到 working_dir，并把路径注入 context / 替换参数
+        try:
+            params, cookie_ctx = self._resolve_cookies(manifest, params, job['working_dir'])
+        except Exception as e:
+            self._finish(job_id, 'failed', error=f'Cookie 解析失败: {e}')
+            return
+        ctx['cookies'] = cookie_ctx
         payload = {'job_id': job_id, 'params': params, 'context': ctx}
         stdin_text = json.dumps(payload, ensure_ascii=False)
 
@@ -326,6 +386,8 @@ class ScriptJobManager:
             with self._lock:
                 self._procs.pop(job_id, None)
                 self._cancel.pop(job_id, None)
+            # 任务结束：清理 working_dir（含临时 cookie 文件），避免凭证残留
+            self._cleanup(job_id)
 
     def _handle_line(self, job_id, line, result_files):
         try:

@@ -23,6 +23,7 @@ import AdminLogs from '../admin/AdminLogs.vue'
 import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
+import AdminScripts from './admin/AdminScripts.vue'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -1506,6 +1507,12 @@ onUnmounted(() => {
           :class="{ active: activeTab === 'sync' }"
           @click="switchTab('sync')"
         >🔄 开发同步</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'scripts' }"
+          @click="switchTab('scripts')"
+          v-if="userStore.isAdmin"
+        >📦 外部脚本</button>
       </div>
 
       <div class="tab-group">
@@ -1997,6 +2004,9 @@ onUnmounted(() => {
 
       <!-- 系统配置标签页 -->
       <AdminConfig v-if="activeTab === 'config'" />
+
+      <!-- 外部脚本标签页 -->
+      <AdminScripts v-if="activeTab === 'scripts'" />
 
       <!-- 缩略图管理标签页 -->
       <div v-if="activeTab === 'thumbnail'" class="tab-content">

@@ -56,6 +56,7 @@ def _public_script(sc, include_disabled=False):
         'timeout': sc.get('timeout', 0),
         'enabled': bool(sc.get('enabled')),
         'params': sc.get('params', []),
+        'required_cookies': sc.get('required_cookies', []),
     }
     if include_disabled and sc.get('_error'):
         out['error'] = sc['_error']
@@ -147,3 +148,58 @@ def disable_script(script_id):
 def reload_scripts():
     count = mgr.reload()
     return jsonify({'success': True, 'count': count})
+
+
+# ---------- 管理员：Cookie 保险库 ----------
+# cookie 是网站登录凭证，仅管理员可读写；落盘加密，列表不回传 value。
+@script_bp.route('/api/admin/cookies', methods=['GET'])
+@admin_required
+def list_cookies():
+    return jsonify({'success': True, 'cookies': mgr.vault.list() if mgr.vault else []})
+
+
+@script_bp.route('/api/admin/cookies', methods=['POST'])
+@admin_required
+def create_cookie():
+    if not mgr.vault:
+        return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
+    data = request.get_json(silent=True) or {}
+    name = data.get('name')
+    domain = data.get('domain')
+    fmt = data.get('format')
+    value = data.get('value')
+    if not name or not domain or not value:
+        return jsonify({'success': False, 'message': 'name / domain / value 必填'}), 400
+    if fmt not in ('netscape', 'header'):
+        return jsonify({'success': False, 'message': 'format 必须为 netscape 或 header'}), 400
+    pid = mgr.vault.add(name, domain, fmt, value)
+    return jsonify({'success': True, 'id': pid})
+
+
+@script_bp.route('/api/admin/cookies/<cid>', methods=['PUT'])
+@admin_required
+def update_cookie(cid):
+    if not mgr.vault:
+        return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
+    data = request.get_json(silent=True) or {}
+    ok = mgr.vault.update(
+        cid,
+        name=data.get('name'),
+        domain=data.get('domain'),
+        fmt=data.get('format'),
+        value=data.get('value'),
+    )
+    if not ok:
+        return jsonify({'success': False, 'message': 'cookie 配置不存在'}), 404
+    return jsonify({'success': True})
+
+
+@script_bp.route('/api/admin/cookies/<cid>', methods=['DELETE'])
+@admin_required
+def delete_cookie(cid):
+    if not mgr.vault:
+        return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
+    ok = mgr.vault.delete(cid)
+    if not ok:
+        return jsonify({'success': False, 'message': 'cookie 配置不存在'}), 404
+    return jsonify({'success': True})

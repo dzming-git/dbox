@@ -1,15 +1,35 @@
 {
   "id": "demo_download",
-  "name": "示例：下载视频（演示脚本）",
-  "description": "演示外部脚本契约：模拟下载进度、移动到资源库、调用 notify 上报入库。把 run.py 里的下载逻辑替换成真实实现（如 yt-dlp）即可。",
-  "interface": 1,
+  "name": "演示：下载视频（含 Cookie 注入）",
+  "description": "离线可运行的示例：演示外部脚本如何接收参数、使用 Cookie 保险库注入的 cookie、上报进度并通知入库。真实下载可替换为 yt-dlp 等。",
   "runtime": "python",
   "command": "run.py",
-  "enabled": false,
+  "interface": "download_video",
   "timeout": 300,
+  "enabled": false,
+  "required_cookies": [".bilibili.com"],
   "params": [
-    {"name": "url", "label": "视频地址", "type": "string", "required": true},
-    {"name": "library_id", "label": "目标资源库", "type": "library_select", "media_type": "video", "required": true},
-    {"name": "quality", "label": "清晰度", "type": "enum", "options": ["1080", "720", "480"], "default": "1080"}
+    {
+      "name": "url",
+      "type": "string",
+      "label": "视频地址",
+      "required": true,
+      "description": "需要下载的视频页面 URL"
+    },
+    {
+      "name": "library_id",
+      "type": "library_select",
+      "label": "目标资源库",
+      "media_type": "video",
+      "required": true,
+      "description": "产物最终移动并入库到该资源库的默认路径"
+    },
+    {
+      "name": "quality",
+      "type": "enum",
+      "label": "清晰度",
+      "enum": ["best", "1080", "720", "480"],
+      "default": "best"
+    }
   ]
 }
