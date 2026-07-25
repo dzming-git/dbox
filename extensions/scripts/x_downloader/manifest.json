@@ -1,28 +1,20 @@
 {
   "id": "x_downloader",
   "name": "X（推特）媒体下载器",
-  "description": "纯爬虫实现，不依赖 yt-dlp。从 X/Twitter 推文解析图片原图与视频 m3u8，图片直连下载，视频分片下载后由系统 ffmpeg 合并为 mp4；若包含多个媒体，二次触发用户选择要下载哪些。需安装 ffmpeg（用于合并视频）。",
+  "description": "纯爬虫实现，不依赖 yt-dlp。从 X/Twitter 推文解析图片原图与视频 m3u8，图片直连下载，视频分片下载后由系统 ffmpeg 合并为 mp4；若包含多个媒体，二次触发用户选择要下载哪些。需安装 ffmpeg（用于合并视频）。Cookie 由系统按域名自动匹配，无需手动选择。",
   "runtime": "python",
   "command": "run.py",
   "interface": "x_download",
   "timeout": 600,
   "enabled": true,
+  "required_cookies": ["x.com"],
   "params": [
     {
       "name": "url",
       "type": "string",
       "label": "推文链接",
       "required": true,
-      "default": "https://x.com/7CafeLLatte/status/<ID>?s=20",
-      "description": "要下载的 X/Twitter 推文 URL"
-    },
-    {
-      "name": "cookie",
-      "type": "cookie_select",
-      "label": "Cookie（保险库，可选）",
-      "domain_filter": ".x.com",
-      "required": false,
-      "description": "从「Cookie 保险库」选择 X（x.com）的登录凭证。运行时由管理器解密物化为临时文件并注入，任务结束自动清理。留空使用访客身份，可能受限。"
+      "description": "要下载的 X/Twitter 推文 URL，不要带默认示例链接，粘贴真实链接即可"
     },
     {
       "name": "proxy",

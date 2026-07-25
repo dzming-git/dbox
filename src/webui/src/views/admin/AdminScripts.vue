@@ -51,12 +51,15 @@
                 <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
               </select>
 
-              <select v-else-if="p.type === 'cookie_select'" v-model="form[p.name]">
-                <option value="">请选择 Cookie</option>
+              <select v-else-if="p.type === 'cookie_select'" v-model="form[p.name]" style="display:none">
+                <option value="">自动匹配</option>
                 <option v-for="ck in filteredCookies(p)" :key="ck.id" :value="ck.id">
                   {{ ck.name }}（{{ ck.domain }}）
                 </option>
               </select>
+              <div v-else-if="p.type === 'cookie_select'" class="param-hint">
+                系统已按域名（{{ p.domain_filter || '对应站点' }}）自动匹配 Cookie 保险库，无需手动选择
+              </div>
 
               <select v-else-if="p.type === 'enum'" v-model="form[p.name]">
                 <option v-for="opt in (p.enum || [])" :key="opt" :value="opt">{{ opt }}</option>
