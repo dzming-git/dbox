@@ -1,0 +1,15 @@
+{
+  "id": "demo_download",
+  "name": "示例：下载视频（演示脚本）",
+  "description": "演示外部脚本契约：模拟下载进度、移动到资源库、调用 notify 上报入库。把 run.py 里的下载逻辑替换成真实实现（如 yt-dlp）即可。",
+  "interface": 1,
+  "runtime": "python",
+  "command": "run.py",
+  "enabled": false,
+  "timeout": 300,
+  "params": [
+    {"name": "url", "label": "视频地址", "type": "string", "required": true},
+    {"name": "library_id", "label": "目标资源库", "type": "library_select", "media_type": "video", "required": true},
+    {"name": "quality", "label": "清晰度", "type": "enum", "options": ["1080", "720", "480"], "default": "1080"}
+  ]
+}

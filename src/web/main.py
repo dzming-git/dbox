@@ -333,6 +333,9 @@ app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API
+from script_engine.routes import script_bp, init_script_engine
+app.register_blueprint(script_bp)  # 通用外部脚本接口 API
+init_script_engine(app)
 
 # ============ 操作审计日志 ============
 # after_request 钩子：对所有 /api 写操作自动记录「是谁触发的」（含游客/登录用户与来源 IP）
