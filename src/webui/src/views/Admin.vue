@@ -537,6 +537,7 @@ const showFolderBrowser = ref(false)
 const browserPath = ref('')
 const browserFolders = ref<any[]>([])
 const browserLoading = ref(false)
+const browserError = ref('')
 const browserHistory = ref<string[]>([])
 
 // 权限级别选项
@@ -710,14 +711,116 @@ const fetchUserGroups = async () => {
 
 
 // 打开文件夹浏览器（用于向当前资源库导入：选择其他文件夹）
+// 文件夹浏览器用途：import=导入其他文件夹（选择后触发扫描），addFolder=给资源库添加扫描路径
+const browserPurpose = ref<'import' | 'addFolder'>('import')
+const newFolderName = ref('')
+
+// 浏览服务器文件系统：读取指定路径下的子目录（及可选文件）
+const loadFolderList = async (path: string, isFile: boolean = false) => {
+  browserLoading.value = true
+  browserError.value = ''
+  try {
+    const params: any = { path: path || '' }
+    if (isFile) params.files = '1'
+    const res = await api.get('/api/admin/system/folders', { params }) as any
+    if (res && res.success) {
+      browserFolders.value = res.folders || []
+      if (isFile) browserFolders.value = [...browserFolders.value, ...(res.files || [])]
+    } else {
+      browserError.value = (res && res.message) || '加载失败'
+    }
+  } catch (e: any) {
+    browserError.value = (e && e.message) || '加载失败'
+  } finally {
+    browserLoading.value = false
+  }
+}
+
+// 进入子文件夹 / 盘符
+const enterFolder = (item: any) => {
+  if (!item || (item.type !== 'folder' && item.type !== 'drive')) return
+  browserHistory.value = [...browserHistory.value, browserPath.value]
+  browserPath.value = item.path
+  loadFolderList(item.path, browserMode.value === 'file')
+}
+
+// 返回上级
+const goBack = () => {
+  if (browserHistory.value.length === 0) {
+    browserPath.value = ''
+    loadFolderList('', browserMode.value === 'file')
+    return
+  }
+  const prev = browserHistory.value[browserHistory.value.length - 1]
+  browserHistory.value = browserHistory.value.slice(0, -1)
+  browserPath.value = prev
+  loadFolderList(prev, browserMode.value === 'file')
+}
+
+// 在当前路径下新建文件夹
+const createFolderInBrowser = async () => {
+  const name = (newFolderName.value || '').trim()
+  if (!name) {
+    showToast('请输入文件夹名称')
+    return
+  }
+  try {
+    const res = await api.post('/api/admin/system/folders', {
+      path: browserPath.value || '',
+      name
+    }) as any
+    if (res && res.success) {
+      showToast('文件夹已创建')
+      newFolderName.value = ''
+      await loadFolderList(browserPath.value, browserMode.value === 'file')
+    } else {
+      showToast((res && res.message) || '创建失败')
+    }
+  } catch (e: any) {
+    showToast((e && e.message) || '创建失败')
+  }
+}
+
+// 打开文件夹浏览器（用于向当前资源库导入：选择其他文件夹）
 const openLibraryImportFolderBrowser = async () => {
   if (expandedLibraryId.value == null) return
+  browserPurpose.value = 'import'
   showFolderBrowser.value = true
   browserPath.value = ''
   browserHistory.value = []
   browserMode.value = 'folder'
+  newFolderName.value = ''
   await loadFolderList('', false)
 }
+
+// 打开文件夹浏览器（用于给资源库添加扫描路径）
+const openFolderBrowserForAdd = async () => {
+  if (selectedLibraryForFolder.value == null) return
+  browserPurpose.value = 'addFolder'
+  showFolderBrowser.value = true
+  browserPath.value = ''
+  browserHistory.value = []
+  browserMode.value = 'folder'
+  newFolderName.value = ''
+  await loadFolderList('', false)
+}
+
+// 弹窗打开时锁定背景滚动，避免滑动弹窗时触发背后界面滚动
+let _bodyLockObserver: MutationObserver | null = null
+onMounted(() => {
+  _bodyLockObserver = new MutationObserver(() => {
+    const hasOverlay = !!document.querySelector('.modal-overlay, .dialog-overlay')
+    document.body.style.overflow = hasOverlay ? 'hidden' : ''
+  })
+  _bodyLockObserver.observe(document.body, { childList: true, subtree: true })
+})
+onUnmounted(() => {
+  if (_bodyLockObserver) {
+    _bodyLockObserver.disconnect()
+    _bodyLockObserver = null
+  }
+  document.body.style.overflow = ''
+})
 
 // 选择文件夹后：作为“其他文件夹”扫描并导入到当前资源库
 const selectCurrentFolder = () => {
@@ -2882,6 +2985,17 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <!-- 新建文件夹 -->
+          <div class="new-folder-row">
+            <input
+              v-model="newFolderName"
+              class="new-folder-input"
+              placeholder="输入新文件夹名称后点击新建"
+              @keyup.enter="createFolderInBrowser"
+            />
+            <button class="action-btn" @click="createFolderInBrowser">新建文件夹</button>
+          </div>
+
           <!-- 文件夹列表 -->
           <div class="folder-list-container">
             <div v-if="browserLoading" class="loading-state">
@@ -2919,7 +3033,7 @@ onUnmounted(() => {
           <button
             v-if="browserMode === 'folder'"
             class="action-btn primary"
-            @click="selectCurrentFolder"
+            @click="browserPurpose === 'addFolder' ? selectPathFromBrowser() : selectCurrentFolder()"
             :disabled="!browserPath"
           >
             选择此文件夹
@@ -4046,6 +4160,8 @@ input:checked + .slider:before {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-content {
@@ -4088,6 +4204,7 @@ input:checked + .slider:before {
   padding: 20px;
   max-height: 60vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-footer {
@@ -5237,6 +5354,44 @@ input:checked + .slider:before {
   min-height: 300px;
 
   max-height: 400px;
+
+  overscroll-behavior: contain;
+
+}
+
+.new-folder-row {
+
+  display: flex;
+
+  gap: 8px;
+
+  margin-bottom: 14px;
+
+}
+
+.new-folder-input {
+
+  flex: 1;
+
+  padding: 8px 12px;
+
+  border: 1px solid #2d2d3f;
+
+  border-radius: 6px;
+
+  background: #1e1e28;
+
+  color: #e6edf3;
+
+  font-size: 14px;
+
+}
+
+.new-folder-input:focus {
+
+  outline: none;
+
+  border-color: #2196F3;
 
 }
 

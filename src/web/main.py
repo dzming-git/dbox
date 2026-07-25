@@ -3367,6 +3367,91 @@ def set_default_folder(folder_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# ============ 服务器文件系统浏览 API =================
+
+import re as _re
+try:
+    import ctypes as _ctypes
+except Exception:
+    _ctypes = None
+
+_INVALID_NAME_RE = _re.compile(r'[\\/:*?"<>|]')
+
+
+def _list_system_drives():
+    """返回 Windows 盘符列表；其他平台返回 ['/']。"""
+    try:
+        if os.name == 'nt' and _ctypes is not None:
+            bitmask = _ctypes.windll.kernel32.GetLogicalDrives()
+            drives = []
+            for i in range(26):
+                if bitmask & (1 << i):
+                    drives.append(chr(65 + i) + ':\\')
+            if drives:
+                return drives
+    except Exception:
+        pass
+    return ['C:\\'] if os.name == 'nt' else ['/']
+
+
+@app.route('/api/admin/system/folders', methods=['GET'])
+@admin_required
+def list_system_folders():
+    """浏览服务器文件系统：返回指定路径下的子目录（及可选文件）。path 为空时返回盘符。"""
+    try:
+        path = (request.args.get('path', '') or '').strip()
+        include_files = request.args.get('files', '0') == '1'
+        folders = []
+        files = []
+        if not path:
+            for d in _list_system_drives():
+                folders.append({'name': d, 'path': d, 'display': d, 'type': 'drive'})
+        else:
+            if not os.path.isdir(path):
+                return jsonify({'success': False, 'message': f'路径不存在或不是目录：{path}'}), 400
+            try:
+                entries = sorted(os.listdir(path))
+            except PermissionError:
+                return jsonify({'success': False, 'message': f'无权限访问：{path}'}), 403
+            for name in entries:
+                full = os.path.join(path, name)
+                try:
+                    if os.path.isdir(full):
+                        folders.append({'name': name, 'path': full, 'display': name, 'type': 'folder'})
+                    elif include_files and os.path.isfile(full):
+                        files.append({'name': name, 'path': full, 'display': name, 'type': 'file'})
+                except OSError:
+                    continue
+        return jsonify({'success': True, 'path': path, 'folders': folders, 'files': files})
+    except Exception as e:
+        log.debug('ERROR', f'浏览文件夹失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/system/folders', methods=['POST'])
+@admin_required
+def create_system_folder():
+    """在指定路径下新建文件夹。body: { path, name }"""
+    try:
+        data = request.get_json() or {}
+        base = (data.get('path', '') or '').strip()
+        name = (data.get('name', '') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': '文件夹名称不能为空'}), 400
+        if name in ('.', '..') or _INVALID_NAME_RE.search(name):
+            return jsonify({'success': False, 'message': '文件夹名称包含非法字符'}), 400
+        if base and not os.path.isdir(base):
+            return jsonify({'success': False, 'message': f'父路径不存在：{base}'}), 400
+        new_path = os.path.join(base, name) if base else os.path.join(os.getcwd(), name)
+        os.makedirs(new_path, exist_ok=False)
+        return jsonify({'success': True, 'folder': {'name': name, 'path': new_path, 'display': name, 'type': 'folder'}})
+    except FileExistsError:
+        return jsonify({'success': False, 'message': f'文件夹已存在：{name}'}), 400
+    except Exception as e:
+        log.debug('ERROR', f'创建文件夹失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 # ============ 资源库扫描 API =================
 
 @app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
