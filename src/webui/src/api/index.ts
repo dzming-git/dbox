@@ -332,6 +332,10 @@ export const comicApi = {
   deleteComic: (hash: string, deleteFile = false) =>
     api.delete(`/api/comic/${hash}`, { data: { delete_file: deleteFile } }),
 
+  // 重新加载漫画资源（从磁盘重新同步页面/封面，图片被替换/增删后强制刷新）
+  reloadComic: (hash: string) =>
+    api.post(`/api/comic/${hash}/reload`),
+
   // 点赞 / 收藏 / 不喜欢
   interact: (hash: string, type: 'like' | 'favorite' | 'dislike') =>
     api.post(`/api/comic/${hash}/${type}`),

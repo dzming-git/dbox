@@ -10,7 +10,7 @@
 import os
 import random
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, session, send_file, abort, current_app
 from urllib.parse import quote, unquote
 from werkzeug.exceptions import HTTPException
@@ -159,6 +159,16 @@ def _comic_url(file_path):
     return '/comic-page/' + quote(file_path.replace(chr(92), '/'), safe=':/')
 
 
+def _comic_ver_param(comic):
+    """根据漫画 updated_at 生成缓存失效版本号。
+
+    漫画内部图片被替换/重新加载时 updated_at 会刷新，URL 带上 ?v= 后浏览器会重新拉取，
+    避免稳定 URL（/comic-page/<path>、/comic-cover/<hash>）被浏览器缓存导致看到旧图。
+    """
+    ts = comic.updated_at.replace(tzinfo=timezone.utc).timestamp() if comic.updated_at else 0
+    return '?v=%d' % int(ts)
+
+
 def _allowed_image_path(path):
     """校验请求路径确实是某本漫画的页面/封面（防止越权读取任意文件）。
 
@@ -266,7 +276,7 @@ def list_comics():
         result = []
         for c in comics:
             d = c.to_dict()
-            d['cover_url'] = _comic_url(c.cover_path)
+            d['cover_url'] = _comic_url(c.cover_path) + _comic_ver_param(c)
             d['is_liked'] = c.id in liked_ids
             d['is_favorited'] = c.id in favorited_ids
             d['is_disliked'] = c.id in disliked_ids
@@ -292,8 +302,9 @@ def get_comic(comic_hash):
         key = current_interaction_key()
         d = c.to_dict()
         pages = ComicPage.query.filter_by(comic_id=c.id).order_by(ComicPage.page_index).all()
-        d['pages'] = [{'index': p.page_index + 1, 'url': _comic_url(p.file_path)} for p in pages]
-        d['cover_url'] = _comic_url(c.cover_path)
+        ver = _comic_ver_param(c)
+        d['pages'] = [{'index': p.page_index + 1, 'url': _comic_url(p.file_path) + ver} for p in pages]
+        d['cover_url'] = _comic_url(c.cover_path) + ver
         if key:
             d['is_liked'] = ComicInteraction.query.filter_by(
                 comic_id=c.id, user_session=key, interaction_type='like').first() is not None
@@ -489,7 +500,7 @@ def list_comic_history():
             if not c:
                 continue
             d = c.to_dict()
-            d['cover_url'] = _comic_url(c.cover_path)
+            d['cover_url'] = _comic_url(c.cover_path) + _comic_ver_param(c)
             d['page'] = row.page
             d['last_page'] = row.page
             d['progress'] = row.progress
@@ -800,6 +811,48 @@ def delete_comic(comic_hash):
             move_to_trash(c, 'comic')
             log.maintenance('INFO', f"漫画移入回收站: {c.title} (hash: {comic_hash})")
             return jsonify({'success': True, 'message': '已移入回收站'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@comic_bp.route('/api/comic/<comic_hash>/reload', methods=['POST'])
+def reload_comic(comic_hash):
+    """重新加载漫画资源：从磁盘重新读取文件夹、同步页面与封面，并刷新 updated_at。
+
+    用于漫画内部图片被替换 / 增删后，强制更新而不必等整库扫描或重启。
+    仅上传者或管理员/ROOT 可操作（对齐删除/编辑权限）。
+    """
+    try:
+        c = Comic.query.filter_by(hash=comic_hash).first_or_404()
+        uid, urole = _resolve_identity()
+        if urole not in (UserRole.ADMIN, UserRole.ROOT) and c.owner_id not in (None, uid):
+            return jsonify({'success': False, 'message': '无权重新加载该漫画（仅上传者或管理员可操作）', 'code': 403}), 403
+
+        folder = c.folder_path
+        if not folder or not os.path.isdir(folder):
+            return jsonify({'success': False, 'message': '漫画文件夹不存在或已被移动', 'code': 404}), 404
+
+        from backend.comic.scanner import _list_images, _sync_pages
+        pages = _list_images(folder)
+        if not pages:
+            return jsonify({'success': False, 'message': '文件夹内未找到图片', 'code': 400}), 400
+
+        _sync_pages(c, pages)
+        c.cover_path = pages[0]
+        c.page_count = len(pages)
+        c.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        log.maintenance('INFO', f"重新加载漫画资源: {c.title} (hash: {comic_hash}), 页数={len(pages)}")
+        return jsonify({
+            'success': True,
+            'comic': c.to_dict(),
+            'page_count': len(pages),
+            'message': '漫画资源已重新加载'
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500

@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { useComicStore } from '../stores/comicStore'
 import CollectionPanel from '../components/CollectionPanel.vue'
+import { useToast } from '../composables/useToast'
 import type { Comic } from '../types'
+
+const { showToast } = useToast()
 
 const route = useRoute()
 const router = useRouter()
@@ -297,6 +300,29 @@ const confirmDelete = () => {
   deleteFileOption.value = false
   showDeleteConfirm.value = true
 }
+
+// 重新加载资源：从磁盘重新同步页面/封面（图片被替换/增删后强制刷新）
+const reloading = ref(false)
+const reloadResource = async () => {
+  if (!comic.value) return
+  if (reloading.value) return
+  reloading.value = true
+  try {
+    const api = await import('../api')
+    const res: any = await api.comicApi.reloadComic(comic.value.hash)
+    if (res?.success || res?.data?.success) {
+      // 重新拉取详情（新的 updated_at 会让图片 URL 版本号变化，浏览器拉取新图）
+      await loadComic(comic.value.hash)
+      showToast('漫画资源已重新加载')
+    } else {
+      showToast((res?.message || res?.data?.message || '重新加载失败'))
+    }
+  } catch (e: any) {
+    showToast('重新加载失败：' + (e?.message || e))
+  } finally {
+    reloading.value = false
+  }
+}
 const handleDelete = async () => {
   if (!comic.value) return
   try {
@@ -504,6 +530,10 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         </div>
         <span class="divider"></span>
         <!-- 删除（仅管理员 / 上传本人可见） -->
+        <button v-if="canManageComic" class="bar-action" :disabled="reloading" @click="reloadResource" :title="reloading ? '正在重新加载…' : '重新加载资源（图片被替换/增删后强制刷新）'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <span>{{ reloading ? '加载中' : '重新加载' }}</span>
+        </button>
         <button v-if="canManageComic" class="bar-action danger" @click="confirmDelete" title="删除漫画">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           <span>删除</span>

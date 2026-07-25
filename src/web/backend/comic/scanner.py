@@ -14,7 +14,7 @@
 import os
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif')
 
@@ -198,6 +198,15 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                             changed = True
                         # 图片集合变化则重建页面
                         if existing.page_count != len(pages):
+                            changed = True
+                        # 文件夹内容修改时间更新（图片被原地替换/增删）也需重建，
+                        # 否则内部图片被替换但数量不变时不会被感知，看到旧图。
+                        try:
+                            folder_mtime = os.path.getmtime(dirpath)
+                        except OSError:
+                            folder_mtime = 0.0
+                        existing_ts = existing.updated_at.replace(tzinfo=timezone.utc).timestamp() if existing.updated_at else 0.0
+                        if folder_mtime > existing_ts + 1.0:  # 容忍 1 秒误差，避免时区/精度抖动误触发
                             changed = True
                         if changed:
                             existing.page_count = len(pages)
