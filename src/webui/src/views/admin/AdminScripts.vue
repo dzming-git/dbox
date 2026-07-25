@@ -107,6 +107,27 @@
                   <span class="log-ts">{{ lg.ts }}</span> {{ lg.message }}
                 </div>
               </div>
+              <!-- 脚本分阶段交互 -->
+              <div v-if="interaction" class="job-interaction">
+                <div class="interaction-prompt">{{ interaction.prompt }}</div>
+                <div v-if="interaction.options && !interaction.multi" class="interaction-options">
+                  <label v-for="opt in interaction.options" :key="opt.value" class="radio-inline">
+                    <input type="radio" :value="opt.value" v-model="interactionValue" /> {{ opt.label }}
+                  </label>
+                </div>
+                <div v-else-if="interaction.options && interaction.multi" class="multi-enum">
+                  <label v-for="opt in interaction.options" :key="opt.value" class="checkbox-inline">
+                    <input type="checkbox" :value="opt.value" v-model="interactionValue" /> {{ opt.label }}
+                  </label>
+                </div>
+                <div v-if="interaction.allow_text" class="form-row">
+                  <label>{{ interaction.text_hint || '自定义输入' }}</label>
+                  <input type="text" v-model="interactionText" :placeholder="interaction.text_hint || ''" />
+                </div>
+                <div class="run-buttons">
+                  <button class="action-btn primary" @click="submitInteraction">提交</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -199,8 +220,16 @@ const running = ref(false)
 const runningJob = ref<ScriptJob | null>(null)
 let pollTimer: any = null
 
+// 脚本分阶段交互态
+const interaction = ref<any>(null)
+const interactionValue = ref<any>('')
+const interactionText = ref('')
+
 function jobStatusText(s: string) {
-  return { running: '运行中', success: '成功', failed: '失败', cancelled: '已取消', pending: '等待中' }[s] || s
+  return {
+    running: '运行中', success: '成功', failed: '失败', cancelled: '已取消',
+    pending: '等待中', awaiting_input: '等待选择',
+  }[s] || s
 }
 
 async function loadScripts() {
@@ -315,10 +344,24 @@ function pollJob(jobId: string) {
     try {
       const res: any = await scriptApi.getJob(jobId)
       runningJob.value = res.job || null
-      if (res.job && ['success', 'failed', 'cancelled'].includes(res.job.status)) {
-        clearInterval(pollTimer)
-        pollTimer = null
-        running.value = false
+      const job = res.job
+      if (job) {
+        // 同步交互态：进入 awaiting_input 时初始化，离开时清空（避免覆盖用户已选）
+        if (job.status === 'awaiting_input' && job.pending_input) {
+          if (!interaction.value || interaction.value.prompt !== job.pending_input.prompt) {
+            interaction.value = job.pending_input
+            interactionValue.value = job.pending_input.multi ? [] : ''
+            interactionText.value = ''
+          }
+        } else {
+          interaction.value = null
+        }
+        if (['success', 'failed', 'cancelled'].includes(job.status)) {
+          clearInterval(pollTimer)
+          pollTimer = null
+          running.value = false
+          interaction.value = null
+        }
       }
     } catch (e) {
       clearInterval(pollTimer)
@@ -326,6 +369,31 @@ function pollJob(jobId: string) {
       running.value = false
     }
   }, 1000)
+}
+
+async function submitInteraction() {
+  if (!interaction.value || !runningJob.value) return
+  let val: any
+  if (interaction.value.multi) {
+    val = Array.isArray(interactionValue.value) ? [...interactionValue.value] : []
+    if (interaction.value.allow_text && interactionText.value.trim()) {
+      val.push(interactionText.value.trim())
+    }
+    if (!val.length) {
+      alert('请至少选择一项')
+      return
+    }
+  } else if (interaction.value.allow_text && interactionText.value.trim()) {
+    val = interactionText.value.trim()
+  } else {
+    val = interactionValue.value
+    if (!val) {
+      alert('请选择一项')
+      return
+    }
+  }
+  await scriptApi.respondJob(runningJob.value.id, val)
+  interaction.value = null
 }
 
 async function cancelRun() {
@@ -435,6 +503,14 @@ onUnmounted(() => {
   display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;
   border-top: 1px solid var(--border-color, #333); padding-top: 14px;
 }
+.job-interaction {
+  margin-top: 14px; padding: 14px; border-radius: 10px;
+  background: rgba(79, 140, 255, 0.08); border: 1px solid var(--border-color, #333);
+}
+.interaction-prompt { font-size: 14px; font-weight: 600; color: #e6e6e6; margin-bottom: 12px; }
+.interaction-options { display: flex; flex-direction: column; gap: 8px; }
+.radio-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ddd; cursor: pointer; }
+.radio-inline input { width: 15px; height: 15px; accent-color: var(--accent, #4f8cff); }
 .action-btn {
   padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border-color, #333);
   background: var(--card-bg, #1c1c1c); color: var(--text-color, #e6e6e6); cursor: pointer;

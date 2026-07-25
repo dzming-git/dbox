@@ -120,6 +120,31 @@ def notify(job_id):
     return jsonify({'success': True, 'message': msg})
 
 
+@script_bp.route('/api/scripts/jobs/<job_id>/input', methods=['GET'])
+def get_input(job_id):
+    """脚本长轮询用户输入，仅凭任务令牌鉴权。超时返回 204，由脚本重试。"""
+    token = request.args.get('token')
+    value, err = mgr.get_input(job_id, token, timeout=30)
+    if err == '任务不存在':
+        return jsonify({'success': False, 'message': err}), 404
+    if err == '令牌无效':
+        return jsonify({'success': False, 'message': err}), 403
+    if value is None:
+        return jsonify({'success': True, 'value': None}), 204
+    return jsonify({'success': True, 'value': value})
+
+
+@script_bp.route('/api/scripts/jobs/<job_id>/respond', methods=['POST'])
+@admin_required
+def respond_job(job_id):
+    """前端提交用户对脚本提问的答复。"""
+    data = request.get_json(silent=True) or {}
+    ok, msg = mgr.respond(job_id, data.get('value'))
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
 # ---------- 管理员：脚本管理 ----------
 @script_bp.route('/api/admin/scripts', methods=['GET'])
 @admin_required

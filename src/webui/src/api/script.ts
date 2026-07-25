@@ -39,6 +39,16 @@ export interface JobLog {
   ts: string
 }
 
+export interface PendingInput {
+  prompt?: string
+  options: { value: string; label: string }[]
+  multi?: boolean
+  min?: number
+  max?: number
+  allow_text?: boolean
+  text_hint?: string
+}
+
 export interface ScriptJob {
   id: string
   script_id: string
@@ -52,6 +62,8 @@ export interface ScriptJob {
   error: string
   created_at: string
   updated_at: string
+  awaiting: boolean
+  pending_input: PendingInput | null
   logs: JobLog[]
 }
 
@@ -69,6 +81,8 @@ export const scriptApi = {
   listJobs: () => api.get('/api/scripts/jobs'),
   getJob: (jobId: string) => api.get(`/api/scripts/jobs/${jobId}`),
   cancelJob: (jobId: string) => api.post(`/api/scripts/jobs/${jobId}/cancel`),
+  respondJob: (jobId: string, value: any) =>
+    api.post(`/api/scripts/jobs/${jobId}/respond`, { value }),
 
   // Cookie 保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),

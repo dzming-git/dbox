@@ -36,6 +36,8 @@ class ScriptJobManager:
         self._procs = {}
         self._cancel = {}
         self._reported = {}
+        self._input_events = {}
+        self._input_responses = {}
         self._state_path = None
         self._initialized = False
         self.vault = None
@@ -93,6 +95,15 @@ class ScriptJobManager:
                 level TEXT,
                 message TEXT
             )''')
+            self._db.commit()
+            # 迁移：交互式输入相关字段（老库可能没有）
+            for col, ctype in (('awaiting', 'INTEGER DEFAULT 0'),
+                               ('pending_input', 'TEXT'),
+                               ('input_response', 'TEXT')):
+                try:
+                    self._db.execute(f'ALTER TABLE jobs ADD COLUMN {col} {ctype}')
+                except Exception:
+                    pass
             self._db.commit()
 
     # ---------- 脚本发现 / 状态 ----------
@@ -306,6 +317,10 @@ class ScriptJobManager:
                 'url': f'{getattr(self, "_notify_base", "")}/api/scripts/{job_id}/notify',
                 'token': job['token'],
             },
+            'input': {
+                'url': f'{getattr(self, "_notify_base", "")}/api/scripts/{job_id}/input',
+                'token': job['token'],
+            },
         }
         # 解析 cookie：把 vault 中的 profile 物化到 working_dir，并把路径注入 context / 替换参数
         try:
@@ -416,6 +431,8 @@ class ScriptJobManager:
             self._append_log(job_id, obj.get('level', 'info'), obj.get('message', ''))
         elif t == 'error':
             self._append_log(job_id, 'error', obj.get('message', ''))
+        elif t == 'await_input':
+            self._set_awaiting(job_id, obj.get('input', {}))
         elif t == 'result':
             files = obj.get('files', [])
             if isinstance(files, list):
@@ -507,6 +524,62 @@ class ScriptJobManager:
                     pass
         return True
 
+    # ---------- 交互式输入 ----------
+    def _set_awaiting(self, job_id, input_spec):
+        spec = input_spec or {}
+        with self._lock:
+            self._input_events.pop(job_id, None)
+            self._input_events[job_id] = threading.Event()
+            self._input_responses.pop(job_id, None)
+            self._db.execute(
+                'UPDATE jobs SET status=?, awaiting=1, pending_input=?, updated_at=? WHERE id=?',
+                ('awaiting_input', json.dumps(spec, ensure_ascii=False), _now(), job_id))
+            self._db.commit()
+        self._append_log(job_id, 'info', '脚本请求用户输入: ' + str(spec.get('prompt', '')))
+
+    def respond(self, job_id, value):
+        """前端提交用户对脚本提问的答复。"""
+        job = self._get_job_row(job_id)
+        if not job:
+            return False, '任务不存在'
+        if job['status'] != 'awaiting_input':
+            return False, '当前不在等待输入状态'
+        with self._lock:
+            self._input_responses[job_id] = value
+            ev = self._input_events.get(job_id)
+            if ev:
+                ev.set()
+            self._db.execute(
+                'UPDATE jobs SET status=?, awaiting=0, input_response=?, updated_at=? WHERE id=?',
+                ('running', json.dumps(value, ensure_ascii=False), _now(), job_id))
+            self._db.commit()
+        self._append_log(job_id, 'info', '用户已作出选择，继续运行')
+        return True, 'ok'
+
+    def get_input(self, job_id, token, timeout=30):
+        """脚本侧长轮询：阻塞至用户答复或超时（超时返回 (None, None) 让脚本重试）。"""
+        job = self._get_job_row(job_id)
+        if not job:
+            return None, '任务不存在'
+        if not token or token != job['token']:
+            return None, '令牌无效'
+        with self._lock:
+            resp = self._input_responses.get(job_id)
+            if resp is not None:
+                del self._input_responses[job_id]
+                return resp, None
+            ev = self._input_events.setdefault(job_id, threading.Event())
+        if self._cancel.get(job_id):
+            return None, 'cancelled'
+        ev.wait(timeout)
+        with self._lock:
+            resp = self._input_responses.get(job_id)
+            if resp is not None:
+                del self._input_responses[job_id]
+                self._input_events.pop(job_id, None)
+                return resp, None
+        return None, None
+
     # ---------- 查询 ----------
     def get_job(self, job_id):
         job = self._get_job_row(job_id)
@@ -520,6 +593,8 @@ class ScriptJobManager:
             'result': json.loads(job['result']) if job['result'] else None,
             'library_id': job['library_id'], 'notified': bool(job['notified']),
             'error': job['error'], 'created_at': job['created_at'], 'updated_at': job['updated_at'],
+            'awaiting': bool(job.get('awaiting')),
+            'pending_input': json.loads(job['pending_input']) if job.get('pending_input') else None,
             'logs': logs,
         }
 
@@ -553,6 +628,7 @@ class ScriptJobManager:
             return None
         cols = ['id', 'script_id', 'script_name', 'status', 'progress', 'params', 'result',
                 'owner_id', 'token', 'working_dir', 'library_id', 'notified', 'error',
+                'awaiting', 'pending_input', 'input_response',
                 'created_at', 'updated_at']
         return dict(zip(cols, r))
 
