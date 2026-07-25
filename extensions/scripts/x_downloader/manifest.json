@@ -28,8 +28,8 @@
       "type": "string",
       "label": "代理地址（可选）",
       "required": false,
-      "default": "127.0.0.1:33210",
-      "description": "HTTP 代理，格式 host:port 或 http://host:port，用于走代理访问 X。留空则直连。"
+      "default": "socks5://127.0.0.1:33211",
+      "description": "访问 X 的代理。支持 SOCKS 与 HTTP：socks5://host:port、socks5h://host:port（由代理解析域名）、socks4://host:port、http://host:port。无前缀时按 HTTP 处理。留空则直连。注意 urllib 不支持 SOCKS，SOCKS 需 pip install pysocks。"
     },
     {
       "name": "library_id",

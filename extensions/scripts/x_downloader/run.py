@@ -19,7 +19,7 @@
       {"type":"result","files":[{"path":...,"type":"video|image"}]}
   - 分阶段交互：上报 await_input 后，长轮询 GET /api/scripts/jobs/<id>/input 等待管理员选择。
 
-依赖：仅标准库 + 系统 ffmpeg（用于合并视频分片）。
+依赖：标准库 + 系统 ffmpeg（合并视频分片）。若使用 SOCKS 代理，需 pip install pysocks。
 """
 import sys
 import os
@@ -28,13 +28,25 @@ import re
 import json
 import time
 import shutil
+import socket
 import subprocess
 import urllib.parse
 import urllib.request
 import urllib.error
 
+try:
+    import socks as _socks_mod
+    HAS_SOCKS = True
+except Exception:
+    _socks_mod = None
+    HAS_SOCKS = False
+
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+
+# 当前代理配置（dict 或 None），由 main() 写入，供 fetch 时挂载 SOCKS。
+_PROXY_CFG = None
+_ORIG_SOCKET = socket.socket
 
 # X 网页端公开的 Bearer Token（长期不变，用于访客/接口鉴权）
 WEB_BEARER = ('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAt4gJZwTZw9F9IgoIMvdI4kZ1Ric'
@@ -67,21 +79,69 @@ def error(message):
     emit({'type': 'error', 'message': message})
 
 
-def normalize_proxy(p):
+def parse_proxy(p):
+    """解析代理参数，返回 dict：
+       - None：直连
+       - {'type':'http','addr':'http://host:port'}：HTTP/HTTPS 代理
+       - {'type':'socks','scheme':'socks5'|'socks5h'|'socks4','host':..,'port':..}
+       无 scheme 前缀时默认按 HTTP 处理（兼容旧值）。
+    """
     p = (p or '').strip()
     if not p:
         return None
-    if '://' not in p:
-        p = 'http://' + p
-    return p
+    if '://' in p:
+        scheme, rest = p.split('://', 1)
+        scheme = scheme.lower()
+    else:
+        scheme, rest = 'http', p
+    if scheme in ('http', 'https'):
+        prefix = 'http://' if scheme == 'http' else 'https://'
+        return {'type': 'http', 'scheme': scheme, 'addr': prefix + rest}
+    if scheme in ('socks5', 'socks5h', 'socks4', 'socks'):
+        socks_scheme = 'socks5' if scheme == 'socks' else scheme
+        host, _, port = rest.rpartition(':')
+        host = host or '127.0.0.1'
+        try:
+            port = int(port)
+        except ValueError:
+            raise ValueError(f'代理端口无法解析: {rest}')
+        return {'type': 'socks', 'scheme': socks_scheme,
+                'host': host, 'port': port}
+    # 未知 scheme 当作 HTTP
+    return {'type': 'http', 'scheme': 'http', 'addr': 'http://' + p}
 
 
-def make_opener(proxy):
-    """返回一个带代理（可选）的 urllib opener，用于访问 X 域名。"""
-    if proxy:
+def make_opener(proxy_cfg):
+    """返回一个带代理（可选）的 urllib opener，用于访问 X 域名。
+       SOCKS 代理由 socket 层挂载，这里只用裸 opener。
+    """
+    if proxy_cfg and proxy_cfg['type'] == 'http':
         return urllib.request.build_opener(
-            urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
+            urllib.request.ProxyHandler(
+                {'http': proxy_cfg['addr'], 'https': proxy_cfg['addr']}))
     return urllib.request.build_opener()
+
+
+def _apply_socks():
+    """若当前代理为 SOCKS，则把 socket 替换为 socks 隧道（仅作用于 X 请求）。"""
+    global _PROXY_CFG
+    if not _PROXY_CFG or _PROXY_CFG['type'] != 'socks':
+        return
+    if not HAS_SOCKS:
+        raise RuntimeError('未安装 PySocks，无法使用 SOCKS 代理，请先 pip install pysocks')
+    stype = {'socks5': _socks_mod.SOCKS5,
+             'socks5h': _socks_mod.SOCKS5,
+             'socks4': _socks_mod.SOCKS4}[_PROXY_CFG['scheme']]
+    _socks_mod.set_default_proxy(
+        stype, _PROXY_CFG['host'], _PROXY_CFG['port'],
+        rdns=(_PROXY_CFG['scheme'] == 'socks5h'))
+    socket.socket = _socks_mod.socksocket
+
+
+def _restore_socks():
+    global _PROXY_CFG
+    if _PROXY_CFG and _PROXY_CFG['type'] == 'socks':
+        socket.socket = _ORIG_SOCKET
 
 
 def result(files):
@@ -143,15 +203,23 @@ def notify_input(input_ctx, files):
 
 # ---------------- 网络请求封装 ----------------
 def fetch_text(url, opener, headers, timeout=60):
-    req = urllib.request.Request(url, headers=headers)
-    with opener.open(req, timeout=timeout) as r:
-        return r.read().decode('utf-8', 'replace')
+    _apply_socks()
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with opener.open(req, timeout=timeout) as r:
+            return r.read().decode('utf-8', 'replace')
+    finally:
+        _restore_socks()
 
 
 def fetch_bytes(url, opener, headers, timeout=60):
-    req = urllib.request.Request(url, headers=headers)
-    with opener.open(req, timeout=timeout) as r:
-        return r.read()
+    _apply_socks()
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with opener.open(req, timeout=timeout) as r:
+            return r.read()
+    finally:
+        _restore_socks()
 
 
 # ---------------- 媒体解析 ----------------
@@ -247,13 +315,13 @@ def extract_from_api(tweet_id, cookie_header, opener):
     return media
 
 
-def extract_media(url, cookie_header, proxy):
+def extract_media(url, cookie_header, proxy_cfg):
     """解析推文，返回媒体列表：[{type:'image'|'video', url, label}]。
 
     策略：优先页面 HTML 解析（无需 Bearer，直接用用户 Cookie）；
           若页面未解析到，则用 statuses/show.json 接口降级补全。
     """
-    opener = make_opener(proxy)
+    opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header)
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
 
@@ -272,14 +340,14 @@ def extract_media(url, cookie_header, proxy):
 
 
 # ---------------- 下载 ----------------
-def download_image(url, cookie_header, working_dir, index, proxy):
+def download_image(url, cookie_header, working_dir, index, proxy_cfg):
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or '.jpg'
     ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp') else '.jpg'
     dest = os.path.join(working_dir, f'x_media_{index}{ext}')
     headers = {'User-Agent': UA}
     if cookie_header:
         headers['Cookie'] = cookie_header
-    opener = make_opener(proxy)
+    opener = make_opener(proxy_cfg)
     data = fetch_bytes(url, opener, headers, timeout=90)
     with open(dest, 'wb') as f:
         f.write(data)
@@ -323,8 +391,8 @@ def resolve_rendition(m3u8_url, opener, headers):
     return m3u8_url, text
 
 
-def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy):
-    opener = make_opener(proxy)
+def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg):
+    opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header)
     log('解析视频播放列表（m3u8）…')
     rendition_url, text = resolve_rendition(m3u8_url, opener, headers)
@@ -394,9 +462,15 @@ def main():
     cookie_header = (params.get('cookie') or '').strip()
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
-    proxy = normalize_proxy(params.get('proxy'))
-    if proxy:
-        log(f'使用代理访问 X: {proxy}')
+    proxy_cfg = parse_proxy(params.get('proxy'))
+    global _PROXY_CFG
+    _PROXY_CFG = proxy_cfg
+    if proxy_cfg:
+        kind = proxy_cfg['type']
+        if kind == 'http':
+            log(f'使用 HTTP 代理访问 X: {proxy_cfg["addr"]}')
+        else:
+            log(f'使用 SOCKS 代理访问 X: {proxy_cfg["scheme"]}://{proxy_cfg["host"]}:{proxy_cfg["port"]}')
 
     if not url:
         error('缺少推文链接参数 url')
@@ -411,7 +485,7 @@ def main():
             log('演示模式：合成媒体列表（不联网）')
             media = simulate_media()
         else:
-            media = extract_media(url, cookie_header, proxy)
+            media = extract_media(url, cookie_header, proxy_cfg)
     except Exception as e:
         error(str(e))
         sys.exit(1)
@@ -467,14 +541,14 @@ def main():
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
-                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy)
+                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg)
                 downloaded.append({'path': path, 'type': 'image'})
                 log(f'已下载图片: {os.path.basename(path)}')
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
-                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy)
+                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg)
                 downloaded.append({'path': path, 'type': 'video'})
                 log(f'已下载视频: {os.path.basename(path)}')
             progress(pct, f'下载进度 {idx}/{total}')
