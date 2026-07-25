@@ -397,7 +397,7 @@ onUnmounted(() => {
 .script-actions { display: flex; align-items: center; gap: 10px; }
 .switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aaa; cursor: pointer; }
 .run-form {
-  margin-top: 14px; background: rgba(255, 255, 255, 0.03);
+  margin: 14px auto 0; background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color, #333); border-radius: 10px;
   padding: 16px; max-width: 720px;
 }
