@@ -1756,11 +1756,10 @@ def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型')
         else:
             current_path = current_path + '/' + part
         
-        # 查询是否已存在
-        existing_tag = Tag.query.filter_by(
-            path=current_path,
-            library_id=library_id
-        ).first()
+        # 查询是否已存在（按路径匹配，跨资源库复用规范标签，避免重复创建）
+        existing_tag = Tag.query.filter(
+            Tag.path == current_path
+        ).order_by(Tag.id.asc()).first()
         
         if existing_tag:
             parent_id = existing_tag.id
@@ -1777,11 +1776,10 @@ def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型')
             db.session.flush()
             parent_id = new_tag.id
     
-    # 返回最终创建的标签
-    return Tag.query.filter_by(
-        path=current_path,
-        library_id=library_id
-    ).first()
+    # 返回最终创建的标签（按路径复用规范标签，避免重复）
+    return Tag.query.filter(
+        Tag.path == current_path
+    ).order_by(Tag.id.asc()).first()
 
 
 @app.route('/api/tags', methods=['POST'])
@@ -1815,8 +1813,8 @@ def create_tag():
         else:
             tag_path = f"/{name}"
         
-        # 基于路径+资源库判断唯一性
-        existing = Tag.query.filter_by(path=tag_path, library_id=library_id).first()
+        # 基于路径判断唯一性（标签路径全局唯一，跨资源库复用，避免重复创建）
+        existing = Tag.query.filter_by(path=tag_path).first()
         if existing:
             return jsonify({'success': False, 'message': f'标签路径已存在: {tag_path}'}), 400
         

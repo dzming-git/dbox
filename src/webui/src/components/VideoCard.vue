@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
@@ -21,6 +21,22 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
+
+// 将视频标签展开为可点击的标签（含选中的补充项，以 名称/补充项 形式展示）
+const tagLabels = computed(() => {
+  const out: { key: string | number; label: string; tag: any }[] = []
+  for (const t of (props.video.tags || [])) {
+    const quals = (t.selected_qualifiers as string[]) || []
+    if (quals.length) {
+      for (const q of quals) {
+        out.push({ key: (t.id ?? t.path) + '::' + q, label: `${t.name || t.path}/${q}`, tag: t })
+      }
+    } else {
+      out.push({ key: t.id ?? t.path, label: t.name || t.path, tag: t })
+    }
+  }
+  return out
+})
 
 // 标记/取消不喜欢（踩）
 const handleDislike = (event: Event) => {
@@ -234,12 +250,12 @@ const handleImageError = () => {
       <!-- 标签：正常模式下点击跳转到该标签筛选 -->
       <div v-if="!editable && video.tags && video.tags.length" class="card-tags">
         <span
-          v-for="t in video.tags"
-          :key="t.id || t.path"
+          v-for="d in tagLabels"
+          :key="d.key"
           class="card-tag"
-          :title="'筛选: ' + (t.name || t.path)"
-          @click.stop="emit('tagClick', t)"
-        >{{ t.name || t.path }}</span>
+          :title="'筛选: ' + d.label"
+          @click.stop="emit('tagClick', d.tag)"
+        >{{ d.label }}</span>
       </div>
     </div>
   </div>
