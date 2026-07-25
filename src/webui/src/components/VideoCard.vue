@@ -7,14 +7,11 @@ import { useVideoStore } from '../stores/videoStore'
 const props = defineProps<{
   video: Video
   size?: 'large' | 'normal' | 'small'
-  selectable?: boolean
-  selected?: boolean
   editable?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [video: Video]
-  toggleSelect: [video: Video]
   edit: [video: Video]
   tagClick: [tag: any]
 }>()
@@ -98,10 +95,6 @@ const formatDuration = (seconds?: number): string => {
 }
 
 const handleClick = () => {
-  if (props.selectable) {
-    emit('toggleSelect', props.video)
-    return
-  }
   if (props.editable) {
     emit('edit', props.video)
     return
@@ -168,18 +161,6 @@ const handleImageError = () => {
         </svg>
       </button>
 
-      <!-- 批量选择勾选框 -->
-      <div
-        v-if="selectable"
-        class="select-overlay"
-        :class="{ active: selected }"
-        @click.stop="emit('toggleSelect', video)"
-        data-testid="card-select"
-      >
-        <svg v-if="selected" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-          <path d="M20 6L9 17l-5-5"/>
-        </svg>
-      </div>
       <!-- 卡片右上角操作：点赞(左) 收藏(中) 我不喜欢(右) -->
       <div class="card-actions">
         <!-- 点赞：比较喜欢 -->
@@ -327,29 +308,6 @@ const handleImageError = () => {
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
-}
-
-/* 批量选择勾选框（左上角） */
-.select-overlay {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  cursor: pointer;
-  z-index: 3;
-}
-
-.select-overlay.active {
-  background: #2196F3;
-  border-color: #2196F3;
 }
 
 /* 卡片右上角操作区：点赞(左) 收藏(中) 我不喜欢(右)，默认隐藏，hover 显示，已激活时始终显示 */

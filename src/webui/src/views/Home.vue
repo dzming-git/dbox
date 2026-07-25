@@ -74,10 +74,6 @@ const libraries = computed(() => videoStore.libraries)
 
 // 标签区域折叠状态
 const showTagsSection = ref(false)
-const searchQuery = computed({
-  get: () => videoStore.searchQuery,
-  set: (val) => videoStore.searchQuery = val
-})
 
 // 标签树导航
 const allTagsTree = ref<any[]>([])
@@ -279,22 +275,6 @@ onMounted(async () => {
   }
 })
 
-// 搜索防抖
-let searchTimeout: number | null = null
-watch(() => videoStore.searchQuery, (newQuery) => {
-  if (searchTimeout) clearTimeout(searchTimeout)
-  searchTimeout = window.setTimeout(() => {
-    videoStore.searchVideos(newQuery)
-    updateUrl()
-  }, 500)
-})
-
-// 清除搜索
-const clearSearch = () => {
-  videoStore.clearSearch()
-  updateUrl()
-}
-
 const handleVideoClick = (video: Video) => {
   // 把当前首页状态编码为 from 参数，视频页返回时使用
   const homeQuery = videoStore.toQuery()
@@ -383,34 +363,15 @@ const progressPercent = (item: any) => {
 }
 
 // ============ 批量选择 ============
-const selectionMode = ref(false)
-const selectedHashes = ref<string[]>([])
-// 编辑模式（抽屉编辑单条，与批量选择互斥）
+// 编辑模式（抽屉编辑单条）
 const editMode = ref(false)
 const editDrawerVisible = ref(false)
 const editingItem = ref<any>(null)
 
 
-const toggleSelect = (video: Video) => {
-  const i = selectedHashes.value.indexOf(video.hash)
-  if (i === -1) selectedHashes.value.push(video.hash)
-  else selectedHashes.value.splice(i, 1)
-}
-
-const toggleSelectionMode = () => {
-  selectionMode.value = !selectionMode.value
-  if (!selectionMode.value) selectedHashes.value = []
-  // 批量选择与编辑模式互斥
-  if (selectionMode.value) editMode.value = false
-}
-
 // ============ 编辑模式（抽屉编辑单条） ============
 const toggleEditMode = () => {
   editMode.value = !editMode.value
-  if (editMode.value) {
-    selectionMode.value = false
-    selectedHashes.value = []
-  }
 }
 
 const openEdit = (video: any) => {
@@ -440,13 +401,6 @@ const onEditSaved = (updated: any) => {
   if (idx !== -1) {
     videoStore.videos[idx] = { ...videoStore.videos[idx], ...updated }
   }
-}
-
-const batchAction = async (action: 'like' | 'favorite' | 'dislike') => {
-  if (selectedHashes.value.length === 0) return
-  await videoStore.batchInteractVideos([...selectedHashes.value], action)
-  selectedHashes.value = []
-  // 批量屏蔽后，被屏蔽视频会在 store 重新拉取后从列表移除
 }
 
 // ============ 分页相关 ============
@@ -590,19 +544,6 @@ const onListImgError = (e: Event) => {
 
     <!-- 操作栏 - 移到顶部 -->
     <div class="action-bar" v-if="mediaTab === 'video'">
-      <div class="search-box">
-        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="M21 21l-4.35-4.35"/>
-        </svg>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="搜索视频标题..."
-          class="search-input"
-        />
-        <button v-if="searchQuery" class="clear-search-btn" @click="clearSearch">×</button>
-      </div>
       <div class="sort-box">
         <label class="sort-label">排序：</label>
         <select class="sort-select" :value="currentSort" @change="handleSortChange">
@@ -638,14 +579,6 @@ const onListImgError = (e: Event) => {
             <path d="M7 6L3 10l4 4"/>
           </svg>
           <span class="undo-text">撤回</span>
-        </button>
-        <!-- 批量选择开关 -->
-        <button class="batch-toggle-btn" :class="{ active: selectionMode }" @click="toggleSelectionMode" title="批量选择">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 11l3 3L22 4"/>
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-          </svg>
-          <span class="batch-toggle-text">{{ selectionMode ? '退出选择' : '批量选择' }}</span>
         </button>
         <!-- 编辑模式开关 -->
         <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
@@ -687,17 +620,6 @@ const onListImgError = (e: Event) => {
           </svg>
           <span class="view-toggle-text">列表</span>
         </button>
-      </div>
-      <!-- 批量操作工具条 -->
-      <div v-if="selectionMode" class="batch-toolbar">
-        <span class="batch-count">已选 {{ selectedHashes.length }} 个</span>
-        <button class="batch-action-btn like" @click="batchAction('like')">批量点赞</button>
-        <button class="batch-action-btn favorite" @click="batchAction('favorite')">批量收藏</button>
-        <button class="batch-action-btn dislike" @click="batchAction('dislike')">批量屏蔽</button>
-        <button class="batch-action-btn clear" @click="toggleSelectionMode">取消</button>
-      </div>
-      <div v-if="searchQuery" class="search-status">
-        搜索: "{{ searchQuery }}" ({{ videos.length }} 个结果)
       </div>
     </div>
 
@@ -841,11 +763,8 @@ const onListImgError = (e: Event) => {
             v-for="video in displayVideos"
             :key="video.hash"
             :video="video"
-            :selectable="selectionMode && !editMode"
-            :selected="selectedHashes.includes(video.hash)"
             :editable="editMode"
             @click="handleVideoClick(video)"
-            @toggle-select="toggleSelect"
             @edit="openEdit"
             @tag-click="onTagClick"
           />
@@ -856,10 +775,9 @@ const onListImgError = (e: Event) => {
             v-for="video in displayVideos"
             :key="video.hash"
             class="video-list-row"
-            :class="{ selected: selectedHashes.includes(video.hash) }"
             @click="editMode ? openEdit(video) : handleVideoClick(video)"
           >
-            <div class="list-thumb" @click.stop="selectionMode ? toggleSelect(video) : (editMode ? openEdit(video) : handleVideoClick(video))">
+            <div class="list-thumb" @click.stop="editMode ? openEdit(video) : handleVideoClick(video)">
               <img
                 :src="listThumbUrl(video)"
                 :alt="video.title"
@@ -868,16 +786,6 @@ const onListImgError = (e: Event) => {
                 @error="onListImgError"
               />
               <span class="list-duration" v-if="video.duration">{{ formatDuration(video.duration) }}</span>
-              <div
-                v-if="selectionMode"
-                class="list-select-overlay"
-                :class="{ active: selectedHashes.includes(video.hash) }"
-                @click.stop="toggleSelect(video)"
-              >
-                <svg v-if="selectedHashes.includes(video.hash)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                  <path d="M20 6L9 17l-5-5"/>
-                </svg>
-              </div>
             </div>
             <div class="list-info">
               <h3 class="list-title" :title="video.title">{{ video.title }}</h3>
@@ -891,7 +799,7 @@ const onListImgError = (e: Event) => {
                 </span>
               </div>
             </div>
-            <div class="list-actions" v-if="!selectionMode">
+            <div class="list-actions">
               <button
                 v-if="editMode"
                 class="list-action-btn edit"
@@ -1432,72 +1340,6 @@ const onListImgError = (e: Event) => {
   letter-spacing: 0.3px;
 }
 
-.search-box {
-  flex: 1;
-  max-width: 500px;
-  position: relative;
-}
-
-.search-icon {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #666;
-}
-
-.search-input {
-  width: 100%;
-  height: 48px;
-  padding: 0 16px 0 48px;
-  border: 1px solid #333;
-  border-radius: 12px;
-  background: #1a1a1a;
-  color: #fff;
-  font-size: 15px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: #2196F3;
-  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
-}
-
-.search-input::placeholder {
-  color: #666;
-}
-
-.clear-search-btn {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #333;
-  border: none;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.clear-search-btn:hover {
-  background: #444;
-}
-
-.search-status {
-  padding: 8px 16px;
-  background: #1a1a1a;
-  border-radius: 8px;
-  color: #888;
-  font-size: 14px;
-}
-
 /* 加载中 */
 .loading-container {
   display: flex;
@@ -1596,11 +1438,6 @@ const onListImgError = (e: Event) => {
   border-color: #3a3a3a;
 }
 
-.video-list-row.selected {
-  border-color: #2196F3;
-  background: rgba(33, 150, 243, 0.08);
-}
-
 .list-thumb {
   position: relative;
   width: 160px;
@@ -1630,27 +1467,6 @@ const onListImgError = (e: Event) => {
   font-weight: 500;
 }
 
-.list-select-overlay {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  z-index: 3;
-}
-
-.list-select-overlay.active {
-  background: #2196F3;
-  border-color: #2196F3;
-}
-
 .list-info {
   flex: 1;
   min-width: 0;
@@ -1661,9 +1477,11 @@ const onListImgError = (e: Event) => {
   font-weight: 500;
   color: #fff;
   margin: 0 0 6px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .list-meta {
@@ -1684,13 +1502,16 @@ const onListImgError = (e: Event) => {
 .list-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 144px;
 }
 
 .list-action-btn {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1844,48 +1665,6 @@ const onListImgError = (e: Event) => {
 
 .batch-toggle-text {
   letter-spacing: 0.3px;
-}
-
-/* 批量操作工具条 */
-.batch-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 10px 16px;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 10px;
-  flex-wrap: wrap;
-}
-
-.batch-count {
-  color: #ccc;
-  font-size: 14px;
-  margin-right: 4px;
-}
-
-.batch-action-btn {
-  height: 34px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 13px;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.batch-action-btn:hover {
-  opacity: 0.85;
-}
-
-.batch-action-btn.like { background: #ff4757; }
-.batch-action-btn.favorite { background: #ffa502; }
-.batch-action-btn.dislike { background: #ffd93d; color: #222; }
-.batch-action-btn.clear {
-  background: #333;
-  color: #ccc;
 }
 
 /* 继续观看 */
@@ -2045,11 +1824,6 @@ const onListImgError = (e: Event) => {
     gap: 10px;
     margin-bottom: 16px;
     max-width: 100%;
-  }
-
-  .search-box {
-    max-width: 100%;
-    width: 100%;
   }
 
   /* 排序/筛选行在移动端换行堆叠，避免控件溢出 */

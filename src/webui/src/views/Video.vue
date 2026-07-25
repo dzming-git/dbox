@@ -3820,7 +3820,8 @@ const handleDelete = async () => {
 
   .tag-editor-body {
     flex-direction: column;
-    overflow: visible;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .tag-tree-panel {
@@ -3835,8 +3836,9 @@ const handleDelete = async () => {
 
   .tag-tree-container {
     display: block;
-    overflow: visible;
-    max-height: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 45vh;
     min-height: 0;
   }
 
@@ -3858,8 +3860,8 @@ const handleDelete = async () => {
 
   /* 视频标签列表移动端适配 */
   .video-tags-list {
-    max-height: none;
-    overflow: visible;
+    max-height: 22vh;
+    overflow-y: auto;
   }
 
   /* 移动端标签编辑区域确保不被遮挡 */
