@@ -208,3 +208,37 @@ export enum UserRole {
   ADMIN = 2,
   ROOT = 3
 }
+
+// 意见建议 / Issue（参考 GitHub Issue 风格）
+export interface IssueComment {
+  author: string
+  author_role: number
+  content: string
+  created_at: string
+}
+
+export interface Issue {
+  id: string                                   // yyyymmdd + 4 位流水号，如 202607250004
+  title: string
+  content: string
+  author: string
+  author_id: number | null
+  author_role: number
+  contact?: string                             // 仅管理员可见
+  status: 'open' | 'closed'
+  closed_reason: 'resolved' | 'dismissed' | null
+  comments: IssueComment[]
+  created_at: string
+  updated_at: string
+  closed_at: string | null
+}
+
+export interface IssueListResponse {
+  success: boolean
+  issues: Issue[]
+  total: number
+  open_count: number
+  closed_count: number
+  page: number
+  page_size: number
+}

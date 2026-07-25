@@ -208,7 +208,7 @@ app.register_blueprint(history_bp)  # 播放历史API
 app.register_blueprint(collection_bp)  # 收藏夹API
 app.register_blueprint(collection_set_api)  # 独立合集模块（视频+漫画）
 app.register_blueprint(search_bp)  # 搜索API
-app.register_blueprint(suggestion_bp)  # 建议反馈API
+app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反馈API / Issue
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API

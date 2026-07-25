@@ -1,66 +1,51 @@
-/**
- * 建议反馈 API
- */
+import api from './index'
+import type { Issue, IssueListResponse } from '../types'
 
-interface Suggestion {
-  id: string
+export interface IssueListParams {
+  status?: 'open' | 'closed' | 'all'
+  keyword?: string
+  page?: number
+  page_size?: number
+}
+
+export function extractMessage(err: any, fallback = '操作失败'): string {
+  if (err?.response?.data?.message) return err.response.data.message
+  if (err?.response?.data?.error) return err.response.data.error
+  if (err?.message) return err.message
+  return fallback
+}
+
+export async function getIssues(params: IssueListParams = {}): Promise<IssueListResponse> {
+  return await api.get('/api/suggestion', { params })
+}
+
+export async function getIssue(id: string): Promise<{ success: boolean; issue: Issue }> {
+  return await api.get(`/api/suggestion/${id}`)
+}
+
+export async function createIssue(payload: {
+  title: string
   content: string
   contact?: string
-  user: string
-  created_at: string
-  status: 'pending' | 'reviewed' | 'replied'
-  reply?: string
+}): Promise<{ success: boolean; id: string; issue: Issue }> {
+  return await api.post('/api/suggestion', payload)
 }
 
-interface SubmitResponse {
-  success: boolean
-  message?: string
-  suggestion_id?: string
-  error?: string
+export async function updateIssue(
+  id: string,
+  payload: {
+    status?: 'open' | 'closed'
+    closed_reason?: 'resolved' | 'dismissed' | null
+    title?: string
+    content?: string
+  }
+): Promise<{ success: boolean; issue: Issue }> {
+  return await api.put(`/api/suggestion/${id}`, payload)
 }
 
-interface ListResponse {
-  success: boolean
-  suggestions: Suggestion[]
-  total: number
-  error?: string
-}
-
-/**
- * 提交建议
- */
-export async function submitSuggestion(content: string, contact?: string): Promise<SubmitResponse> {
-  const response = await fetch('/api/suggestion', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ content, contact })
-  })
-  return response.json()
-}
-
-/**
- * 获取建议列表（管理员）
- */
-export async function getSuggestions(): Promise<ListResponse> {
-  const response = await fetch('/api/suggestion/list')
-  return response.json()
-}
-
-/**
- * 更新建议状态（管理员）
- */
-export async function updateSuggestion(
-  suggestionId: string,
-  data: { status?: string; reply?: string }
-): Promise<{ success: boolean; error?: string }> {
-  const response = await fetch(`/api/suggestion/${suggestionId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(data)
-  })
-  return response.json()
+export async function addIssueComment(
+  id: string,
+  payload: { content: string }
+): Promise<{ success: boolean; issue: Issue }> {
+  return await api.post(`/api/suggestion/${id}/comment`, payload)
 }
