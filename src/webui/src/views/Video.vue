@@ -2101,8 +2101,8 @@ const handleDelete = async () => {
   padding: 16px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-  position: sticky;
-  top: 80px;
+  position: static;
+  top: auto;
   align-self: flex-start;
 }
 
@@ -3810,6 +3810,7 @@ const handleDelete = async () => {
   .rec-thumbnail-wrapper {
     width: 100%;
     height: 100px;
+    aspect-ratio: 16 / 9;
   }
 }
 
