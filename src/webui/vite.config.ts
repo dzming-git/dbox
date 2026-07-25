@@ -14,6 +14,27 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
+      '/api/scripts': {
+        target: 'http://127.0.0.1:8082',
+        changeOrigin: true,
+        headers: {
+          'Connection': 'keep-alive'
+        }
+      },
+      '/api/admin/scripts': {
+        target: 'http://127.0.0.1:8082',
+        changeOrigin: true,
+        headers: {
+          'Connection': 'keep-alive'
+        }
+      },
+      '/api/admin/cookies': {
+        target: 'http://127.0.0.1:8082',
+        changeOrigin: true,
+        headers: {
+          'Connection': 'keep-alive'
+        }
+      },
       '/api': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,

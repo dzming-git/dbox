@@ -41,6 +41,14 @@ NSSM_SERVICES = {
         'port': 8080,
         'log_prefix': 'web',
     },
+    'downloader': {
+        'service_name': 'dplayer-downloader',
+        'display_name': 'DPlayer 资源下载器',
+        'description': 'DPlayer 独立下载器服务 - 外部脚本执行（与主服务解耦，崩溃不影响主服务）',
+        'entry': 'src/downloader/main.py',
+        'port': 8082,
+        'log_prefix': 'downloader',
+    },
     'bus': {
         'service_name': 'dplayer-bus',
         'display_name': 'DPlayer 服务总线',

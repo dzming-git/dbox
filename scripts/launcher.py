@@ -73,6 +73,7 @@ def _venv_python() -> str:
 SERVICES = [
     {'key': 'bus',        'entry': 'configs/services/busbroker.py',       'port': None, 'watch': ['src/servicebus', 'configs/services/busbroker.py']},
     {'key': 'web',        'entry': 'src/web/main.py',                     'port': 8080, 'watch': ['src/web']},
+    {'key': 'downloader', 'entry': 'src/downloader/main.py',              'port': 8082, 'watch': ['src/downloader']},
     {'key': 'thumbnail',  'entry': 'configs/services/thumbnaild.py',      'port': None, 'watch': ['src/thumbnail', 'configs/services/thumbnaild.py']},
     {'key': 'webui',      'entry': 'configs/services/webui_service.py',   'port': 5173, 'watch': ['configs/services/webui_service.py']},
     {'key': 'resource',   'entry': 'src/resource/main.py',                'port': None, 'watch': ['src/resource']},

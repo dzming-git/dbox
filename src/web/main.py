@@ -333,9 +333,8 @@ app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反
 app.register_blueprint(shared_watch_bp)  # 共享观看API
 app.register_blueprint(comic_bp)  # 漫画模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API
-from script_engine.routes import script_bp, init_script_engine
-app.register_blueprint(script_bp)  # 通用外部脚本接口 API
-init_script_engine(app)
+# 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8082），
+#     由前端经 Vite 代理 /api/scripts 转发，与主服务解耦，下载器崩溃不影响主服务。
 
 # ============ 操作审计日志 ============
 # after_request 钩子：对所有 /api 写操作自动记录「是谁触发的」（含游客/登录用户与来源 IP）
@@ -4865,6 +4864,12 @@ _SERVICE_META = {
         'health_url': 'http://localhost:5173',
         'port': 5173,
         'health_check_json': False,  # 前端返回 HTML，只检查 HTTP 状态码
+    },
+    'dplayer-downloader': {
+        'display_name': 'DPlayer 资源下载器',
+        'description': '独立进程：外部脚本 / 下载器服务（与主服务解耦，崩溃不影响主服务）',
+        'health_url': 'http://127.0.0.1:8082/api/health',
+        'port': 8082,
     },
 }
 

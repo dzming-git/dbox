@@ -54,6 +54,12 @@ SERVICES = {
         'description': 'DPlayer Vue3前端界面',
         'port': 5173,
     },
+    'downloader': {
+        'service_name': 'dplayer-downloader',
+        'display_name': 'DPlayer 资源下载器',
+        'description': 'DPlayer 独立下载器服务（外部脚本，与主服务解耦）',
+        'port': 8082,
+    },
 }
 
 

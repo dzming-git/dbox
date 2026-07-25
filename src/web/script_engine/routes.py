@@ -9,14 +9,25 @@ from flask import Blueprint, request, jsonify, g
 from authlib.jose import jwt
 from core.models import UserRole
 
-try:
-    from backend.utils.jwt_authlib import SECRET_KEY as _JWT_SECRET_KEY
-except Exception:
-    _JWT_SECRET_KEY = None
+import os
 
-# 与 main.py 保持一致：优先使用环境驱动的真实密钥，回退到内置默认密钥
-_JWT_FALLBACK_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
-_JWT_SECRETS = [s for s in (_JWT_SECRET_KEY, _JWT_FALLBACK_SECRET) if s]
+# 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DPLAYER_JWT_SECRET，回退内置默认密钥。
+# 直接读取环境变量（而非依赖模块导入），避免在不同进程 / 导入顺序下拿到错误的密钥，
+# 从而导致脚本接口 401 把用户踢出登录。
+_DEFAULT_JWT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
+
+
+def _resolve_jwt_secrets():
+    secrets = []
+    env_secret = os.environ.get('DPLAYER_JWT_SECRET')
+    if env_secret:
+        secrets.append(env_secret)
+    if _DEFAULT_JWT_SECRET not in secrets:
+        secrets.append(_DEFAULT_JWT_SECRET)
+    return secrets
+
+
+_JWT_SECRETS = _resolve_jwt_secrets()
 
 from .manager import mgr, ScriptJobManager
 
