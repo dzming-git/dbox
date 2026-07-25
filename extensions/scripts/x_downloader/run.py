@@ -2,20 +2,24 @@
 # -*- coding: utf-8 -*-
 """X（原 Twitter）媒体下载脚本，适配 DPlayer 外部脚本引擎。
 
+纯爬虫实现，不依赖 yt-dlp：
+  - 图片：从推文页面 / 接口解析 pbs.twimg.com 原图直链，urllib 直连下载。
+  - 视频：解析出 video.twimg.com 的 m3u8（HLS）播放列表，
+          自行下载全部 .ts 分片，再用系统 ffmpeg 合并为 mp4。
+
 运行契约（详见 src/web/script_engine）：
   - 通过 stdin 读取 JSON：{job_id, params, context}
       context.working_dir : 任务临时目录（产物放在这里，结束前会被清理）
       context.notify      : {url, token} 入库通知回调
-      context.cookies     : {domain: {path, format}} 保险库注入的 cookie（本脚本用 string 参数传入，不依赖它）
+      context.cookies     : {domain: {path, format}} 保险库注入的 cookie
   - 通过 stdout 逐行上报：
       {"type":"progress","percent":0-100,"message":""}
       {"type":"log","level":"info|warn|error","message":""}
       {"type":"await_input","input":{prompt,options:[{value,label}],multi,min,max,allow_text,text_hint}}
       {"type":"result","files":[{"path":...,"type":"video|image"}]}
-  - 分阶段交互：上报 await_input 后，长轮询 GET context.notify.url 的同级 /input 端点等待管理员选择。
+  - 分阶段交互：上报 await_input 后，长轮询 GET /api/scripts/jobs/<id>/input 等待管理员选择。
 
-依赖：yt-dlp（视频用其下载；图片用 urllib 直链下载）。
-      pip install yt-dlp[default]   （default 含 ffmpeg 之外的依赖；合并视频仍需系统 ffmpeg）
+依赖：仅标准库 + 系统 ffmpeg（用于合并视频分片）。
 """
 import sys
 import os
@@ -31,6 +35,18 @@ import urllib.error
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+
+# X 网页端公开的 Bearer Token（长期不变，用于访客/接口鉴权）
+WEB_BEARER = ('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAt4gJZwTZw9F9IgoIMvdI4kZ1Ric'
+              'X0H6k8H1Z4Z8e7f3Y')
+
+IMG_RE = re.compile(
+    r'https://pbs\.twimg\.com/media/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp)',
+    re.IGNORECASE)
+M3U8_RE = re.compile(
+    r'https://video\.twimg\.com/[^\s"\'<>]+\.m3u8(?:\?[^\s"\'<>]*)?',
+    re.IGNORECASE)
+RENDITION_RE = re.compile(r'/vid/\d+x\d+/', re.IGNORECASE)
 
 
 # ---------------- stdout 上报 ----------------
@@ -58,6 +74,14 @@ def normalize_proxy(p):
     if '://' not in p:
         p = 'http://' + p
     return p
+
+
+def make_opener(proxy):
+    """返回一个带代理（可选）的 urllib opener，用于访问 X 域名。"""
+    if proxy:
+        return urllib.request.build_opener(
+            urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
+    return urllib.request.build_opener()
 
 
 def result(files):
@@ -89,7 +113,6 @@ def fetch_input(input_ctx, timeout=25):
         except urllib.error.HTTPError as e:
             if e.code == 204:
                 continue
-            # 400/404：非法请求，放弃
             if e.code in (400, 404):
                 return None
             time.sleep(2)
@@ -99,7 +122,6 @@ def fetch_input(input_ctx, timeout=25):
 
 # ---------------- 入库通知 ----------------
 def notify_input(input_ctx, files):
-    """把下载好的文件登记给管理器，由其移动到资源库并入库。失败则降级为 result 行。"""
     url = input_ctx.get('url')
     token = input_ctx.get('token')
     if url and token:
@@ -119,44 +141,133 @@ def notify_input(input_ctx, files):
     result(files)
 
 
-# ---------------- 媒体解析（yt-dlp） ----------------
-def extract_media(url, cookie_header, proxy):
-    """用 yt-dlp 解析推文，返回媒体列表：[{type:'image'|'video', url, label}]。"""
-    cmd = ['yt-dlp', '--no-warnings', '--skip-download', '-J', url]
+# ---------------- 网络请求封装 ----------------
+def fetch_text(url, opener, headers, timeout=60):
+    req = urllib.request.Request(url, headers=headers)
+    with opener.open(req, timeout=timeout) as r:
+        return r.read().decode('utf-8', 'replace')
+
+
+def fetch_bytes(url, opener, headers, timeout=60):
+    req = urllib.request.Request(url, headers=headers)
+    with opener.open(req, timeout=timeout) as r:
+        return r.read()
+
+
+# ---------------- 媒体解析 ----------------
+def build_headers(cookie_header):
+    h = {'User-Agent': UA, 'Accept': '*/*'}
     if cookie_header:
-        cmd += ['--add-header', f'Cookie: {cookie_header}']
-    if proxy:
-        cmd += ['--proxy', proxy]
-    log('正在解析推文（yt-dlp）…')
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError('yt-dlp 解析超时')
-    if proc.returncode != 0:
-        raise RuntimeError('yt-dlp 解析失败: ' + (proc.stderr or proc.stdout)[:600])
+        h['Cookie'] = cookie_header
+    return h
 
-    info = json.loads(proc.stdout)
+
+def extract_from_html(html, cookie_header):
+    """从推文页面 HTML 中正则抓取图片原图与视频 m3u8。"""
     media = []
+    seen_img = set()
+    for m in IMG_RE.finditer(html):
+        base = m.group(0)
+        if base in seen_img:
+            continue
+        seen_img.add(base)
+        orig = base + '?name=orig'
+        media.append({'type': 'image', 'url': orig, 'label': '图片'})
+    m3u8_urls = [m.group(0) for m in M3U8_RE.finditer(html)]
+    if m3u8_urls:
+        best = pick_m3u8(m3u8_urls)
+        media.append({'type': 'video', 'url': best, 'label': '视频/动图'})
+    return media
 
-    is_video = bool(
-        info.get('requested_formats')
-        or (info.get('url') and (info.get('ext') in ('mp4', 'm3u8')
-                                 or 'video' in str(info.get('protocol', ''))))
-    )
-    if is_video:
-        media.append({
-            'type': 'video',
-            'url': url,  # 视频用 yt-dlp 重新下载整条推文
-            'label': '视频/动图',
-        })
-    else:
-        images = info.get('images') or []
-        for i, img in enumerate(images):
-            media.append({
-                'type': 'image',
-                'url': img,
-                'label': f'图片 {i + 1}',
-            })
+
+def pick_m3u8(urls):
+    """优先选具体分辨率的分片列表（含 /vid/WxH/），否则取第一个。"""
+    for u in urls:
+        if RENDITION_RE.search(u):
+            return u
+    return urls[0]
+
+
+def get_guest_token(opener, cookie_header):
+    """通过 api.x.com 访客接口换取 guest_token（仅用于接口鉴权降级）。"""
+    url = 'https://api.x.com/1.1/guest/activate.json'
+    headers = {
+        'User-Agent': UA,
+        'Authorization': f'Bearer {WEB_BEARER}',
+        'Content-Type': 'application/x-www-form-urlencoded',
+    }
+    if cookie_header:
+        headers['Cookie'] = cookie_header
+    try:
+        req = urllib.request.Request(url, data=b'', headers=headers, method='POST')
+        with opener.open(req, timeout=30) as r:
+            data = json.loads(r.read().decode('utf-8', 'replace'))
+        return data.get('guest_token')
+    except Exception as e:
+        log(f'获取 guest_token 失败（将仅用页面解析）: {e}', level='warn')
+        return None
+
+
+def extract_from_api(tweet_id, cookie_header, opener):
+    """调用 statuses/show.json 接口（结构化数据，最可靠），失败返回 []。"""
+    gt = get_guest_token(opener, cookie_header)
+    if not gt:
+        return []
+    url = (f'https://api.x.com/1.1/statuses/show.json'
+           f'?id={tweet_id}&tweet_mode=extended')
+    headers = {
+        'User-Agent': UA,
+        'Authorization': f'Bearer {WEB_BEARER}',
+        'x-guest-token': gt,
+        'Cookie': cookie_header or '',
+    }
+    try:
+        data = json.loads(fetch_text(url, opener, headers, timeout=40))
+    except Exception as e:
+        log(f'接口解析失败（将仅用页面解析）: {e}', level='warn')
+        return []
+    media = []
+    entities = data.get('extended_entities') or data.get('entities') or {}
+    for ent in entities.get('media', []):
+        mtype = ent.get('type')
+        if mtype == 'photo':
+            base = ent.get('media_url_https') or ent.get('media_url') or ''
+            if base:
+                media.append({'type': 'image',
+                              'url': base + ':orig',
+                              'label': '图片'})
+        elif mtype in ('video', 'animated_gif'):
+            variants = ent.get('video_info', {}).get('variants', [])
+            m3u8 = [v['url'] for v in variants
+                    if v.get('content_type') == 'application/x-mpegURL']
+            if m3u8:
+                media.append({'type': 'video',
+                              'url': pick_m3u8(m3u8),
+                              'label': '视频/动图'})
+    return media
+
+
+def extract_media(url, cookie_header, proxy):
+    """解析推文，返回媒体列表：[{type:'image'|'video', url, label}]。
+
+    策略：优先页面 HTML 解析（无需 Bearer，直接用用户 Cookie）；
+          若页面未解析到，则用 statuses/show.json 接口降级补全。
+    """
+    opener = make_opener(proxy)
+    headers = build_headers(cookie_header)
+    tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
+
+    log('正在抓取推文页面…')
+    html = None
+    try:
+        html = fetch_text(url, opener, headers, timeout=45)
+    except Exception as e:
+        log(f'页面抓取失败: {e}', level='warn')
+
+    media = extract_from_html(html, cookie_header) if html else []
+    if not media and tweet_id != 'x':
+        log('页面未解析到媒体，尝试接口方式…')
+        media = extract_from_api(tweet_id, cookie_header, opener)
     return media
 
 
@@ -168,33 +279,87 @@ def download_image(url, cookie_header, working_dir, index, proxy):
     headers = {'User-Agent': UA}
     if cookie_header:
         headers['Cookie'] = cookie_header
-    handlers = []
-    if proxy:
-        handlers.append(urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
-    opener = urllib.request.build_opener(*handlers) if handlers else urllib.request.build_opener()
-    req = urllib.request.Request(url, headers=headers)
-    with opener.open(req, timeout=60) as r, open(dest, 'wb') as f:
-        shutil.copyfileobj(r, f)
+    opener = make_opener(proxy)
+    data = fetch_bytes(url, opener, headers, timeout=90)
+    with open(dest, 'wb') as f:
+        f.write(data)
     return dest
 
 
-def download_video(tweet_url, cookie_header, working_dir, tweet_id, proxy):
-    out_tmpl = os.path.join(working_dir, f'{tweet_id}.%(ext)s')
-    cmd = ['yt-dlp', '--no-warnings', '-o', out_tmpl, tweet_url]
-    if cookie_header:
-        cmd += ['--add-header', f'Cookie: {cookie_header}']
-    if proxy:
-        cmd += ['--proxy', proxy]
-    log('正在下载视频（yt-dlp）…')
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=540)
-    if proc.returncode != 0:
-        raise RuntimeError('视频下载失败: ' + (proc.stderr or proc.stdout)[:400])
-    # 找到本次产出的视频文件
-    for fn in os.listdir(working_dir):
-        if fn.startswith(tweet_id) and fn.lower().endswith(
-                ('.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi', '.ts')):
-            return os.path.join(working_dir, fn)
-    raise RuntimeError('视频下载完成但未找到产出文件')
+def parse_m3u8_segments(m3u8_text, base_url):
+    """从 m3u8 文本中提取分片 URL 列表（解析相对地址）。"""
+    segments = []
+    for line in m3u8_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('http://') or line.startswith('https://'):
+            segments.append(line)
+        else:
+            segments.append(urllib.parse.urljoin(base_url, line))
+    return segments
+
+
+def resolve_rendition(m3u8_url, opener, headers):
+    """若是 master  playlist（含 STREAM-INF），选最高分辨率 rendition。"""
+    text = fetch_text(m3u8_url, opener, headers, timeout=45)
+    if '#EXT-X-STREAM-INF' not in text:
+        return m3u8_url, text
+    best = None
+    best_w = -1
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith('#EXT-X-STREAM-INF'):
+            m = re.search(r'RESOLUTION=(\d+)x(\d+)', line)
+            w = int(m.group(1)) if m else 0
+            # 下一行是对应 URL
+            uri = lines[i + 1].strip() if i + 1 < len(lines) else ''
+            if uri and w >= best_w:
+                best_w = w
+                best = uri
+    if best:
+        best = urllib.parse.urljoin(m3u8_url, best)
+        return best, fetch_text(best, opener, headers, timeout=45)
+    return m3u8_url, text
+
+
+def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy):
+    opener = make_opener(proxy)
+    headers = build_headers(cookie_header)
+    log('解析视频播放列表（m3u8）…')
+    rendition_url, text = resolve_rendition(m3u8_url, opener, headers)
+    segments = parse_m3u8_segments(text, rendition_url)
+    if not segments:
+        raise RuntimeError('未从 m3u8 中解析到任何视频分片')
+    # 检测加密（暂不处理 EXT-X-KEY，仅告警）
+    if '#EXT-X-KEY' in text:
+        log('检测到加密分片（EXT-X-KEY），合并可能失败', level='warn')
+
+    n = len(segments)
+    log(f'共 {n} 个分片，开始下载…')
+    seg_files = []
+    for i, seg_url in enumerate(segments, start=1):
+        seg_path = os.path.join(working_dir, f'seg_{i:04d}.ts')
+        data = fetch_bytes(seg_url, opener, headers, timeout=90)
+        with open(seg_path, 'wb') as f:
+            f.write(data)
+        seg_files.append(seg_path)
+        if i % 5 == 0 or i == n:
+            log(f'分片 {i}/{n}')
+
+    # 用 ffmpeg 合并
+    out_path = os.path.join(working_dir, f'{tweet_id}.mp4')
+    list_path = os.path.join(working_dir, 'segments.txt')
+    with open(list_path, 'w', encoding='utf-8') as f:
+        for s in seg_files:
+            f.write(f"file '{os.path.abspath(s)}'\n")
+    cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+           '-i', list_path, '-c', 'copy', out_path]
+    log('用 ffmpeg 合并分片…')
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0 or not os.path.exists(out_path):
+        raise RuntimeError('ffmpeg 合并失败: ' + (proc.stderr or '')[:500])
+    return out_path
 
 
 def simulate_media():
@@ -202,7 +367,7 @@ def simulate_media():
     return [
         {'type': 'image', 'url': 'https://pbs.twimg.com/demo/1.jpg', 'label': '图片 1（演示）'},
         {'type': 'image', 'url': 'https://pbs.twimg.com/demo/2.jpg', 'label': '图片 2（演示）'},
-        {'type': 'video', 'url': 'https://x.com/demo/status/0', 'label': '视频（演示）'},
+        {'type': 'video', 'url': 'https://video.twimg.com/demo/playlist.m3u8', 'label': '视频（演示）'},
     ]
 
 
@@ -276,7 +441,6 @@ def main():
         })
         resp = fetch_input(notify_ctx)
         if resp is None:
-            # 超时/取消：默认全选（避免任务卡死，也便于离线演示）
             log('未收到选择，默认下载全部', level='warn')
             indices = list(range(len(media)))
         else:
@@ -310,7 +474,7 @@ def main():
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
-                    path = download_video(url, cookie_header, working_dir, tweet_id, proxy)
+                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy)
                 downloaded.append({'path': path, 'type': 'video'})
                 log(f'已下载视频: {os.path.basename(path)}')
             progress(pct, f'下载进度 {idx}/{total}')
@@ -328,7 +492,6 @@ def main():
 
 
 if __name__ == '__main__':
-    # 兼容 stdout 缓冲问题
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
     main()

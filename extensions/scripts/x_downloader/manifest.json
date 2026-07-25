@@ -1,7 +1,7 @@
 {
   "id": "x_downloader",
   "name": "X（推特）媒体下载器",
-  "description": "解析 X/Twitter 推文，提取其中的图片与视频；若包含多个媒体，二次触发用户选择要下载哪些。需安装 yt-dlp（pip install yt-dlp[default]）。",
+  "description": "纯爬虫实现，不依赖 yt-dlp。从 X/Twitter 推文解析图片原图与视频 m3u8，图片直连下载，视频分片下载后由系统 ffmpeg 合并为 mp4；若包含多个媒体，二次触发用户选择要下载哪些。需安装 ffmpeg（用于合并视频）。",
   "runtime": "python",
   "command": "run.py",
   "interface": "x_download",
