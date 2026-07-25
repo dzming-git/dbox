@@ -67,6 +67,60 @@ def emit(obj):
     sys.stdout.flush()
 
 
+def netscape_to_header(text):
+    """将 Netscape 格式 cookie 文件转为 Cookie 请求头字符串。"""
+    parts = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        cols = line.split('\t')
+        if len(cols) >= 7 and cols[5] and cols[6]:
+            parts.append(f'{cols[5]}={cols[6]}')
+    return '; '.join(parts)
+
+
+def read_cookie_file(path):
+    """读取保险库物化的 cookie 文件，按格式返回可用的 Cookie 请求头字符串。"""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+    except Exception:
+        return ''
+    if not content:
+        return ''
+    # header 格式：文件内容即 Cookie 头原文（单行、无制表符）
+    if '\t' not in content and '\n' not in content:
+        return content
+    # 含 \t 视为 Netscape 格式，转换后使用
+    return netscape_to_header(content)
+
+
+def resolve_cookie(param_value, cookie_ctx):
+    """解析 cookie：优先使用保险库按域名物化的文件，其次兼容直接粘贴的 header 原文。
+
+    - cookie_select 类型：管理器会把物化文件路径写回 params['cookie']；
+    - required_cookies / cookie_select 也会在 context.cookies 提供 {domain: {path, format}}；
+    - 兜底：管理员直接粘贴的 Cookie header 原文（不含 'Cookie: ' 前缀）。
+    """
+    # 1) 保险库按域名物化的 cookie（required_cookies 或 cookie_select 注入）
+    for dom, info in (cookie_ctx or {}).items():
+        p = (info or {}).get('path')
+        if p and os.path.isfile(p):
+            header = read_cookie_file(p)
+            if header:
+                emit({'type': 'log', 'message': f'使用保险库 Cookie（{dom}）'})
+                return header
+    # 2) cookie_select 把所选文件路径写回参数
+    val = (param_value or '').strip()
+    if val and os.path.isfile(val):
+        header = read_cookie_file(val)
+        if header:
+            return header
+    # 3) 兜底：直接粘贴的 header 原文
+    return val
+
+
 def progress(pct, message=''):
     emit({'type': 'progress', 'percent': int(pct), 'message': message})
 
@@ -538,7 +592,7 @@ def main():
     context = payload.get('context', {}) or {}
     working_dir = context.get('working_dir') or os.getcwd()
     notify_ctx = context.get('notify', {}) or {}
-    cookie_header = (params.get('cookie') or '').strip()
+    cookie_header = resolve_cookie(params.get('cookie'), context.get('cookies', {}) or {})
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
     proxy_cfg = parse_proxy(params.get('proxy'))

@@ -18,10 +18,11 @@
     },
     {
       "name": "cookie",
-      "type": "string",
-      "label": "Cookie（可选）",
+      "type": "cookie_select",
+      "label": "Cookie（保险库，可选）",
+      "domain_filter": ".x.com",
       "required": false,
-      "description": "登录后的 Cookie 请求头原文（即浏览器里 Cookie 字段的值，不含 'Cookie: ' 前缀）。留空使用访客身份，可能受限。"
+      "description": "从「Cookie 保险库」选择 X（x.com）的登录凭证。运行时由管理器解密物化为临时文件并注入，任务结束自动清理。留空使用访客身份，可能受限。"
     },
     {
       "name": "proxy",
