@@ -128,3 +128,12 @@ scripts/export_*.py
 scripts/backup_*.py
 scripts/restore_*.py
 scripts/clean_*.py
+
+# ============================================
+# 用户自定义外部脚本（仅本地运行，不纳入 git）
+# 框架内置示例 demo_download 仍需纳管，故显式放行；
+# 其余 extensions/scripts/<任意id>/ 目录均忽略。
+# 新增内置脚本时，需在此追加对应的 !extensions/scripts/<id>/ 放行。
+# ============================================
+extensions/scripts/*/
+!extensions/scripts/demo_download/
