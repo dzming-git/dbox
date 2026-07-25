@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
@@ -1256,6 +1256,63 @@ const onTagInputFocusOut = (event: FocusEvent) => {
   showTagSuggestions.value = false
 }
 
+// 标签补充项（qualifiers）：每个视频标签可勾选其预设补充项
+const tagQualifiers = reactive<Record<number, string[]>>({})
+
+const initTagQualifiers = () => {
+  if (!video.value?.tags) return
+  for (const t of video.value.tags) {
+    tagQualifiers[t.id] = Array.isArray(t.selected_qualifiers) ? [...t.selected_qualifiers] : []
+  }
+}
+
+// 视频标签变化时重新初始化补充项选择
+watch(() => video.value?.tags, () => initTagQualifiers(), { immediate: true })
+
+const toggleQualifier = (tagId: number, q: string) => {
+  if (!tagQualifiers[tagId]) tagQualifiers[tagId] = []
+  const arr = tagQualifiers[tagId]
+  const i = arr.indexOf(q)
+  if (i === -1) arr.push(q)
+  else arr.splice(i, 1)
+  // 切换后立即持久化整组标签（含补充项）
+  saveTagQualifiers()
+}
+
+// 仅保存补充项勾选状态（不影响路径/增删）
+const saveTagQualifiers = async () => {
+  if (!video.value) return
+  try {
+    const token = localStorage.getItem('token')
+    const payload = buildTagPayload()
+    const response = await fetch(`/api/video/${video.value.hash}/tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ tags: payload })
+    })
+    if (response.ok) {
+      const data = await response.json() as { tags?: Array<{ id: number; selected_qualifiers?: string[] }> }
+      const map = new Map((data.tags || []).map(t => [t.id, t.selected_qualifiers || []]))
+      for (const t of (video.value.tags || [])) {
+        if (map.has(t.id)) t.selected_qualifiers = map.get(t.id)
+      }
+    }
+  } catch (e) {
+    console.error('保存补充项失败:', e)
+  }
+}
+
+// 构建提交负载：所有标签转为 { path, qualifiers } 对象
+const buildTagPayload = () => {
+  return (video.value?.tags || []).map(t => ({
+    path: t.path || t.name,
+    qualifiers: tagQualifiers[t.id] || []
+  }))
+}
+
 // 开始编辑标签
 const startEditTag = (tag: Tag) => {
   editingTagId.value = tag.id
@@ -1281,11 +1338,14 @@ const saveTagEdit = async () => {
 
   try {
     const token = localStorage.getItem('token')
-    // 获取当前所有标签路径，替换正在编辑的标签
-    const currentTags = video.value.tags?.map(t => t.path || t.name) || []
-    const tagIndex = currentTags.findIndex((t: string) => t === video.value!.tags?.find(vt => vt.id === editingTagId.value)?.path)
-    if (tagIndex !== -1) {
-      currentTags[tagIndex] = newPath
+    // 构建全部标签负载（含补充项），替换正在编辑的标签路径
+    const currentTags = buildTagPayload()
+    const editTag = video.value!.tags?.find(vt => vt.id === editingTagId.value)
+    if (editTag) {
+      const idx = currentTags.findIndex(c => c.path === (editTag.path || editTag.name))
+      if (idx !== -1) {
+        currentTags[idx] = { path: newPath, qualifiers: tagQualifiers[editTag.id] || [] }
+      }
     }
 
     const response = await fetch(`/api/video/${video.value.hash}/tags`, {
@@ -1356,10 +1416,10 @@ const confirmAddTag = async () => {
 
   try {
     const token = localStorage.getItem('token')
-    // 获取当前所有标签路径，添加新标签
-    const currentTags = video.value.tags?.map(t => t.path || t.name) || []
-    if (!currentTags.includes(newTag)) {
-      currentTags.push(newTag)
+    // 构建全部标签负载（含补充项），追加新标签
+    const payload = buildTagPayload()
+    if (!payload.some(p => p.path === newTag)) {
+      payload.push({ path: newTag, qualifiers: [] })
     }
 
     const response = await fetch(`/api/video/${video.value.hash}/tags`, {
@@ -1368,7 +1428,7 @@ const confirmAddTag = async () => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ tags: currentTags })
+      body: JSON.stringify({ tags: payload })
     })
 
     if (response.ok) {
@@ -1518,13 +1578,14 @@ const handleDelete = async () => {
         <!-- 标签区域 -->
         <div class="video-tags-section">
           <div class="video-tags" data-testid="video-tags" v-if="video.tags && video.tags.length > 0">
-            <span
-              v-for="tag in video.tags"
-              :key="tag.id"
-              class="tag-badge"
-            >
-              {{ tag.display_name || tag.name }}
-            </span>
+            <template v-for="tag in video.tags" :key="'t' + tag.id">
+              <span
+                v-for="q in (tag.selected_qualifiers && tag.selected_qualifiers.length ? tag.selected_qualifiers : [null])"
+                :key="tag.id + '-' + (q || 'base')"
+                class="tag-badge"
+                @click="filterByTag(tag)"
+              >{{ q ? tag.name + '/' + q : tag.name }}</span>
+            </template>
           </div>
           <!-- 管理员：添加标签（打开标签树对话框） -->
           <button v-if="canManageVideo" class="tag-add-btn" @click="openTagEditor" title="添加标签">
@@ -1874,8 +1935,9 @@ const handleDelete = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <span class="tag-name">{{ tag.display_name || tag.path || tag.name }}</span>
-                      <div class="tag-actions" v-if="canManageVideo">
+                      <div class="tag-line">
+                        <span class="tag-name">{{ tag.name }}</span>
+                        <div class="tag-actions" v-if="canManageVideo">
                         <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -1889,6 +1951,16 @@ const handleDelete = async () => {
                           </svg>
                         </button>
                       </div>
+                      <div class="tag-qualifiers-edit" v-if="tag.qualifiers && tag.qualifiers.length">
+                        <span
+                          v-for="q in tag.qualifiers"
+                          :key="q"
+                          class="qualifier-chip"
+                          :class="{ on: (tagQualifiers[tag.id] || []).includes(q) }"
+                          @click="toggleQualifier(tag.id, q)"
+                        >{{ q }}</span>
+                      </div>
+                    </div>
                     </template>
                   </div>
                 </div>
@@ -3961,5 +4033,52 @@ const handleDelete = async () => {
     flex-direction: column;
     align-items: stretch;
   }
+}
+/* 标签补充项（qualifiers） */
+.tag-qualifiers {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  flex-wrap: wrap;
+  vertical-align: middle;
+}
+.tag-qualifiers .q-chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+.tag-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tag-qualifiers-edit {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  width: 100%;
+}
+.qualifier-chip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.qualifier-chip:hover {
+  border-color: rgba(105, 219, 255, 0.6);
+}
+.qualifier-chip.on {
+  background: rgba(105, 219, 255, 0.18);
+  border-color: #69dbff;
+  color: #e7f6ff;
 }
 </style>

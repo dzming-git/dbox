@@ -44,7 +44,17 @@ export interface Tag {
   category?: string
   parent_id?: number | null
   video_count: number
+  qualifiers?: string[]   // 补充项（标签维度预设的属性池，如 ["白","长毛"]）
   children?: Tag[]
+}
+
+// 视频上某个标签的关联（含选中的补充项）
+export interface VideoTagRef {
+  id: number
+  name: string
+  path: string
+  qualifiers?: string[]          // 标签预设池
+  selected_qualifiers?: string[] // 该视频在此标签上勾选的补充项
 }
 
 // 用户类型

@@ -109,8 +109,9 @@ export const videoApi = {
   updateVideo: (hash: string, data: Record<string, unknown>) =>
     api.post(`/api/videos/${hash}/update`, data),
 
-  // 设置视频标签（整体替换，传空数组即清空；接受层级路径数组如 ['/动物/狗']）
-  setVideoTags: (hash: string, tags: string[]) =>
+  // 设置视频标签（整体替换，传空数组即清空）。
+  // 兼容两种格式：字符串路径 "/猫" 或对象 {"path":"/猫","qualifiers":["白","长毛"]}
+  setVideoTags: (hash: string, tags: Array<string | { path: string; qualifiers?: string[] }>) =>
     api.post(`/api/video/${hash}/tags`, { tags }),
   
   scanVideos: () =>
@@ -147,9 +148,9 @@ export const tagApi = {
   // 获取所有标签（管理员用，不进行权限过滤）
   getAllTags: () => api.get('/api/tags/all'),
   
-  // 创建标签 - 支持parent_id创建子标签
-  createTag: (name: string, category?: string, parentId?: number, displayName?: string) =>
-    api.post('/api/tags', { name, category, parent_id: parentId, display_name: displayName }),
+  // 创建标签 - 支持parent_id创建子标签，支持 qualifiers 补充项
+  createTag: (name: string, category?: string, parentId?: number, qualifiers?: string[]) =>
+    api.post('/api/tags', { name, category, parent_id: parentId, qualifiers }),
   
   // 更新标签 - 支持修改parent_id
   updateTag: (id: number, data: Record<string, unknown>) =>

@@ -42,7 +42,7 @@ from functools import wraps
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES
-from core.models import migrate_collection_videos_schema, migrate_video_libraries_rename, migrate_trash_columns
+from core.models import migrate_collection_videos_schema, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers
 from auth_service import AuthService, init_root_user
 
 # 导入API蓝图
@@ -106,6 +106,7 @@ if __name__ == '__main__':
         migrate_trash_columns()
         db.create_all()
         migrate_collection_videos_schema()
+        migrate_tag_qualifiers()
         init_root_user()
     
     print("[DEV] DPlayer Web Service starting on http://0.0.0.0:5000")

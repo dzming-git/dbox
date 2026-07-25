@@ -620,7 +620,7 @@ def list_comic_tags():
         result = []
         for t in tags:
             result.append({
-                'id': t.id, 'name': t.name, 'display_name': t.display_name, 'path': t.path,
+                'id': t.id, 'name': t.name, 'qualifiers': t.get_qualifiers(), 'path': t.path,
                 'category': t.category, 'parent_id': t.parent_id,
                 'library_id': t.library_id, 'comic_count': count_for(t)
             })
@@ -646,7 +646,7 @@ def get_comic_tags(comic_hash):
         c = Comic.query.filter_by(hash=comic_hash).first_or_404()
         tag_ids = [r[0] for r in db.session.query(ComicTag.tag_id).filter_by(comic_id=c.id).all()]
         tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
-        return jsonify({'success': True, 'tags': [{'id': t.id, 'name': t.name, 'display_name': t.display_name, 'path': t.path, 'library_id': t.library_id} for t in tags]})
+        return jsonify({'success': True, 'tags': [{'id': t.id, 'name': t.name, 'qualifiers': t.get_qualifiers(), 'path': t.path, 'library_id': t.library_id} for t in tags]})
     except HTTPException:
         raise
     except Exception as e:

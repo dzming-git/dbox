@@ -235,7 +235,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -315,6 +315,7 @@ with app.app_context():
     db.create_all()
     migrate_collection_videos_schema()
     migrate_owner_columns()
+    migrate_tag_qualifiers()
     init_root_user()
     print("[DEBUG] Database initialized")
 
@@ -1789,7 +1790,7 @@ def create_tag():
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
-        display_name = (data.get('display_name') or '').strip() or None
+        qualifiers_raw = data.get('qualifiers')
         if not name:
             return jsonify({'success': False, 'message': '标签名不能为空'}), 400
         
@@ -1821,12 +1822,12 @@ def create_tag():
         
         tag = Tag(
             name=name,
-            display_name=display_name,
             path=tag_path,
             category=data.get('category', '类型'),
             parent_id=parent_id,
             library_id=library_id
         )
+        tag.set_qualifiers(qualifiers_raw)
         db.session.add(tag)
         db.session.commit()
         log.maintenance('INFO', f"创建标签: {name} (路径: {tag_path})")
@@ -1848,7 +1849,10 @@ def add_tag():
 def set_video_tags(video_hash):
     """
     为视频设置标签（自动创建不存在的标签）
-    请求体: { "tags": ["/动物/狗", "/动物/猫", "/可爱"] }
+    请求体（兼容两种格式）:
+      旧: { "tags": ["/动物/狗", "/动物/猫"] }
+      新: { "tags": [{"path":"/动物/猫","qualifiers":["白","长毛"]}] }
+    qualifiers 为该视频在此标签上勾选的补充项（须为标签预设集合的子集）；
     用 "/" 分隔层级，如 "/动物/狗/哈士奇"
     """
     try:
@@ -1857,7 +1861,7 @@ def set_video_tags(video_hash):
             return jsonify({'success': False, 'message': '视频不存在'}), 404
         
         data = request.get_json()
-        tag_paths = data.get('tags', []) or []
+        tags_input = data.get('tags', []) or []
         
         # 获取资源库ID（用于标签隔离）
         library_id = video.library_id
@@ -1865,18 +1869,28 @@ def set_video_tags(video_hash):
         # 先移除所有现有标签关联
         VideoTag.query.filter_by(video_id=video.id).delete()
         
-        # 添加新标签
+        # 添加新标签（兼容字符串路径与对象格式）
         created_tags = []
-        for tag_path in tag_paths:
+        for item in tags_input:
+            if isinstance(item, dict):
+                tag_path = item.get('path')
+                quals = item.get('qualifiers') or []
+            elif isinstance(item, str):
+                tag_path = item
+                quals = []
+            else:
+                return jsonify({'success': False, 'message': '标签格式错误（需为字符串或对象）'}), 400
             if not tag_path:
                 continue
             # 自动创建标签（如果不存在）
             tag = get_or_create_tag_by_path(tag_path, library_id)
             if tag:
-                # 创建关联
                 vt = VideoTag(video_id=video.id, tag_id=tag.id)
+                vt.set_selected_qualifiers(quals)
                 db.session.add(vt)
-                created_tags.append(tag.to_dict())
+                tag_dict = tag.to_dict()
+                tag_dict['selected_qualifiers'] = vt.get_selected_qualifiers()
+                created_tags.append(tag_dict)
         
         db.session.commit()
         
@@ -2072,8 +2086,8 @@ def _do_update_tag(tag_id):
         if 'category' in data:
             tag.category = data['category'].strip() or '类型'
         
-        if 'display_name' in data:
-            tag.display_name = (data['display_name'] or '').strip() or None
+        if 'qualifiers' in data:
+            tag.set_qualifiers(data['qualifiers'])
         
         # 支持修改父标签
         if 'parent_id' in data:

@@ -1,4 +1,5 @@
 import json
+import re
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import hashlib
@@ -223,7 +224,10 @@ class Video(db.Model):
             'local_path': self.local_path,
             'file_name': self.file_name,
             'owner_id': self.owner_id,
-            'tags': [vt.tag.to_dict() for vt in self.tags if vt.tag is not None],
+            'tags': [
+                {**vt.tag.to_dict(), 'selected_qualifiers': vt.get_selected_qualifiers()}
+                for vt in self.tags if vt.tag is not None
+            ],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -235,7 +239,7 @@ class Tag(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False, index=True)  # 标签名称（同一路径下唯一）
-    display_name = db.Column(db.String(80))  # 友好展示名（可选），如层级标签对外显示“纯白色猫”
+    qualifiers = db.Column(db.Text)  # 补充项（可选）：JSON 数组字符串，如 ["白","长毛"]，标签维度预设的属性池（非层级）
     path = db.Column(db.String(200), nullable=False, index=True)  # 完整路径，如 /动物/狗/哈士奇
     category = db.Column(db.String(50))  # 标签分类：如 "类型", "作者", "地区" 等
     parent_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=True)  # 父标签ID，支持多级
@@ -283,11 +287,60 @@ class Tag(db.Model):
             ids.extend(self.parent.get_all_parent_ids())
         return ids
 
+    def get_qualifiers(self):
+        """返回补充项列表（去重、去空白后的字符串数组）。"""
+        if not self.qualifiers:
+            return []
+        try:
+            data = json.loads(self.qualifiers)
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        seen = set()
+        result = []
+        for q in data:
+            if not isinstance(q, str):
+                continue
+            q = q.strip()
+            if not q or q in seen:
+                continue
+            seen.add(q)
+            result.append(q)
+        return result
+
+    @staticmethod
+    def normalize_qualifiers(raw):
+        """将原始输入（逗号/换行/空格分隔的字符串，或字符串数组）规范化为补充项列表。"""
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            items = re.split(r'[\n,，;；\s]+', raw)
+        elif isinstance(raw, (list, tuple)):
+            items = list(raw)
+        else:
+            return []
+        seen = set()
+        result = []
+        for q in items:
+            if not isinstance(q, str):
+                continue
+            q = q.strip()
+            if not q or q in seen:
+                continue
+            seen.add(q)
+            result.append(q[:80])
+        return result
+
+    def set_qualifiers(self, raw):
+        """设置补充项（覆盖写），存储为 JSON 字符串。"""
+        self.qualifiers = json.dumps(self.normalize_qualifiers(raw), ensure_ascii=False)
+
     def to_dict(self, include_children=False):
         result = {
             'id': self.id,
             'name': self.name,
-            'display_name': self.display_name,
+            'qualifiers': self.get_qualifiers(),
             'path': self.path,
             'category': self.category,
             'parent_id': self.parent_id,
@@ -306,6 +359,7 @@ class VideoTag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=False)
     tag_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=False)
+    selected_qualifiers = db.Column(db.Text)  # 该视频在此标签上勾选的补充项（JSON 数组，标签 qualifiers 的子集）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # 关系
@@ -314,6 +368,38 @@ class VideoTag(db.Model):
 
     # 唯一约束，防止重复关联
     __table_args__ = (db.UniqueConstraint('video_id', 'tag_id', name='_video_tag_uc'),)
+
+    def get_selected_qualifiers(self):
+        """返回该视频在标签上选中的补充项列表。"""
+        if not self.selected_qualifiers:
+            return []
+        try:
+            data = json.loads(self.selected_qualifiers)
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        return [str(q).strip() for q in data if str(q).strip()]
+
+    def set_selected_qualifiers(self, raw):
+        """设置选中的补充项（覆盖写），并过滤为标签预设集合的子集。"""
+        allowed = set(self.tag.get_qualifiers()) if self.tag else set()
+        items = []
+        if isinstance(raw, (list, tuple)):
+            items = [str(q).strip() for q in raw if str(q).strip()]
+        elif isinstance(raw, str):
+            items = [q.strip() for q in re.split(r'[\n,，;；\s]+', raw) if q.strip()]
+        # 只保留标签预设池内的补充项；若标签未预设，则允许自由值
+        if allowed:
+            items = [q for q in items if q in allowed]
+        # 去重保序
+        seen = set()
+        result = []
+        for q in items:
+            if q not in seen:
+                seen.add(q)
+                result.append(q)
+        self.selected_qualifiers = json.dumps(result, ensure_ascii=False) if result else None
 
 
 class UserInteraction(db.Model):
@@ -1122,6 +1208,39 @@ def migrate_trash_columns():
             print('[MIGRATE] trash 字段已就绪')
     except Exception as e:
         print(f'[WARN] trash 字段迁移跳过: {e}')
+
+
+def migrate_tag_qualifiers():
+    """标签补充项（qualifiers）重构：用 qualifiers 替代 display_name，并为 video_tags 增加 selected_qualifiers。
+
+    - tags 表：新增 qualifiers 列；若存在旧 display_name 列则删除。
+    - video_tags 表：新增 selected_qualifiers 列。
+    仅当列不存在时执行，兼容旧库。
+    """
+    try:
+        with db.engine.connect() as conn:
+            # tags 表
+            tag_cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(tags)")).fetchall()]
+            if 'qualifiers' not in tag_cols:
+                conn.execute(db.text("ALTER TABLE tags ADD COLUMN qualifiers TEXT"))
+                print('[MIGRATE] tags.qualifiers 已新增')
+            if 'display_name' in tag_cols:
+                try:
+                    conn.execute(db.text("ALTER TABLE tags DROP COLUMN display_name"))
+                    print('[MIGRATE] tags.display_name 已移除')
+                except Exception as e:
+                    # 旧版 SQLite 不支持 DROP COLUMN，保留空列即可（模型已不再引用）
+                    print(f'[INFO] tags.display_name 保留（SQLite 不支持删除列）: {e}')
+            # video_tags 表
+            vt_cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(video_tags)")).fetchall()]
+            if 'selected_qualifiers' not in vt_cols:
+                conn.execute(db.text("ALTER TABLE video_tags ADD COLUMN selected_qualifiers TEXT"))
+                print('[MIGRATE] video_tags.selected_qualifiers 已新增')
+            conn.commit()
+    except Exception as e:
+        print(f'[WARN] tag qualifiers 迁移跳过: {e}')
 
 
 
