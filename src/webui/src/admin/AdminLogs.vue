@@ -266,8 +266,8 @@ onMounted(loadLogs)
   gap: 12px;
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: #fafafa;
-  border: 1px solid #eee;
+  background: #1a1a24;
+  border: 1px solid #2d2d3f;
   border-radius: 8px;
 }
 
@@ -279,19 +279,19 @@ onMounted(loadLogs)
 
 .filter-label {
   font-size: 12px;
-  color: #666;
+  color: #8b949e;
   font-weight: 500;
 }
 
 .filter-input,
 .filter-select {
   padding: 6px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #fff;
+  background: #16161d;
   font-size: 13px;
   min-width: 160px;
-  color: #333;
+  color: #e1e1e1;
 }
 
 .filter-keyword .filter-input {
@@ -306,18 +306,18 @@ onMounted(loadLogs)
 
 .filter-reset-btn {
   padding: 6px 16px;
-  border: 1px solid #ddd;
+  border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #fff;
+  background: #23232f;
   cursor: pointer;
   font-size: 13px;
-  color: #555;
+  color: #c9d1d9;
   height: 34px;
   margin-left: auto;
 }
 
 .filter-reset-btn:hover {
-  background: #f0f0f0;
+  background: #2a2a38;
 }
 
 /* 移动端适配 */

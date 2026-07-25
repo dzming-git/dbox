@@ -61,45 +61,45 @@ const formatCount = (count: number): string => {
   padding: 8px 12px;
   font-size: 16px;
   font-weight: 600;
-  background: #E3F2FD;
-  color: #1976D2;
+  background: #12243a;
+  color: #69c0ff;
   border-radius: 8px;
   margin-right: 8px;
   margin-bottom: 8px;
 }
 
 .tag-level-1:hover {
-  background: #BBDEFB;
+  background: #1a3a5a;
 }
 
 /* 二级标签 */
 .tag-level-2 {
   padding: 6px 10px;
   font-size: 14px;
-  background: #F5F5F5;
-  color: #424242;
+  background: #1f1f29;
+  color: #c9d1d9;
   border-radius: 6px;
   margin-right: 6px;
   margin-bottom: 6px;
 }
 
 .tag-level-2:hover {
-  background: #E0E0E0;
+  background: #2a2a38;
 }
 
 /* 三级标签 */
 .tag-level-3 {
   padding: 4px 8px;
   font-size: 12px;
-  background: #FAFAFA;
-  color: #757575;
+  background: #1a1a24;
+  color: #a0a8b4;
   border-radius: 4px;
   margin-right: 4px;
   margin-bottom: 4px;
 }
 
 .tag-level-3:hover {
-  background: #F5F5F5;
+  background: #2a2a38;
 }
 
 /* 激活状态 */
@@ -132,7 +132,7 @@ const formatCount = (count: number): string => {
   padding: 0 4px;
   font-size: 12px;
   font-weight: 500;
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 10px;
 }
 
