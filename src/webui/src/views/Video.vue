@@ -6,7 +6,7 @@ import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi, collectionSetApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
-import type { Video, Tag, VideoMarker } from '../types'
+import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -1258,6 +1258,8 @@ const onTagInputFocusOut = (event: FocusEvent) => {
 
 // 标签补充项（qualifiers）：每个视频标签可勾选其预设补充项
 const tagQualifiers = reactive<Record<number, string[]>>({})
+// 每个标签的“新建补充项”输入框内容（按 tag.id 区分）
+const newQualifierInput = reactive<Record<number, string>>({})
 
 const initTagQualifiers = () => {
   if (!video.value?.tags) return
@@ -1303,6 +1305,29 @@ const saveTagQualifiers = async () => {
   } catch (e) {
     console.error('保存补充项失败:', e)
   }
+}
+
+// 新建补充项：先写入标签的全局预设池（仅管理员可写），再勾选到当前视频并持久化
+const addQualifier = async (tag: VideoTagRef, rawQ: string) => {
+  const q = (rawQ || '').trim()
+  if (!q) return
+  newQualifierInput[tag.id] = ''
+  const pool = tag.qualifiers || []
+  // 若不在预设池中，则追加到该标签的全局补充项池
+  if (!pool.includes(q)) {
+    const nextPool = [...pool, q]
+    try {
+      const res = await tagApi.updateTag(tag.id, { qualifiers: nextPool }) as any
+      tag.qualifiers = (res?.success && res.tag?.qualifiers) ? res.tag.qualifiers : nextPool
+    } catch (e) {
+      console.error('新增补充项到标签池失败:', e)
+      tag.qualifiers = nextPool
+    }
+  }
+  // 勾选到当前视频
+  const selected = tagQualifiers[tag.id] || []
+  if (!selected.includes(q)) tagQualifiers[tag.id] = [...selected, q]
+  await saveTagQualifiers()
 }
 
 // 构建提交负载：所有标签转为 { path, qualifiers } 对象
@@ -1951,14 +1976,29 @@ const handleDelete = async () => {
                           </svg>
                         </button>
                       </div>
-                      <div class="tag-qualifiers-edit" v-if="tag.qualifiers && tag.qualifiers.length">
+                      <div class="tag-qualifiers-edit">
                         <span
-                          v-for="q in tag.qualifiers"
+                          v-for="q in (tag.qualifiers || [])"
                           :key="q"
                           class="qualifier-chip"
                           :class="{ on: (tagQualifiers[tag.id] || []).includes(q) }"
                           @click="toggleQualifier(tag.id, q)"
                         >{{ q }}</span>
+                        <span v-if="isAdmin" class="qualifier-add">
+                          <input
+                            v-model="newQualifierInput[tag.id]"
+                            class="qualifier-add-input"
+                            type="text"
+                            :placeholder="(tag.qualifiers && tag.qualifiers.length) ? '新增补充项…' : '添加补充项…'"
+                            @keyup.enter="addQualifier(tag, newQualifierInput[tag.id])"
+                          />
+                          <button
+                            class="qualifier-add-btn"
+                            type="button"
+                            title="新建补充项"
+                            @click="addQualifier(tag, newQualifierInput[tag.id])"
+                          >+</button>
+                        </span>
                       </div>
                     </div>
                     </template>
@@ -4080,5 +4120,40 @@ const handleDelete = async () => {
   background: rgba(105, 219, 255, 0.18);
   border-color: #69dbff;
   color: #e7f6ff;
+}
+.qualifier-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.qualifier-add-input {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.25);
+  color: #e2e8f0;
+  width: 110px;
+  outline: none;
+}
+.qualifier-add-input:focus {
+  border-color: #69dbff;
+  border-style: solid;
+}
+.qualifier-add-btn {
+  font-size: 14px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(105, 219, 255, 0.5);
+  background: rgba(105, 219, 255, 0.12);
+  color: #69dbff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.qualifier-add-btn:hover {
+  background: #69dbff;
+  color: #0b1220;
 }
 </style>
