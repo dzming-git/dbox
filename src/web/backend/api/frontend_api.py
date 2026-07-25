@@ -406,6 +406,7 @@ def get_tags():
             tags_list.append({
                 'id': tag.id,
                 'name': tag.name,
+                'display_name': tag.display_name,
                 'color': None,          # Tag 模型无 color 字段，前端按 category 着色
                 'category': tag.category or '',
                 'video_count': tag.video_count(),
@@ -440,6 +441,7 @@ def create_tag():
             }), 400
 
         name = data.get('name', '').strip()
+        display_name = (data.get('display_name') or '').strip() or None
         color = data.get('color', get_random_color())
         description = data.get('description', '')
 
@@ -460,6 +462,7 @@ def create_tag():
         # 创建标签
         tag = Tag(
             name=name,
+            display_name=display_name,
             color=color,
             description=description
         )
@@ -474,8 +477,9 @@ def create_tag():
             'data': {
                 'id': tag.id,
                 'name': tag.name,
-                'color': tag.color,
-                'description': tag.description,
+                'display_name': tag.display_name,
+                'color': tag.color if hasattr(tag, 'color') else None,
+                'description': tag.description if hasattr(tag, 'description') else None,
                 'count': 0
             }
         })
@@ -527,6 +531,9 @@ def update_tag(tag_id):
 
         if 'description' in data:
             tag.description = data['description']
+
+        if 'display_name' in data:
+            tag.display_name = (data['display_name'] or '').strip() or None
 
         db.session.commit()
 

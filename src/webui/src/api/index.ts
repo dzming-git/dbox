@@ -148,8 +148,8 @@ export const tagApi = {
   getAllTags: () => api.get('/api/tags/all'),
   
   // 创建标签 - 支持parent_id创建子标签
-  createTag: (name: string, category?: string, parentId?: number) =>
-    api.post('/api/tags', { name, category, parent_id: parentId }),
+  createTag: (name: string, category?: string, parentId?: number, displayName?: string) =>
+    api.post('/api/tags', { name, category, parent_id: parentId, display_name: displayName }),
   
   // 更新标签 - 支持修改parent_id
   updateTag: (id: number, data: Record<string, unknown>) =>

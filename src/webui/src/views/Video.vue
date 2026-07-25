@@ -1523,7 +1523,7 @@ const handleDelete = async () => {
               :key="tag.id"
               class="tag-badge"
             >
-              {{ tag.name }}
+              {{ tag.display_name || tag.name }}
             </span>
           </div>
           <!-- 管理员：添加标签（打开标签树对话框） -->
@@ -1874,7 +1874,7 @@ const handleDelete = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <span class="tag-name">{{ tag.path || tag.name }}</span>
+                      <span class="tag-name">{{ tag.display_name || tag.path || tag.name }}</span>
                       <div class="tag-actions" v-if="canManageVideo">
                         <button class="btn-icon" @click="startEditTag(tag)" title="编辑">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

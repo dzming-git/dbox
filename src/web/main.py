@@ -1749,6 +1749,7 @@ def create_tag():
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
+        display_name = (data.get('display_name') or '').strip() or None
         if not name:
             return jsonify({'success': False, 'message': '标签名不能为空'}), 400
         
@@ -1780,6 +1781,7 @@ def create_tag():
         
         tag = Tag(
             name=name,
+            display_name=display_name,
             path=tag_path,
             category=data.get('category', '类型'),
             parent_id=parent_id,
@@ -2029,6 +2031,9 @@ def _do_update_tag(tag_id):
         
         if 'category' in data:
             tag.category = data['category'].strip() or '类型'
+        
+        if 'display_name' in data:
+            tag.display_name = (data['display_name'] or '').strip() or None
         
         # 支持修改父标签
         if 'parent_id' in data:

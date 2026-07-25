@@ -235,6 +235,7 @@ class Tag(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False, index=True)  # 标签名称（同一路径下唯一）
+    display_name = db.Column(db.String(80))  # 友好展示名（可选），如层级标签对外显示“纯白色猫”
     path = db.Column(db.String(200), nullable=False, index=True)  # 完整路径，如 /动物/狗/哈士奇
     category = db.Column(db.String(50))  # 标签分类：如 "类型", "作者", "地区" 等
     parent_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=True)  # 父标签ID，支持多级
@@ -286,6 +287,7 @@ class Tag(db.Model):
         result = {
             'id': self.id,
             'name': self.name,
+            'display_name': self.display_name,
             'path': self.path,
             'category': self.category,
             'parent_id': self.parent_id,

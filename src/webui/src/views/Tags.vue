@@ -159,6 +159,7 @@ const showDialog = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const dialogTag = ref<Tag | null>(null)
 const dialogName = ref('')
+const dialogDisplayName = ref('')
 const dialogCategory = ref('')
 const dialogParentId = ref<number | null>(null)
 const dialogError = ref('')
@@ -176,7 +177,8 @@ const showToast = (message: string) => {
 const openCreateDialog = () => {
   dialogMode.value = 'create'
   dialogTag.value = null
-  dialogName.value = ''
+      dialogName.value = ''
+  dialogDisplayName.value = ''
   dialogCategory.value = ''
   dialogParentId.value = null
   dialogError.value = ''
@@ -187,7 +189,8 @@ const openCreateDialog = () => {
 const openEditDialog = (tag: Tag) => {
   dialogMode.value = 'edit'
   dialogTag.value = tag
-  dialogName.value = tag.name
+      dialogName.value = tag.name
+  dialogDisplayName.value = tag.display_name || ''
   dialogCategory.value = tag.category || ''
   dialogParentId.value = tag.parent_id || null
   dialogError.value = ''
@@ -203,11 +206,12 @@ const submitDialog = async () => {
   }
   try {
     if (dialogMode.value === 'create') {
-      await tagApi.createTag(name, dialogCategory.value.trim() || '类型', dialogParentId.value || undefined)
+      await tagApi.createTag(name, dialogCategory.value.trim() || '类型', dialogParentId.value || undefined, dialogDisplayName.value.trim() || undefined)
       showToast('标签已创建')
     } else if (dialogTag.value) {
       await tagApi.updateTag(dialogTag.value.id, {
         name,
+        display_name: dialogDisplayName.value.trim() || null,
         category: dialogCategory.value.trim() || '类型',
         parent_id: dialogParentId.value || null
       })
@@ -315,7 +319,7 @@ const doDeleteTag = async () => {
           <!-- 标签信息 -->
           <div class="tag-content">
             <div class="tag-header">
-              <span class="tag-name">{{ item.tag.name }}</span>
+              <span class="tag-name">{{ item.tag.display_name || item.tag.name }}</span>
               <span v-if="item.tag.category" class="tag-category">{{ item.tag.category }}</span>
               <span class="level-badge" v-if="item.level > 0">Lv.{{ item.level + 1 }}</span>
             </div>
@@ -386,6 +390,10 @@ const doDeleteTag = async () => {
       <div class="form-group">
         <label>分类（可选）</label>
         <input v-model="dialogCategory" type="text" placeholder="如：类型" maxlength="20" />
+      </div>
+      <div class="form-group">
+        <label>友好展示名（可选，如层级标签对外显示「纯白色猫」）</label>
+        <input v-model="dialogDisplayName" type="text" placeholder="留空则用标签名称" maxlength="40" />
       </div>
       <div class="form-group">
         <label>父标签（可选）</label>

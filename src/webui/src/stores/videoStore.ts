@@ -274,9 +274,9 @@ export const useVideoStore = defineStore('video', () => {
   }
   
   // 创建标签 - 支持多级标签
-  const createTag = async (name: string, category?: string, parentId?: number) => {
+  const createTag = async (name: string, category?: string, parentId?: number, displayName?: string) => {
     try {
-      const response = await tagApi.createTag(name, category, parentId) as any
+      const response = await tagApi.createTag(name, category, parentId, displayName) as any
       if (response.success) {
         await fetchTags()
       }
