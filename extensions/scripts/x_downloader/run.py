@@ -51,6 +51,15 @@ def error(message):
     emit({'type': 'error', 'message': message})
 
 
+def normalize_proxy(p):
+    p = (p or '').strip()
+    if not p:
+        return None
+    if '://' not in p:
+        p = 'http://' + p
+    return p
+
+
 def result(files):
     emit({'type': 'result', 'files': files})
 
@@ -111,11 +120,13 @@ def notify_input(input_ctx, files):
 
 
 # ---------------- 媒体解析（yt-dlp） ----------------
-def extract_media(url, cookie_header):
+def extract_media(url, cookie_header, proxy):
     """用 yt-dlp 解析推文，返回媒体列表：[{type:'image'|'video', url, label}]。"""
     cmd = ['yt-dlp', '--no-warnings', '--skip-download', '-J', url]
     if cookie_header:
         cmd += ['--add-header', f'Cookie: {cookie_header}']
+    if proxy:
+        cmd += ['--proxy', proxy]
     log('正在解析推文（yt-dlp）…')
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -150,24 +161,30 @@ def extract_media(url, cookie_header):
 
 
 # ---------------- 下载 ----------------
-def download_image(url, cookie_header, working_dir, index):
+def download_image(url, cookie_header, working_dir, index, proxy):
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or '.jpg'
     ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp') else '.jpg'
     dest = os.path.join(working_dir, f'x_media_{index}{ext}')
     headers = {'User-Agent': UA}
     if cookie_header:
         headers['Cookie'] = cookie_header
+    handlers = []
+    if proxy:
+        handlers.append(urllib.request.ProxyHandler({'http': proxy, 'https': proxy}))
+    opener = urllib.request.build_opener(*handlers) if handlers else urllib.request.build_opener()
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=60) as r, open(dest, 'wb') as f:
+    with opener.open(req, timeout=60) as r, open(dest, 'wb') as f:
         shutil.copyfileobj(r, f)
     return dest
 
 
-def download_video(tweet_url, cookie_header, working_dir, tweet_id):
+def download_video(tweet_url, cookie_header, working_dir, tweet_id, proxy):
     out_tmpl = os.path.join(working_dir, f'{tweet_id}.%(ext)s')
     cmd = ['yt-dlp', '--no-warnings', '-o', out_tmpl, tweet_url]
     if cookie_header:
         cmd += ['--add-header', f'Cookie: {cookie_header}']
+    if proxy:
+        cmd += ['--proxy', proxy]
     log('正在下载视频（yt-dlp）…')
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=540)
     if proc.returncode != 0:
@@ -212,6 +229,9 @@ def main():
     cookie_header = (params.get('cookie') or '').strip()
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
+    proxy = normalize_proxy(params.get('proxy'))
+    if proxy:
+        log(f'使用代理访问 X: {proxy}')
 
     if not url:
         error('缺少推文链接参数 url')
@@ -226,7 +246,7 @@ def main():
             log('演示模式：合成媒体列表（不联网）')
             media = simulate_media()
         else:
-            media = extract_media(url, cookie_header)
+            media = extract_media(url, cookie_header, proxy)
     except Exception as e:
         error(str(e))
         sys.exit(1)
@@ -283,14 +303,14 @@ def main():
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
-                    path = download_image(item['url'], cookie_header, working_dir, idx)
+                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy)
                 downloaded.append({'path': path, 'type': 'image'})
                 log(f'已下载图片: {os.path.basename(path)}')
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
-                    path = download_video(url, cookie_header, working_dir, tweet_id)
+                    path = download_video(url, cookie_header, working_dir, tweet_id, proxy)
                 downloaded.append({'path': path, 'type': 'video'})
                 log(f'已下载视频: {os.path.basename(path)}')
             progress(pct, f'下载进度 {idx}/{total}')

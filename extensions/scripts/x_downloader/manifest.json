@@ -24,6 +24,14 @@
       "description": "登录后的 Cookie 请求头原文（即浏览器里 Cookie 字段的值，不含 'Cookie: ' 前缀）。留空使用访客身份，可能受限。"
     },
     {
+      "name": "proxy",
+      "type": "string",
+      "label": "代理地址（可选）",
+      "required": false,
+      "default": "127.0.0.1:33210",
+      "description": "HTTP 代理，格式 host:port 或 http://host:port，用于走代理访问 X。留空则直连。"
+    },
+    {
       "name": "library_id",
       "type": "library_select",
       "label": "目标资源库",
