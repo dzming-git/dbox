@@ -30,6 +30,24 @@
       "label": "清晰度",
       "enum": ["best", "1080", "720", "480"],
       "default": "best"
+    },
+    {
+      "name": "tags",
+      "label": "标签(多选)",
+      "type": "multi_enum",
+      "enum": ["动漫", "电影", "纪录片", "MV"],
+      "default": ["动漫"],
+      "allow_custom": true,
+      "custom_hint": "输入自定义标签后回车",
+      "description": "可勾选多个预设标签，也可手填自定义标签(回车添加)"
+    },
+    {
+      "name": "mode",
+      "label": "模式(预设或自定义)",
+      "type": "enum_editable",
+      "enum": ["自动", "手动", "定时"],
+      "default": "自动",
+      "description": "可从下拉选择预设值，也可直接输入自定义值"
     }
   ]
 }

@@ -29,7 +29,11 @@ def main():
     quality = params.get('quality', 'best')
     working_dir = ctx.get('working_dir', '.')
 
+    # 演示两类自定义参数：多选(multi_enum) + 预设/自定义(enum_editable)
+    tags = params.get('tags', [])
+    mode = params.get('mode', '')
     emit({'type': 'log', 'message': f'收到任务，url={url}, quality={quality}'})
+    emit({'type': 'log', 'message': f'tags(多选)={tags}, mode(预设/自定义)={mode}'})
 
     # ---- Cookie 注入演示 ----
     cookies = ctx.get('cookies') or {}

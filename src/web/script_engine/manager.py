@@ -137,10 +137,19 @@ class ScriptJobManager:
         params = dict(params or {})
         for p in manifest.get('params', []):
             name = p.get('name')
-            if p.get('required') and (name not in params or params[name] in (None, '')):
-                return f'缺少必填参数: {p.get("label", name)}'
+            # 多选参数：先确保是列表（标量归一成单元素列表），再走默认/必填校验
+            if p.get('type') == 'multi_enum' and name in params and not isinstance(params[name], list):
+                params[name] = [params[name]] if params[name] not in (None, '') else []
             if name not in params and 'default' in p:
                 params[name] = p['default']
+            if p.get('required'):
+                val = params.get(name)
+                if p.get('type') == 'multi_enum':
+                    # 多选：要求是「非空数组」
+                    if not isinstance(val, list) or len(val) == 0:
+                        return f'缺少必填参数: {p.get("label", name)}'
+                elif val in (None, ''):
+                    return f'缺少必填参数: {p.get("label", name)}'
         return params
 
     def _resolve_library(self, manifest, params):

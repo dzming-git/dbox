@@ -61,6 +61,24 @@
                 <option v-for="opt in (p.enum || [])" :key="opt" :value="opt">{{ opt }}</option>
               </select>
 
+              <div v-else-if="p.type === 'enum_editable'" class="enum-editable">
+                <input type="text" v-model="form[p.name]"
+                  :list="'ed_' + selected.id + '_' + p.name" :placeholder="p.description || '选择或输入自定义值'" />
+                <datalist :id="'ed_' + selected.id + '_' + p.name">
+                  <option v-for="opt in (p.enum || [])" :key="opt" :value="opt"></option>
+                </datalist>
+              </div>
+
+              <div v-else-if="p.type === 'multi_enum'" class="multi-enum">
+                <label v-for="opt in (p.enum || [])" :key="opt" class="checkbox-inline">
+                  <input type="checkbox" :value="opt" v-model="form[p.name]" /> {{ opt }}
+                </label>
+                <input v-if="p.allow_custom" type="text" class="custom-input" v-model="customInput[p.name]"
+                  @keydown.enter.prevent="addCustomValue(p)"
+                  @blur="addCustomValue(p)"
+                  :placeholder="p.custom_hint || '输入自定义值后回车'" />
+              </div>
+
               <input v-else-if="p.type === 'bool'" type="checkbox" v-model="form[p.name]" />
 
               <input v-else type="text" v-model="form[p.name]" :placeholder="p.description || ''" />
@@ -166,6 +184,7 @@ const scripts = ref<ScriptInfo[]>([])
 const loadingScripts = ref(false)
 const selected = ref<ScriptInfo | null>(null)
 const form = reactive<Record<string, any>>({})
+const customInput = reactive<Record<string, string>>({})
 const libraries = ref<{ id: number; name: string }[]>([])
 
 const cookies = ref<CookieProfile[]>([])
@@ -235,19 +254,41 @@ async function reloadScripts() {
 function selectScript(sc: ScriptInfo) {
   selected.value = sc
   Object.keys(form).forEach((k) => delete form[k])
+  Object.keys(customInput).forEach((k) => delete customInput[k])
   for (const p of sc.params) {
-    form[p.name] = p.default !== undefined ? p.default : (p.type === 'bool' ? false : '')
+    if (p.type === 'multi_enum') {
+      form[p.name] = Array.isArray(p.default) ? [...p.default] : []
+    } else {
+      form[p.name] = p.default !== undefined ? p.default : (p.type === 'bool' ? false : '')
+    }
   }
   runningJob.value = null
 }
 
+// 多选参数：把用户手填的自定义值追加进数组（去重）
+function addCustomValue(p: any) {
+  const v = (customInput[p.name] || '').trim()
+  if (v && Array.isArray(form[p.name]) && !form[p.name].includes(v)) {
+    form[p.name].push(v)
+  }
+  customInput[p.name] = ''
+}
+
 async function runSelected() {
   if (!selected.value) return
-  // 简单必填校验
+  // 简单必填校验（多选要求非空数组）
   for (const p of selected.value.params) {
-    if (p.required && !form[p.name]) {
-      alert(`请填写：${p.label || p.name}`)
-      return
+    if (p.required) {
+      const v = form[p.name]
+      if (p.type === 'multi_enum') {
+        if (!Array.isArray(v) || v.length === 0) {
+          alert(`请至少选择一项：${p.label || p.name}`)
+          return
+        }
+      } else if (!v) {
+        alert(`请填写：${p.label || p.name}`)
+        return
+      }
     }
   }
   running.value = true
@@ -359,6 +400,17 @@ onUnmounted(() => {
 .form-row > label { font-size: 13px; color: #ccc; }
 .req { color: #ff8080; }
 .param-hint { color: #888; font-size: 12px; }
+.multi-enum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.checkbox-inline {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #ddd;
+  cursor: pointer;
+}
+.checkbox-inline input { width: 15px; height: 15px; accent-color: var(--accent, #4f8cff); }
+.custom-input {
+  background: var(--input-bg, #141414); color: var(--text-color, #e6e6e6);
+  border: 1px dashed var(--border-color, #333); border-radius: 8px; padding: 6px 10px;
+  font-size: 13px; min-width: 180px;
+}
 .form-row input[type="text"], .form-row select, .form-row textarea {
   background: var(--input-bg, #141414); color: var(--text-color, #e6e6e6);
   border: 1px solid var(--border-color, #333); border-radius: 8px; padding: 8px 10px; font-size: 14px;
