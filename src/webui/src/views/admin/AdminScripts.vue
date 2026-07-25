@@ -158,8 +158,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, onUnmounted, onMounted } from 'vue'
-import { scriptApi, type ScriptInfo, type CookieProfile, type ScriptJob } from '../api/script'
-import { libraryApi } from '../api'
+import { scriptApi, type ScriptInfo, type CookieProfile, type ScriptJob } from '../../api/script'
+import { libraryApi } from '../../api'
 
 const activeSub = ref<'scripts' | 'cookies'>('scripts')
 const scripts = ref<ScriptInfo[]>([])
