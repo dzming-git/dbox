@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import {
   getIssues,
@@ -14,6 +15,9 @@ import type { Issue } from '../types'
 
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin)
+
+const route = useRoute()
+const router = useRouter()
 
 type View = 'list' | 'detail' | 'new'
 
@@ -80,11 +84,11 @@ async function loadIssues(reset = true) {
   }
 }
 
-async function openDetail(issue: Issue) {
+async function loadDetail(id: string) {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res = await getIssue(issue.id)
+    const res = await getIssue(id)
     if (res.success) {
       selected.value = res.issue
       view.value = 'detail'
@@ -98,10 +102,13 @@ async function openDetail(issue: Issue) {
   }
 }
 
+function openDetail(issue: Issue) {
+  router.push({ path: `/feedback/${issue.id}` })
+}
+
 function backToList() {
-  selected.value = null
   view.value = 'list'
-  loadIssues(true)
+  router.push({ path: '/feedback' })
 }
 
 function openNew() {
@@ -187,7 +194,20 @@ async function submitComment() {
 
 watch([statusFilter, keyword], () => loadIssues(true))
 
-onMounted(() => loadIssues(true))
+// 根据路由参数驱动详情视图（支持独立 URL 与浏览器前进/后退）
+watch(
+  () => route.params.id,
+  (id) => {
+    if (id) {
+      loadDetail(String(id))
+    } else {
+      selected.value = null
+      view.value = 'list'
+      loadIssues(true)
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
