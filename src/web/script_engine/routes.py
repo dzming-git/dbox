@@ -9,10 +9,16 @@ from flask import Blueprint, request, jsonify, g
 from authlib.jose import jwt
 from core.models import UserRole
 
-from .manager import mgr, ScriptJobManager
+try:
+    from backend.utils.jwt_authlib import SECRET_KEY as _JWT_SECRET_KEY
+except Exception:
+    _JWT_SECRET_KEY = None
 
-# 必须与 main.py 中 admin_required 使用的密钥保持一致
-_JWT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
+# 与 main.py 保持一致：优先使用环境驱动的真实密钥，回退到内置默认密钥
+_JWT_FALLBACK_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
+_JWT_SECRETS = [s for s in (_JWT_SECRET_KEY, _JWT_FALLBACK_SECRET) if s]
+
+from .manager import mgr, ScriptJobManager
 
 script_bp = Blueprint('script', __name__)
 
@@ -31,7 +37,16 @@ def admin_required(f):
         if not token:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
         try:
-            payload = jwt.decode(token, _JWT_SECRET)
+            payload = None
+            last_err = None
+            for secret in _JWT_SECRETS:
+                try:
+                    payload = jwt.decode(token, secret)
+                    break
+                except Exception as e:
+                    last_err = e
+            if payload is None:
+                raise last_err or ValueError('无效的 token')
             if payload.get('type') != 'access':
                 return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
             g.user_id = payload.get('user_id')
