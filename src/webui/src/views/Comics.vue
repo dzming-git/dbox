@@ -322,6 +322,9 @@ watch(() => route.query, async (newQuery) => {
               <template v-else>
                 <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="comicStore.interact(c.hash,'like')">♥</button>
                 <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="comicStore.interact(c.hash,'favorite')">★</button>
+                <button class="list-action-btn delete" @click.stop="confirmDeleteComic(c)" title="删除（移入回收站）">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                </button>
               </template>
             </div>
           </div>
@@ -398,6 +401,8 @@ watch(() => route.query, async (newQuery) => {
 .batch-toggle-text { letter-spacing: 0.3px; }
 .list-action-btn.edit { background: #2196F3; color: #fff; }
 .list-action-btn.edit:hover { background: #1e88e5; }
+.list-action-btn.delete { background: #2a2a2a; color: #ff6b6b; }
+.list-action-btn.delete:hover { background: rgba(255,107,107,0.18); color: #ff5252; }
 .page-btn { padding: 8px 14px; background: #2a2a2a; color: #ccc; border: 1px solid #444; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .page-btn:hover:not(:disabled) { background: #3a3a3a; color: #fff; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
