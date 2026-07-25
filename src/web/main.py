@@ -44,6 +44,86 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from urllib.parse import quote, unquote
 import json
+import struct
+
+
+def extract_mp4_duration(file_path, max_probe_bytes=32 * 1024 * 1024):
+    """纯 Python 解析 MP4 容器头部提取视频时长（秒），无需 ffmpeg/cv2。
+
+    读取 moov/mvhd box 的 duration 与 timescale 计算时长。仅读取文件头/尾
+    最多 max_probe_bytes，避免读取数十 GB 的完整文件。非 MP4 或解析失败返回 None。
+    """
+    try:
+        size = os.path.getsize(file_path)
+    except OSError:
+        return None
+    if size < 8:
+        return None
+
+    def _read_at(offset, length):
+        with open(file_path, 'rb') as f:
+            f.seek(offset)
+            return f.read(length)
+
+    # 从头部读取第一个 box，确认是 ftyp/MP4
+    head = _read_at(0, 32)
+    if len(head) < 8:
+        return None
+    # 在文件头/尾范围内收集所有 'moov' 候选，逐个尝试解析
+    head = _read_at(0, min(size, max_probe_bytes))
+    tail_size = min(size, max_probe_bytes)
+    tail = _read_at(size - tail_size, tail_size) if tail_size < size else b''
+    candidates = []
+    start = 0
+    while True:
+        i = head.find(b'moov', start)
+        if i == -1:
+            break
+        candidates.append(i - 4)
+        start = i + 1
+    start = 0
+    while True:
+        i = tail.find(b'moov', start)
+        if i == -1:
+            break
+        candidates.append(size - tail_size + (i - 4))
+        start = i + 1
+
+    for moov_off in candidates:
+        if moov_off < 0 or moov_off + 8 > size:
+            continue
+        # 验证 type 字段
+        mtype = _read_at(moov_off + 4, 4)
+        if mtype != b'moov':
+            continue
+        moov_prefix = _read_at(moov_off, 8)
+        moov_size = struct.unpack('>I', moov_prefix[:4])[0]
+        if moov_size < 8 or moov_size > size:
+            moov_size = min(size - moov_off, max_probe_bytes)
+        moov = _read_at(moov_off, moov_size)
+        mvhd_off = moov.find(b'mvhd')
+        if mvhd_off == -1 or mvhd_off < 4 or len(moov) < mvhd_off + 24:
+            continue
+        mvhd = moov[mvhd_off - 4:mvhd_off - 4 + 64]
+        version = mvhd[8]
+        try:
+            if version == 0:
+                # mvhd v0: version@8, timescale@20, duration@24 (creation/mod 各占4)
+                timescale = struct.unpack('>I', mvhd[20:24])[0]
+                duration = struct.unpack('>I', mvhd[24:28])[0]
+            elif version == 1:
+                # mvhd v1: timescale@28, duration@32
+                timescale = struct.unpack('>I', mvhd[28:32])[0]
+                duration = struct.unpack('>Q', mvhd[32:40])[0]
+            else:
+                continue
+        except Exception:
+            continue
+        if not timescale:
+            continue
+        return int(round(duration / timescale))
+    return None
+
 import threading
 from liblog import get_service_logger
 log = get_service_logger('dplayer-web')
@@ -2686,7 +2766,7 @@ def upload_video():
             url=f'/local_video/{quote(file_path.replace(chr(92), "/"), safe=":/")}',
             local_path=file_path,
             file_size=file_size,
-            duration='00:00',  # 后续可以提取真实时长
+            duration=extract_mp4_duration(file_path),
             thumbnail=f'/thumbnail/{video_hash}',
             library_id=library_id,
             owner_id=user_id  # 归属上传者
