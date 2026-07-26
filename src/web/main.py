@@ -5689,6 +5689,39 @@ def _build_post_refs(content, refs_param):
     return built
 
 
+def _post_library_ids(post):
+    """收集帖子涉及的所有资源库 ID（含帖子自身、引用资源、正文内联资源）。
+
+    返回 set；元素为 int 库 ID 或 None（主库/公共可见）。
+    """
+    libs = set()
+    if post.library_id is not None:
+        libs.add(post.library_id)
+    # 引用资源
+    for r in post.refs:
+        ri = r.resource_index
+        if ri and ri.library_id is not None:
+            libs.add(ri.library_id)
+    # 正文内联资源标记 [文字](res:ID:mode)
+    for tok in parse_post_content_tokens(post.content):
+        ri = ResourceIndex.query.get(tok['resource_index_id'])
+        if ri and ri.library_id is not None:
+            libs.add(ri.library_id)
+    return libs
+
+
+def _user_can_read_post(post, allowed_libs):
+    """帖子 read 权限 = 其引用的全部资源的权限取交集。
+
+    用户必须对帖子的每一个资源库都有访问权限（库 ID ∈ allowed_libs），
+    主库（library_id=None）视为所有人可访问。任一受限库无权限则不可读。
+    """
+    for lib in _post_library_ids(post):
+        if lib is not None and lib not in allowed_libs:
+            return False
+    return True
+
+
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
     library_id = request.args.get('library_id', type=int)
@@ -5699,7 +5732,10 @@ def get_posts():
     if library_id is not None:
         q = q.filter_by(library_id=library_id)
     posts = q.order_by(Post.created_at.desc()).all()
-    return jsonify({'posts': [d.to_dict(resolve=True) for d in posts], 'total': len(posts)})
+    # 帖子 read 权限：其引用资源的全部权限取交集
+    allowed_libs = get_allowed_library_ids()
+    visible = [p for p in posts if _user_can_read_post(p, allowed_libs)]
+    return jsonify({'posts': [d.to_dict(resolve=True) for d in visible], 'total': len(visible)})
 
 
 @app.route('/api/posts', methods=['POST'])
@@ -5721,6 +5757,8 @@ def create_post():
 @app.route('/api/posts/<int:did>', methods=['GET'])
 def get_post(did):
     d = Post.query.get_or_404(did)
+    if not _user_can_read_post(d, get_allowed_library_ids()):
+        return jsonify({'success': False, 'message': '无权访问该帖子（引用了您无权限的资源）'}), 403
     return jsonify(d.to_dict(resolve=True))
 
 
