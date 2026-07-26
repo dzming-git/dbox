@@ -741,6 +741,17 @@ def main():
 
 
 if __name__ == '__main__':
+    # 子进程 stdout 被父进程（manager.py）以 encoding='utf-8' 读取，
+    # 但 Windows 下 stdout 为管道时 Python 会按 locale（GBK）编码，
+    # 导致中文日志在父进程被误判为 UTF-8 而乱码。强制 UTF-8 输出。
     if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(line_buffering=True)
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+        except Exception:
+            pass
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
+        except Exception:
+            pass
     main()
