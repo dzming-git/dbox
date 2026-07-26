@@ -5681,8 +5681,9 @@ def get_dynamics():
 
 
 @app.route('/api/dynamics', methods=['POST'])
+@auth_required
 def create_dynamic():
-    user = AuthService.get_current_user()
+    user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
@@ -5702,8 +5703,9 @@ def get_dynamic(did):
 
 
 @app.route('/api/dynamics/<int:did>', methods=['PUT'])
+@auth_required
 def update_dynamic(did):
-    user = AuthService.get_current_user()
+    user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Dynamic.query.get_or_404(did)
@@ -5726,8 +5728,9 @@ def update_dynamic(did):
 
 
 @app.route('/api/dynamics/<int:did>', methods=['DELETE'])
+@auth_required
 def delete_dynamic(did):
-    user = AuthService.get_current_user()
+    user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Dynamic.query.get_or_404(did)
@@ -5740,8 +5743,9 @@ def delete_dynamic(did):
 
 
 @app.route('/api/dynamics/<int:did>/refs', methods=['POST'])
+@auth_required
 def add_dynamic_ref(did):
-    user = AuthService.get_current_user()
+    user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Dynamic.query.get_or_404(did)
@@ -5760,8 +5764,9 @@ def add_dynamic_ref(did):
 
 
 @app.route('/api/dynamics/<int:did>/refs/<int:rid>', methods=['DELETE'])
+@auth_required
 def remove_dynamic_ref(did, rid):
-    user = AuthService.get_current_user()
+    user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Dynamic.query.get_or_404(did)
