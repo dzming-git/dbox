@@ -465,6 +465,102 @@ def admin_required(f):
     return decorated
 
 
+# ============ 电脑关机控制（系统级，仅管理员） ============
+import threading as _shutdown_threading
+
+_SHUTDOWN_CANCEL = {'after_tasks': False}
+_SHUTDOWN_LOCK = _shutdown_threading.Lock()
+
+
+def _count_active_tasks():
+    """统计当前活跃任务数：转码/缩略图(ffmpeg) 进程 + 下载器活跃任务(best-effort)。"""
+    count = 0
+    try:
+        import psutil
+        for p in psutil.process_iter(['name', 'cmdline']):
+            try:
+                info = p.info
+                name = (info.get('name') or '').lower()
+                cmd = ' '.join(info.get('cmdline') or []).lower()
+                if 'ffmpeg' in name or 'ffmpeg' in cmd:
+                    if any(k in cmd for k in ('thumb', 'transcode', 'encode', 'scale', 'thumbnail')):
+                        count += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # 下载器活跃任务（best-effort，不可达则忽略）
+    try:
+        import urllib.request
+        import json as _json
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8092/api/tasks/active', timeout=1.5) as resp:
+                if resp.status == 200:
+                    data = _json.loads(resp.read().decode('utf-8'))
+                    count += int(data.get('count', 0) or 0)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return count
+
+
+def _do_windows_shutdown(seconds=0):
+    import subprocess
+    # /f 强制关闭应用程序，/t 设置超时秒数
+    subprocess.run(f'shutdown /s /t {max(0, int(seconds))} /f', shell=True)
+
+
+@app.route('/api/system/shutdown', methods=['POST'])
+@admin_required
+def system_shutdown():
+    data = request.get_json(silent=True) or {}
+    action = data.get('action', 'immediate')
+    try:
+        if action == 'scheduled':
+            minutes = int(data.get('minutes', 0))
+            if minutes <= 0:
+                return jsonify({'success': False, 'message': '定时关机分钟数必须大于 0'}), 400
+            _do_windows_shutdown(seconds=minutes * 60)
+            return jsonify({'success': True, 'message': f'已安排 {minutes} 分钟后关机'})
+        elif action == 'after_tasks':
+            with _SHUTDOWN_LOCK:
+                _SHUTDOWN_CANCEL['after_tasks'] = False
+
+            def _wait():
+                import time
+                while True:
+                    with _SHUTDOWN_LOCK:
+                        if _SHUTDOWN_CANCEL['after_tasks']:
+                            return
+                    if _count_active_tasks() == 0:
+                        _do_windows_shutdown(seconds=30)
+                        return
+                    time.sleep(15)
+
+            _t = _shutdown_threading.Thread(target=_wait, daemon=True)
+            _t.start()
+            return jsonify({'success': True, 'message': '将在所有任务结束后关机（空闲后约 30 秒执行）'})
+        else:  # immediate
+            _do_windows_shutdown(seconds=0)
+            return jsonify({'success': True, 'message': '正在关机…'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'关机指令执行失败: {e}'}), 500
+
+
+@app.route('/api/system/shutdown/cancel', methods=['POST'])
+@admin_required
+def system_shutdown_cancel():
+    try:
+        import subprocess
+        subprocess.run('shutdown /a /f', shell=True, capture_output=True)
+        with _SHUTDOWN_LOCK:
+            _SHUTDOWN_CANCEL['after_tasks'] = True
+        return jsonify({'success': True, 'message': '已取消关机计划'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'取消失败: {e}'}), 500
+
+
 # ============ 资源库管理员权限（按库授权，区别于全局管理员） ============
 def _resolve_dplayer_library_id_by_folder(folder_id):
     """folder_id 为 resourced 的文件夹 id，反查对应的 dplayer 资源库 id。"""

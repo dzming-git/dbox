@@ -382,4 +382,13 @@ export const comicApi = {
   reorderPlaylist: (id: number, order: string[]) => api.put(`/api/comic-playlists/${id}/comics/reorder`, { order }),
 }
 
+// 系统控制 API（电脑关机）
+export const systemApi = {
+  // action: immediate(立即) / scheduled(定时，需 minutes) / after_tasks(任务全部结束后)
+  shutdown: (action: 'immediate' | 'scheduled' | 'after_tasks', minutes?: number) =>
+    api.post('/api/system/shutdown', { action, minutes }),
+  cancelShutdown: () =>
+    api.post('/api/system/shutdown/cancel')
+}
+
 export default api
