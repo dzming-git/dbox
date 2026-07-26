@@ -53,9 +53,10 @@ UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
 _PROXY_CFG = None
 _ORIG_SOCKET = socket.socket
 
-# X 网页端公开的 Bearer Token（长期不变，用于访客/接口鉴权）
-WEB_BEARER = ('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAt4gJZwTZw9F9IgoIMvdI4kZ1Ric'
-              'X0H6k8H1Z4Z8e7f3Y')
+# X 网页端公开的 Bearer Token（长期不变，用于访客/接口鉴权）。
+# 必须是真实的网页端常量，否则 guest/activate 与 statuses/show 都会 401。
+WEB_BEARER = ('AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs'
+              '%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA')
 
 IMG_RE = re.compile(
     r'https://pbs\.twimg\.com/media/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp)',
@@ -388,10 +389,46 @@ def fetch_bytes(url, opener, headers, timeout=60):
 
 
 # ---------------- 媒体解析 ----------------
-def build_headers(cookie_header):
+def _extract_ct0(cookie_header):
+    """从 Cookie 头（header 格式或 Netscape 格式）中取出 ct0 值。"""
+    if not cookie_header:
+        return None
+    # Netscape 格式：每行 domain\tflag\tpath\tsecure\texpiry\tname\tvalue
+    if '\t' in cookie_header:
+        for line in cookie_header.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 7 and parts[5].strip() == 'ct0':
+                return parts[6].strip()
+        return None
+    # header 格式：name=value; name2=value2
+    for part in cookie_header.split(';'):
+        part = part.strip()
+        if part.startswith('ct0='):
+            return part[len('ct0='):].strip()
+    return None
+
+
+def build_headers(cookie_header, with_bearer=True, guest_token=None):
+    """构造请求头。
+
+    - 始终带网页端 Bearer（X 接口/媒体请求需要）。
+    - 带 Cookie 时：额外发 ct0 -> x-csrf-token 与 OAuth2Session 登录态头，
+      否则 X 会当成“半个登录会话”返回登录墙（这正是之前带 Cookie 解析失败的根因）。
+    - guest_token 用于游客接口/媒体请求鉴权降级。
+    """
     h = {'User-Agent': UA, 'Accept': '*/*'}
+    if with_bearer:
+        h['Authorization'] = f'Bearer {WEB_BEARER}'
+    if guest_token:
+        h['x-guest-token'] = guest_token
     if cookie_header:
         h['Cookie'] = cookie_header
+        ct0 = _extract_ct0(cookie_header)
+        if ct0:
+            h['x-csrf-token'] = ct0
+            h['x-twitter-auth-type'] = 'OAuth2Session'
+            h['x-twitter-active-user'] = 'yes'
+            h['x-twitter-client-language'] = 'en'
     return h
 
 
@@ -446,7 +483,7 @@ def extract_from_api(tweet_id, cookie_header, opener):
 
     返回 (media_list, full_text)。
     """
-    gt = get_guest_token(opener, cookie_header)
+    gt = get_guest_token(opener, '')
     if not gt:
         return [], ''
     url = (f'https://api.x.com/1.1/statuses/show.json'
@@ -505,28 +542,32 @@ def extract_tweet_text_from_html(html):
 def extract_media(url, cookie_header, proxy_cfg):
     """解析推文，返回 (媒体列表, 推文文字)。
 
-    策略：优先页面 HTML 解析（无需 Bearer，直接用用户 Cookie）；
-          若页面未解析到，则用 statuses/show.json 接口降级补全（接口同时带回正文）。
+    策略（公开推文最稳路径优先）：
+      1) 无 Cookie 游客页（带 Bearer + guest_token）——公开内容无需登录即可解析；
+      2) 若游客态解析不到（NSFW/关注限定/年龄限制），回退带 Cookie 登录态；
+      3) 仍解析不到，用 statuses/show.json 接口（Bearer + guest_token）降级补全。
+    说明：视频清晰度与是否登录无关——m3u8 主列表含全部分辨率，下载时取最高。
     """
     opener = make_opener(proxy_cfg)
-    headers = build_headers(cookie_header)
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
+
+    guest_token = get_guest_token(opener, '') if tweet_id != 'x' else None
 
     log('正在抓取推文页面…')
     html = None
     try:
-        html = fetch_text(url, opener, headers, timeout=45)
+        html = fetch_text(url, opener, build_headers('', with_bearer=False), timeout=45)
     except Exception as e:
         log(f'页面抓取失败: {e}', level='warn')
 
-    media = extract_from_html(html, cookie_header) if html else []
+    media = extract_from_html(html, '') if html else []
     text = extract_tweet_text_from_html(html)
     # 带 Cookie 却解析不到（很可能是 Cookie 过期，X 返回登录页），回退无 Cookie 访客页
     if not media and cookie_header:
         log('带 Cookie 未解析到媒体，尝试无 Cookie 重新抓取…')
         try:
-            html2 = fetch_text(url, opener, build_headers(''), timeout=45)
-            media = extract_from_html(html2, '') if html2 else []
+            html2 = fetch_text(url, opener, build_headers(cookie_header, with_bearer=False), timeout=45)
+            media = extract_from_html(html2, cookie_header) if html2 else []
             text = text or extract_tweet_text_from_html(html2)
         except Exception as e:
             log(f'无 Cookie 抓取失败: {e}', level='warn')
@@ -539,13 +580,11 @@ def extract_media(url, cookie_header, proxy_cfg):
 
 
 # ---------------- 下载 ----------------
-def download_image(url, cookie_header, working_dir, index, proxy_cfg):
+def download_image(url, cookie_header, working_dir, index, proxy_cfg, guest_token=None):
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or '.jpg'
     ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp') else '.jpg'
     dest = os.path.join(working_dir, f'x_media_{index}{ext}')
-    headers = {'User-Agent': UA}
-    if cookie_header:
-        headers['Cookie'] = cookie_header
+    headers = build_headers(cookie_header, guest_token=guest_token)
     opener = make_opener(proxy_cfg)
     data = fetch_bytes(url, opener, headers, timeout=90)
     with open(dest, 'wb') as f:
@@ -659,7 +698,7 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
     return out_path
 
 
-def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg):
+def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, guest_token=None):
     """下载 X 视频。X 视频为 fMP4，且音视频分离：
        1) 解析 master -> 选最高分辨率视频流 + 对应音频流；
        2) 各自下载 init+分片，ffmpeg concat 协议拼为 mp4；
@@ -667,7 +706,7 @@ def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg):
        若 m3u8 直接是单个 rendition 或只有视频，则仅拼视频流。
     """
     opener = make_opener(proxy_cfg)
-    headers = build_headers(cookie_header)
+    headers = build_headers(cookie_header, guest_token=guest_token)
     log('解析视频播放列表（m3u8）…')
 
     # 直链 mp4（如某些 GIF）直接下载，无需 ffmpeg
@@ -816,6 +855,9 @@ def main():
 
     progress(40, f'开始下载 {len(selected)} 个媒体')
 
+    # 下载阶段同样需要 guest_token（m3u8 媒体请求鉴权降级用）
+    guest_token = get_guest_token(make_opener(proxy_cfg), '') if tweet_id != 'x' else None
+
     downloaded = []
     total = len(selected)
     for idx, item in enumerate(selected, start=1):
@@ -825,7 +867,7 @@ def main():
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
-                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg)
+                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg, guest_token)
                 # 图片：是否进图集(gallery) + 始终进帖子(post)
                 modes = ['gallery', 'post'] if add_gallery else ['post']
                 downloaded.append({'path': path, 'type': 'image',
@@ -838,7 +880,7 @@ def main():
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
-                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg)
+                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg, guest_token)
                 # 视频：是否进视频列表(video) + 始终进帖子(post)
                 modes = ['video', 'post'] if add_video else ['post']
                 downloaded.append({'path': path, 'type': 'video',
