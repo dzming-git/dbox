@@ -6,10 +6,11 @@
 """
 
 from flask import Blueprint, jsonify, request, abort
-from core.models import db, Video
+from core.models import db, Video, ResourceIndex
 from config.tasks import generate_thumbnail, batch_generate_thumbnails, regenerate_thumbnail, check_thumbnail_status
 from celery.result import AsyncResult
 from datetime import datetime
+from sqlalchemy.orm import joinedload
 from liblog import get_service_logger
 log = get_service_logger('dplayer-web')
 
@@ -257,7 +258,8 @@ def batch_generate_video_thumbnails():
             return jsonify({'success': False, 'error': '视频ID列表不能为空'}), 400
 
         # 查询视频
-        videos = Video.query.filter(Video.id.in_(video_ids)).all()
+        videos = Video.query.filter(Video.id.in_(video_ids)).options(
+            joinedload(Video.resource_index)).all()
 
         if not videos:
             return jsonify({'success': False, 'error': '没有找到有效的视频'}), 400

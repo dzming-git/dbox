@@ -194,7 +194,6 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                         changed = False
                         if existing.folder_path != dirpath:
                             existing.folder_path = dirpath
-                            existing.cover_path = pages[0]
                             changed = True
                         # 图片集合变化则重建页面
                         if existing.page_count != len(pages):
@@ -210,7 +209,6 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                             changed = True
                         if changed:
                             existing.page_count = len(pages)
-                            existing.cover_path = pages[0]
                             existing.updated_at = datetime.utcnow()
                             _sync_pages(existing, pages)
                             db.session.commit()
@@ -220,7 +218,6 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                             hash=chash,
                             title=os.path.basename(dirpath.rstrip(os.sep)),
                             folder_path=dirpath,
-                            cover_path=pages[0],
                             page_count=len(pages),
                             library_id=library_id,
                             owner_id=root_id,  # 扫描发现的资源归属 root

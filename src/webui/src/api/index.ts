@@ -391,4 +391,20 @@ export const systemApi = {
     api.post('/api/system/shutdown/cancel')
 }
 
+// 动态（Dynamic）API：帖子通过资源索引表自由引用视频/图片集（漫画）/未来文本
+export const dynamicApi = {
+  // 列表（仅未删除）
+  list: (params?: { library_id?: number }) =>
+    api.get('/api/dynamics', { params }),
+  get: (id: number) =>
+    api.get(`/api/dynamics/${id}`),
+  // 创建：refs 为 [{ type: 'video'|'comic', id: <实体 id>, note?: string }]
+  create: (data: { title: string; content: string; library_id?: number; refs: Array<{ type: 'video' | 'comic'; id: number; note?: string }> }) =>
+    api.post('/api/dynamics', data),
+  update: (id: number, data: any) =>
+    api.put(`/api/dynamics/${id}`, data),
+  remove: (id: number) =>
+    api.delete(`/api/dynamics/${id}`),
+}
+
 export default api

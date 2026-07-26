@@ -252,3 +252,28 @@ export interface IssueListResponse {
   page: number
   page_size: number
 }
+
+// ============ 动态（Dynamic）：通过资源索引表自由引用视频 / 图片集（漫画）/ 未来文本 ============
+export interface DynamicRef {
+  ref_id: number
+  position: number
+  note: string
+  resource_index_id: number
+  kind?: string          // 'video_file' | 'comic_folder' | ...
+  location?: string
+  video?: Video
+  comic?: Comic
+}
+
+export interface Dynamic {
+  id: number
+  title: string
+  content: string
+  owner_id?: number | null
+  library_id?: number | null
+  in_trash: boolean
+  created_at?: string
+  updated_at?: string
+  refs: DynamicRef[]
+}
+

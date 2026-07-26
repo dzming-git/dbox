@@ -42,6 +42,7 @@ from flask import Flask, jsonify, request, send_file, abort, Response, g, sessio
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
+from sqlalchemy.orm import joinedload
 from urllib.parse import quote, unquote
 import json
 import struct
@@ -235,7 +236,8 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers
+from core.models import ResourceIndex, Dynamic, DynamicRef
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -313,6 +315,7 @@ with app.app_context():
     migrate_video_libraries_rename()
     migrate_trash_columns()
     db.create_all()
+    migrate_resource_index()
     migrate_collection_videos_schema()
     migrate_owner_columns()
     migrate_tag_qualifiers()
@@ -988,7 +991,7 @@ def get_videos():
         only_liked = request.args.get('only_liked', '').lower() == 'true'
         only_favorited = request.args.get('only_favorited', '').lower() == 'true'
 
-        query = Video.query.filter(Video.in_trash == False)
+        query = Video.query.filter(Video.in_trash == False).options(joinedload(Video.resource_index))
 
         # ============ 过滤被禁用的资源库 ============
         # 获取当前用户可访问的激活资源库ID列表
@@ -1431,8 +1434,8 @@ def stats_overview():
         top_tags = [{'name': t[0], 'count': t[1]} for t in tag_counts]
 
         # 最热视频（点赞最多 / 收藏最多）
-        top_liked = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.like_count.desc()).limit(10).all()]
-        top_favorited = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.favorite_count.desc()).limit(10).all()]
+        top_liked = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.like_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
+        top_favorited = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.favorite_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
 
         return jsonify({
             'success': True,
@@ -3193,11 +3196,13 @@ def serve_local_video(video_path):
 
         # 如果不在扫描目录，检查是否在数据库中（基于完整 local_path 精确匹配，文件名不作为身份）
         if not allowed:
-            existing_video = Video.query.filter_by(local_path=video_path).first()
+            existing_video = Video.query.join(ResourceIndex).filter(
+                ResourceIndex.location == video_path).first()
             if not existing_video:
                 # 兜底：统一分隔符与大小写后比较，仍基于完整路径而非文件名
                 norm_req = os.path.normcase(os.path.abspath(video_path))
-                for ev in Video.query.filter(Video.local_path.isnot(None)).all():
+                for ev in Video.query.join(ResourceIndex).filter(
+                        ResourceIndex.location.isnot(None)).all():
                     if os.path.normcase(os.path.abspath(ev.local_path)) == norm_req:
                         existing_video = ev
                         break
@@ -5624,6 +5629,165 @@ try:
                name='library-watcher-boot').start()
 except Exception as e:
     print(f'[WARNING] 资源库文件夹监控模块不可用: {e}')
+
+
+# ============ 动态（Dynamic）API ============
+# 动态只持有对 resource_index 的引用，可自由引用视频 / 图片集（漫画）/ 未来文本等，
+# 同一资源可被多个动态共享，且移动磁盘资源只需更新索引表一行即可全局跟随。
+
+def _resolve_dynamic_refs(refs):
+    """将请求体中的引用解析为 (ResourceIndex, note) 列表。
+
+    支持两种写法：
+      - {resource_index_id: <id>}                                 直接指定索引
+      - {type: 'video'|'comic', id: <视频/漫画实体 id>}            由实体反查其索引
+    """
+    result = []
+    if not refs:
+        return result
+    for r in refs:
+        if not isinstance(r, dict):
+            continue
+        ri_id = r.get('resource_index_id')
+        if not ri_id:
+            typ = (r.get('type') or r.get('kind') or '').lower()
+            eid = r.get('id')
+            if typ in ('video', 'video_file') and eid:
+                v = Video.query.get(eid)
+                if v and v.resource_index_id:
+                    ri_id = v.resource_index_id
+            elif typ in ('comic', 'comic_folder', 'image_set') and eid:
+                c = Comic.query.get(eid)
+                if c and c.resource_index_id:
+                    ri_id = c.resource_index_id
+        if ri_id:
+            ri = ResourceIndex.query.get(ri_id)
+            if ri:
+                result.append((ri, r.get('note', '') or ''))
+    return result
+
+
+@app.route('/api/dynamics', methods=['GET'])
+def get_dynamics():
+    library_id = request.args.get('library_id', type=int)
+    include_trash = request.args.get('include_trash') == '1'
+    q = Dynamic.query
+    if not include_trash:
+        q = q.filter_by(in_trash=False)
+    if library_id is not None:
+        q = q.filter_by(library_id=library_id)
+    dynamics = q.order_by(Dynamic.created_at.desc()).all()
+    return jsonify({'dynamics': [d.to_dict(resolve=True) for d in dynamics], 'total': len(dynamics)})
+
+
+@app.route('/api/dynamics', methods=['POST'])
+def create_dynamic():
+    user = AuthService.get_current_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    d = Dynamic(title=data.get('title', ''), content=data.get('content', ''),
+                owner_id=user.id, library_id=data.get('library_id'))
+    for pos, (ri, note) in enumerate(_resolve_dynamic_refs(data.get('refs'))):
+        d.refs.append(DynamicRef(resource_index_id=ri.id, position=pos, note=note))
+    db.session.add(d)
+    db.session.commit()
+    return jsonify(d.to_dict(resolve=True)), 201
+
+
+@app.route('/api/dynamics/<int:did>', methods=['GET'])
+def get_dynamic(did):
+    d = Dynamic.query.get_or_404(did)
+    return jsonify(d.to_dict(resolve=True))
+
+
+@app.route('/api/dynamics/<int:did>', methods=['PUT'])
+def update_dynamic(did):
+    user = AuthService.get_current_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    d = Dynamic.query.get_or_404(did)
+    if d.owner_id != user.id and user.role != UserRole.ADMIN:
+        return jsonify({'error': '无权修改'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    if 'title' in data:
+        d.title = data['title']
+    if 'content' in data:
+        d.content = data['content']
+    if 'library_id' in data:
+        d.library_id = data['library_id']
+    if 'refs' in data:
+        d.refs.clear()
+        for pos, (ri, note) in enumerate(_resolve_dynamic_refs(data['refs'])):
+            d.refs.append(DynamicRef(resource_index_id=ri.id, position=pos, note=note))
+    d.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(d.to_dict(resolve=True))
+
+
+@app.route('/api/dynamics/<int:did>', methods=['DELETE'])
+def delete_dynamic(did):
+    user = AuthService.get_current_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    d = Dynamic.query.get_or_404(did)
+    if d.owner_id != user.id and user.role != UserRole.ADMIN:
+        return jsonify({'error': '无权删除'}), 403
+    d.in_trash = True
+    d.trashed_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/dynamics/<int:did>/refs', methods=['POST'])
+def add_dynamic_ref(did):
+    user = AuthService.get_current_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    d = Dynamic.query.get_or_404(did)
+    if d.owner_id != user.id and user.role != UserRole.ADMIN:
+        return jsonify({'error': '无权修改'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    refs = _resolve_dynamic_refs([data])
+    if not refs:
+        return jsonify({'error': '无效的资源引用'}), 400
+    ri, note = refs[0]
+    pos = (d.refs[-1].position + 1) if d.refs else 0
+    ref = DynamicRef(dynamic_id=d.id, resource_index_id=ri.id, position=pos, note=note)
+    db.session.add(ref)
+    db.session.commit()
+    return jsonify(ref.to_dict()), 201
+
+
+@app.route('/api/dynamics/<int:did>/refs/<int:rid>', methods=['DELETE'])
+def remove_dynamic_ref(did, rid):
+    user = AuthService.get_current_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    d = Dynamic.query.get_or_404(did)
+    if d.owner_id != user.id and user.role != UserRole.ADMIN:
+        return jsonify({'error': '无权修改'}), 403
+    ref = DynamicRef.query.filter_by(id=rid, dynamic_id=did).first_or_404()
+    db.session.delete(ref)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/resource-index/<int:rid>/repoint', methods=['POST'])
+def repoint_resource_index(rid):
+    """重新指向磁盘位置：移动 / 重命名资源只需更新索引表一行，所有引用它的实体自动跟随。"""
+    user = AuthService.get_current_user()
+    if not user or user.role != UserRole.ADMIN:
+        return jsonify({'error': '需要管理员权限'}), 403
+    ri = ResourceIndex.query.get_or_404(rid)
+    data = request.get_json(force=True, silent=True) or {}
+    new_loc = data.get('location')
+    if not new_loc:
+        return jsonify({'error': '缺少 location'}), 400
+    ri.location = new_loc
+    ri.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(ri.to_dict())
 
 
 # ============ 主入口 ============

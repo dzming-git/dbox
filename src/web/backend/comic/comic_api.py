@@ -15,9 +15,10 @@ from flask import Blueprint, request, jsonify, session, send_file, abort, curren
 from urllib.parse import quote, unquote
 from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 
 from core.models import (
-    db, Comic, ComicPage, ComicInteraction, ComicProgress, UserRole,
+    db, Comic, ComicPage, ComicInteraction, ComicProgress, UserRole, ResourceIndex,
     ResourceLibrary, LibraryPermission, LibraryUserGroupMember,
     ComicTag, ComicPlaylist, ComicPlaylistItem, Tag,
 )
@@ -179,8 +180,8 @@ def _allowed_image_path(path):
         db.func.lower(ComicPage.file_path) == norm.lower()).first()
     if page:
         return True
-    cover = Comic.query.filter(Comic.cover_path.isnot(None)).filter(
-        db.func.lower(Comic.cover_path) == norm.lower()).first()
+    cover = Comic.query.join(ComicPage).filter(
+        db.func.lower(ComicPage.file_path) == norm.lower()).first()
     return cover is not None
 
 
@@ -201,7 +202,8 @@ def list_comics():
         limit = request.args.get('limit', 24, type=int)
         offset = request.args.get('offset', 0, type=int)
 
-        query = Comic.query.filter(Comic.in_trash == False)
+        query = Comic.query.filter(Comic.in_trash == False).options(
+            joinedload(Comic.resource_index), joinedload(Comic.pages))
 
         # ============ 资源库权限过滤（与视频 /api/videos 对齐）============
         allowed_libs = _allowed_library_ids()
@@ -839,7 +841,7 @@ def reload_comic(comic_hash):
             return jsonify({'success': False, 'message': '文件夹内未找到图片', 'code': 400}), 400
 
         _sync_pages(c, pages)
-        c.cover_path = pages[0]
+        # cover 由 pages[0] 推导，无需单独存储
         c.page_count = len(pages)
         c.updated_at = datetime.utcnow()
         db.session.commit()

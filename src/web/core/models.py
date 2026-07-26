@@ -138,6 +138,37 @@ class UserSession(db.Model):
             'is_active': self.is_active
         }
 
+class ResourceIndex(db.Model):
+    """资源索引表：解耦「实体（视频/漫画/动态）」与「本体在磁盘上的具体位置」。
+
+    每个实体只持有 resource_index_id，通过本表指向具体的磁盘路径：
+      - kind='video_file'   -> location 为视频文件
+      - kind='comic_folder' -> location 为漫画文件夹
+      - kind='text'         -> 以后扩展（文本等）
+    移动 / 重命名资源只需更新本表 location 一行，所有引用它的实体自动跟随。
+    """
+    __tablename__ = 'resource_index'
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(20), nullable=False, index=True)
+    location = db.Column(db.String(600), nullable=False)
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
+    hash = db.Column(db.String(64), index=True)
+    meta = db.Column(db.Text)  # JSON: size / mtime / page_count 等
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'kind': self.kind,
+            'location': self.location,
+            'library_id': self.library_id,
+            'hash': self.hash,
+            'meta': json.loads(self.meta) if self.meta else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class Video(db.Model):
     """视频模型"""
     __tablename__ = 'videos'
@@ -157,7 +188,24 @@ class Video(db.Model):
     priority = db.Column(db.Integer, default=0)  # 优先级，数值越大优先级越高
     min_role = db.Column(db.Integer, default=UserRole.GUEST, nullable=False)  # 最低访问权限要求
     is_downloaded = db.Column(db.Boolean, default=False)  # 是否已下载到本地
-    local_path = db.Column(db.String(500))  # 本地存储路径
+    resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=True, index=True)
+    resource_index = db.relationship('ResourceIndex', foreign_keys=[resource_index_id])
+
+    @property
+    def local_path(self):
+        # 通过资源索引表解析真实磁盘路径（解耦实体与本体的绑定）
+        if self.resource_index:
+            return self.resource_index.location
+        return None
+
+    @local_path.setter
+    def local_path(self, value):
+        if self.resource_index is None:
+            self.resource_index = ResourceIndex(kind='video_file')
+        self.resource_index.location = value
+        if self.library_id is not None:
+            self.resource_index.library_id = self.library_id
+
     file_name = db.Column(db.String(500))  # 文件名（仅作为属性，绝不作为视频唯一标识/key）
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'))  # 所属资源库，NULL表示主数据库
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
@@ -941,8 +989,31 @@ class Comic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     hash = db.Column(db.String(64), unique=True, nullable=False, index=True)  # 内容指纹（与路径解耦）
     title = db.Column(db.String(300), nullable=False)
-    folder_path = db.Column(db.String(600))            # 漫画文件夹本地路径
-    cover_path = db.Column(db.String(600))             # 封面（第一页）本地路径
+    resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=True, index=True)
+    resource_index = db.relationship('ResourceIndex', foreign_keys=[resource_index_id])
+
+    @property
+    def folder_path(self):
+        # 通过资源索引表解析真实磁盘文件夹（解耦实体与本体的绑定）
+        if self.resource_index:
+            return self.resource_index.location
+        return None
+
+    @folder_path.setter
+    def folder_path(self, value):
+        if self.resource_index is None:
+            self.resource_index = ResourceIndex(kind='comic_folder')
+        self.resource_index.location = value
+        if self.library_id is not None:
+            self.resource_index.library_id = self.library_id
+
+    @property
+    def cover_path(self):
+        # 封面即第一页图片，由 pages 推导（与具体磁盘绑定解耦）
+        if self.pages and len(self.pages) > 0:
+            return self.pages[0].file_path
+        return None
+
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     page_count = db.Column(db.Integer, default=0)
@@ -1124,6 +1195,134 @@ class ComicPlaylistItem(db.Model):
         else:
             d['comic'] = None
         return d
+
+
+class Dynamic(db.Model):
+    """动态（帖子）：通过资源索引表自由引用多个资源（视频 / 图片集 / 文本等）并编排顺序。
+
+    动态本身不持有任何具体文件，只持有对 resource_index 的引用，
+    因此同一视频 / 图片集可被多个动态、多个模式共享，且不复制数据。
+    """
+    __tablename__ = 'dynamics'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(300), nullable=False, default='')
+    content = db.Column(db.Text, default='')  # 文字正文
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
+    in_trash = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    trashed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    refs = db.relationship('DynamicRef', back_populates='dynamic',
+                            cascade='all, delete-orphan', order_by='DynamicRef.position')
+
+    def to_dict(self, resolve=True):
+        d = {
+            'id': self.id,
+            'title': self.title,
+            'content': self.content,
+            'owner_id': self.owner_id,
+            'library_id': self.library_id,
+            'in_trash': self.in_trash,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if resolve:
+            items = []
+            for r in self.refs:
+                entry = {
+                    'ref_id': r.id,
+                    'position': r.position,
+                    'note': r.note,
+                    'resource_index_id': r.resource_index_id,
+                }
+                ri = r.resource_index
+                if ri:
+                    entry['kind'] = ri.kind
+                    entry['location'] = ri.location
+                    # 解析出实际实体（视频 / 漫画）的概要
+                    if ri.kind == 'video_file':
+                        v = Video.query.filter_by(resource_index_id=ri.id).first()
+                        if v:
+                            entry['video'] = v.to_dict()
+                    elif ri.kind == 'comic_folder':
+                        c = Comic.query.filter_by(resource_index_id=ri.id).first()
+                        if c:
+                            entry['comic'] = c.to_dict()
+                items.append(entry)
+            d['refs'] = items
+        else:
+            d['refs'] = [r.to_dict() for r in self.refs]
+        return d
+
+
+class DynamicRef(db.Model):
+    """动态 - 资源索引 关联：一条动态可引用多个索引（视频 / 图片集 / 文本），可带备注与顺序。"""
+    __tablename__ = 'dynamic_refs'
+    id = db.Column(db.Integer, primary_key=True)
+    dynamic_id = db.Column(db.Integer, db.ForeignKey('dynamics.id'), nullable=False)
+    resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=False)
+    position = db.Column(db.Integer, default=0)
+    note = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    dynamic = db.relationship('Dynamic', back_populates='refs')
+    resource_index = db.relationship('ResourceIndex')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'dynamic_id': self.dynamic_id,
+            'resource_index_id': self.resource_index_id,
+            'position': self.position,
+            'note': self.note,
+        }
+
+
+def migrate_resource_index():
+    """[资源索引表] 将 videos.local_path / comics.folder_path 的历史数据回填到 resource_index，
+    并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
+
+    - videos / comics 表已存在，create_all 不会为旧表新增列，因此此处显式 ALTER 补列。
+    - 仅对尚未绑定 resource_index 的实体回填（幂等）。
+    - 旧的 local_path / folder_path 列保留在库中但不被模型映射（避免破坏性 DROP COLUMN）。
+    """
+    try:
+        # 1) 为已存在的实体表新增 resource_index_id 列（指向 resource_index.id）
+        for table in ('videos', 'comics'):
+            cols = [r[1] for r in db.session.execute(db.text(f"PRAGMA table_info({table})")).fetchall()]
+            if 'resource_index_id' not in cols:
+                db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN resource_index_id INTEGER"))
+                db.session.commit()
+
+        # 2) 视频：local_path -> resource_index(kind='video_file')
+        rows = db.session.execute(db.text(
+            "SELECT id, local_path, library_id FROM videos "
+            "WHERE local_path IS NOT NULL AND local_path != '' AND resource_index_id IS NULL")).fetchall()
+        for vid, lp, lib in rows:
+            ri = ResourceIndex(kind='video_file', location=lp, library_id=lib)
+            db.session.add(ri)
+            db.session.flush()
+            db.session.execute(db.text("UPDATE videos SET resource_index_id=:rid WHERE id=:vid"),
+                               {'rid': ri.id, 'vid': vid})
+
+        # 3) 漫画：folder_path -> resource_index(kind='comic_folder')
+        rows = db.session.execute(db.text(
+            "SELECT id, folder_path, library_id FROM comics "
+            "WHERE folder_path IS NOT NULL AND folder_path != '' AND resource_index_id IS NULL")).fetchall()
+        for cid, fp, lib in rows:
+            ri = ResourceIndex(kind='comic_folder', location=fp, library_id=lib)
+            db.session.add(ri)
+            db.session.flush()
+            db.session.execute(db.text("UPDATE comics SET resource_index_id=:rid WHERE id=:cid"),
+                               {'rid': ri.id, 'cid': cid})
+
+        db.session.commit()
+        print(f'[MIGRATE] resource_index 回填完成：视频/漫画已解耦到资源索引表')
+    except Exception as e:
+        db.session.rollback()
+        print(f'[WARN] resource_index 迁移跳过: {e}')
 
 
 def migrate_collection_videos_schema():

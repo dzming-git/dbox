@@ -9,7 +9,7 @@ import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Comics from './Comics.vue'
-import MixedFeed from './MixedFeed.vue'
+import Dynamics from './Dynamics.vue'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
@@ -899,8 +899,8 @@ const onListImgError = (e: Event) => {
     </div>
     <!-- 漫画内容（仅漫画 tab 显示） -->
     <Comics v-else-if="mediaTab === 'comic'" />
-    <!-- 动态（混排）内容：视频 + 漫画聚合信息流 -->
-    <MixedFeed v-else-if="mediaTab === 'mixed'" />
+    <!-- 动态（帖子）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
+    <Dynamics v-else-if="mediaTab === 'mixed'" />
 
     <!-- 编辑抽屉（视频/漫画通用） -->
     <ItemEditDrawer

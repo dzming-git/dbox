@@ -176,7 +176,7 @@ class ResourceLibraryWatcher:
                 self._debug('INFO', '[LibWatcher] 回退模式：从现有 Video.local_path 收集监控目录')
                 with self._app.app_context():
                     dirs = set()
-                    for v in Video.query.filter(Video.local_path.isnot(None)).all():
+                    for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
                         d = os.path.dirname(v.local_path)
                         if d:
                             dirs.add(d)
@@ -348,7 +348,7 @@ class ResourceLibraryWatcher:
         仅在新增视频时把 title 初始化为文件名（去扩展名）。
         """
         try:
-            from core.models import Video
+            from core.models import Video, ResourceIndex
             disk = {}   # norm_path -> (real_path, library_id)
             for root, lib_id in targets:
                 for dirpath, _, files in os.walk(root):
@@ -361,7 +361,7 @@ class ResourceLibraryWatcher:
             self._debug('INFO', f'[LibWatcher] diff 开始，磁盘文件数 {len(disk)}')
             for np_norm, (p, lib_id) in disk.items():
                 with self._app.app_context():
-                    existing = Video.query.filter_by(local_path=p).first()
+                    existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == p).first()
                     if existing:
                         new_name = os.path.basename(p)
                         if existing.file_name != new_name:
@@ -380,7 +380,7 @@ class ResourceLibraryWatcher:
             # 删除：DB 中 local_path 位于任一监控 root 下，但磁盘已不存在
             roots_norm = [os.path.normcase(os.path.abspath(r)) for r, _ in targets]
             with self._app.app_context():
-                for v in Video.query.filter(Video.local_path.isnot(None)).all():
+                for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
                     np = os.path.normcase(os.path.abspath(v.local_path))
                     if np in disk:
                         continue
@@ -457,10 +457,10 @@ class ResourceLibraryWatcher:
         if not self._is_video(path):
             return
         try:
-            from core.models import db, Video, Tag, VideoTag
+            from core.models import db, Video, Tag, VideoTag, ResourceIndex
             with self._app.app_context():
                 vhash = Video.generate_hash(path)
-                existing = Video.query.filter_by(local_path=path).first()
+                existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
                 if existing is None:
                     existing = Video.query.filter_by(hash=vhash).first()
                 is_new = existing is None
@@ -517,9 +517,9 @@ class ResourceLibraryWatcher:
         if not self._is_video(path):
             return
         try:
-            from core.models import db, Video
+            from core.models import db, Video, ResourceIndex
             with self._app.app_context():
-                v = Video.query.filter_by(local_path=path).first()
+                v = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
                 if v:
                     db.session.delete(v)
                     db.session.commit()
@@ -550,9 +550,9 @@ class ResourceLibraryWatcher:
         if not self._is_video(dest):
             return
         try:
-            from core.models import db, Video
+            from core.models import db, Video, ResourceIndex
             with self._app.app_context():
-                v = Video.query.filter_by(local_path=src).first()
+                v = Video.query.join(ResourceIndex).filter(ResourceIndex.location == src).first()
                 if v:
                     new_name = os.path.basename(dest)
                     # 仅更新路径等物理信息，不修改 title（标题与文件名解耦）。

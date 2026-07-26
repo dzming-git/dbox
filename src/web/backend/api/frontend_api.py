@@ -1,11 +1,12 @@
 # 前端API适配层 - 统一API接口
 from flask import Blueprint, request, jsonify, g
-from core.models import db, Video, Tag, VideoTag
+from core.models import db, Video, Tag, VideoTag, ResourceIndex
 from liblog import get_service_logger
 from functools import wraps
 import os
 from datetime import datetime
 from werkzeug.utils import secure_filename
+from sqlalchemy.orm import joinedload
 
 log = get_service_logger('dplayer-web')
 
@@ -149,7 +150,8 @@ def check_auth():
 def get_videos():
     """获取视频列表"""
     try:
-        videos = Video.query.order_by(Video.created_at.desc()).all()
+        videos = Video.query.order_by(Video.created_at.desc()).options(
+            joinedload(Video.resource_index)).all()
 
         videos_list = []
         for video in videos:
@@ -888,7 +890,7 @@ def get_system_stats():
 
         # 计算总视频大小
         total_size = 0
-        videos = Video.query.all()
+        videos = Video.query.options(joinedload(Video.resource_index)).all()
         for video in videos:
             import os
             if video.local_path and os.path.exists(video.local_path):
