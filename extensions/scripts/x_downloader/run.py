@@ -531,31 +531,39 @@ def get_guest_token(opener, cookie_header):
 
 
 def extract_from_api(tweet_id, cookie_header, opener):
-    """调用 statuses/show.json 接口（结构化数据，最可靠），失败返回 ([], '')。
+    """调用 GraphQL TweetDetail 接口（结构化数据，登录墙/SPA 推文唯一可靠来源）。
 
     返回 (media_list, full_text)。
     """
     gt = get_guest_token(opener, '')
     if not gt:
         return [], ''
-    url = (f'https://api.x.com/1.1/statuses/show.json'
-           f'?id={tweet_id}&tweet_mode=extended')
-    headers = {
-        'User-Agent': UA,
-        'Authorization': f'Bearer {WEB_BEARER}',
-        'x-guest-token': gt,
-        'Cookie': cookie_header or '',
-    }
-    try:
-        data = json.loads(fetch_text(url, opener, headers, timeout=40))
-    except Exception as e:
-        log(f'接口解析失败（将仅用页面解析）: {e}', level='warn')
+    qid = _get_tweet_detail_qid()
+    for attempt in (0, 1):
+        try:
+            data = _graphql_tweet_detail(tweet_id, cookie_header, opener, gt, qid)
+        except _GraphQLQueryNotFound:
+            # query id 已过期，重新发现后重试一次
+            if attempt == 0:
+                qid = _discover_tweet_detail_qid(opener, cookie_header)
+                if qid:
+                    continue
+            data = None
+        except Exception as e:
+            log(f'GraphQL 接口解析失败（将仅用页面解析）: {e}', level='warn')
+            return [], ''
+        break
+    if not data:
         return [], ''
-    text = (data.get('full_text') or data.get('text') or '').strip()
+    tweet = _find_tweet_node(data, tweet_id) or _find_tweet_node(data)
+    if not tweet:
+        return [], ''
+    leg = tweet.get('legacy', {})
+    text = (leg.get('full_text') or '').strip()
     # 去掉末尾的 t.co 短链占位（X 在 extended 模式会把链接放到 entities 里）
-    text = re.sub(r'\s*https://t\.co/\w+\s*$', '', text).strip()
+    text = re.sub(r'https://t\.co/\w+', '', text).strip()
     media = []
-    entities = data.get('extended_entities') or data.get('entities') or {}
+    entities = leg.get('extended_entities') or leg.get('entities') or {}
     for ent in entities.get('media', []):
         mtype = ent.get('type')
         if mtype == 'photo':
@@ -573,6 +581,134 @@ def extract_from_api(tweet_id, cookie_header, opener):
                               'url': pick_m3u8(m3u8),
                               'label': '视频/动图'})
     return media, text
+
+
+# ---------------------------------------------------------------------------
+# GraphQL TweetDetail（X 现已废弃 statuses/show.json，SPA 页面也不内嵌媒体，
+# 结构化数据只能通过 GraphQL 接口获取；query id 会轮换，支持自动发现）。
+# ---------------------------------------------------------------------------
+_GQL_TWEET_DETAIL_QID = 'Lq1caG5YPcdhpTdS2ZRx7Q'  # 当前生效的 TweetDetail query id
+_GQL_TWEET_DETAIL_FEATURES = {
+    "blue_business_profile_image_shape_enabled": True,
+    "dont_mention_me_view_api_enabled": True,
+    "interactive_text_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+    "responsive_web_enhance_cards_enabled": True,
+    "responsive_web_media_download_video_enabled": True,
+    "responsive_web_twitter_article_tweet_consumption_enabled": True,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "verified_phone_label_enabled": False,
+    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+    "view_counts_everywhere_api_enabled": True,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
+    "tweetypie_unmention_enabled": True,
+    "responsive_web_edit_tweet_api_enabled": True,
+    "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+    "responsive_web_hIDE_emoji_in_status_enabled": True,
+    "responsive_web_text_conversations_enabled": True,
+    "responsive_web_ucigapi_consumption_enabled": True,
+}
+_GQL_TWEET_DETAIL_FIELDTOGGLES = {"withArticlePlainText": False}
+
+
+class _GraphQLQueryNotFound(Exception):
+    """GraphQL query id 不存在（404 / unknown query），需重新发现。"""
+
+
+def _get_tweet_detail_qid():
+    """返回当前 TweetDetail query id（带模块级缓存）。"""
+    global _GQL_TWEET_DETAIL_QID
+    return _GQL_TWEET_DETAIL_QID
+
+
+def _gql_variables(tweet_id):
+    return {
+        "focalTweetId": tweet_id,
+        "cursor": None,
+        "referrer": None,
+        "controller_data": None,
+        "rux_context": None,
+        "with_rux_injections": False,
+        "rankingMode": "Relevance",
+        "includePromotedContent": True,
+        "withCommunity": True,
+        "withQuickPromoteEligibilityTweetFields": True,
+        "withBirdwatchNotes": False,
+        "withVoice": False,
+        "withDownvotePerspective": False,
+        "withReactionsMetadata": False,
+        "withReactionsPerspective": False,
+        "withSuperFollowsUserFields": True,
+        "withUserResults": True,
+        "withCad": True,
+        "withV2Timeline": True,
+    }
+
+
+def _graphql_tweet_detail(tweet_id, cookie_header, opener, gt, qid):
+    url = (f'https://api.x.com/graphql/{qid}/TweetDetail'
+           f'?variables={urllib.parse.quote(json.dumps(_gql_variables(tweet_id)))}'
+           f'&features={urllib.parse.quote(json.dumps(_GQL_TWEET_DETAIL_FEATURES))}'
+           f'&fieldToggles={urllib.parse.quote(json.dumps(_GQL_TWEET_DETAIL_FIELDTOGGLES))}')
+    headers = build_headers(cookie_header, with_bearer=True, guest_token=gt)
+    try:
+        raw = fetch_text(url, opener, headers, timeout=30)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise _GraphQLQueryNotFound()
+        raise
+    return json.loads(raw)
+
+
+def _discover_tweet_detail_qid(opener, cookie_header):
+    """从 X 前端 JS bundle 中自动发现当前 TweetDetail query id。"""
+    global _GQL_TWEET_DETAIL_QID
+    try:
+        html = fetch_text('https://x.com/', opener,
+                          build_headers(cookie_header, with_bearer=False), timeout=20)
+    except Exception:
+        html = ''
+    scripts = re.findall(r'<script[^>]+src=["\']([^"\']+\.js)["\']', html or '')
+    for s in scripts:
+        if not s.startswith('http'):
+            s = 'https://x.com' + (s if s.startswith('/') else '/' + s)
+        try:
+            js = fetch_text(s, opener, {'User-Agent': UA}, timeout=30)
+        except Exception:
+            continue
+        m = re.search(r'queryId["\']?\s*[:=]\s*["\']([A-Za-z0-9_-]{10,})["\'][^}]{0,80}?operationName["\']?\s*[:=]\s*["\']TweetDetail["\']', js)
+        if not m:
+            m = re.search(r'operationName["\']?\s*[:=]\s*["\']TweetDetail["\'][^}]{0,80}?queryId["\']?\s*[:=]\s*["\']([A-Za-z0-9_-]{10,})["\']', js)
+        if m:
+            _GQL_TWEET_DETAIL_QID = m.group(1)
+            log(f'已自动发现 TweetDetail query id: {m.group(1)}')
+            return m.group(1)
+    return None
+
+
+def _find_tweet_node(node, target_id=None):
+    """在 GraphQL 响应树中递归定位含 legacy 的 Tweet 节点。
+
+    target_id 给定时优先返回 rest_id/id_str 与之匹配的节点（即目标推文），
+    避免误取对话流中的回复/引用推文。
+    """
+    if isinstance(node, dict):
+        if node.get('__typename') == 'Tweet' and node.get('legacy'):
+            rid = node.get('rest_id') or (node.get('legacy') or {}).get('id_str')
+            if target_id is None or rid == target_id:
+                return node
+        for v in node.values():
+            r = _find_tweet_node(v, target_id)
+            if r:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_tweet_node(v, target_id)
+            if r:
+                return r
+    return None
 
 
 def extract_tweet_text_from_html(html):
@@ -595,9 +731,9 @@ def extract_media(url, cookie_header, proxy_cfg):
     """解析推文，返回 (媒体列表, 推文文字)。
 
     策略（公开推文最稳路径优先）：
-      1) 无 Cookie 游客页（带 Bearer + guest_token）——公开内容无需登录即可解析；
-      2) 若游客态解析不到（NSFW/关注限定/年龄限制），回退带 Cookie 登录态；
-      3) 仍解析不到，用 statuses/show.json 接口（Bearer + guest_token）降级补全。
+      1) 无 Cookie 游客页——公开内容无需登录即可解析；
+      2) 若游客态解析不到，带 Cookie 登录态重新抓取；
+      3) 仍解析不到（X 现为 SPA，结构化数据仅在 GraphQL 接口），调用 TweetDetail 接口。
     说明：视频清晰度与是否登录无关——m3u8 主列表含全部分辨率，下载时取最高。
     """
     opener = make_opener(proxy_cfg)
@@ -622,7 +758,7 @@ def extract_media(url, cookie_header, proxy_cfg):
         except Exception as e:
             log(f'无 Cookie 抓取失败: {e}', level='warn')
     if not media and tweet_id != 'x':
-        log('页面未解析到媒体，尝试接口方式…')
+        log('页面未解析到媒体，尝试 GraphQL 接口方式…')
         api_media, api_text = extract_from_api(tweet_id, cookie_header, opener)
         media = api_media
         text = text or api_text
