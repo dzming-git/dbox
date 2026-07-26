@@ -585,6 +585,9 @@ def main():
     cookie_header = resolve_cookie(context.get('cookies', {}) or {})
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
+    # 入库模式：外部脚本在此声明每个资源归属哪些模式（见 docs/multi_mode_resource_management.md）
+    target_modes = params.get('target_modes') or ['video']
+    group = tweet_id  # 同一任务内的文件聚合为一条动态帖子
     proxy_cfg = parse_proxy(params.get('proxy'))
     global _PROXY_CFG
     _PROXY_CFG = proxy_cfg
@@ -665,14 +668,16 @@ def main():
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
                     path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg)
-                downloaded.append({'path': path, 'type': 'image'})
+                downloaded.append({'path': path, 'type': 'image',
+                                    'target_modes': target_modes, 'group': group})
                 log(f'已下载图片: {os.path.basename(path)}')
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
                     path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg)
-                downloaded.append({'path': path, 'type': 'video'})
+                downloaded.append({'path': path, 'type': 'video',
+                                   'target_modes': target_modes, 'group': group})
                 log(f'已下载视频: {os.path.basename(path)}')
             progress(pct, f'下载进度 {idx}/{total}')
         except Exception as e:

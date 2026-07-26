@@ -236,7 +236,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import ResourceIndex, Dynamic, DynamicRef
+from core.models import ResourceIndex, Dynamic, DynamicRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User
 from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
 from auth_service import AuthService, init_root_user
 
@@ -5771,6 +5771,165 @@ def remove_dynamic_ref(did, rid):
     db.session.delete(ref)
     db.session.commit()
     return jsonify({'success': True})
+
+
+# ============ 多模式资源管理（资源归属模式：视频/漫画/图文/文本/动态） ============
+
+def resolve_user():
+    """统一解析当前用户：优先 JWT 中间件注入的 g.user_id，回退到 session 用户。
+
+    前端经由 vite 代理 / JWT 鉴权时，请求上下文由全局 before_request 把用户写入 g.user_id；
+    直接的 session 登录则走 AuthService.get_current_user()。两者都支持，避免鉴权口径不一致。
+    """
+    uid = getattr(g, 'user_id', None)
+    if uid:
+        u = User.query.get(uid)
+        if u:
+            return u
+    return AuthService.get_current_user()
+
+
+@app.route('/api/resource-index', methods=['GET'])
+def resource_index_pool():
+    """统一资源池：供动态引用选择器 / 各模式复用。支持按模式、库、类型、关键字筛选。
+
+    只读接口，与 /api/videos、/api/dynamics 列表保持一致，公开可访问。
+    """
+    mode = request.args.get('mode')
+    library_id = request.args.get('library_id', type=int)
+    kind = request.args.get('kind')
+    search = request.args.get('search', '').strip()
+    q = ResourceIndex.query
+    if library_id is not None:
+        q = q.filter_by(library_id=library_id)
+    if kind:
+        q = q.filter_by(kind=kind)
+    items = q.order_by(ResourceIndex.updated_at.desc()).limit(500).all()
+    result = []
+    for ri in items:
+        modes = [m.mode for m in ri.memberships]
+        if mode and mode != ResourceMode.DYNAMIC and mode not in modes:
+            continue
+        d = ri.to_dict()
+        d['modes'] = modes
+        if search:
+            title = (ri.get_meta().get('title') or ri._basename() or '').lower()
+            if search.lower() not in title:
+                continue
+        result.append(d)
+    return jsonify({'items': result, 'total': len(result)})
+
+
+@app.route('/api/resource-index/<int:rid>/modes', methods=['POST'])
+def set_resource_modes(rid):
+    """设置资源的模式归属（手动管理界面调用）。"""
+    user = resolve_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    ri = ResourceIndex.query.get_or_404(rid)
+    data = request.get_json(force=True, silent=True) or {}
+    apply_resource_modes(ri, data.get('modes') or [],
+                          collection_id=data.get('collection_id'),
+                          user_id=user.id if user else None)
+    return jsonify(ri.to_dict())
+
+
+@app.route('/api/mode-collections', methods=['GET', 'POST'])
+def collections_api():
+    if request.method == 'GET':
+        mode = request.args.get('mode')
+        q = Collection.query
+        if mode:
+            q = q.filter_by(mode=mode)
+        return jsonify({'collections': [c.to_dict() for c in q.all()]})
+    user = resolve_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    name = data.get('name')
+    mode = data.get('mode')
+    if not name or not ResourceMode.is_valid(mode):
+        return jsonify({'error': 'name/mode 无效'}), 400
+    c = Collection(name=name, mode=mode, library_id=data.get('library_id'),
+                   created_by=user.id)
+    db.session.add(c)
+    db.session.commit()
+    return jsonify(c.to_dict()), 201
+
+
+@app.route('/api/texts', methods=['GET', 'POST'])
+def texts_api():
+    if request.method == 'GET':
+        library_id = request.args.get('library_id', type=int)
+        search = request.args.get('search', '').strip()
+        sub = db.session.query(ResourceModeMembership.resource_index_id).filter_by(mode=ResourceMode.TEXT)
+        q = Text.query.filter(Text.resource_index_id.in_(sub))
+        if library_id is not None:
+            q = q.join(ResourceIndex).filter(ResourceIndex.library_id == library_id)
+        items = q.all()
+        if search:
+            items = [t for t in items
+                     if search.lower() in (t.summary or '').lower()
+                     or search.lower() in (t.resource_index.get_meta().get('title') if t.resource_index else '').lower()]
+        return jsonify({'texts': [t.to_dict() for t in items], 'total': len(items)})
+    user = resolve_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    title = data.get('title') or '未命名文本'
+    ri = ResourceIndex(kind='text', location=data.get('location') or '',
+                       library_id=data.get('library_id'),
+                       meta=json.dumps({'title': title, 'summary': data.get('summary', '')}, ensure_ascii=False))
+    db.session.add(ri)
+    db.session.flush()
+    t = Text(resource_index_id=ri.id, body=data.get('body', ''), summary=data.get('summary', ''))
+    db.session.add(t)
+    db.session.add(ResourceModeMembership(resource_index_id=ri.id, mode=ResourceMode.TEXT, created_by=user.id))
+    db.session.commit()
+    return jsonify(t.to_dict()), 201
+
+
+@app.route('/api/texts/<int:tid>', methods=['PUT', 'DELETE'])
+def text_item_api(tid):
+    user = resolve_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    t = Text.query.get_or_404(tid)
+    if request.method == 'PUT':
+        data = request.get_json(force=True, silent=True) or {}
+        if 'body' in data:
+            t.body = data['body']
+        if 'summary' in data:
+            t.summary = data['summary']
+        if t.resource_index:
+            m = t.resource_index.get_meta()
+            if 'title' in data:
+                m['title'] = data['title']
+            if 'summary' in data:
+                m['summary'] = data['summary']
+            t.resource_index.meta = json.dumps(m, ensure_ascii=False)
+        db.session.commit()
+        return jsonify(t.to_dict())
+    db.session.delete(t)
+    if t.resource_index:
+        db.session.delete(t.resource_index)
+    db.session.commit()
+    return jsonify({'status': 'deleted'})
+
+
+@app.route('/api/modes', methods=['GET'])
+def available_modes():
+    """返回当前可用模式及数量，供首页 tab 动态渲染。"""
+    counts = dict(db.session.query(ResourceModeMembership.mode, db.func.count())
+                  .group_by(ResourceModeMembership.mode).all())
+    dyn_count = db.session.query(DynamicRef.resource_index_id).distinct().count()
+    modes = []
+    for m in ResourceMode.SINGLE:
+        if counts.get(m):
+            modes.append({'mode': m, 'count': counts[m]})
+    if dyn_count:
+        modes.append({'mode': ResourceMode.DYNAMIC, 'count': dyn_count})
+    return jsonify({'modes': modes})
 
 
 @app.route('/api/resource-index/<int:rid>/repoint', methods=['POST'])

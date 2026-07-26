@@ -1,40 +1,45 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
-import { dynamicApi, videoApi, comicApi } from '../api'
-import type { Dynamic, DynamicRef, Video, Comic } from '../types'
+import { dynamicApi, resourceApi } from '../api'
+import type { Dynamic, DynamicRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 
-const router = useRouter()
 const userStore = useUserStore()
 
 const dynamics = ref<Dynamic[]>([])
 const loading = ref(false)
 const error = ref('')
 
-// 把动态引用解析为 MediaCard 需要的 MediaItem
+const KIND_LABEL: Record<string, string> = {
+  video_file: '视频',
+  comic_folder: '图片集',
+  text: '文本',
+}
+
+// 把动态引用解析为 MediaCard 需要的 MediaItem（含「只属于动态」资源的兜底呈现）
 const toMediaItem = (refItem: DynamicRef) => {
   if (refItem.video) {
-    const v = refItem.video as Video
-    return {
-      type: 'video',
-      hash: v.hash,
-      title: v.title,
-      cover: v.thumbnail || '',
-      duration: v.duration || 0,
-      date: v.created_at
-    } as any
+    const v = refItem.video
+    return { type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
   }
   if (refItem.comic) {
-    const c = refItem.comic as Comic
+    const c = refItem.comic
+    return { type: 'comic', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
+  }
+  if (refItem.text) {
+    return { type: 'comic', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
+  }
+  if (refItem.presentation) {
+    const p = refItem.presentation
+    const isVideo = refItem.kind === 'video_file'
     return {
-      type: 'comic',
-      hash: c.hash,
-      title: c.title,
-      cover: (c as any).cover_url || '',
-      pageCount: c.page_count || 0,
-      date: c.created_at
+      type: isVideo ? 'video' : 'comic',
+      hash: String(refItem.resource_index_id),
+      title: p.title || '未命名资源',
+      cover: p.thumbnail || '',
+      duration: isVideo ? (p.duration || 0) : 0,
+      pageCount: isVideo ? 0 : (p.page_count || 0),
     } as any
   }
   return null
@@ -60,45 +65,41 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const formTitle = ref('')
 const formContent = ref('')
-const editingRefs = ref<Array<{ type: 'video' | 'comic'; id: number; title: string; cover: string; note: string }>>([])
+const editingRefs = ref<Array<{ resource_index_id: number; kind: string; title: string; cover: string; note: string }>>([])
 const saving = ref(false)
 
-// 引用选择器的候选池
-const candidateTab = ref<'video' | 'comic'>('video')
-const videoCandidates = ref<Video[]>([])
-const comicCandidates = ref<Comic[]>([])
+const candidateTab = ref<'video_file' | 'comic_folder' | 'text'>('video_file')
+const candidates = ref<ResourceIndex[]>([])
 const candidateSearch = ref('')
 const candidatesLoaded = ref(false)
 
 const loadCandidates = async () => {
-  if (candidatesLoaded.value) return
   try {
-    const [vRes, cRes] = await Promise.allSettled([
-      videoApi.getVideos({ limit: 60, search: candidateSearch.value || undefined }) as any,
-      comicApi.getComics({ limit: 60, search: candidateSearch.value || undefined }) as any
-    ])
-    if (vRes.status === 'fulfilled') videoCandidates.value = vRes.value?.videos || []
-    if (cRes.status === 'fulfilled') comicCandidates.value = cRes.value?.comics || []
-    candidatesLoaded.value = true
+    const res: any = await resourceApi.pool({
+      kind: candidateTab.value,
+      search: candidateSearch.value || undefined,
+    })
+    candidates.value = res.items || []
   } catch {
-    /* ignore */
+    candidates.value = []
   }
+  candidatesLoaded.value = true
 }
 
-const isSelected = (type: 'video' | 'comic', id: number) =>
-  editingRefs.value.some(r => r.type === type && r.id === id)
+const isSelected = (rid: number) => editingRefs.value.some(r => r.resource_index_id === rid)
 
-const toggleCandidate = (type: 'video' | 'comic', item: any) => {
-  const idx = editingRefs.value.findIndex(r => r.type === type && r.id === item.id)
+const toggleCandidate = (item: ResourceIndex) => {
+  const idx = editingRefs.value.findIndex(r => r.resource_index_id === item.id)
   if (idx >= 0) {
     editingRefs.value.splice(idx, 1)
   } else {
+    const p = item.presentation || {}
     editingRefs.value.push({
-      type,
-      id: item.id,
-      title: item.title,
-      cover: type === 'video' ? (item.thumbnail || '') : (item.cover_url || ''),
-      note: ''
+      resource_index_id: item.id,
+      kind: item.kind,
+      title: p.title || item.location || '未命名',
+      cover: p.thumbnail || '',
+      note: '',
     })
   }
 }
@@ -115,9 +116,10 @@ const openCreate = async () => {
   formTitle.value = ''
   formContent.value = ''
   editingRefs.value = []
+  candidateTab.value = 'video_file'
+  candidates.value = []
+  candidateSearch.value = ''
   candidatesLoaded.value = false
-  videoCandidates.value = []
-  comicCandidates.value = []
   dialogVisible.value = true
   await loadCandidates()
 }
@@ -126,16 +128,16 @@ const openEdit = async (d: Dynamic) => {
   editingId.value = d.id
   formTitle.value = d.title
   formContent.value = d.content
-  editingRefs.value = (d.refs || []).map(r => ({
-    type: r.video ? 'video' : 'comic',
-    id: (r.video ? r.video.id : r.comic?.id) as number,
-    title: (r.video ? r.video.title : r.comic?.title) as string,
-    cover: (r.video ? r.video.thumbnail : (r.comic as any)?.cover_url) || '',
-    note: r.note || ''
-  }))
+  editingRefs.value = (d.refs || []).map(r => {
+    if (r.video) return { resource_index_id: r.video.resource_index_id, kind: 'video_file', title: r.video.title, cover: r.video.thumbnail || '', note: r.note || '' }
+    if (r.comic) return { resource_index_id: r.comic.resource_index_id, kind: 'comic_folder', title: r.comic.title, cover: (r.comic as any).cover_url || '', note: r.note || '' }
+    if (r.text) return { resource_index_id: r.text.resource_index_id, kind: 'text', title: r.text.presentation?.title || '文本', cover: r.text.presentation?.thumbnail || '', note: r.note || '' }
+    return { resource_index_id: r.resource_index_id, kind: r.kind || 'video_file', title: r.presentation?.title || '未命名', cover: r.presentation?.thumbnail || '', note: r.note || '' }
+  })
+  candidateTab.value = 'video_file'
+  candidates.value = []
+  candidateSearch.value = ''
   candidatesLoaded.value = false
-  videoCandidates.value = []
-  comicCandidates.value = []
   dialogVisible.value = true
   await loadCandidates()
 }
@@ -147,7 +149,7 @@ const save = async () => {
     const payload = {
       title: formTitle.value,
       content: formContent.value,
-      refs: editingRefs.value.map(r => ({ type: r.type, id: r.id, note: r.note }))
+      refs: editingRefs.value.map(r => ({ resource_index_id: r.resource_index_id, note: r.note })),
     }
     if (editingId.value) {
       await dynamicApi.update(editingId.value, payload)
@@ -178,8 +180,6 @@ const canEdit = (d: Dynamic) =>
 
 const onSearchCandidate = async () => {
   candidatesLoaded.value = false
-  videoCandidates.value = []
-  comicCandidates.value = []
   await loadCandidates()
 }
 
@@ -202,7 +202,7 @@ const formatDate = (s?: string) => {
       </button>
     </div>
 
-    <p class="hint">动态通过「资源索引表」自由引用视频 / 图片集（漫画），同一资源可被多个动态共享，移动磁盘资源只需更新索引一行。</p>
+    <p class="hint">动态通过「资源索引表」自由引用视频 / 图片集（漫画）/ 文本。一个资源可同时出现在多个动态，也可「只属于动态、不进视频/漫画列表」（如下载脚本把图文+视频一体入库到动态模式）。</p>
 
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
@@ -246,12 +246,12 @@ const formatDate = (s?: string) => {
         <label class="field-label">正文</label>
         <textarea class="text-area" v-model="formContent" rows="4" placeholder="写点什么..."></textarea>
 
-        <label class="field-label">引用资源（视频 / 图片集）</label>
+        <label class="field-label">引用资源（视频 / 图片集 / 文本，跨模式选择）</label>
         <div class="ref-editor">
           <div class="ref-list">
             <p v-if="editingRefs.length === 0" class="ref-empty">尚未选择任何引用，下面从资源池添加。</p>
             <div v-for="(r, i) in editingRefs" :key="i" class="ref-row">
-              <span class="ref-type" :class="r.type">{{ r.type === 'video' ? '视频' : '图片集' }}</span>
+              <span class="ref-type" :class="r.kind === 'video_file' ? 'video' : r.kind === 'comic_folder' ? 'comic' : 'text'">{{ KIND_LABEL[r.kind] || r.kind }}</span>
               <span class="ref-name">{{ r.title }}</span>
               <input class="ref-note-input" v-model="r.note" placeholder="备注（可选）" />
               <button class="ref-move" @click="moveRef(i, -1)" title="上移">↑</button>
@@ -262,21 +262,23 @@ const formatDate = (s?: string) => {
 
           <div class="picker">
             <div class="picker-tabs">
-              <button :class="{ active: candidateTab === 'video' }" @click="candidateTab = 'video'">视频</button>
-              <button :class="{ active: candidateTab === 'comic' }" @click="candidateTab = 'comic'">图片集</button>
+              <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
+              <button :class="{ active: candidateTab === 'comic_folder' }" @click="candidateTab = 'comic_folder'; candidatesLoaded = false; loadCandidates()">图片集</button>
+              <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
               <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
             </div>
             <div class="picker-grid">
               <div
-                v-for="item in candidateTab === 'video' ? videoCandidates : comicCandidates"
+                v-for="item in candidates"
                 :key="item.id"
                 class="picker-item"
-                :class="{ selected: isSelected(candidateTab, item.id) }"
-                @click="toggleCandidate(candidateTab, item)"
+                :class="{ selected: isSelected(item.id) }"
+                @click="toggleCandidate(item)"
               >
-                <img :src="candidateTab === 'video' ? (item.thumbnail || '') : (item.cover_url || '')" class="picker-thumb" />
-                <span class="picker-name">{{ item.title }}</span>
+                <img :src="item.presentation?.thumbnail || ''" class="picker-thumb" />
+                <span class="picker-name">{{ item.presentation?.title || item.location }}</span>
               </div>
+              <p v-if="candidates.length === 0" class="ref-empty">该模式暂无资源</p>
             </div>
           </div>
         </div>
@@ -341,6 +343,7 @@ const formatDate = (s?: string) => {
 .ref-type { font-size: 11px; padding: 2px 8px; border-radius: 4px; color: #fff; }
 .ref-type.video { background: rgba(33,150,243,0.85); }
 .ref-type.comic { background: rgba(255,152,0,0.85); }
+.ref-type.text { background: rgba(76,175,80,0.85); }
 .ref-name { flex: 1; color: #ddd; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-note-input { width: 90px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #ccc; padding: 4px 6px; font-size: 12px; }
 .ref-move, .ref-del { width: 26px; height: 26px; border: 1px solid #333; background: #252525; color: #aaa; border-radius: 6px; cursor: pointer; }
@@ -354,7 +357,7 @@ const formatDate = (s?: string) => {
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; overflow-y: auto; flex: 1; }
 .picker-item { position: relative; cursor: pointer; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: #000; }
 .picker-item.selected { border-color: #2196F3; }
-.picker-thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
+.picker-thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #222; }
 .picker-name { display: block; font-size: 11px; color: #ccc; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .modal-ops { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }

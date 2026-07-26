@@ -398,13 +398,34 @@ export const dynamicApi = {
     api.get('/api/dynamics', { params }),
   get: (id: number) =>
     api.get(`/api/dynamics/${id}`),
-  // 创建：refs 为 [{ type: 'video'|'comic', id: <实体 id>, note?: string }]
-  create: (data: { title: string; content: string; library_id?: number; refs: Array<{ type: 'video' | 'comic'; id: number; note?: string }> }) =>
+  // 创建：refs 为 [{ resource_index_id, note? }]
+  create: (data: { title: string; content: string; library_id?: number; refs: Array<{ resource_index_id: number; note?: string }> }) =>
     api.post('/api/dynamics', data),
   update: (id: number, data: any) =>
     api.put(`/api/dynamics/${id}`, data),
   remove: (id: number) =>
     api.delete(`/api/dynamics/${id}`),
+}
+
+// 统一资源池：跨模式选择资源（视频 / 图片集 / 文本），供动态引用选择器复用
+export const resourceApi = {
+  pool: (params?: { mode?: string; library_id?: number; kind?: string; search?: string }) =>
+    api.get('/api/resource-index', { params }),
+  setModes: (id: number, data: { modes: string[]; collection_id?: number }) =>
+    api.post(`/api/resource-index/${id}/modes`, data),
+  collections: (mode?: string) => api.get('/api/mode-collections', { params: mode ? { mode } : {} }),
+  createCollection: (data: { name: string; mode: string; library_id?: number }) =>
+    api.post('/api/mode-collections', data),
+  modes: () => api.get('/api/modes'),
+}
+
+// 文本模式（未来内容管理）
+export const textApi = {
+  list: (params?: { library_id?: number; search?: string }) => api.get('/api/texts', { params }),
+  create: (data: { title: string; body?: string; summary?: string; location?: string; library_id?: number }) =>
+    api.post('/api/texts', data),
+  update: (id: number, data: any) => api.put(`/api/texts/${id}`, data),
+  remove: (id: number) => api.delete(`/api/texts/${id}`),
 }
 
 export default api

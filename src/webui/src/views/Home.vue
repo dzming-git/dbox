@@ -10,13 +10,14 @@ import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Comics from './Comics.vue'
 import Dynamics from './Dynamics.vue'
+import Texts from './Texts.vue'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
 const route = useRoute()
 
 // 首页媒体类型切换：视频 / 漫画 对等展示，模式写入 URL（?mode=video|comic）
-const mediaTab = ref<'video' | 'comic' | 'mixed'>(route.query.mode === 'comic' ? 'comic' : (route.query.mode === 'mixed' ? 'mixed' : 'video'))
+const mediaTab = ref<'video' | 'comic' | 'mixed' | 'text'>(route.query.mode === 'comic' ? 'comic' : (route.query.mode === 'mixed' ? 'mixed' : (route.query.mode === 'text' ? 'text' : 'video')))
 
 // 切换媒体模式时同步到 URL，并从 URL 回读（支持前进/后退、直接分享链接）
 // 切换模式时清空与模式绑定的其他参数（排序、页码、筛选、搜索等），仅保留 mode，使其恢复默认。
@@ -28,7 +29,7 @@ watch(mediaTab, (val) => {
 watch(
   () => route.query.mode,
   (val) => {
-    const m = val === 'comic' ? 'comic' : (val === 'mixed' ? 'mixed' : 'video')
+    const m = val === 'comic' ? 'comic' : (val === 'mixed' ? 'mixed' : (val === 'text' ? 'text' : 'video'))
     if (mediaTab.value !== m) mediaTab.value = m
   }
 )
@@ -551,6 +552,16 @@ const onListImgError = (e: Event) => {
         </svg>
         动态
       </button>
+      <button
+        class="media-tab"
+        :class="{ active: mediaTab === 'text' }"
+        @click="mediaTab = 'text'"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 7h16M4 12h16M4 17h10"/>
+        </svg>
+        文本
+      </button>
     </div>
 
     <!-- 操作栏 - 移到顶部 -->
@@ -901,6 +912,8 @@ const onListImgError = (e: Event) => {
     <Comics v-else-if="mediaTab === 'comic'" />
     <!-- 动态（帖子）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
     <Dynamics v-else-if="mediaTab === 'mixed'" />
+    <!-- 文本模式（未来内容管理，复用同一套资源索引机制） -->
+    <Texts v-else-if="mediaTab === 'text'" />
 
     <!-- 编辑抽屉（视频/漫画通用） -->
     <ItemEditDrawer

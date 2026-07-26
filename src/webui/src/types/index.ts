@@ -253,16 +253,67 @@ export interface IssueListResponse {
   page_size: number
 }
 
-// ============ 动态（Dynamic）：通过资源索引表自由引用视频 / 图片集（漫画）/ 未来文本 ============
+// ============ 资源索引（通用资产）与模式归属 ============
+export interface ResourcePresentation {
+  title?: string
+  thumbnail?: string
+  duration?: number
+  width?: number
+  height?: number
+  page_count?: number
+  caption?: string
+  summary?: string
+  source_url?: string
+  downloaded_by?: string
+}
+
+export interface ResourceIndex {
+  id: number
+  kind: string            // 'video_file' | 'comic_folder' | 'text'
+  location: string
+  library_id?: number | null
+  hash?: string
+  meta?: any
+  presentation?: ResourcePresentation
+  modes?: string[]        // 该资源归属的模式
+  updated_at?: string
+}
+
+export interface ModeCollection {
+  id: number
+  name: string
+  mode: string
+  library_id?: number | null
+}
+
+export interface TextResource {
+  id: number
+  resource_index_id: number
+  body?: string
+  summary?: string
+  kind?: string
+  location?: string
+  presentation?: ResourcePresentation
+  updated_at?: string
+}
+
+export interface AvailableMode {
+  mode: string
+  count: number
+}
+
+// ============ 动态（Dynamic）：通过资源索引表自由引用视频 / 图片集（漫画）/ 文本 ============
 export interface DynamicRef {
   ref_id: number
   position: number
   note: string
   resource_index_id: number
-  kind?: string          // 'video_file' | 'comic_folder' | ...
+  kind?: string          // 'video_file' | 'comic_folder' | 'text'
   location?: string
   video?: Video
   comic?: Comic
+  text?: TextResource
+  presentation?: ResourcePresentation   // 引用目标无富化实体时的兜底呈现
 }
 
 export interface Dynamic {

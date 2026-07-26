@@ -1,10 +1,15 @@
-"""入库：把脚本产出文件登记成 DPlayer 的 video / comic 资源。
+"""入库：把脚本产出文件登记成 DPlayer 资源，并按指定「模式（modes）」归属。
 
-优先复用现有入库逻辑：
-- 视频：library_watcher.get_watcher().upsert_video(path, library_id)
-- 漫画：backend.comic.scanner.scan_library_comics(library_id, app)
+设计（见 docs/multi_mode_resource_management.md）：
+- ResourceIndex 是通用资产；kind: video_file / comic_folder / text。
+- modes 决定资源归属哪些单资源模式（video/comic/text）；组合模式 dynamic 由 Dynamic 引用表达。
+- 例：modes=['video'] -> 建 Video，视频列表可见；
+     modes=['dynamic'] -> 只建 ResourceIndex（不建 Video），由后续 Dynamic 引用，视频列表不可见；
+     modes=['video','dynamic'] -> 视频列表与动态帖子均可见。
 """
 import os
+
+from core.models import ResourceIndex, ResourceMode, set_resource_modes
 
 
 def _is_video_ext(path):
@@ -13,11 +18,29 @@ def _is_video_ext(path):
                    '.m4v', '.mpg', '.mpeg', '.wmv', '.3gp')
 
 
-def ingest_file(library_id, path, app, kind=None):
-    """把一个文件/目录登记进指定资源库。
+_KIND_TO_RI = {'video': 'video_file', 'comic': 'comic_folder', 'image': 'comic_folder', 'text': 'text'}
 
-    kind: 'video' | 'comic' | None（自动推断）。
-    返回 dict {success, message}。
+
+def _get_or_create_resource_index(library_id, path, ri_kind, meta):
+    """在调用方已有的 app_context 内获取/创建 ResourceIndex（不打开新 context）。"""
+    ri = ResourceIndex.query.filter_by(location=path, kind=ri_kind).first()
+    if not ri:
+        ri = ResourceIndex(kind=ri_kind, location=path, library_id=library_id)
+        if meta:
+            ri.set_meta(meta)
+        db.session.add(ri)
+        db.session.flush()
+    elif meta:
+        ri.set_meta(meta)
+        db.session.flush()
+    return ri
+
+
+def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_id=None,
+                meta=None, user_id=None):
+    """把一个文件/目录登记进指定资源库，并按 modes 归属模式。
+
+    返回 dict：{success, resource_index_id?, kind?, modes?, message}
     """
     if not path or not (os.path.isfile(path) or os.path.isdir(path)):
         return {'success': False, 'message': f'文件不存在: {path}'}
@@ -30,21 +53,47 @@ def ingest_file(library_id, path, app, kind=None):
         else:
             kind = 'video'
 
-    try:
-        if kind == 'video':
-            from library_watcher import get_watcher
-            w = get_watcher()
-            if w:
-                w.upsert_video(path, library_id)
-            else:
-                return {'success': False, 'message': 'library_watcher 未初始化，无法入库视频'}
-            return {'success': True, 'message': f'已入库视频: {path}'}
+    ri_kind = _KIND_TO_RI.get(kind, kind)
+    modes = [m for m in (modes or ('video',)) if ResourceMode.is_valid(m)]
 
-        if kind == 'comic':
-            from backend.comic.scanner import scan_library_comics
-            scan_library_comics(library_id, app)
-            return {'success': True, 'message': f'已扫描入库漫画库: {library_id}'}
+    try:
+        with app.app_context():
+            # 1) 获取/创建 ResourceIndex（按 location + kind 去重）
+            if kind == 'video' and ResourceMode.VIDEO in modes:
+                # 复用既有扫描/去重/缩略图逻辑（会建 Video + ResourceIndex）
+                from library_watcher import get_watcher
+                w = get_watcher()
+                if not w:
+                    return {'success': False, 'message': 'library_watcher 未初始化，无法入库视频'}
+                entry = w.upsert_video(path, library_id)
+                ri = entry.resource_index if entry else None
+                if not ri:
+                    return {'success': False, 'message': f'视频入库失败: {path}'}
+                if meta:
+                    ri.set_meta(meta)
+            elif kind == 'comic' and ResourceMode.COMIC in modes:
+                from backend.comic.scanner import scan_library_comics
+                comics = scan_library_comics(library_id, app=app, specific_paths=[path])
+                ri = None
+                for c in comics:
+                    if c.resource_index and c.resource_index.location == path:
+                        ri = c.resource_index
+                        break
+                if not ri:
+                    ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
+            else:
+                # 非主模式（如只进动态的 video、或 text）：直接建索引，不建富化实体
+                ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
+
+            # 2) 应用模式归属（membership 行 + 富化实体同步增删）
+            set_resource_modes(ri, modes, collection_id=collection_id, user_id=user_id)
+            db.session.commit()
+            return {
+                'success': True,
+                'resource_index_id': ri.id,
+                'kind': ri.kind,
+                'modes': modes,
+                'message': f'已入库({",".join(modes)}): {path}',
+            }
     except Exception as e:
         return {'success': False, 'message': f'入库失败: {e}'}
-
-    return {'success': False, 'message': f'未知资源类型: {kind}'}

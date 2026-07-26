@@ -475,19 +475,33 @@ class ScriptJobManager:
         return True, '已记录待入库文件'
 
     def _reconcile(self, job_id, library_id, files):
-        """把脚本产出文件从临时目录移动到资源库路径（跨盘安全），再入库。
+        """把脚本产出文件从临时目录移动到资源库路径（跨盘安全），再按 modes 入库。
 
-        返回移动后的最终路径列表。
+        返回移动后的最终路径列表。同组（group）的 dynamic 资源会被聚合成一条动态帖子。
         """
         final_paths = []
+        dynamic_groups = {}  # group_key -> {'title':..., 'ids':[...]}
         if not library_id:
             return final_paths
+        job = self._get_job_row(job_id)
+        owner_id = job['owner_id'] if job else None
         lib = self._lib_ctx(library_id)
         lib_path = lib[0]['path'] if lib else ''
-        working_dir = self._get_job_row(job_id)['working_dir']
+        working_dir = job['working_dir']
         for f in files:
             path = f.get('path') if isinstance(f, dict) else f
             kind = f.get('type') if isinstance(f, dict) else None
+            # 模式归属：脚本可逐文件指定 target_modes，否则默认只进视频模式（向后兼容）
+            modes = f.get('target_modes') or f.get('modes') or ['video']
+            group = f.get('group')
+            collection_id = f.get('collection_id')
+            meta = {
+                'title': f.get('title'),
+                'thumbnail': f.get('thumbnail') or (path if (isinstance(f, dict) and f.get('type') == 'image') else None),
+                'duration': f.get('duration'),
+                'caption': f.get('caption'),
+                'source_url': f.get('source_url'),
+            }
             if not path or not os.path.exists(path):
                 continue
             # 若仍在临时目录，移动到资源库默认路径（shutil.move 支持跨盘）
@@ -501,10 +515,30 @@ class ScriptJobManager:
                 except Exception as e:
                     self._append_log(job_id, 'error', f'移动文件失败: {e}')
                     continue
-            res = ingest_file(library_id, path, self.app, kind)
+            res = ingest_file(library_id, path, self.app, kind, modes=modes,
+                              collection_id=collection_id, meta=meta, user_id=owner_id)
             self._append_log(job_id, 'info' if res.get('success') else 'error',
                              '入库: ' + res.get('message', ''))
             final_paths.append(path)
+            # 收集动态模式资源，用于聚合为帖子（组合模式）
+            if res.get('success') and 'dynamic' in (res.get('modes') or []):
+                rid = res.get('resource_index_id')
+                if rid:
+                    gk = group or '_default_'
+                    dynamic_groups.setdefault(gk, {'title': f.get('post_title'), 'ids': []})
+                    dynamic_groups[gk]['ids'].append(rid)
+        # 聚合动态：同组资源合成一条动态帖子（例：图文+视频一体的下载）
+        if dynamic_groups:
+            try:
+                with self.app.app_context():
+                    from core.models import create_dynamic
+                    for gk, g in dynamic_groups.items():
+                        if g['ids']:
+                            d = create_dynamic(g.get('title') or '脚本生成的动态', None, g['ids'], user_id=owner_id)
+                            self._append_log(job_id, 'info',
+                                             f'已生成动态帖子 #{d.id}（{len(g["ids"])} 个资源）')
+            except Exception as e:
+                self._append_log(job_id, 'error', f'生成动态失败: {e}')
         return final_paths
 
     # ---------- 取消 ----------

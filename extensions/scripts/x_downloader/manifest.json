@@ -33,6 +33,14 @@
       "description": "下载的视频将移动并入库到该资源库；图片也会暂存到该资源库目录"
     },
     {
+      "name": "target_modes",
+      "type": "multi_enum",
+      "label": "入库模式",
+      "enum": ["video", "comic", "text", "dynamic"],
+      "default": ["video"],
+      "description": "选择下载资源归属的模式：video→视频列表可见；comic→漫画列表可见；dynamic→只在动态（帖子）中可见、不进列表（适合图文+视频一体的帖子）；可多选。同一任务的多个文件会自动聚合成一条动态。"
+    },
+    {
       "name": "simulate",
       "type": "bool",
       "label": "演示模式（不联网）",

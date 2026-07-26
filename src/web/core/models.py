@@ -139,13 +139,18 @@ class UserSession(db.Model):
         }
 
 class ResourceIndex(db.Model):
-    """资源索引表：解耦「实体（视频/漫画/动态）」与「本体在磁盘上的具体位置」。
+    """资源索引表：解耦「实体（视频/漫画/动态/文本）」与「本体在磁盘上的具体位置」。
 
     每个实体只持有 resource_index_id，通过本表指向具体的磁盘路径：
       - kind='video_file'   -> location 为视频文件
-      - kind='comic_folder' -> location 为漫画文件夹
-      - kind='text'         -> 以后扩展（文本等）
+      - kind='comic_folder' -> location 为漫画（图片集）文件夹
+      - kind='text'         -> 文本资源（未来扩展）
     移动 / 重命名资源只需更新本表 location 一行，所有引用它的实体自动跟随。
+
+    meta（JSON）是「通用资产呈现」存储，标准化键（缺省可空）：
+      title / thumbnail / duration(秒) / width / height /
+      page_count / caption / summary / source_url / downloaded_by
+    无论是否建了 Video/Comic/Text 富化实体，都能用 presentation() 渲染卡片。
     """
     __tablename__ = 'resource_index'
     id = db.Column(db.Integer, primary_key=True)
@@ -153,9 +158,42 @@ class ResourceIndex(db.Model):
     location = db.Column(db.String(600), nullable=False)
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     hash = db.Column(db.String(64), index=True)
-    meta = db.Column(db.Text)  # JSON: size / mtime / page_count 等
+    meta = db.Column(db.Text)  # JSON: 通用资产呈现（见类文档）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_meta(self):
+        try:
+            return json.loads(self.meta) if self.meta else {}
+        except Exception:
+            return {}
+
+    def set_meta(self, patch):
+        """合并写入 meta（只更新提供的键）。"""
+        m = self.get_meta()
+        m.update({k: v for k, v in (patch or {}).items() if v is not None})
+        self.meta = json.dumps(m, ensure_ascii=False)
+
+    def _basename(self):
+        if not self.location:
+            return None
+        return self.location.replace('\\', '/').rstrip('/').split('/')[-1]
+
+    def presentation(self):
+        """通用资产呈现：任一模式（含只属于动态的资源）都能用同一套字段渲染卡片。"""
+        m = self.get_meta()
+        return {
+            'title': m.get('title') or self._basename(),
+            'thumbnail': m.get('thumbnail'),
+            'duration': m.get('duration'),
+            'width': m.get('width'),
+            'height': m.get('height'),
+            'page_count': m.get('page_count'),
+            'caption': m.get('caption'),
+            'summary': m.get('summary'),
+            'source_url': m.get('source_url'),
+            'downloaded_by': m.get('downloaded_by'),
+        }
 
     def to_dict(self):
         return {
@@ -164,9 +202,193 @@ class ResourceIndex(db.Model):
             'location': self.location,
             'library_id': self.library_id,
             'hash': self.hash,
-            'meta': json.loads(self.meta) if self.meta else None,
+            'meta': self.get_meta(),
+            'presentation': self.presentation(),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class ResourceMode:
+    """资源模式（逻辑呈现轴）。
+
+    - 单资源模式（video/comic/text）：可见性 = resource_memberships 中对应 mode 的归属行。
+    - 组合模式（dynamic）：由 Dynamic 通过 DynamicRef 引用资源表达，不写入 membership 表。
+    """
+    VIDEO = 'video'
+    COMIC = 'comic'
+    TEXT = 'text'
+    DYNAMIC = 'dynamic'   # 组合模式
+
+    SINGLE = (VIDEO, COMIC, TEXT)  # 单资源模式集合
+
+    @classmethod
+    def is_valid(cls, mode):
+        return mode in (cls.VIDEO, cls.COMIC, cls.TEXT, cls.DYNAMIC)
+
+    @classmethod
+    def is_single(cls, mode):
+        return mode in cls.SINGLE
+
+
+class ResourceModeMembership(db.Model):
+    """资源-模式归属：单资源模式（video/comic/text）可见性的唯一真相源。
+
+    与富化实体（Video/Comic/Text）在「同一事务」内写入，杜绝与实体存在性双源漂移。
+    """
+    __tablename__ = 'resource_memberships'
+    id = db.Column(db.Integer, primary_key=True)
+    resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=False, index=True)
+    mode = db.Column(db.String(32), nullable=False, index=True)
+    position = db.Column(db.Integer, default=0)
+    note = db.Column(db.Text)  # 该模式下覆盖的标题/说明
+    collection_id = db.Column(db.Integer, db.ForeignKey('collections.id'), nullable=True)
+    created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    resource_index = db.relationship('ResourceIndex', backref='memberships')
+
+    __table_args__ = (db.UniqueConstraint('resource_index_id', 'mode', name='uq_res_mode'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'resource_index_id': self.resource_index_id,
+            'mode': self.mode,
+            'position': self.position,
+            'note': self.note,
+            'collection_id': self.collection_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Collection(db.Model):
+    """模式内合集（可选分组）：如「某次爬取的图文合集」。"""
+    __tablename__ = 'collections'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False)
+    mode = db.Column(db.String(32), nullable=False, index=True)
+    library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
+    created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    memberships = db.relationship('ResourceModeMembership', backref='collection')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'mode': self.mode,
+            'library_id': self.library_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Text(db.Model):
+    """文本模式富化实体（未来的文本内容管理）。
+
+    文本资源的本体即 resource_index.location（可为文本文件路径或留空，正文存 body）。
+    """
+    __tablename__ = 'texts'
+    id = db.Column(db.Integer, primary_key=True)
+    resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=False, unique=True)
+    body = db.Column(db.Text)
+    summary = db.Column(db.Text)
+    resource_index = db.relationship('ResourceIndex', backref='text')
+
+    def to_dict(self):
+        ri = self.resource_index
+        return {
+            'id': self.id,
+            'resource_index_id': self.resource_index_id,
+            'body': self.body,
+            'summary': self.summary,
+            'kind': ri.kind if ri else None,
+            'location': ri.location if ri else None,
+            'presentation': ri.presentation() if ri else None,
+            'updated_at': ri.updated_at.isoformat() if ri and ri.updated_at else None,
+        }
+
+
+def ensure_mode_enrichment(ri, mode):
+    """为某单资源模式确保富化实体存在（与 membership 同一事务内调用）。"""
+    if mode == ResourceMode.VIDEO:
+        if not Video.query.filter_by(resource_index_id=ri.id).first():
+            meta = ri.get_meta()
+            title = meta.get('title') or ri._basename() or '未命名视频'
+            v = Video(resource_index_id=ri.id, library_id=ri.library_id,
+                      file_name=ri._basename(), hash=ri.hash or ri.location or f'ri-{ri.id}',
+                      title=title, url=ri.location or '', duration=meta.get('duration'))
+            db.session.add(v)
+    elif mode == ResourceMode.COMIC:
+        if not Comic.query.filter_by(resource_index_id=ri.id).first():
+            c = Comic(resource_index_id=ri.id, folder_path=ri.location,
+                      library_id=ri.library_id, title=ri._basename() or '未命名漫画',
+                      hash=ri.hash or ri.location or f'ri-{ri.id}')
+            db.session.add(c)
+    elif mode == ResourceMode.TEXT:
+        if not Text.query.filter_by(resource_index_id=ri.id).first():
+            t = Text(resource_index_id=ri.id, summary=ri.get_meta().get('summary'))
+            db.session.add(t)
+
+
+def delete_mode_enrichment(ri, mode):
+    """移除某模式时清理其富化实体（membership 是可见性唯一真相源）。"""
+    if mode == ResourceMode.VIDEO:
+        v = Video.query.filter_by(resource_index_id=ri.id).first()
+        if v:
+            db.session.delete(v)
+    elif mode == ResourceMode.COMIC:
+        c = Comic.query.filter_by(resource_index_id=ri.id).first()
+        if c:
+            db.session.delete(c)
+    elif mode == ResourceMode.TEXT:
+        t = Text.query.filter_by(resource_index_id=ri.id).first()
+        if t:
+            db.session.delete(t)
+
+
+def set_resource_modes(ri, modes, collection_id=None, user_id=None):
+    """设置资源的单资源模式归属（membership 行 + 富化实体同步增删）。
+
+    组合模式（dynamic）不在此处理——它由 Dynamic 通过 DynamicRef 引用表达。
+    """
+    wanted = []
+    for m in (modes or []):
+        if m == ResourceMode.DYNAMIC or not ResourceMode.is_valid(m):
+            continue
+        if m not in wanted:
+            wanted.append(m)
+    existing = {mbr.mode: mbr for mbr in ri.memberships}
+    for mode in existing:
+        if mode not in wanted:
+            delete_mode_enrichment(ri, mode)
+            db.session.delete(existing[mode])
+    for mode in wanted:
+        if mode not in existing:
+            mbr = ResourceModeMembership(resource_index_id=ri.id, mode=mode,
+                                         collection_id=collection_id, created_by=user_id)
+            db.session.add(mbr)
+            ensure_mode_enrichment(ri, mode)
+    db.session.commit()
+    return ri
+
+
+def create_dynamic(title, content=None, resource_index_ids=None, user_id=None):
+    """由一组资源索引创建一条动态（组合模式帖子）。
+
+    例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条动态，视频模式不会单独出现。
+    """
+    d = Dynamic(title=title or '未命名动态', content=content, owner_id=user_id)
+    db.session.add(d)
+    db.session.flush()
+    for i, rid in enumerate(resource_index_ids):
+        ri = ResourceIndex.query.get(rid)
+        if not ri:
+            continue
+        ref = DynamicRef(dynamic_id=d.id, resource_index_id=rid, position=i)
+        db.session.add(ref)
+    db.session.commit()
+    return d
 
 
 class Video(db.Model):
@@ -1246,10 +1468,21 @@ class Dynamic(db.Model):
                         v = Video.query.filter_by(resource_index_id=ri.id).first()
                         if v:
                             entry['video'] = v.to_dict()
+                        else:
+                            # 只属于动态、未建 Video 实体的视频：用通用呈现渲染
+                            entry['presentation'] = ri.presentation()
                     elif ri.kind == 'comic_folder':
                         c = Comic.query.filter_by(resource_index_id=ri.id).first()
                         if c:
                             entry['comic'] = c.to_dict()
+                        else:
+                            entry['presentation'] = ri.presentation()
+                    elif ri.kind == 'text':
+                        t = Text.query.filter_by(resource_index_id=ri.id).first()
+                        if t:
+                            entry['text'] = t.to_dict()
+                        else:
+                            entry['presentation'] = ri.presentation()
                 items.append(entry)
             d['refs'] = items
         else:
@@ -1317,6 +1550,22 @@ def migrate_resource_index():
             db.session.flush()
             db.session.execute(db.text("UPDATE comics SET resource_index_id=:rid WHERE id=:cid"),
                                {'rid': ri.id, 'cid': cid})
+
+        # 4) 模式归属回填：单资源模式可见性 = membership 行
+        #    video_file 资源被 Video 引用 -> mode='video'；comic_folder 被 Comic 引用 -> mode='comic'
+        video_count = 0
+        for (rid,) in db.session.execute(db.text(
+                "SELECT DISTINCT resource_index_id FROM videos WHERE resource_index_id IS NOT NULL")).fetchall():
+            if not ResourceModeMembership.query.filter_by(resource_index_id=rid, mode=ResourceMode.VIDEO).first():
+                db.session.add(ResourceModeMembership(resource_index_id=rid, mode=ResourceMode.VIDEO))
+                video_count += 1
+        comic_m_count = 0
+        for (rid,) in db.session.execute(db.text(
+                "SELECT DISTINCT resource_index_id FROM comics WHERE resource_index_id IS NOT NULL")).fetchall():
+            if not ResourceModeMembership.query.filter_by(resource_index_id=rid, mode=ResourceMode.COMIC).first():
+                db.session.add(ResourceModeMembership(resource_index_id=rid, mode=ResourceMode.COMIC))
+                comic_m_count += 1
+        print(f'[MIGRATE] mode-memberships 回填完成 (video={video_count}, comic={comic_m_count})')
 
         db.session.commit()
         print(f'[MIGRATE] resource_index 回填完成：视频/漫画已解耦到资源索引表')
