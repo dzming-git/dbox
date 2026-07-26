@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
 import type { TextResource } from '../types'
 
 const userStore = useUserStore()
+const router = useRouter()
 
 const texts = ref<TextResource[]>([])
 const loading = ref(false)
@@ -80,6 +82,10 @@ const removeText = async (t: TextResource) => {
 
 const canEdit = () => userStore.user && userStore.user.role >= 2
 
+const openText = (t: TextResource) => {
+  router.push(`/text/${t.id}`)
+}
+
 const formatDate = (s?: string) => {
   if (!s) return ''
   const d = new Date(s)
@@ -103,13 +109,13 @@ const formatDate = (s?: string) => {
     </div>
 
     <div v-else class="texts-list">
-      <div v-for="t in texts" :key="t.id" class="text-card">
+      <div v-for="t in texts" :key="t.id" class="text-card" @click="openText(t)">
         <div class="text-head">
           <h3 class="text-title">{{ t.presentation?.title || '未命名文本' }}</h3>
           <span class="text-date">{{ formatDate(t.updated_at) }}</span>
           <div v-if="canEdit()" class="text-ops">
-            <button class="op-btn" @click="openEdit(t)">编辑</button>
-            <button class="op-btn danger" @click="removeText(t)">删除</button>
+            <button class="op-btn" @click.stop="openEdit(t)">编辑</button>
+            <button class="op-btn danger" @click.stop="removeText(t)">删除</button>
           </div>
         </div>
         <p v-if="t.summary" class="text-summary">{{ t.summary }}</p>
@@ -149,7 +155,7 @@ const formatDate = (s?: string) => {
 .error-box { color: #ff6b6b; padding: 12px; background: #2a1a1a; border-radius: 8px; }
 .empty-state { color: #666; text-align: center; padding: 60px 0; }
 .texts-list { display: flex; flex-direction: column; gap: 16px; }
-.text-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; }
+.text-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; cursor: pointer; }
 .text-head { display: flex; align-items: center; gap: 12px; }
 .text-title { font-size: 17px; font-weight: 600; color: #fff; margin: 0; flex: 1; }
 .text-date { font-size: 12px; color: #777; }

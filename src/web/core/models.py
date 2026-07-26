@@ -139,18 +139,18 @@ class UserSession(db.Model):
         }
 
 class ResourceIndex(db.Model):
-    """资源索引表：解耦「实体（视频/漫画/帖子/文本）」与「本体在磁盘上的具体位置」。
+    """资源索引表：解耦「实体（视频/图集/帖子/文本）」与「本体在磁盘上的具体位置」。
 
     每个实体只持有 resource_index_id，通过本表指向具体的磁盘路径：
       - kind='video_file'   -> location 为视频文件
-      - kind='comic_folder' -> location 为漫画（图片集）文件夹
+      - kind='gallery_folder' -> location 为图集（图片集）文件夹
       - kind='text'         -> 文本资源（未来扩展）
     移动 / 重命名资源只需更新本表 location 一行，所有引用它的实体自动跟随。
 
     meta（JSON）是「通用资产呈现」存储，标准化键（缺省可空）：
       title / thumbnail / duration(秒) / width / height /
       page_count / caption / summary / source_url / downloaded_by
-    无论是否建了 Video/Comic/Text 富化实体，都能用 presentation() 渲染卡片。
+    无论是否建了 Video/Gallery/Text 富化实体，都能用 presentation() 渲染卡片。
     """
     __tablename__ = 'resource_index'
     id = db.Column(db.Integer, primary_key=True)
@@ -211,19 +211,19 @@ class ResourceIndex(db.Model):
 class ResourceMode:
     """资源模式（逻辑呈现轴）。
 
-    - 单资源模式（video/comic/text）：可见性 = resource_memberships 中对应 mode 的归属行。
+    - 单资源模式（video/gallery/text）：可见性 = resource_memberships 中对应 mode 的归属行。
     - 组合模式（post）：由 Post 通过 PostRef 引用资源表达，不写入 membership 表。
     """
     VIDEO = 'video'
-    COMIC = 'comic'
+    GALLERY = 'gallery'
     TEXT = 'text'
     POST = 'post'   # 组合模式
 
-    SINGLE = (VIDEO, COMIC, TEXT)  # 单资源模式集合
+    SINGLE = (VIDEO, GALLERY, TEXT)  # 单资源模式集合
 
     @classmethod
     def is_valid(cls, mode):
-        return mode in (cls.VIDEO, cls.COMIC, cls.TEXT, cls.POST)
+        return mode in (cls.VIDEO, cls.GALLERY, cls.TEXT, cls.POST)
 
     @classmethod
     def is_single(cls, mode):
@@ -231,9 +231,9 @@ class ResourceMode:
 
 
 class ResourceModeMembership(db.Model):
-    """资源-模式归属：单资源模式（video/comic/text）可见性的唯一真相源。
+    """资源-模式归属：单资源模式（video/gallery/text）可见性的唯一真相源。
 
-    与富化实体（Video/Comic/Text）在「同一事务」内写入，杜绝与实体存在性双源漂移。
+    与富化实体（Video/Gallery/Text）在「同一事务」内写入，杜绝与实体存在性双源漂移。
     """
     __tablename__ = 'resource_memberships'
     id = db.Column(db.Integer, primary_key=True)
@@ -319,11 +319,11 @@ def ensure_mode_enrichment(ri, mode):
                       file_name=ri._basename(), hash=ri.hash or ri.location or f'ri-{ri.id}',
                       title=title, url=ri.location or '', duration=meta.get('duration'))
             db.session.add(v)
-    elif mode == ResourceMode.COMIC:
-        if not Comic.query.filter_by(resource_index_id=ri.id).first():
-            c = Comic(resource_index_id=ri.id, folder_path=ri.location,
-                      library_id=ri.library_id, title=ri._basename() or '未命名漫画',
-                      hash=ri.hash or ri.location or f'ri-{ri.id}')
+    elif mode == ResourceMode.GALLERY:
+        if not Gallery.query.filter_by(resource_index_id=ri.id).first():
+            c = Gallery(resource_index_id=ri.id, folder_path=ri.location,
+                       library_id=ri.library_id, title=ri._basename() or '未命名图集',
+                       hash=ri.hash or ri.location or f'ri-{ri.id}')
             db.session.add(c)
     elif mode == ResourceMode.TEXT:
         if not Text.query.filter_by(resource_index_id=ri.id).first():
@@ -337,8 +337,8 @@ def delete_mode_enrichment(ri, mode):
         v = Video.query.filter_by(resource_index_id=ri.id).first()
         if v:
             db.session.delete(v)
-    elif mode == ResourceMode.COMIC:
-        c = Comic.query.filter_by(resource_index_id=ri.id).first()
+    elif mode == ResourceMode.GALLERY:
+        c = Gallery.query.filter_by(resource_index_id=ri.id).first()
         if c:
             db.session.delete(c)
     elif mode == ResourceMode.TEXT:
@@ -744,19 +744,19 @@ class FavoriteCollection(db.Model):
 
 
 class CollectionVideo(db.Model):
-    """收藏夹与资源的关联表（视频 / 漫画地位等同，通过 item_type 区分）"""
+    """收藏夹与资源的关联表（视频 / 图集地位等同，通过 item_type 区分）"""
     __tablename__ = 'collection_videos'
 
     id = db.Column(db.Integer, primary_key=True)
     collection_id = db.Column(db.Integer, db.ForeignKey('favorite_collections.id'), nullable=False)
     user_session = db.Column(db.String(100), nullable=False, index=True)
-    item_type = db.Column(db.String(20), nullable=False, default='video')  # 'video' | 'comic'
+    item_type = db.Column(db.String(20), nullable=False, default='video')  # 'video' | 'gallery'
     video_id = db.Column(db.Integer, db.ForeignKey('videos.id'), nullable=True)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=True)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     collection = db.relationship('FavoriteCollection', back_populates='items')
-    comic = db.relationship('Comic', foreign_keys=[comic_id])
+    gallery = db.relationship('Gallery', foreign_keys=[gallery_id])
 
     def to_dict(self):
         return {
@@ -764,13 +764,13 @@ class CollectionVideo(db.Model):
             'collection_id': self.collection_id,
             'item_type': self.item_type,
             'video_id': self.video_id,
-            'comic_id': self.comic_id,
+            'gallery_id': self.gallery_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class MediaCollection(db.Model):
-    """合集（独立于收藏夹）：用户把视频/漫画按主题归组，支持排序与多归属。"""
+    """合集（独立于收藏夹）：用户把视频/图集按主题归组，支持排序与多归属。"""
     __tablename__ = 'media_collections'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -797,13 +797,13 @@ class MediaCollection(db.Model):
 
 
 class MediaCollectionItem(db.Model):
-    """合集项（视频/漫画）。一个资源可同时属于多个合集。"""
+    """合集项（视频/图集）。一个资源可同时属于多个合集。"""
     __tablename__ = 'media_collection_items'
 
     id = db.Column(db.Integer, primary_key=True)
     collection_id = db.Column(db.Integer, db.ForeignKey('media_collections.id', ondelete='CASCADE'), nullable=False, index=True)
     owner_key = db.Column(db.String(64), nullable=False, index=True)
-    item_type = db.Column(db.String(16), nullable=False)  # 'video' | 'comic'
+    item_type = db.Column(db.String(16), nullable=False)  # 'video' | 'gallery'
     item_hash = db.Column(db.String(64), nullable=False)    # 资源身份用 hash（与路径解耦）
     position = db.Column(db.Integer, default=0)             # 合集内排序
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1205,10 +1205,10 @@ class SharedWatchSession(db.Model):
         }
 
 
-# ==================== 漫画模式（Comic Mode）数据模型 ====================
-class Comic(db.Model):
-    """漫画模型 - 一本漫画 = 磁盘上一个扁平的图片文件夹"""
-    __tablename__ = 'comics'
+# ==================== 图集模式（Gallery Mode）数据模型 ====================
+class Gallery(db.Model):
+    """图集模型 - 一本图集 = 磁盘上一个扁平的图片文件夹"""
+    __tablename__ = 'galleries'
 
     id = db.Column(db.Integer, primary_key=True)
     hash = db.Column(db.String(64), unique=True, nullable=False, index=True)  # 内容指纹（与路径解耦）
@@ -1226,7 +1226,7 @@ class Comic(db.Model):
     @folder_path.setter
     def folder_path(self, value):
         if self.resource_index is None:
-            self.resource_index = ResourceIndex(kind='comic_folder')
+            self.resource_index = ResourceIndex(kind='gallery_folder')
         self.resource_index.location = value
         if self.library_id is not None:
             self.resource_index.library_id = self.library_id
@@ -1250,10 +1250,10 @@ class Comic(db.Model):
     in_trash = db.Column(db.Boolean, default=False, nullable=False, index=True)
     trashed_at = db.Column(db.DateTime, nullable=True)
 
-    pages = db.relationship('ComicPage', back_populates='comic', cascade='all, delete-orphan',
-                            order_by='ComicPage.page_index')
-    interactions = db.relationship('ComicInteraction', back_populates='comic', cascade='all, delete-orphan')
-    progress = db.relationship('ComicProgress', back_populates='comic', cascade='all, delete-orphan')
+    pages = db.relationship('GalleryPage', back_populates='gallery', cascade='all, delete-orphan',
+                            order_by='GalleryPage.page_index')
+    interactions = db.relationship('GalleryInteraction', back_populates='gallery', cascade='all, delete-orphan')
+    progress = db.relationship('GalleryProgress', back_populates='gallery', cascade='all, delete-orphan')
 
     @staticmethod
     def generate_hash(folder_path, page_paths):
@@ -1289,73 +1289,73 @@ class Comic(db.Model):
         }
 
 
-class ComicPage(db.Model):
-    """漫画页面 - 一页图片"""
-    __tablename__ = 'comic_pages'
+class GalleryPage(db.Model):
+    """图集页面 - 一页图片"""
+    __tablename__ = 'gallery_pages'
 
     id = db.Column(db.Integer, primary_key=True)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False, index=True)
     page_index = db.Column(db.Integer, nullable=False)   # 从 0 开始
     file_path = db.Column(db.String(600), index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    comic = db.relationship('Comic', back_populates='pages')
+    gallery = db.relationship('Gallery', back_populates='pages')
 
-    __table_args__ = (db.UniqueConstraint('comic_id', 'page_index', name='_comic_page_uc'),)
+    __table_args__ = (db.UniqueConstraint('gallery_id', 'page_index', name='_gallery_page_uc'),)
 
 
-class ComicInteraction(db.Model):
-    """漫画交互（点赞/收藏/不喜欢），结构对齐 videos 的 user_interactions"""
-    __tablename__ = 'comic_interactions'
+class GalleryInteraction(db.Model):
+    """图集交互（点赞/收藏/不喜欢），结构对齐 videos 的 user_interactions"""
+    __tablename__ = 'gallery_interactions'
 
     id = db.Column(db.Integer, primary_key=True)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False, index=True)
     user_session = db.Column(db.String(100), nullable=False)
     interaction_type = db.Column(db.String(20), nullable=False)  # like / favorite / dislike
     interaction_score = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    comic = db.relationship('Comic', back_populates='interactions')
+    gallery = db.relationship('Gallery', back_populates='interactions')
 
-    __table_args__ = (db.UniqueConstraint('comic_id', 'user_session', 'interaction_type',
-                                          name='_comic_interaction_uc'),)
+    __table_args__ = (db.UniqueConstraint('gallery_id', 'user_session', 'interaction_type',
+                                          name='_gallery_interaction_uc'),)
 
 
-class ComicProgress(db.Model):
-    """漫画阅读进度（按用户）"""
-    __tablename__ = 'comic_progress'
+class GalleryProgress(db.Model):
+    """图集阅读进度（按用户）"""
+    __tablename__ = 'gallery_progress'
 
     id = db.Column(db.Integer, primary_key=True)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False, index=True)
     user_session = db.Column(db.String(100), nullable=False)
     page = db.Column(db.Integer, default=0)         # 当前阅读到的页码（从 1 开始）
     progress = db.Column(db.Float, default=0.0)     # 0~1 阅读进度
     in_continue = db.Column(db.Boolean, default=False, nullable=False, index=True)  # 是否主动加入「继续阅读」列表
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    comic = db.relationship('Comic', back_populates='progress')
+    gallery = db.relationship('Gallery', back_populates='progress')
 
-    __table_args__ = (db.UniqueConstraint('comic_id', 'user_session', name='_comic_progress_uc'),)
+    __table_args__ = (db.UniqueConstraint('gallery_id', 'user_session', name='_gallery_progress_uc'),)
 
 
-class ComicTag(db.Model):
-    """漫画-标签关联表（复用主应用的 tags 表，支持多资源库独立标签体系）"""
-    __tablename__ = 'comic_tags'
+class GalleryTag(db.Model):
+    """图集-标签关联表（复用主应用的 tags 表，支持多资源库独立标签体系）"""
+    __tablename__ = 'gallery_tags'
 
     id = db.Column(db.Integer, primary_key=True)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False, index=True)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False, index=True)
     tag_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    comic = db.relationship('Comic')
+    gallery = db.relationship('Gallery')
     tag = db.relationship('Tag')
 
-    __table_args__ = (db.UniqueConstraint('comic_id', 'tag_id', name='_comic_tag_uc'),)
+    __table_args__ = (db.UniqueConstraint('gallery_id', 'tag_id', name='_gallery_tag_uc'),)
 
 
-class ComicPlaylist(db.Model):
-    """漫画合集/播放列表模型（对齐 videos 的 Playlist）"""
-    __tablename__ = 'comic_playlists'
+class GalleryPlaylist(db.Model):
+    """图集合集/播放列表模型（对齐 videos 的 Playlist）"""
+    __tablename__ = 'gallery_playlists'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
@@ -1363,15 +1363,15 @@ class ComicPlaylist(db.Model):
     user_session = db.Column(db.String(100), nullable=False, index=True)
     is_public = db.Column(db.Boolean, default=False)
     thumbnail = db.Column(db.String(500))
-    comic_count = db.Column(db.Integer, default=0)
+    gallery_count = db.Column(db.Integer, default=0)
     play_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    items = db.relationship('ComicPlaylistItem', back_populates='playlist', cascade='all, delete-orphan')
+    items = db.relationship('GalleryPlaylistItem', back_populates='playlist', cascade='all, delete-orphan')
 
-    def update_comic_count(self):
-        self.comic_count = len([item for item in self.items if item.comic is not None])
+    def update_gallery_count(self):
+        self.gallery_count = len([item for item in self.items if item.gallery is not None])
 
     def to_dict(self):
         return {
@@ -1381,43 +1381,43 @@ class ComicPlaylist(db.Model):
             'user_session': self.user_session,
             'is_public': self.is_public,
             'thumbnail': self.thumbnail,
-            'comic_count': self.comic_count,
+            'gallery_count': self.gallery_count,
             'play_count': self.play_count,
-            'items': [item.to_dict() for item in self.items if item.comic is not None],
+            'items': [item.to_dict() for item in self.items if item.gallery is not None],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 
-class ComicPlaylistItem(db.Model):
-    """漫画合集项模型（对齐 videos 的 PlaylistItem）"""
-    __tablename__ = 'comic_playlist_items'
+class GalleryPlaylistItem(db.Model):
+    """图集合集项模型（对齐 videos 的 PlaylistItem）"""
+    __tablename__ = 'gallery_playlist_items'
 
     id = db.Column(db.Integer, primary_key=True)
-    playlist_id = db.Column(db.Integer, db.ForeignKey('comic_playlists.id'), nullable=False)
-    comic_id = db.Column(db.Integer, db.ForeignKey('comics.id'), nullable=False)
+    playlist_id = db.Column(db.Integer, db.ForeignKey('gallery_playlists.id'), nullable=False)
+    gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False)
     position = db.Column(db.Integer, nullable=False)
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    playlist = db.relationship('ComicPlaylist', back_populates='items')
-    comic = db.relationship('Comic')
+    playlist = db.relationship('GalleryPlaylist', back_populates='items')
+    gallery = db.relationship('Gallery')
 
-    __table_args__ = (db.UniqueConstraint('playlist_id', 'comic_id', name='_comic_playlist_uc'),)
+    __table_args__ = (db.UniqueConstraint('playlist_id', 'gallery_id', name='_gallery_playlist_uc'),)
 
     def to_dict(self):
         d = {
             'id': self.id,
             'playlist_id': self.playlist_id,
-            'comic_id': self.comic_id,
+            'gallery_id': self.gallery_id,
             'position': self.position,
             'added_at': self.added_at.isoformat() if self.added_at else None
         }
-        if self.comic:
-            cd = self.comic.to_dict()
-            cd['cover_url'] = f'/comic-cover/{self.comic.hash}'
-            d['comic'] = cd
+        if self.gallery:
+            cd = self.gallery.to_dict()
+            cd['cover_url'] = f'/gallery-cover/{self.gallery.hash}'
+            d['gallery'] = cd
         else:
-            d['comic'] = None
+            d['gallery'] = None
         return d
 
 
@@ -1466,7 +1466,7 @@ class Post(db.Model):
                 if ri:
                     entry['kind'] = ri.kind
                     entry['location'] = ri.location
-                    # 解析出实际实体（视频 / 漫画）的概要
+                    # 解析出实际实体（视频 / 图集）的概要
                     if ri.kind == 'video_file':
                         v = Video.query.filter_by(resource_index_id=ri.id).first()
                         if v:
@@ -1474,10 +1474,10 @@ class Post(db.Model):
                         else:
                             # 只属于帖子、未建 Video 实体的视频：用通用呈现渲染
                             entry['presentation'] = ri.presentation()
-                    elif ri.kind == 'comic_folder':
-                        c = Comic.query.filter_by(resource_index_id=ri.id).first()
+                    elif ri.kind == 'gallery_folder':
+                        c = Gallery.query.filter_by(resource_index_id=ri.id).first()
                         if c:
-                            entry['comic'] = c.to_dict()
+                            entry['gallery'] = c.to_dict()
                         else:
                             entry['presentation'] = ri.presentation()
                     elif ri.kind == 'text':
@@ -1590,21 +1590,88 @@ def _migrate_post_ref_display_mode():
             print(f'post_refs.display_mode 迁移跳过: {e}')
 
 
+def _migrate_comic_tables_to_galleries():
+    """漫画 -> 图集：将历史表 comics/* 重命名为 galleries/*（幂等，向后兼容旧数据）。
+
+    注意：必须先把父表 comics 重命名为 galleries，SQLite 才会同步更新子表
+    （comic_pages 等）指向 comics 的外键引用，使其改写为指向 galleries。
+    """
+    pairs = [
+        ('comics', 'galleries'),
+        ('comic_pages', 'gallery_pages'),
+        ('comic_interactions', 'gallery_interactions'),
+        ('comic_progress', 'gallery_progress'),
+        ('comic_tags', 'gallery_tags'),
+        ('comic_playlists', 'gallery_playlists'),
+        ('comic_playlist_items', 'gallery_playlist_items'),
+    ]
+    try:
+        for old, new in pairs:
+            old_e = db.session.execute(
+                db.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {'n': old}).fetchone()
+            new_e = db.session.execute(
+                db.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {'n': new}).fetchone()
+            if old_e and not new_e:
+                db.session.execute(db.text(f"ALTER TABLE {old} RENAME TO {new}"))
+                db.session.commit()
+            elif old_e and new_e:
+                # create_all 已在本轮启动生成空的新表，丢弃后把旧表数据迁过来
+                db.session.execute(db.text(f"DROP TABLE {new}"))
+                db.session.commit()
+                db.session.execute(db.text(f"ALTER TABLE {old} RENAME TO {new}"))
+                db.session.commit()
+        # 列名：comic_id -> gallery_id（兼容老版本 SQLite：新增列并拷贝，旧列保留不删除）
+        for t in ('galleries', 'gallery_pages', 'gallery_interactions', 'gallery_progress',
+                  'gallery_tags', 'gallery_playlist_items', 'collection_videos'):
+            try:
+                cols = [r[1] for r in db.session.execute(db.text(f"PRAGMA table_info({t})")).fetchall()]
+                if 'comic_id' in cols and 'gallery_id' not in cols:
+                    db.session.execute(db.text(f"ALTER TABLE {t} ADD COLUMN gallery_id INTEGER"))
+                    db.session.execute(db.text(f"UPDATE {t} SET gallery_id = comic_id"))
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+        # 模式值：membership.mode 'comic' -> 'gallery'
+        db.session.execute(db.text(
+            "UPDATE resource_memberships SET mode='gallery' WHERE mode='comic'"))
+        db.session.commit()
+        # 资源索引 kind 'comic_folder' -> 'gallery_folder'
+        db.session.execute(db.text(
+            "UPDATE resource_index SET kind='gallery_folder' WHERE kind='comic_folder'"))
+        db.session.commit()
+        # 合集关联 item_type 'comic' -> 'gallery'
+        db.session.execute(db.text(
+            "UPDATE collection_videos SET item_type='gallery' WHERE item_type='comic'"))
+        db.session.commit()
+        print('[MIGRATE] 图集表已重命名为图集')
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'图集->图集 表迁移跳过: {e}')
+        except Exception:
+            print(f'图集->图集 表迁移跳过: {e}')
+
+
 def migrate_resource_index():
-    """[资源索引表] 将 videos.local_path / comics.folder_path 的历史数据回填到 resource_index，
+    """[资源索引表] 将 videos.local_path / galleries.folder_path 的历史数据回填到 resource_index，
     并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
 
-    - videos / comics 表已存在，create_all 不会为旧表新增列，因此此处显式 ALTER 补列。
+    - videos / galleries 表已存在，create_all 不会为旧表新增列，因此此处显式 ALTER 补列。
     - 仅对尚未绑定 resource_index 的实体回填（幂等）。
     - 旧的 local_path / folder_path 列保留在库中但不被模型映射（避免破坏性 DROP COLUMN）。
     """
     # 0) 历史表 dynamics/dynamic_refs 重命名为 posts/post_refs（动态 -> 帖子）
     _migrate_dynamic_tables_to_posts()
+    # 0.05) 历史表 comics/* 重命名为 galleries/*（漫画 -> 图集）
+    _migrate_comic_tables_to_galleries()
     # 0.1) 帖子引用新增 display_mode 列
     _migrate_post_ref_display_mode()
     try:
         # 1) 为已存在的实体表新增 resource_index_id 列（指向 resource_index.id）
-        for table in ('videos', 'comics'):
+        for table in ('videos', 'galleries'):
             cols = [r[1] for r in db.session.execute(db.text(f"PRAGMA table_info({table})")).fetchall()]
             if 'resource_index_id' not in cols:
                 db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN resource_index_id INTEGER"))
@@ -1621,42 +1688,42 @@ def migrate_resource_index():
             db.session.execute(db.text("UPDATE videos SET resource_index_id=:rid WHERE id=:vid"),
                                {'rid': ri.id, 'vid': vid})
 
-        # 3) 漫画：folder_path -> resource_index(kind='comic_folder')
+        # 3) 图集：folder_path -> resource_index(kind='gallery_folder')
         rows = db.session.execute(db.text(
-            "SELECT id, folder_path, library_id FROM comics "
+            "SELECT id, folder_path, library_id FROM galleries "
             "WHERE folder_path IS NOT NULL AND folder_path != '' AND resource_index_id IS NULL")).fetchall()
         for cid, fp, lib in rows:
-            ri = ResourceIndex(kind='comic_folder', location=fp, library_id=lib)
+            ri = ResourceIndex(kind='gallery_folder', location=fp, library_id=lib)
             db.session.add(ri)
             db.session.flush()
-            db.session.execute(db.text("UPDATE comics SET resource_index_id=:rid WHERE id=:cid"),
+            db.session.execute(db.text("UPDATE galleries SET resource_index_id=:rid WHERE id=:cid"),
                                {'rid': ri.id, 'cid': cid})
 
         # 4) 模式归属回填：单资源模式可见性 = membership 行
-        #    video_file 资源被 Video 引用 -> mode='video'；comic_folder 被 Comic 引用 -> mode='comic'
+        #    video_file 资源被 Video 引用 -> mode='video'；gallery_folder 被 Gallery 引用 -> mode='gallery'
         video_count = 0
         for (rid,) in db.session.execute(db.text(
                 "SELECT DISTINCT resource_index_id FROM videos WHERE resource_index_id IS NOT NULL")).fetchall():
             if not ResourceModeMembership.query.filter_by(resource_index_id=rid, mode=ResourceMode.VIDEO).first():
                 db.session.add(ResourceModeMembership(resource_index_id=rid, mode=ResourceMode.VIDEO))
                 video_count += 1
-        comic_m_count = 0
+        gallery_m_count = 0
         for (rid,) in db.session.execute(db.text(
-                "SELECT DISTINCT resource_index_id FROM comics WHERE resource_index_id IS NOT NULL")).fetchall():
-            if not ResourceModeMembership.query.filter_by(resource_index_id=rid, mode=ResourceMode.COMIC).first():
-                db.session.add(ResourceModeMembership(resource_index_id=rid, mode=ResourceMode.COMIC))
-                comic_m_count += 1
-        print(f'[MIGRATE] mode-memberships 回填完成 (video={video_count}, comic={comic_m_count})')
+                "SELECT DISTINCT resource_index_id FROM galleries WHERE resource_index_id IS NOT NULL")).fetchall():
+            if not ResourceModeMembership.query.filter_by(resource_index_id=rid, mode=ResourceMode.GALLERY).first():
+                db.session.add(ResourceModeMembership(resource_index_id=rid, mode=ResourceMode.GALLERY))
+                gallery_m_count += 1
+        print(f'[MIGRATE] mode-memberships 回填完成 (video={video_count}, gallery={gallery_m_count})')
 
         db.session.commit()
-        print(f'[MIGRATE] resource_index 回填完成：视频/漫画已解耦到资源索引表')
+        print(f'[MIGRATE] resource_index 回填完成：视频/图集已解耦到资源索引表')
     except Exception as e:
         db.session.rollback()
         print(f'[WARN] resource_index 迁移跳过: {e}')
 
 
 def migrate_collection_videos_schema():
-    """[TEST] 为 collection_videos 增加 item_type / comic_id 列（支持收藏夹收纳漫画）。
+    """[TEST] 为 collection_videos 增加 item_type / gallery_id 列（支持收藏夹收纳图集）。
 
     仅当列不存在时执行 ALTER，兼容旧库；create_all 不会为已存在的表新增列。
     """
@@ -1667,15 +1734,15 @@ def migrate_collection_videos_schema():
             if 'item_type' not in existing:
                 conn.execute(db.text(
                     "ALTER TABLE collection_videos ADD COLUMN item_type VARCHAR(20) NOT NULL DEFAULT 'video'"))
-            if 'comic_id' not in existing:
+            if 'gallery_id' not in existing:
                 conn.execute(db.text(
-                    "ALTER TABLE collection_videos ADD COLUMN comic_id INTEGER"))
+                    "ALTER TABLE collection_videos ADD COLUMN gallery_id INTEGER"))
     except Exception as e:
         print(f'[WARN] collection_videos 迁移跳过: {e}')
 
 
 def migrate_owner_columns():
-    """为 videos / comics 增加 owner_id 列（资源归属者），并把历史资源归属 root。
+    """为 videos / galleries 增加 owner_id 列（资源归属者），并把历史资源归属 root。
 
     仅当列不存在时执行 ALTER，兼容旧库；create_all 不会为已存在的表新增列。
     历史资源（owner_id 为 NULL）统一归属到 root 用户（id=1），保证其可管理。
@@ -1686,7 +1753,7 @@ def migrate_owner_columns():
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
 
-        for table in ('videos', 'comics'):
+        for table in ('videos', 'galleries'):
             cols = {c['name'] for c in insp.get_columns(table)}
             if 'owner_id' not in cols:
                 with db.engine.begin() as conn:
@@ -1706,7 +1773,7 @@ def migrate_video_libraries_rename():
     """将旧表 video_libraries 重命名为 resource_libraries（兼容历史库）。
 
     仅当 video_libraries 表仍存在时执行 ALTER，已重命名过的库不受影响。
-    SQLite 会自动将 videos / comics / tags 等表的 library_id 外键引用同步到新表名。
+    SQLite 会自动将 videos / galleries / tags 等表的 library_id 外键引用同步到新表名。
     """
     try:
         with db.engine.connect() as conn:
@@ -1721,10 +1788,10 @@ def migrate_video_libraries_rename():
 
 
 def migrate_trash_columns():
-    """为 videos / comics 增加回收站字段 in_trash / trashed_at（兼容历史库）。"""
+    """为 videos / galleries 增加回收站字段 in_trash / trashed_at（兼容历史库）。"""
     try:
         with db.engine.connect() as conn:
-            for table in ('videos', 'comics'):
+            for table in ('videos', 'galleries'):
                 cols = [r[1] for r in conn.execute(
                     db.text(f"PRAGMA table_info({table})")).fetchall()]
                 if 'in_trash' not in cols:

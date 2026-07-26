@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { comicApi } from '../api'
+import { galleryApi } from '../api'
 
 const router = useRouter()
 const tags = ref<any[]>([])
@@ -18,7 +18,7 @@ const flatten = (list: any[], depth = 0, out: any[] = []): any[] => {
 const loadTags = async () => {
   loading.value = true
   try {
-    const res: any = await comicApi.getComicTags({ tree: true })
+    const res: any = await galleryApi.getGalleryTags({ tree: true })
     tags.value = flatten(res.tags || [])
   } catch {
     tags.value = []
@@ -27,17 +27,17 @@ const loadTags = async () => {
   }
 }
 
-const viewComics = (tag: any) => {
-  router.push({ path: '/comics', query: { tag: String(tag.id) } })
+const viewGallerys = (tag: any) => {
+  router.push({ path: '/galleries', query: { tag: String(tag.id) } })
 }
 
 onMounted(loadTags)
 </script>
 
 <template>
-  <div class="comic-tags-container">
-    <h1 class="page-title">漫画标签</h1>
-    <p class="page-desc">按标签浏览漫画（数量基于你有权限查看的资源库）。</p>
+  <div class="gallery-tags-container">
+    <h1 class="page-title">图集标签</h1>
+    <p class="page-desc">按标签浏览图集（数量基于你有权限查看的资源库）。</p>
     <div v-if="loading" class="loading">加载中...</div>
     <div v-else-if="tags.length === 0" class="empty">暂无标签</div>
     <ul v-else class="tag-tree">
@@ -49,12 +49,12 @@ onMounted(loadTags)
       >
         <div class="tag-row">
           <span class="tag-name">{{ t.name }}</span>
-          <span class="tag-count">{{ t.comic_count }}</span>
+          <span class="tag-count">{{ t.gallery_count }}</span>
           <button
             class="tag-view-btn"
-            :disabled="!t.comic_count"
-            @click="viewComics(t)"
-          >查看漫画</button>
+            :disabled="!t.gallery_count"
+            @click="viewGallerys(t)"
+          >查看图集</button>
         </div>
       </li>
     </ul>
@@ -62,7 +62,7 @@ onMounted(loadTags)
 </template>
 
 <style scoped>
-.comic-tags-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.gallery-tags-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .page-title { font-size: 24px; font-weight: 600; color: #fff; margin: 0 0 6px; }
 .page-desc { color: #999; font-size: 14px; margin: 0 0 20px; }
 .loading, .empty { color: #888; text-align: center; padding: 60px 0; }

@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { comicApi } from '../api'
+import { galleryApi } from '../api'
 import { getDefaultSort } from '../utils/userSettings'
-import type { Comic } from '../types'
+import type { Gallery } from '../types'
 
-export const useComicStore = defineStore('comic', () => {
-  const comics = ref<Comic[]>([])
+export const useGalleryStore = defineStore('gallery', () => {
+  const galleries = ref<Gallery[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const pagination = ref({ limit: 24, offset: 0, total: 0 })
@@ -17,16 +17,16 @@ export const useComicStore = defineStore('comic', () => {
   const sortBy = ref(getDefaultSort().sort)
   const sortOrder = ref(getDefaultSort().order)
   const viewMode = ref<'grid' | 'list'>(
-    (localStorage.getItem('dplayer_comic_view_mode') as 'grid' | 'list') || 'grid'
+    (localStorage.getItem('dplayer_gallery_view_mode') as 'grid' | 'list') || 'grid'
   )
 
-  const hasMore = computed(() => comics.value.length < pagination.value.total)
+  const hasMore = computed(() => galleries.value.length < pagination.value.total)
 
-  const fetchComics = async (reset = false) => {
+  const fetchGallerys = async (reset = false) => {
     loading.value = true
     error.value = null
     try {
-      const currentOffset = reset ? 0 : comics.value.length
+      const currentOffset = reset ? 0 : galleries.value.length
       const params: any = { limit: pagination.value.limit, offset: currentOffset }
       if (selectedLibraryId.value) params.library_id = selectedLibraryId.value
       if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
@@ -35,18 +35,18 @@ export const useComicStore = defineStore('comic', () => {
       params.exclude_disliked = 'true'
       if (selectedTagId.value) params.tag_id = selectedTagId.value
 
-      const res: any = await comicApi.getComics(params)
-      comics.value = reset ? res.comics : [...comics.value, ...res.comics]
+      const res: any = await galleryApi.getGallerys(params)
+      galleries.value = reset ? res.galleries : [...galleries.value, ...res.galleries]
       pagination.value.total = res.total
       pagination.value.offset = currentOffset
     } catch (e) {
-      error.value = e instanceof Error ? e.message : '获取漫画失败'
+      error.value = e instanceof Error ? e.message : '获取图集失败'
     } finally {
       loading.value = false
     }
   }
 
-  const fetchComicsByOffset = async (offset: number) => {
+  const fetchGallerysByOffset = async (offset: number) => {
     loading.value = true
     error.value = null
     try {
@@ -57,50 +57,50 @@ export const useComicStore = defineStore('comic', () => {
       if (sortOrder.value) params.order = sortOrder.value
       params.exclude_disliked = 'true'
       if (selectedTagId.value) params.tag_id = selectedTagId.value
-      const res: any = await comicApi.getComics(params)
-      comics.value = res.comics
+      const res: any = await galleryApi.getGallerys(params)
+      galleries.value = res.galleries
       pagination.value.total = res.total
       pagination.value.offset = offset
     } catch (e) {
-      error.value = e instanceof Error ? e.message : '获取漫画失败'
+      error.value = e instanceof Error ? e.message : '获取图集失败'
     } finally {
       loading.value = false
     }
   }
 
-  const searchComics = async (q: string) => {
+  const searchGallerys = async (q: string) => {
     searchQuery.value = q
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const clearSearch = async () => {
     searchQuery.value = ''
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const filterByLibrary = async (libraryId: number | null) => {
     selectedLibraryId.value = libraryId
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const filterByTag = async (tagId: number | null) => {
     selectedTagId.value = tagId
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const setSortBy = async (sort: string) => {
     sortBy.value = sort
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const setSortOrder = async (order: string) => {
     sortOrder.value = order
-    await fetchComics(true)
+    await fetchGallerys(true)
   }
 
   const setViewMode = (mode: 'grid' | 'list') => {
     viewMode.value = mode
-    localStorage.setItem('dplayer_comic_view_mode', mode)
+    localStorage.setItem('dplayer_gallery_view_mode', mode)
   }
 
   // ============ URL 状态同步（与视频模式框架一致） ============
@@ -139,14 +139,14 @@ export const useComicStore = defineStore('comic', () => {
     sortOrder.value = query.order || defSort.order
     const page = query.page ? (parseInt(query.page) || 1) : 1
     const offset = (page - 1) * pagination.value.limit
-    await fetchComicsByOffset(offset)
+    await fetchGallerysByOffset(offset)
   }
 
   const interact = async (hash: string, type: 'like' | 'favorite' | 'dislike') => {
     try {
-      const res: any = await comicApi.interact(hash, type)
+      const res: any = await galleryApi.interact(hash, type)
       if (res.success) {
-        const c = comics.value.find(c => c.hash === hash)
+        const c = galleries.value.find(c => c.hash === hash)
         if (c) {
           if (type === 'like') c.is_liked = res.active
           if (type === 'favorite') c.is_favorited = res.active
@@ -155,13 +155,13 @@ export const useComicStore = defineStore('comic', () => {
       }
       return res
     } catch (e) {
-      console.error('漫画操作失败:', e)
+      console.error('图集操作失败:', e)
     }
   }
 
   const saveProgress = async (hash: string, page: number, progress: number) => {
     try {
-      await comicApi.saveProgress(hash, page, progress)
+      await galleryApi.saveProgress(hash, page, progress)
     } catch (e) {
       console.error('保存进度失败:', e)
     }
@@ -169,7 +169,7 @@ export const useComicStore = defineStore('comic', () => {
 
   const fetchUserLibraries = async () => {
     try {
-      const res: any = await comicApi.getComics({ limit: 1 })
+      const res: any = await galleryApi.getGallerys({ limit: 1 })
       // libraries 通过 video 接口更全；这里从 user/libraries 取
       const vres: any = await (await import('../api')).videoApi.getLibraries()
       if (vres.success && vres.data) libraries.value = vres.data
@@ -180,19 +180,19 @@ export const useComicStore = defineStore('comic', () => {
   }
 
   const scanLibrary = async (libraryId: number) => {
-    const res: any = await comicApi.scan(libraryId)
+    const res: any = await galleryApi.scan(libraryId)
     return res
   }
 
   const scanStatus = async (libraryId: number) => {
-    const res: any = await comicApi.scanStatus(libraryId)
+    const res: any = await galleryApi.scanStatus(libraryId)
     return res.status
   }
 
   return {
-    comics, loading, error, pagination,
+    galleries, loading, error, pagination,
     selectedLibraryId, selectedTagId, libraries, searchQuery, sortBy, sortOrder, viewMode, hasMore,
-    fetchComics, fetchComicsByOffset, searchComics, clearSearch,
+    fetchGallerys, fetchGallerysByOffset, searchGallerys, clearSearch,
     filterByLibrary, filterByTag, setSortBy, setSortOrder, setViewMode,
     interact, saveProgress, fetchUserLibraries, scanLibrary, scanStatus,
     toQuery, initFromQuery

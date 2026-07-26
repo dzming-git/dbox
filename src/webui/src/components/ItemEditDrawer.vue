@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { videoApi, comicApi } from '../api'
+import { videoApi, galleryApi } from '../api'
 import { useVideoStore } from '../stores/videoStore'
-import { useComicStore } from '../stores/comicStore'
+import { useGalleryStore } from '../stores/galleryStore'
 
 const props = defineProps<{
   visible: boolean
-  type: 'video' | 'comic'
+  type: 'video' | 'gallery'
   item: any
 }>()
 const emit = defineEmits<{
@@ -15,9 +15,9 @@ const emit = defineEmits<{
 }>()
 
 const videoStore = useVideoStore()
-const comicStore = useComicStore()
+const galleryStore = useGalleryStore()
 
-const libraries = computed(() => (props.type === 'video' ? videoStore.libraries : comicStore.libraries))
+const libraries = computed(() => (props.type === 'video' ? videoStore.libraries : galleryStore.libraries))
 const isVideo = computed(() => props.type === 'video')
 
 const form = ref({
@@ -94,11 +94,11 @@ const save = async () => {
       const tagRes: any = await videoApi.setVideoTags(hash, form.value.tags)
       savedTags = tagRes?.tags || form.value.tags.map((p: string) => ({ name: p.split('/').pop(), path: p }))
     } else {
-      await comicApi.updateComic(hash, {
+      await galleryApi.updateGallery(hash, {
         title: form.value.title.trim(),
         library_id: libId
       })
-      const tagRes: any = await comicApi.setComicTags(hash, form.value.tags)
+      const tagRes: any = await galleryApi.setGalleryTags(hash, form.value.tags)
       savedTags = tagRes?.tags || form.value.tags.map((p: string) => ({ name: p.split('/').pop(), path: p }))
     }
     const updated = {
@@ -124,7 +124,7 @@ const save = async () => {
     <div v-if="visible" class="drawer-mask" @click="close">
       <div class="edit-drawer" @click.stop>
         <div class="drawer-header">
-          <h3>编辑{{ isVideo ? '视频' : '漫画' }}</h3>
+          <h3>编辑{{ isVideo ? '视频' : '图集' }}</h3>
           <button class="drawer-close" @click="close" title="关闭">×</button>
         </div>
 

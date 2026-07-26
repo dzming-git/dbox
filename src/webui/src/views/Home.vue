@@ -8,7 +8,7 @@ import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
-import Comics from './Comics.vue'
+import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
 import type { Video, Tag } from '../types'
@@ -16,8 +16,8 @@ import type { Video, Tag } from '../types'
 const router = useRouter()
 const route = useRoute()
 
-// 首页媒体类型切换：视频 / 漫画 对等展示，模式写入 URL（?mode=video|comic）
-const mediaTab = ref<'video' | 'comic' | 'mixed' | 'text'>(route.query.mode === 'comic' ? 'comic' : (route.query.mode === 'mixed' ? 'mixed' : (route.query.mode === 'text' ? 'text' : 'video')))
+// 首页媒体类型切换：视频 / 图集 对等展示，模式写入 URL（?mode=video|gallery）
+const mediaTab = ref<'video' | 'gallery' | 'mixed' | 'text'>(route.query.mode === 'gallery' ? 'gallery' : (route.query.mode === 'mixed' ? 'mixed' : (route.query.mode === 'text' ? 'text' : 'video')))
 
 // 切换媒体模式时同步到 URL，并从 URL 回读（支持前进/后退、直接分享链接）
 // 切换模式时清空与模式绑定的其他参数（排序、页码、筛选、搜索等），仅保留 mode，使其恢复默认。
@@ -29,7 +29,7 @@ watch(mediaTab, (val) => {
 watch(
   () => route.query.mode,
   (val) => {
-    const m = val === 'comic' ? 'comic' : (val === 'mixed' ? 'mixed' : (val === 'text' ? 'text' : 'video'))
+    const m = val === 'gallery' ? 'gallery' : (val === 'mixed' ? 'mixed' : (val === 'text' ? 'text' : 'video'))
     if (mediaTab.value !== m) mediaTab.value = m
   }
 )
@@ -518,7 +518,7 @@ const onListImgError = (e: Event) => {
 
 <template>
   <div class="home-container">
-    <!-- 媒体类型切换：视频与漫画对等 -->
+    <!-- 媒体类型切换：视频与图集对等 -->
     <div class="media-tabs">
       <button
         class="media-tab"
@@ -533,24 +533,14 @@ const onListImgError = (e: Event) => {
       </button>
       <button
         class="media-tab"
-        :class="{ active: mediaTab === 'comic' }"
-        @click="mediaTab = 'comic'"
+        :class="{ active: mediaTab === 'gallery' }"
+        @click="mediaTab = 'gallery'"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
           <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
         </svg>
-        漫画
-      </button>
-      <button
-        class="media-tab"
-        :class="{ active: mediaTab === 'mixed' }"
-        @click="mediaTab = 'mixed'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 6h16M4 12h16M4 18h10"/>
-        </svg>
-        帖子
+        图集
       </button>
       <button
         class="media-tab"
@@ -561,6 +551,16 @@ const onListImgError = (e: Event) => {
           <path d="M4 7h16M4 12h16M4 17h10"/>
         </svg>
         文本
+      </button>
+      <button
+        class="media-tab"
+        :class="{ active: mediaTab === 'mixed' }"
+        @click="mediaTab = 'mixed'"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6h16M4 12h16M4 18h10"/>
+        </svg>
+        帖子
       </button>
     </div>
 
@@ -908,14 +908,14 @@ const onListImgError = (e: Event) => {
       </div>
     </template>
     </div>
-    <!-- 漫画内容（仅漫画 tab 显示） -->
-    <Comics v-else-if="mediaTab === 'comic'" />
+    <!-- 图集内容（仅图集 tab 显示） -->
+    <Gallerys v-else-if="mediaTab === 'gallery'" />
     <!-- 帖子（Post）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
     <Posts v-else-if="mediaTab === 'mixed'" />
     <!-- 文本模式（未来内容管理，复用同一套资源索引机制） -->
     <Texts v-else-if="mediaTab === 'text'" />
 
-    <!-- 编辑抽屉（视频/漫画通用） -->
+    <!-- 编辑抽屉（视频/图集通用） -->
     <ItemEditDrawer
       :visible="editDrawerVisible"
       type="video"
@@ -935,7 +935,7 @@ const onListImgError = (e: Event) => {
   box-sizing: border-box;
 }
 
-/* 首页媒体类型切换：视频 / 漫画 对等 */
+/* 首页媒体类型切换：视频 / 图集 对等 */
 .media-tabs {
   display: flex;
   gap: 4px;

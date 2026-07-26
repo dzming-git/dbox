@@ -65,7 +65,7 @@ const fields: FieldDef[] = [
   },
   { key: 'blockDisliked', label: '屏蔽不喜欢的视频', desc: '开启后，标记为"不喜欢"的视频不会出现在列表中', type: 'toggle', testid: 'block-disliked-toggle' },
   {
-    key: 'defaultSort', label: '默认排序方式', desc: '视频 / 漫画列表首页的默认排序，未单独指定时生效', type: 'select', testid: 'default-sort-select',
+    key: 'defaultSort', label: '默认排序方式', desc: '视频 / 图集列表首页的默认排序，未单独指定时生效', type: 'select', testid: 'default-sort-select',
     options: [
       { v: 'recommended', t: '推荐' }, { v: 'name', t: '名称' }, { v: 'created_at', t: '文件时间' },
     ],

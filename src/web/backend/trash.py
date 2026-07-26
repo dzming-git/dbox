@@ -1,6 +1,6 @@
 """资源回收站（软删除）逻辑。
 
-删除资源（视频 / 漫画）时，文件 / 文件夹不会立即消失，而是移动到
+删除资源（视频 / 图集）时，文件 / 文件夹不会立即消失，而是移动到
 ``data/trash`` 目录下，并在数据库记录上标记 ``in_trash=True``。
 管理员可在回收站中将其「恢复」（移回原路径）或「永久删除」（清除文件与记录）。
 """
@@ -9,9 +9,9 @@ import shutil
 from datetime import datetime
 
 from core.models import (
-    db, User, Video, Comic,
+    db, User, Video, Gallery,
     UserInteraction, VideoTag,
-    ComicPage, ComicInteraction, ComicProgress, ComicTag,
+    GalleryPage, GalleryInteraction, GalleryProgress, GalleryTag,
 )
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +24,7 @@ TRASH_ROOT = os.path.join(PROJECT_ROOT, 'data', 'trash')
 # 路径工具
 # ---------------------------------------------------------------------------
 def _trash_dir(kind: str) -> str:
-    """kind: 'video' -> data/trash/videos；'comic' -> data/trash/comics"""
+    """kind: 'video' -> data/trash/videos；'gallery' -> data/trash/galleries"""
     d = os.path.join(TRASH_ROOT, kind + 's')
     os.makedirs(d, exist_ok=True)
     return d
@@ -113,8 +113,8 @@ def purge_trash(obj, kind: str):
 
     if kind == 'video':
         _delete_thumbnails(obj.hash)
-    elif kind == 'comic':
-        ComicTag.query.filter_by(comic_id=obj.id).delete()
+    elif kind == 'gallery':
+        GalleryTag.query.filter_by(gallery_id=obj.id).delete()
 
     db.session.delete(obj)
     db.session.commit()
@@ -139,13 +139,13 @@ def _delete_thumbnails(video_hash: str):
 def get_trash_obj(kind: str, hash_value: str):
     if kind == 'video':
         return Video.query.filter_by(hash=hash_value, in_trash=True).first()
-    if kind == 'comic':
-        return Comic.query.filter_by(hash=hash_value, in_trash=True).first()
+    if kind == 'gallery':
+        return Gallery.query.filter_by(hash=hash_value, in_trash=True).first()
     return None
 
 
 def get_trash_list():
-    """返回回收站中所有资源（视频 + 漫画），按删除时间倒序。"""
+    """返回回收站中所有资源（视频 + 图集），按删除时间倒序。"""
     items = []
 
     for v in Video.query.filter_by(in_trash=True).all():
@@ -163,19 +163,19 @@ def get_trash_list():
             'size': _trash_size(v, 'video'),
         })
 
-    for c in Comic.query.filter_by(in_trash=True).all():
+    for c in Gallery.query.filter_by(in_trash=True).all():
         owner = None
         if c.owner_id:
             u = db.session.get(User, c.owner_id)
             owner = u.username if u else None
         items.append({
-            'type': 'comic',
+            'type': 'gallery',
             'hash': c.hash,
             'title': c.title,
             'owner_id': c.owner_id,
             'owner': owner,
             'trashed_at': c.trashed_at.isoformat() if c.trashed_at else None,
-            'size': _trash_size(c, 'comic'),
+            'size': _trash_size(c, 'gallery'),
         })
 
     items.sort(key=lambda x: x['trashed_at'] or '', reverse=True)

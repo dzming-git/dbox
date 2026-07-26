@@ -249,7 +249,7 @@ const doDeleteTag = async () => {
     <div class="page-header">
       <div>
         <h1 class="page-title">标签</h1>
-        <p class="page-desc">点击标签可查看对应的内容（视频或漫画共用同一套标签）</p>
+        <p class="page-desc">点击标签可查看对应的内容（视频或图集共用同一套标签）</p>
       </div>
       <button v-if="isAdmin" class="create-btn" @click="openCreateDialog">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -376,7 +376,7 @@ const doDeleteTag = async () => {
       <!-- 空状态 -->
       <div v-if="displayTags.length === 0" class="empty-state">
         <p v-if="searchQuery">没有找到匹配的标签</p>
-        <p v-else>暂无标签，在视频或漫画中添加标签后会自动显示</p>
+        <p v-else>暂无标签，在视频或图集中添加标签后会自动显示</p>
       </div>
     </div>
 

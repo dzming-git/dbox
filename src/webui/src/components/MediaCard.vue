@@ -17,14 +17,14 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const coverUrl = computed(() => {
-  if (props.item.type === 'comic' && props.item.cover && userStore.token) {
+  if (props.item.type === 'gallery' && props.item.cover && userStore.token) {
     const sep = props.item.cover.includes('?') ? '&' : '?'
     return props.item.cover + sep + 'token=' + userStore.token
   }
   return props.item.cover || '/default-thumb.jpg'
 })
 
-const typeLabel = computed(() => (props.item.type === 'video' ? '视频' : '漫画'))
+const typeLabel = computed(() => (props.item.type === 'video' ? '视频' : '图集'))
 const subBadge = computed(() => {
   if (props.item.type === 'video') {
     return props.item.duration ? formatDuration(props.item.duration) : ''
@@ -50,7 +50,7 @@ const formatDate = (dateStr?: string): string => {
 
 const onOpen = () => {
   if (props.item.type === 'video') router.push(`/video/${props.item.hash}`)
-  else router.push(`/comic/${props.item.hash}`)
+  else router.push(`/gallery/${props.item.hash}`)
 }
 const onAction = (name: string, e: Event) => {
   e.stopPropagation()
@@ -115,7 +115,7 @@ const onAction = (name: string, e: Event) => {
       <h3 class="media-title">{{ item.title }}</h3>
       <div class="media-meta">
         <span v-if="item.date">{{ formatDate(item.date) }}</span>
-        <span v-if="item.type === 'comic' && item.progress" class="progress-text">
+        <span v-if="item.type === 'gallery' && item.progress" class="progress-text">
           看到 {{ Math.round(item.progress * 100) }}%
         </span>
       </div>
@@ -182,7 +182,7 @@ const onAction = (name: string, e: Event) => {
   background: rgba(0, 0, 0, 0.6);
 }
 .type-badge.video { background: rgba(33, 150, 243, 0.85); }
-.type-badge.comic { background: rgba(255, 152, 0, 0.85); }
+.type-badge.gallery { background: rgba(255, 152, 0, 0.85); }
 .sub-badge {
   position: absolute;
   bottom: 8px;

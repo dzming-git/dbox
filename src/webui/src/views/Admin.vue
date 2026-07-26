@@ -1663,7 +1663,7 @@ onUnmounted(() => {
             </thead>
             <tbody>
               <tr v-for="item in trashItems" :key="item.type + item.hash">
-                <td>{{ item.type === 'video' ? '视频' : '漫画' }}</td>
+                <td>{{ item.type === 'video' ? '视频' : '图集' }}</td>
                 <td class="cell-title">{{ item.title }}</td>
                 <td>{{ item.owner || '—' }}</td>
                 <td>{{ formatTrashTime(item.trashed_at) }}</td>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { comicApi } from '../api'
-import ComicCard from '../components/ComicCard.vue'
+import { galleryApi } from '../api'
+import GalleryCard from '../components/GalleryCard.vue'
 
 const router = useRouter()
 const playlists = ref<any[]>([])
@@ -16,7 +16,7 @@ const selected = ref<any>(null)
 const load = async () => {
   loading.value = true
   try {
-    const res: any = await comicApi.getPlaylists()
+    const res: any = await galleryApi.getPlaylists()
     playlists.value = res.playlists || []
   } catch {
     playlists.value = []
@@ -34,7 +34,7 @@ const openCreate = () => {
 
 const create = async () => {
   if (!newName.value.trim()) return
-  const res: any = await comicApi.createPlaylist({
+  const res: any = await galleryApi.createPlaylist({
     name: newName.value.trim(),
     description: newDesc.value,
     is_public: newPublic.value,
@@ -46,19 +46,19 @@ const create = async () => {
 }
 
 const removeFrom = async (pl: any, hash: string) => {
-  await comicApi.removeFromPlaylist(pl.id, hash)
+  await galleryApi.removeFromPlaylist(pl.id, hash)
   await load()
 }
 
 const del = async () => {
   if (selected.value) {
-    await comicApi.deletePlaylist(selected.value.id)
+    await galleryApi.deletePlaylist(selected.value.id)
     selected.value = null
     await load()
   }
 }
 
-const goComic = (c: any) => router.push({ name: 'Comic', params: { hash: c.hash } })
+const goGallery = (c: any) => router.push({ name: 'Gallery', params: { hash: c.hash } })
 
 onMounted(load)
 </script>
@@ -66,7 +66,7 @@ onMounted(load)
 <template>
   <div class="playlists-container">
     <div class="header">
-      <h1>漫画合集</h1>
+      <h1>图集合集</h1>
       <button class="create-btn" @click="openCreate">新建合集</button>
     </div>
 
@@ -85,7 +85,7 @@ onMounted(load)
           <span v-if="pl.is_public" class="badge">公开</span>
         </div>
         <p class="pl-desc">{{ pl.description || '暂无简介' }}</p>
-        <div class="pl-meta">{{ pl.comic_count }} 本 · 播放 {{ pl.play_count }}</div>
+        <div class="pl-meta">{{ pl.gallery_count }} 本 · 播放 {{ pl.play_count }}</div>
       </div>
     </div>
 
@@ -94,11 +94,11 @@ onMounted(load)
         <h2>{{ selected.name }}</h2>
         <button class="del-btn" @click="del">删除合集</button>
       </div>
-      <div v-if="(selected.items || []).length === 0" class="empty">合集内暂无漫画</div>
+      <div v-if="(selected.items || []).length === 0" class="empty">合集内暂无图集</div>
       <div v-else class="detail-grid">
         <div v-for="it in selected.items" :key="it.id" class="detail-item">
-          <ComicCard :comic="it.comic" :size="'small'" @click="goComic" />
-          <button class="remove-btn" @click="removeFrom(selected, it.comic.hash)">移除</button>
+          <GalleryCard :gallery="it.gallery" :size="'small'" @click="goGallery" />
+          <button class="remove-btn" @click="removeFrom(selected, it.gallery.hash)">移除</button>
         </div>
       </div>
     </div>

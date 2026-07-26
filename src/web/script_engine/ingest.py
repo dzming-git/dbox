@@ -1,8 +1,8 @@
 """入库：把脚本产出文件登记成 DPlayer 资源，并按指定「模式（modes）」归属。
 
 设计（见 docs/multi_mode_resource_management.md）：
-- ResourceIndex 是通用资产；kind: video_file / comic_folder / text。
-- modes 决定资源归属哪些单资源模式（video/comic/text）；组合模式 post 由 Post 引用表达。
+- ResourceIndex 是通用资产；kind: video_file / gallery_folder / text。
+- modes 决定资源归属哪些单资源模式（video/gallery/text）；组合模式 post 由 Post 引用表达。
 - 例：modes=['video'] -> 建 Video，视频列表可见；
      modes=['post'] -> 只建 ResourceIndex（不建 Video），由后续 Post 引用，视频列表不可见；
      modes=['video','post'] -> 视频列表与帖子均可见。
@@ -18,7 +18,7 @@ def _is_video_ext(path):
                    '.m4v', '.mpg', '.mpeg', '.wmv', '.3gp')
 
 
-_KIND_TO_RI = {'video': 'video_file', 'comic': 'comic_folder', 'image': 'comic_folder', 'text': 'text'}
+_KIND_TO_RI = {'video': 'video_file', 'gallery': 'gallery_folder', 'image': 'gallery_folder', 'text': 'text'}
 
 
 def _get_or_create_resource_index(library_id, path, ri_kind, meta):
@@ -49,7 +49,7 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
         if os.path.isfile(path) and _is_video_ext(path):
             kind = 'video'
         elif os.path.isdir(path):
-            kind = 'comic'
+            kind = 'gallery'
         else:
             kind = 'video'
 
@@ -71,11 +71,11 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                     return {'success': False, 'message': f'视频入库失败: {path}'}
                 if meta:
                     ri.set_meta(meta)
-            elif kind == 'comic' and ResourceMode.COMIC in modes:
-                from backend.comic.scanner import scan_library_comics
-                comics = scan_library_comics(library_id, app=app, specific_paths=[path])
+            elif kind == 'gallery' and ResourceMode.GALLERY in modes:
+                from backend.gallery.scanner import scan_library_galleries
+                galleries = scan_library_galleries(library_id, app=app, specific_paths=[path])
                 ri = None
-                for c in comics:
+                for c in galleries:
                     if c.resource_index and c.resource_index.location == path:
                         ri = c.resource_index
                         break

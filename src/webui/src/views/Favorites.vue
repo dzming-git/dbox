@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { videoApi, comicApi } from '../api'
+import { videoApi, galleryApi } from '../api'
 import { fetchFavorites, type MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
 
@@ -24,11 +24,11 @@ const loadCollections = async () => {
   }
 }
 
-// 将收藏夹接口返回的视频/漫画条目统一为 MediaItem
+// 将收藏夹接口返回的视频/图集条目统一为 MediaItem
 const toMediaItem = (it: any): MediaItem => {
-  if (it.type === 'comic') {
+  if (it.type === 'gallery') {
     return {
-      type: 'comic', hash: it.hash, title: it.title, cover: it.cover_url || '',
+      type: 'gallery', hash: it.hash, title: it.title, cover: it.cover_url || '',
       pageCount: it.page_count, progress: it.progress, page: it.page ?? it.last_page,
       date: it.favorited_at, raw: it
     }
@@ -40,7 +40,7 @@ const toMediaItem = (it: any): MediaItem => {
   }
 }
 
-// 加载当前显示的收藏（全部 或 某收藏夹，均含视频与漫画）
+// 加载当前显示的收藏（全部 或 某收藏夹，均含视频与图集）
 const loadFavorites = async () => {
   loading.value = true
   try {
@@ -103,12 +103,12 @@ const deleteCollection = async (id: number, event: Event) => {
   }
 }
 
-// 取消收藏（视频/漫画分别走各自接口，toggle 语义一致）
+// 取消收藏（视频/图集分别走各自接口，toggle 语义一致）
 const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name === 'unfavorite') {
     try {
-      if (item.type === 'comic') await comicApi.interact(item.hash, 'favorite')
+      if (item.type === 'gallery') await galleryApi.interact(item.hash, 'favorite')
       else await videoApi.favoriteVideo(item.hash)
     } catch (e) {
       console.error('取消收藏失败:', e)
@@ -192,7 +192,7 @@ const showToast = (message: string) => {
           <p>暂无收藏内容</p>
           <div class="browse-links">
             <router-link to="/" class="browse-link">去浏览视频</router-link>
-            <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+            <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
           </div>
         </div>
 
@@ -355,8 +355,8 @@ const showToast = (message: string) => {
   transition: background 0.2s;
 }
 .browse-link:hover { background: #1976D2; }
-.browse-link.comic { background: #ff9800; }
-.browse-link.comic:hover { background: #e68a00; }
+.browse-link.gallery { background: #ff9800; }
+.browse-link.gallery:hover { background: #e68a00; }
 .favorites-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

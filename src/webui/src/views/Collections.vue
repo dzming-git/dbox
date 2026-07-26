@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { collectionSetApi, videoApi, comicApi } from '../api'
+import { collectionSetApi, videoApi, galleryApi } from '../api'
 import { useUserStore } from '../stores/userStore'
 import MediaCard from '../components/MediaCard.vue'
 
@@ -30,8 +30,8 @@ const toastMsg = (m: string) => {
 
 const toMediaItem = (it: any): any => {
   const m = it.media || it
-  if (m.type === 'comic') {
-    return { type: 'comic', hash: m.hash, title: m.title, cover: m.cover_url || '', pageCount: m.page_count }
+  if (m.type === 'gallery') {
+    return { type: 'gallery', hash: m.hash, title: m.title, cover: m.cover_url || '', pageCount: m.page_count }
   }
   return { type: 'video', hash: m.hash, title: m.title, cover: m.thumbnail || '', duration: m.duration }
 }
@@ -172,7 +172,7 @@ const playAll = () => {
   const t = target.media?.type
   const h = target.media?.hash
   if (t === 'video') router.push(`/video/${h}?collection=${activeId.value}`)
-  else router.push(`/comic/${h}?collection=${activeId.value}`)
+  else router.push(`/gallery/${h}?collection=${activeId.value}`)
 }
 
 const move = async (index: number, dir: -1 | 1) => {
@@ -210,11 +210,11 @@ const doSearch = async () => {
   try {
     const [vr, cr] = await Promise.all([
       videoApi.getVideos({ search: search.value, limit: 30 }) as any,
-      comicApi.getComics({ search: search.value, limit: 30 }) as any,
+      galleryApi.getGallerys({ search: search.value, limit: 30 }) as any,
     ])
     const vids = (vr?.videos || []).map((v: any) => ({ type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '' }))
-    const comics = (cr?.comics || []).map((c: any) => ({ type: 'comic', hash: c.hash, title: c.title, cover: c.cover_url || '' }))
-    searchResults.value = [...vids, ...comics]
+    const galleries = (cr?.galleries || []).map((c: any) => ({ type: 'gallery', hash: c.hash, title: c.title, cover: c.cover_url || '' }))
+    searchResults.value = [...vids, ...galleries]
   } catch {
     searchResults.value = []
   } finally {
@@ -321,7 +321,7 @@ watch(
           <button class="close" @click="closeAdd">✕</button>
         </div>
         <div class="modal-search">
-          <input v-model="search" placeholder="搜索视频或漫画..." @input="doSearch" @keyup.enter="doSearch" />
+          <input v-model="search" placeholder="搜索视频或图集..." @input="doSearch" @keyup.enter="doSearch" />
           <button @click="doSearch">搜索</button>
         </div>
         <div class="modal-results" v-if="searchResults.length">
@@ -332,13 +332,13 @@ watch(
             @click="addResource(res)"
           >
             <div class="rc-cover" :style="res.cover ? { backgroundImage: `url(${res.cover})` } : {}">
-              <span class="rc-type">{{ res.type === 'video' ? '视频' : '漫画' }}</span>
+              <span class="rc-type">{{ res.type === 'video' ? '视频' : '图集' }}</span>
             </div>
             <div class="rc-title">{{ res.title }}</div>
           </div>
         </div>
         <div class="modal-empty" v-else-if="searching">搜索中...</div>
-        <div class="modal-empty" v-else>输入关键词搜索视频/漫画，点击结果即可加入</div>
+        <div class="modal-empty" v-else>输入关键词搜索视频/图集，点击结果即可加入</div>
       </div>
     </div>
 

@@ -20,14 +20,14 @@ onMounted(async () => {
   }
 })
 
-// 视频历史存于 localStorage；漫画历史存于后端。删除仅对视频生效。
+// 视频历史存于 localStorage；图集历史存于后端。删除仅对视频生效。
 const onAction = (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name === 'continue') {
     if (item.type === 'video') {
       router.push({ path: `/video/${item.hash}`, query: { t: Math.floor(item.raw?.progress || 0) } })
     } else {
-      router.push(`/comic/${item.hash}`)
+      router.push(`/gallery/${item.hash}`)
     }
   } else if (name === 'delete') {
     if (item.type === 'video') {
@@ -40,9 +40,9 @@ const onAction = (payload: { name: string; item: MediaItem }) => {
 }
 
 const clearAllHistory = () => {
-  if (confirm('确定要清空观看历史吗？（仅清空视频记录，漫画阅读进度在漫画内管理）')) {
+  if (confirm('确定要清空观看历史吗？（仅清空视频记录，图集阅读进度在图集内管理）')) {
     localStorage.setItem('watchHistory', '[]')
-    history.value = history.value.filter(it => it.type === 'comic')
+    history.value = history.value.filter(it => it.type === 'gallery')
     showToast('已清空视频观看历史')
   }
 }
@@ -85,7 +85,7 @@ const showToast = (message: string) => {
       <p>暂无观看记录</p>
       <div class="browse-links">
         <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
       </div>
     </div>
 
@@ -179,8 +179,8 @@ const showToast = (message: string) => {
   transition: background 0.2s;
 }
 .browse-link:hover { background: #1976D2; }
-.browse-link.comic { background: #ff9800; }
-.browse-link.comic:hover { background: #e68a00; }
+.browse-link.gallery { background: #ff9800; }
+.browse-link.gallery:hover { background: #e68a00; }
 .history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

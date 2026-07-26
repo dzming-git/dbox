@@ -84,13 +84,13 @@ export interface VideoListResponse {
   total: number
 }
 
-// 漫画类型
-export interface ComicPage {
+// 图集类型
+export interface GalleryPage {
   index: number
   url: string
 }
 
-export interface Comic {
+export interface Gallery {
   id: number
   hash: string
   title: string
@@ -106,52 +106,52 @@ export interface Comic {
   last_page?: number
   progress?: number
   in_continue?: boolean
-  pages?: ComicPage[]
+  pages?: GalleryPage[]
   created_at?: string
   updated_at?: string
 }
 
-// 漫画列表响应
-export interface ComicListResponse {
+// 图集列表响应
+export interface GalleryListResponse {
   success: boolean
-  comics: Comic[]
+  galleries: Gallery[]
   total: number
 }
 
-// 漫画合集项
-export interface ComicPlaylistItem {
+// 图集合集项
+export interface GalleryPlaylistItem {
   id: number
   playlist_id: number
-  comic_id: number
-  comic: Comic | null
+  gallery_id: number
+  gallery: Gallery | null
   position: number
   added_at?: string
 }
 
-// 漫画合集（播放列表）
-export interface ComicPlaylist {
+// 图集合集（播放列表）
+export interface GalleryPlaylist {
   id: number
   name: string
   description?: string
   user_session: string
   is_public: boolean
   thumbnail?: string
-  comic_count: number
+  gallery_count: number
   play_count: number
-  items: ComicPlaylistItem[]
+  items: GalleryPlaylistItem[]
   created_at?: string
   updated_at?: string
 }
 
-// ============ 合集（独立于收藏夹，视频+漫画通用）============
+// ============ 合集（独立于收藏夹，视频+图集通用）============
 export interface CollectionItem {
   id: number
   collection_id: number
-  item_type: 'video' | 'comic'
+  item_type: 'video' | 'gallery'
   item_hash: string
   position: number
   added_at?: string
-  media: any  // 解析后的视频/漫画信息（含 type/hash/title/cover 等）
+  media: any  // 解析后的视频/图集信息（含 type/hash/title/cover 等）
 }
 
 export interface Collection {
@@ -269,7 +269,7 @@ export interface ResourcePresentation {
 
 export interface ResourceIndex {
   id: number
-  kind: string            // 'video_file' | 'comic_folder' | 'text'
+  kind: string            // 'video_file' | 'gallery_folder' | 'text'
   location: string
   library_id?: number | null
   hash?: string
@@ -302,17 +302,17 @@ export interface AvailableMode {
   count: number
 }
 
-// ============ 帖子（Post）：通过资源索引表自由引用视频 / 图片集（漫画）/ 文本 ============
+// ============ 帖子（Post）：通过资源索引表自由引用视频 / 图片集（图集）/ 文本 ============
 export interface PostRef {
   ref_id: number
   position: number
   note: string
   resource_index_id: number
   display_mode?: 'link' | 'embed'   // 'link' 仅超链接 / 'embed' 超链接+内嵌预览
-  kind?: string          // 'video_file' | 'comic_folder' | 'text'
+  kind?: string          // 'video_file' | 'gallery_folder' | 'text'
   location?: string
   video?: Video
-  comic?: Comic
+  gallery?: Gallery
   text?: TextResource
   presentation?: ResourcePresentation   // 引用目标无富化实体时的兜底呈现
 }

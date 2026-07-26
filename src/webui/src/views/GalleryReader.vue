@@ -2,35 +2,35 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
-import { useComicStore } from '../stores/comicStore'
+import { useGalleryStore } from '../stores/galleryStore'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import { useToast } from '../composables/useToast'
-import type { Comic } from '../types'
+import type { Gallery } from '../types'
 
 const { showToast } = useToast()
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const comicStore = useComicStore()
+const galleryStore = useGalleryStore()
 
-const comic = ref<Comic | null>(null)
+const gallery = ref<Gallery | null>(null)
 const loading = ref(true)
 const error = ref('')
 
-const mode = ref<'scroll' | 'page'>((localStorage.getItem('dplayer_comic_mode') as any) || 'scroll')
-const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dplayer_comic_fit') as any) || 'width')
+const mode = ref<'scroll' | 'page'>((localStorage.getItem('dplayer_gallery_mode') as any) || 'scroll')
+const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dplayer_gallery_fit') as any) || 'width')
 const currentPage = ref(1)
 const showThumbs = ref(false)
 const isInContinue = ref(false)   // 是否已在「继续阅读」列表（用户主动加入）
 
 // 沉浸全屏阅读模式
-const immersive = ref(localStorage.getItem('dplayer_comic_immersive') === '1')
+const immersive = ref(localStorage.getItem('dplayer_gallery_immersive') === '1')
 const controlsVisible = ref(true) // 沉浸式下控件是否可见（点击屏幕切换）
 const readerEl = ref<HTMLElement | null>(null)
 
-const total = computed(() => comic.value?.page_count || 0)
-const pages = computed(() => comic.value?.pages || [])
+const total = computed(() => gallery.value?.page_count || 0)
+const pages = computed(() => gallery.value?.pages || [])
 
 const withToken = (url: string) => (url && userStore.token) ? `${url}?token=${userStore.token}` : (url || '')
 
@@ -64,10 +64,10 @@ const progressPercent = computed(() => total.value ? Math.round((currentPage.val
 // ============ 进度保存（防抖） ============
 let saveTimer: number | null = null
 const updateProgress = () => {
-  if (!comic.value) return
+  if (!gallery.value) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => {
-    comicStore.saveProgress(comic.value!.hash, currentPage.value, currentPage.value / total.value)
+    galleryStore.saveProgress(gallery.value!.hash, currentPage.value, currentPage.value / total.value)
   }, 1200)
 }
 
@@ -122,7 +122,7 @@ const onScroll = () => {
       }
       lastScrollTop = top
     }
-    const imgs = container.querySelectorAll('img.comic-page-img')
+    const imgs = container.querySelectorAll('img.gallery-page-img')
     let cur = 1
     const mid = window.innerHeight / 2
     imgs.forEach((img) => {
@@ -141,7 +141,7 @@ const waitAndScroll = (idx: number) => {
   const container = scrollContainer.value
   if (!container) { pendingScroll.value = null; return }
   // 只有目标页及其之前的所有图片都加载完成（有了正确高度），滚动位置才准确
-  const imgs = Array.from(container.querySelectorAll('img.comic-page-img'))
+  const imgs = Array.from(container.querySelectorAll('img.gallery-page-img'))
     .filter(img => parseInt((img as HTMLElement).dataset.page || '0') <= idx)
   const allLoaded = imgs.length > 0 && imgs.every(img => {
     const im = img as HTMLImageElement
@@ -206,22 +206,22 @@ const onKey = (e: KeyboardEvent) => {
 }
 
 const back = () => {
-  // 记录刚看过的漫画，返回列表后将其置顶到随机推荐的第一个
+  // 记录刚看过的图集，返回列表后将其置顶到随机推荐的第一个
   if (route.params.hash) {
-    try { sessionStorage.setItem('lastViewedComic', route.params.hash as string) } catch {}
+    try { sessionStorage.setItem('lastViewedGallery', route.params.hash as string) } catch {}
   }
   if (window.history.length > 1) router.back()
-  else router.push({ name: 'Comics' })
+  else router.push({ name: 'Gallerys' })
 }
 
 const setMode = (m: 'scroll' | 'page') => {
   mode.value = m
-  localStorage.setItem('dplayer_comic_mode', m)
+  localStorage.setItem('dplayer_gallery_mode', m)
   if (m === 'scroll') nextTick(() => goToPage(currentPage.value))
 }
 const setFit = (f: 'width' | 'height' | 'original') => {
   fit.value = f
-  localStorage.setItem('dplayer_comic_fit', f)
+  localStorage.setItem('dplayer_gallery_fit', f)
 }
 
 // ============ 沉浸全屏阅读模式 ============
@@ -248,7 +248,7 @@ const setImmersive = (v: boolean) => {
   immersive.value = v
   updateViewportInsets() // 进入/退出沉浸时可视区基准变化，立即重算安全偏移
   uiHidden.value = false // 进出沉浸模式都复位工具栏显隐
-  localStorage.setItem('dplayer_comic_immersive', v ? '1' : '0')
+  localStorage.setItem('dplayer_gallery_immersive', v ? '1' : '0')
   document.body.classList.toggle('reader-immersive', v)
   if (v) {
     controlsVisible.value = true
@@ -264,16 +264,16 @@ const toggleControls = () => {
 }
 
 const interact = (type: 'like' | 'favorite' | 'dislike') => {
-  if (!comic.value) return
-  comicStore.interact(comic.value.hash, type)
+  if (!gallery.value) return
+  galleryStore.interact(gallery.value.hash, type)
 }
 
 // 显式加入 / 移出「继续阅读」列表（用户主动选择，不自动按打开行为加入）
 const toggleContinue = async () => {
-  if (!comic.value) return
+  if (!gallery.value) return
   const add = !isInContinue.value
   try {
-    const res: any = await (await import('../api')).comicApi.setContinue(comic.value.hash, add)
+    const res: any = await (await import('../api')).galleryApi.setContinue(gallery.value.hash, add)
     if (res.success) {
       isInContinue.value = !!res.in_continue
     }
@@ -284,10 +284,10 @@ const toggleContinue = async () => {
 
 // 资源所属权：管理员或上传本人可删除（对齐视频方案）
 const isAdmin = computed(() => userStore.isAdmin)
-const canManageComic = computed(() => {
+const canManageGallery = computed(() => {
   if (isAdmin.value) return true
   const uid = userStore.user?.id
-  return !!uid && comic.value?.owner_id === uid
+  return !!uid && gallery.value?.owner_id === uid
 })
 
 // “更多”菜单（收起不常用的“不喜欢”）
@@ -304,16 +304,16 @@ const confirmDelete = () => {
 // 重新加载资源：从磁盘重新同步页面/封面（图片被替换/增删后强制刷新）
 const reloading = ref(false)
 const reloadResource = async () => {
-  if (!comic.value) return
+  if (!gallery.value) return
   if (reloading.value) return
   reloading.value = true
   try {
     const api = await import('../api')
-    const res: any = await api.comicApi.reloadComic(comic.value.hash)
+    const res: any = await api.galleryApi.reloadGallery(gallery.value.hash)
     if (res?.success || res?.data?.success) {
       // 重新拉取详情（新的 updated_at 会让图片 URL 版本号变化，浏览器拉取新图）
-      await loadComic(comic.value.hash)
-      showToast('漫画资源已重新加载')
+      await loadGallery(gallery.value.hash)
+      showToast('图集资源已重新加载')
     } else {
       showToast((res?.message || res?.data?.message || '重新加载失败'))
     }
@@ -324,16 +324,16 @@ const reloadResource = async () => {
   }
 }
 const handleDelete = async () => {
-  if (!comic.value) return
+  if (!gallery.value) return
   try {
     const api = await import('../api')
-    const res: any = await api.comicApi.deleteComic(comic.value.hash, deleteFileOption.value)
+    const res: any = await api.galleryApi.deleteGallery(gallery.value.hash, deleteFileOption.value)
     if (res?.data?.success || res?.success) {
       showDeleteConfirm.value = false
-      router.push({ name: 'Comics' })
+      router.push({ name: 'Gallerys' })
     }
   } catch (e) {
-    console.error('deleteComic failed', e)
+    console.error('deleteGallery failed', e)
   }
 }
 
@@ -357,13 +357,13 @@ const updateViewportInsets = () => {
   root.style.setProperty('--vv-bottom', bottom + 'px')
 }
 
-// —— 合集连播上下文（漫画）——
+// —— 合集连播上下文（图集）——
 const collectionId = ref<number | null>(null)
 const collectionItems = ref<{ type: string; hash: string; title?: string }[]>([])
 const collectionName = ref('')
 const inCollection = computed(() => collectionId.value !== null && collectionItems.value.length > 0)
 const currentIndex = computed(() =>
-  collectionItems.value.findIndex(i => i.type === 'comic' && i.hash === (route.params.hash as string))
+  collectionItems.value.findIndex(i => i.type === 'gallery' && i.hash === (route.params.hash as string))
 )
 const prevItem = computed(() =>
   currentIndex.value > 0 ? collectionItems.value[currentIndex.value - 1] : null
@@ -395,19 +395,19 @@ const loadCollectionContext = async () => {
   }
 }
 const goCollectionItem = (it: { type: string; hash: string }) => {
-  const base = it.type === 'video' ? '/video/' : '/comic/'
+  const base = it.type === 'video' ? '/video/' : '/gallery/'
   router.push(`${base}${it.hash}?collection=${collectionId.value}`)
 }
 
-const loadComic = async (hash: string) => {
+const loadGallery = async (hash: string) => {
   loading.value = true
   error.value = ''
   try {
-    const res: any = await (await import('../api')).comicApi.getComic(hash)
+    const res: any = await (await import('../api')).galleryApi.getGallery(hash)
     if (res.success) {
-      comic.value = res.comic
-      isInContinue.value = !!(res.comic && res.comic.in_continue)
-      const lp = res.comic.last_page || 1
+      gallery.value = res.gallery
+      isInContinue.value = !!(res.gallery && res.gallery.in_continue)
+      const lp = res.gallery.last_page || 1
       currentPage.value = clampPage(lp)
       await nextTick()
       updateViewportInsets()
@@ -429,7 +429,7 @@ const loadComic = async (hash: string) => {
 }
 
 onMounted(async () => {
-  await loadComic(route.params.hash as string)
+  await loadGallery(route.params.hash as string)
   await loadCollectionContext()
   window.visualViewport?.addEventListener('resize', updateViewportInsets)
   window.visualViewport?.addEventListener('scroll', updateViewportInsets)
@@ -442,10 +442,10 @@ onMounted(async () => {
   document.body.classList.add('reader-active')
 })
 
-// 合集内“上一话/下一话”跳转时重载漫画
+// 合集内“上一话/下一话”跳转时重载图集
 watch(() => route.params.hash, async (h) => {
   if (h) {
-    await loadComic(h as string)
+    await loadGallery(h as string)
     await loadCollectionContext()
   }
 })
@@ -461,7 +461,7 @@ onUnmounted(() => {
   exitFullscreen()
   if (saveTimer) clearTimeout(saveTimer)
   // 离开时再保存一次进度
-  if (comic.value) comicStore.saveProgress(comic.value.hash, currentPage.value, currentPage.value / total.value)
+  if (gallery.value) galleryStore.saveProgress(gallery.value.hash, currentPage.value, currentPage.value / total.value)
 })
 
 watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
@@ -472,7 +472,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     class="reader"
     :class="{ immersive: immersive, 'controls-shown': immersive && controlsVisible }"
     ref="readerEl"
-    v-if="comic"
+    v-if="gallery"
   >
     <!-- 沉浸模式下常驻的退出按钮（避免用户被锁死） -->
     <button
@@ -485,7 +485,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     <!-- 顶部工具栏 -->
     <div class="reader-bar" :class="{ 'ui-hidden': uiHidden }">
       <button class="bar-btn" @click="back" title="返回">‹ 返回</button>
-      <div class="bar-title" :title="comic.title">{{ comic.title }}</div>
+      <div class="bar-title" :title="gallery.title">{{ gallery.title }}</div>
       <div class="bar-page">
         <button class="bar-btn" @click="prev" :disabled="currentPage<=1">‹</button>
         <input
@@ -499,12 +499,12 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       </div>
       <div class="bar-tools">
         <!-- 点赞 -->
-        <button class="bar-action" :class="{active: comic.is_liked}" @click="interact('like')" title="点赞">
+        <button class="bar-action" :class="{active: gallery.is_liked}" @click="interact('like')" title="点赞">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
           <span>点赞</span>
         </button>
         <!-- 收藏 -->
-        <button class="bar-action" :class="{active: comic.is_favorited}" @click="interact('favorite')" title="收藏">
+        <button class="bar-action" :class="{active: gallery.is_favorited}" @click="interact('favorite')" title="收藏">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
           <span>收藏</span>
         </button>
@@ -514,7 +514,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
           <span>{{ isInContinue ? '已加入' : '加入继续' }}</span>
         </button>
         <!-- 合集 -->
-        <CollectionPanel item-type="comic" :item-hash="(comic && comic.hash) || (route.params.hash as string)" />
+        <CollectionPanel item-type="gallery" :item-hash="(gallery && gallery.hash) || (route.params.hash as string)" />
         <!-- 更多（“不喜欢”收进此处，与视频方案一致） -->
         <div class="more-wrap">
           <button class="bar-action" @click="showMoreMenu = !showMoreMenu" title="更多">
@@ -522,19 +522,19 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
             <span>更多</span>
           </button>
           <div v-if="showMoreMenu" class="more-menu" @click.self="showMoreMenu = false">
-            <button class="more-item" :class="{active: comic.is_disliked}" @click="interact('dislike'); showMoreMenu = false">
+            <button class="more-item" :class="{active: gallery.is_disliked}" @click="interact('dislike'); showMoreMenu = false">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
-              <span>{{ comic.is_disliked ? '取消不喜欢' : '不喜欢' }}</span>
+              <span>{{ gallery.is_disliked ? '取消不喜欢' : '不喜欢' }}</span>
             </button>
           </div>
         </div>
         <span class="divider"></span>
         <!-- 删除（仅管理员 / 上传本人可见） -->
-        <button v-if="canManageComic" class="bar-action" :disabled="reloading" @click="reloadResource" :title="reloading ? '正在重新加载…' : '重新加载资源（图片被替换/增删后强制刷新）'">
+        <button v-if="canManageGallery" class="bar-action" :disabled="reloading" @click="reloadResource" :title="reloading ? '正在重新加载…' : '重新加载资源（图片被替换/增删后强制刷新）'">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           <span>{{ reloading ? '加载中' : '重新加载' }}</span>
         </button>
-        <button v-if="canManageComic" class="bar-action danger" @click="confirmDelete" title="删除漫画">
+        <button v-if="canManageGallery" class="bar-action danger" @click="confirmDelete" title="删除图集">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           <span>删除</span>
         </button>
@@ -576,7 +576,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       <!-- 翻页模式：单页 -->
       <div v-if="mode==='page'" class="page-mode">
         <img
-          class="comic-page-img"
+          class="gallery-page-img"
           :data-page="currentPage"
           :style="imgStyle"
           :src="withToken(currentImage)"
@@ -597,7 +597,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <img
           v-for="p in pages"
           :key="p.index"
-          class="comic-page-img"
+          class="gallery-page-img"
           :data-page="p.index"
           :style="imgStyle"
           :src="withToken(p.url)"
@@ -609,7 +609,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     </div>
 
     <!-- 底部进度条：常驻显示（正常/沉浸模式都可见），可点击跳转 -->
-    <div class="reader-progress" v-if="comic">
+    <div class="reader-progress" v-if="gallery">
       <span class="rp-text">{{ currentPage }} / {{ total }} · {{ progressPercent }}%</span>
       <div class="rp-track" @click="onSeek">
         <div class="rp-fill" :style="{ width: progressPercent + '%' }"></div>
@@ -619,8 +619,8 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     <!-- 删除确认对话框 -->
     <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
       <div class="dialog">
-        <h3>删除漫画</h3>
-        <p>确定将漫画「{{ comic?.title }}」移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
+        <h3>删除图集</h3>
+        <p>确定将图集「{{ gallery?.title }}」移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
         <label class="delete-file-option">
           <input type="checkbox" v-model="deleteFileOption" />
           永久删除（不可恢复，将同时删除文件）
@@ -670,7 +670,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .reader-body { flex: 1; min-height: 0; overflow: hidden; position: relative; padding-bottom: 44px; }
 .scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: #0e0e0e; }
 .page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: #0e0e0e; position: relative; }
-.comic-page-img { background: #000; }
+.gallery-page-img { background: #000; }
 .page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 96px; background: rgba(0,0,0,0.4); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 36px; cursor: pointer; border-radius: 8px; user-select: none; }
 .page-nav:hover { background: rgba(0,0,0,0.65); }
 .page-nav.prev { left: 12px; }

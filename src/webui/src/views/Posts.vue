@@ -15,7 +15,7 @@ const error = ref('')
 
 const KIND_LABEL: Record<string, string> = {
   video_file: '视频',
-  comic_folder: '图片集',
+  gallery_folder: '图集',
   text: '文本',
 }
 
@@ -25,18 +25,18 @@ const toMediaItem = (refItem: PostRef) => {
     const v = refItem.video
     return { type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
   }
-  if (refItem.comic) {
-    const c = refItem.comic
-    return { type: 'comic', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
+  if (refItem.gallery) {
+    const c = refItem.gallery
+    return { type: 'gallery', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
   }
   if (refItem.text) {
-    return { type: 'comic', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
+    return { type: 'gallery', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
   }
   if (refItem.presentation) {
     const p = refItem.presentation
     const isVideo = refItem.kind === 'video_file'
     return {
-      type: isVideo ? 'video' : 'comic',
+      type: isVideo ? 'video' : 'gallery',
       hash: String(refItem.resource_index_id),
       title: p.title || '未命名资源',
       cover: p.thumbnail || '',
@@ -76,7 +76,7 @@ const selectedCandidate = ref<ResourceIndex | null>(null)
 const pickerDisplayMode = ref<'embed' | 'link'>('embed')  // 超链接+内嵌预览 / 仅超链接
 
 // 候选资源池（弹窗内选择）
-const candidateTab = ref<'video_file' | 'comic_folder' | 'text'>('video_file')
+const candidateTab = ref<'video_file' | 'gallery_folder' | 'text'>('video_file')
 const candidates = ref<ResourceIndex[]>([])
 const candidateSearch = ref('')
 const candidatesLoaded = ref(false)
@@ -137,13 +137,13 @@ function orphanRefs(post: any) {
 }
 
 function labelForRef(r: any) {
-  return r.presentation?.title || r.video?.title || r.comic?.title || r.text?.title || r.location || ('资源 ' + r.resource_index_id)
+  return r.presentation?.title || r.video?.title || r.gallery?.title || r.text?.title || r.location || ('资源 ' + r.resource_index_id)
 }
 
 function openRefLink(r: any) {
   if (!r) return
   if (r.video) { router.push(`/video/${r.video.hash}`); return }
-  if (r.comic) { router.push(`/comic/${r.comic.hash}`); return }
+  if (r.gallery) { router.push(`/gallery/${r.gallery.hash}`); return }
   // 文本 / 仅属于帖子的资源没有独立播放页，链接仅作展示
 }
 
@@ -176,6 +176,10 @@ const openEdit = async (d: Post) => {
   candidatesLoaded.value = false
   dialogVisible.value = true
   await loadCandidates()
+}
+
+const openPost = (d: Post) => {
+  router.push(`/post/${d.id}`)
 }
 
 const openResourcePicker = () => {
@@ -267,7 +271,7 @@ const formatDate = (s?: string) => {
       </button>
     </div>
 
-    <p class="hint">帖子通过「资源索引表」自由引用视频 / 图片集（漫画）/ 文本。一个资源可同时出现在多个帖子，也可「只属于帖子、不进视频/漫画列表」（如下载脚本把图文+视频一体入库到帖子模式）。</p>
+    <p class="hint">帖子通过「资源索引表」自由引用视频 / 图集 / 文本。一个资源可同时出现在多个帖子，也可「只属于帖子、不进视频/图集列表」（如下载脚本把图文+视频一体入库到帖子模式）。</p>
 
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
@@ -278,13 +282,13 @@ const formatDate = (s?: string) => {
     <div v-else class="posts-list">
       <div v-for="d in posts" :key="d.id" class="post-card">
         <div class="post-head">
-          <div>
+          <div class="post-head-main" @click="openPost(d)">
             <h3 class="post-title">{{ d.title || '未命名帖子' }}</h3>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
           <div v-if="canEdit(d)" class="post-ops">
-            <button class="op-btn" title="编辑" @click="openEdit(d)">编辑</button>
-            <button class="op-btn danger" title="删除" @click="removePost(d)">删除</button>
+            <button class="op-btn" title="编辑" @click.stop="openEdit(d)">编辑</button>
+            <button class="op-btn danger" title="删除" @click.stop="removePost(d)">删除</button>
           </div>
         </div>
 
@@ -340,7 +344,7 @@ const formatDate = (s?: string) => {
         <div class="picker">
           <div class="picker-tabs">
             <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
-            <button :class="{ active: candidateTab === 'comic_folder' }" @click="candidateTab = 'comic_folder'; candidatesLoaded = false; loadCandidates()">图片集</button>
+            <button :class="{ active: candidateTab === 'gallery_folder' }" @click="candidateTab = 'gallery_folder'; candidatesLoaded = false; loadCandidates()">图集</button>
             <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
             <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
           </div>
@@ -395,6 +399,8 @@ const formatDate = (s?: string) => {
 .posts-list { display: flex; flex-direction: column; gap: 20px; }
 .post-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; }
 .post-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.post-head-main { cursor: pointer; display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
+.post-head-main:hover .post-title { color: #64b5f6; }
 .post-title { font-size: 17px; font-weight: 600; color: #fff; margin: 0; }
 .post-date { font-size: 12px; color: #777; }
 .post-ops { display: flex; gap: 8px; flex-shrink: 0; }

@@ -33,16 +33,40 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '标签管理', requiresAuth: true, keepAlive: true }
   },
   {
-    path: '/comics',
-    name: 'Comics',
-    component: () => import('../views/Comics.vue'),
-    meta: { title: '漫画', requiresAuth: true, keepAlive: true }
+    path: '/galleries',
+    name: 'Gallerys',
+    component: () => import('../views/Gallerys.vue'),
+    meta: { title: '图集', requiresAuth: true, keepAlive: true }
   },
   {
-    path: '/comic/:hash',
-    name: 'Comic',
-    component: () => import('../views/ComicReader.vue'),
-    meta: { title: '漫画阅读', requiresAuth: true }
+    path: '/gallery/:hash',
+    name: 'Gallery',
+    component: () => import('../views/GalleryReader.vue'),
+    meta: { title: '图集阅读', requiresAuth: true }
+  },
+  {
+    path: '/posts',
+    name: 'Posts',
+    component: () => import('../views/Posts.vue'),
+    meta: { title: '帖子', requiresAuth: true }
+  },
+  {
+    path: '/post/:id',
+    name: 'PostDetail',
+    component: () => import('../views/PostDetail.vue'),
+    meta: { title: '帖子详情', requiresAuth: true }
+  },
+  {
+    path: '/texts',
+    name: 'Texts',
+    component: () => import('../views/Texts.vue'),
+    meta: { title: '文本', requiresAuth: true }
+  },
+  {
+    path: '/text/:id',
+    name: 'TextDetail',
+    component: () => import('../views/TextDetail.vue'),
+    meta: { title: '文本详情', requiresAuth: true }
   },
   {
     path: '/search',

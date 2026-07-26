@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { videoApi, comicApi } from '../api'
+import { videoApi, galleryApi } from '../api'
 import { fetchLikes, type MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
 
 const likes = ref<MediaItem[]>([])
 const loading = ref(false)
 
-// 同时加载视频与漫画的点赞列表（后端为唯一数据源，登录用户绑定账号）
+// 同时加载视频与图集的点赞列表（后端为唯一数据源，登录用户绑定账号）
 const loadLikes = async () => {
   loading.value = true
   try {
@@ -26,7 +26,7 @@ const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name !== 'unlike') return
   try {
-    if (item.type === 'comic') await comicApi.interact(item.hash, 'like')
+    if (item.type === 'gallery') await galleryApi.interact(item.hash, 'like')
     else await videoApi.likeVideo(item.hash)
   } catch (e) {
     console.error('取消点赞失败:', e)
@@ -62,7 +62,7 @@ const showToast = (message: string) => {
       <p>暂无点赞内容</p>
       <div class="browse-links">
         <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
       </div>
     </div>
 
@@ -133,8 +133,8 @@ const showToast = (message: string) => {
   transition: background 0.2s;
 }
 .browse-link:hover { background: #e03e4c; }
-.browse-link.comic { background: #ff9800; }
-.browse-link.comic:hover { background: #e68a00; }
+.browse-link.gallery { background: #ff9800; }
+.browse-link.gallery:hover { background: #e68a00; }
 .likes-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

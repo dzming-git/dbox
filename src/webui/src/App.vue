@@ -17,7 +17,7 @@ const userStore = useUserStore()
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
 
-// 全局搜索：同时搜索视频与漫画，跳转到统一搜索页
+// 全局搜索：同时搜索视频与图集，跳转到统一搜索页
 const searchText = ref('')
 const handleNavSearch = () => {
   const q = searchText.value.trim()
@@ -97,7 +97,7 @@ const closeUserDropdown = (event: MouseEvent) => {
             v-model="searchText"
             class="nav-search-input"
             type="text"
-            placeholder="搜索视频、漫画..."
+            placeholder="搜索视频、图集..."
             @keyup.enter="handleNavSearch"
           />
           <button class="nav-search-btn" @click="handleNavSearch" title="搜索">
@@ -490,7 +490,7 @@ body {
   padding-top: 0;
 }
 
-/* 漫画沉浸全屏阅读模式：隐藏全局导航，铺满全屏 */
+/* 图集沉浸全屏阅读模式：隐藏全局导航，铺满全屏 */
 body.reader-immersive {
   overflow: hidden;
 }
@@ -501,7 +501,7 @@ body.reader-immersive .main-content {
   padding-top: 0 !important;
 }
 
-/* 进入漫画阅读器（非沉浸也生效）：隐藏全局导航，避免其固定定位遮挡阅读器
+/* 进入图集阅读器（非沉浸也生效）：隐藏全局导航，避免其固定定位遮挡阅读器
    自己的顶部工具栏（移动端全局导航会换行变高，navHeight 测量不准会盖住工具栏）。
    阅读器本身已有「返回」和完整工具栏，无需再显示全局导航。 */
 body.reader-active .nav {

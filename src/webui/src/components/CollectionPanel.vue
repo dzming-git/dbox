@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { collectionSetApi } from '../api'
 
 const props = defineProps<{
-  itemType: 'video' | 'comic'
+  itemType: 'video' | 'gallery'
   itemHash: string
 }>()
 

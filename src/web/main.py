@@ -234,7 +234,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 
 # 导入核心模块
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
-from core.models import FavoriteCollection, CollectionVideo, Comic
+from core.models import FavoriteCollection, CollectionVideo, Gallery
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
 from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
@@ -283,12 +283,12 @@ from api.playlist_api import playlist_bp
 from api.system_api import system_bp
 from api.history_api import history_bp, init_history_api
 from api.collection_api import collection_bp, init_collection_api
-from api.collection_set_api import collection_set_api  # 独立合集模块（视频+漫画）
+from api.collection_set_api import collection_set_api  # 独立合集模块（视频+图集）
 from api.search_api import search_bp, init_search_api
 from api.suggestion_api import suggestion_bp
 from backend.api.shared_watch_api import shared_watch_bp
 from backend.api.auth_api_v2 import auth_v2_bp
-from backend.comic.comic_api import comic_bp
+from backend.gallery.gallery_api import gallery_bp
 from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_trash_list, get_trash_obj
 from backend.api.markers_api import markers_bp
 
@@ -330,11 +330,11 @@ app.register_blueprint(playlist_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(history_bp)  # 播放历史API
 app.register_blueprint(collection_bp)  # 收藏夹API
-app.register_blueprint(collection_set_api)  # 独立合集模块（视频+漫画）
+app.register_blueprint(collection_set_api)  # 独立合集模块（视频+图集）
 app.register_blueprint(search_bp)  # 搜索API
 app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反馈API / Issue
 app.register_blueprint(shared_watch_bp)  # 共享观看API
-app.register_blueprint(comic_bp)  # 漫画模式 API
+app.register_blueprint(gallery_bp)  # 图集模式 API
 app.register_blueprint(markers_bp)  # 精彩片段标记 API
 # 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8092），
 #     主服务作为网关将脚本相关接口反向代理过去（见下方 _gateway_script_routes）。
@@ -1497,20 +1497,20 @@ def delete_favorite_collection(collection_id):
 
 @app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['GET'])
 def list_collection_videos(collection_id):
-    """收藏夹内容（视频 + 漫画，通过 type 区分）。"""
+    """收藏夹内容（视频 + 图集，通过 type 区分）。"""
     try:
         key = current_interaction_key()
         col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
         items = CollectionVideo.query.filter_by(collection_id=col.id, user_session=key).all()
         videos = []
         for it in items:
-            if it.item_type == 'comic':
-                c = Comic.query.get(it.comic_id)
+            if it.item_type == 'gallery':
+                c = Gallery.query.get(it.gallery_id)
                 if not c:
                     continue
                 d = c.to_dict()
-                d['type'] = 'comic'
-                d['cover_url'] = f'/comic-cover/{c.hash}'
+                d['type'] = 'gallery'
+                d['cover_url'] = f'/gallery-cover/{c.hash}'
                 d['favorited_at'] = it.created_at.isoformat() if it.created_at else None
                 videos.append(d)
             else:
@@ -1528,7 +1528,7 @@ def list_collection_videos(collection_id):
 
 @app.route('/api/favorite-collections/<int:collection_id>/videos', methods=['POST'])
 def add_to_collection(collection_id):
-    """加入收藏夹，支持视频或漫画（body: {type, hash}）。"""
+    """加入收藏夹，支持视频或图集（body: {type, hash}）。"""
     data = request.get_json(force=True) or {}
     try:
         key = current_interaction_key()
@@ -1537,13 +1537,13 @@ def add_to_collection(collection_id):
         item_hash = data.get('hash')
         if not item_hash:
             return jsonify({'success': False, 'message': '缺少资源标识'}), 400
-        if item_type == 'comic':
-            comic = Comic.query.filter_by(hash=item_hash).first_or_404()
+        if item_type == 'gallery':
+            gallery = Gallery.query.filter_by(hash=item_hash).first_or_404()
             exists = CollectionVideo.query.filter_by(
-                collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id).first()
+                collection_id=col.id, user_session=key, item_type='gallery', gallery_id=gallery.id).first()
             if not exists:
                 db.session.add(CollectionVideo(
-                    collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id))
+                    collection_id=col.id, user_session=key, item_type='gallery', gallery_id=gallery.id))
         else:
             video = Video.query.filter_by(hash=item_hash).first_or_404()
             exists = CollectionVideo.query.filter_by(
@@ -1567,10 +1567,10 @@ def remove_from_collection(collection_id):
         col = FavoriteCollection.query.filter_by(id=collection_id, user_session=key).first_or_404()
         item_type = data.get('type', 'video')
         item_hash = data.get('hash')
-        if item_type == 'comic':
-            comic = Comic.query.filter_by(hash=item_hash).first_or_404()
+        if item_type == 'gallery':
+            gallery = Gallery.query.filter_by(hash=item_hash).first_or_404()
             item = CollectionVideo.query.filter_by(
-                collection_id=col.id, user_session=key, item_type='comic', comic_id=comic.id).first()
+                collection_id=col.id, user_session=key, item_type='gallery', gallery_id=gallery.id).first()
         else:
             video = Video.query.filter_by(hash=item_hash).first_or_404()
             item = CollectionVideo.query.filter_by(
@@ -2571,7 +2571,7 @@ def batch_delete_videos():
 @app.route('/api/admin/trash', methods=['GET'])
 @admin_required
 def admin_trash_list():
-    """列出回收站中的所有资源（视频 + 漫画）。"""
+    """列出回收站中的所有资源（视频 + 图集）。"""
     try:
         items = get_trash_list()
         return jsonify({'success': True, 'items': items, 'total': len(items)})
@@ -5632,7 +5632,7 @@ except Exception as e:
 
 
 # ============ 帖子（Post）API ============
-# 帖子只持有对 resource_index 的引用，可自由引用视频 / 图片集（漫画）/ 未来文本等，
+# 帖子只持有对 resource_index 的引用，可自由引用视频 / 图片集（图集）/ 未来文本等，
 # 同一资源可被多个帖子共享，且移动磁盘资源只需更新索引表一行即可全局跟随。
 
 def _resolve_post_refs(refs):
@@ -5640,7 +5640,7 @@ def _resolve_post_refs(refs):
 
     支持两种写法：
       - {resource_index_id: <id>}                                 直接指定索引
-      - {type: 'video'|'comic', id: <视频/漫画实体 id>}            由实体反查其索引
+      - {type: 'video'|'gallery', id: <视频/图集实体 id>}            由实体反查其索引
     """
     result = []
     if not refs:
@@ -5656,8 +5656,8 @@ def _resolve_post_refs(refs):
                 v = Video.query.get(eid)
                 if v and v.resource_index_id:
                     ri_id = v.resource_index_id
-            elif typ in ('comic', 'comic_folder', 'image_set') and eid:
-                c = Comic.query.get(eid)
+            elif typ in ('gallery', 'gallery_folder', 'image_set') and eid:
+                c = Gallery.query.get(eid)
                 if c and c.resource_index_id:
                     ri_id = c.resource_index_id
         if ri_id:
@@ -5800,7 +5800,7 @@ def remove_post_ref(did, rid):
     return jsonify({'success': True})
 
 
-# ============ 多模式资源管理（资源归属模式：视频/漫画/图文/文本/帖子） ============
+# ============ 多模式资源管理（资源归属模式：视频/图集/图文/文本/帖子） ============
 
 def resolve_user():
     """统一解析当前用户：优先 JWT 中间件注入的 g.user_id，回退到 session 用户。
@@ -5832,7 +5832,7 @@ def resource_index_pool():
     if kind:
         q = q.filter_by(kind=kind)
     items = q.order_by(ResourceIndex.updated_at.desc()).limit(500).all()
-    # 补全缩略图：video_file/comic_folder 的缩略图在 Video/Comic 实体上，
+    # 补全缩略图：video_file/gallery_folder 的缩略图在 Video/Gallery 实体上，
     # 资源索引 meta.thumbnail 往往为空，导致帖子引用选择器预览图无法显示。
     video_ri_ids = [ri.id for ri in items if ri.kind == 'video_file']
     thumb_by_ri = {}
@@ -5928,12 +5928,14 @@ def texts_api():
     return jsonify(t.to_dict()), 201
 
 
-@app.route('/api/texts/<int:tid>', methods=['PUT', 'DELETE'])
+@app.route('/api/texts/<int:tid>', methods=['GET', 'PUT', 'DELETE'])
 def text_item_api(tid):
+    t = Text.query.get_or_404(tid)
+    if request.method == 'GET':
+        return jsonify(t.to_dict())
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
-    t = Text.query.get_or_404(tid)
     if request.method == 'PUT':
         data = request.get_json(force=True, silent=True) or {}
         if 'body' in data:

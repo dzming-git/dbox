@@ -86,7 +86,7 @@ const loadCollectionContext = async () => {
   }
 }
 const goCollectionItem = (it: { type: string; hash: string }) => {
-  const base = it.type === 'video' ? '/video/' : '/comic/'
+  const base = it.type === 'video' ? '/video/' : '/gallery/'
   router.push(`${base}${it.hash}?collection=${collectionId.value}`)
 }
 // 查询视频所属的全部合集（用于信息区“分类归属”展示）

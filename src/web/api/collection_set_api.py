@@ -1,6 +1,6 @@
 """合集模块 API（独立于收藏夹）。
 
-合集是「视频/漫画的属性」，全站共享、不跟随用户：
+合集是「视频/图集的属性」，全站共享、不跟随用户：
 - 任意登录用户看到的是同一套合集；
 - 一个资源可同时属于多个合集；
 - owner_key 仅作为创建者审计字段保留，不再用于查询隔离。
@@ -10,12 +10,12 @@
 - 删除/重命名合集：仅创建者（owner_key 匹配）或管理员（role 2/3）可操作。
   其余变更（增删项、排序）开放给登录用户协作编辑。
 
-接口统一前缀 /api/collections。资源身份使用 hash（视频 Video.hash / 漫画 Comic.hash），
+接口统一前缀 /api/collections。资源身份使用 hash（视频 Video.hash / 图集 Gallery.hash），
 与文件名称/路径解耦，与系统现有“hash 为唯一 key”的约定保持一致。
 """
 from flask import Blueprint, jsonify, request
 
-from core.models import db, MediaCollection, MediaCollectionItem, Video, Comic
+from core.models import db, MediaCollection, MediaCollectionItem, Video, Gallery
 
 collection_set_api = Blueprint('collection_set_api', __name__, url_prefix='/api/collections')
 
@@ -39,13 +39,13 @@ def _can_manage(collection):
 
 def _resolve_media(item_type, item_hash):
     """把合集项解析为前端可直接渲染的媒体信息。"""
-    if item_type == 'comic':
-        c = Comic.query.filter_by(hash=item_hash).first()
+    if item_type == 'gallery':
+        c = Gallery.query.filter_by(hash=item_hash).first()
         if not c:
             return None
         d = c.to_dict()
-        d['type'] = 'comic'
-        d['cover_url'] = f'/comic-cover/{c.hash}'
+        d['type'] = 'gallery'
+        d['cover_url'] = f'/gallery-cover/{c.hash}'
         d['added_at'] = None
         return d
     v = Video.query.filter_by(hash=item_hash).first()
@@ -58,7 +58,7 @@ def _resolve_media(item_type, item_hash):
 
 
 def _collection_cover(cid):
-    """取合集内第一个资源作为封面（视频用 thumbnail，漫画用 comic-cover）。"""
+    """取合集内第一个资源作为封面（视频用 thumbnail，图集用 gallery-cover）。"""
     first = MediaCollectionItem.query.filter_by(collection_id=cid).order_by(
         MediaCollectionItem.position, MediaCollectionItem.id).first()
     if not first:
@@ -188,7 +188,7 @@ def add_collection_item(cid):
         data = request.get_json(silent=True) or {}
         item_type = data.get('item_type')
         item_hash = data.get('item_hash')
-        if item_type not in ('video', 'comic') or not item_hash:
+        if item_type not in ('video', 'gallery') or not item_hash:
             return jsonify({'success': False, 'message': '参数错误'}), 400
         media = _resolve_media(item_type, item_hash)
         if media is None:
@@ -250,7 +250,7 @@ def collections_by_item():
     try:
         item_type = request.args.get('item_type')
         item_hash = request.args.get('item_hash')
-        if item_type not in ('video', 'comic') or not item_hash:
+        if item_type not in ('video', 'gallery') or not item_hash:
             return jsonify({'success': False, 'message': '参数错误'}), 400
         rows = MediaCollectionItem.query.filter_by(item_type=item_type, item_hash=item_hash).all()
         collection_ids = {r.collection_id for r in rows}

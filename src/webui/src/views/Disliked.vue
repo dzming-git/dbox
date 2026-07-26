@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { videoApi, comicApi } from '../api'
+import { videoApi, galleryApi } from '../api'
 import { fetchDisliked, type MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
 
 const disliked = ref<MediaItem[]>([])
 const loading = ref(false)
 
-// 同时加载视频与漫画的"我不喜欢"列表
+// 同时加载视频与图集的"我不喜欢"列表
 const loadDisliked = async () => {
   loading.value = true
   try {
@@ -27,7 +27,7 @@ const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name !== 'restore') return
   try {
-    if (item.type === 'comic') await comicApi.interact(item.hash, 'dislike')
+    if (item.type === 'gallery') await galleryApi.interact(item.hash, 'dislike')
     else await videoApi.dislikeVideo(item.hash)
   } catch (e) {
     console.error('取消不喜欢失败:', e)
@@ -49,7 +49,7 @@ const showToast = (message: string) => {
   <div class="disliked-page">
     <div class="page-header">
       <h1 class="page-title">我不喜欢</h1>
-      <p class="page-sub">这里列出你标记为"我不喜欢"的内容，默认已在首页/漫画库屏蔽。点击可取消屏蔽。</p>
+      <p class="page-sub">这里列出你标记为"我不喜欢"的内容，默认已在首页/图集库屏蔽。点击可取消屏蔽。</p>
     </div>
 
     <div v-if="loading" class="loading-container">
@@ -64,7 +64,7 @@ const showToast = (message: string) => {
       <p>暂无屏蔽的内容</p>
       <div class="browse-links">
         <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/comics" class="browse-link comic">去浏览漫画</router-link>
+        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
       </div>
     </div>
 
@@ -136,8 +136,8 @@ const showToast = (message: string) => {
   transition: background 0.2s;
 }
 .browse-link:hover { background: #e6c233; }
-.browse-link.comic { background: #ff9800; color: #fff; }
-.browse-link.comic:hover { background: #e68a00; }
+.browse-link.gallery { background: #ff9800; color: #fff; }
+.browse-link.gallery:hover { background: #e68a00; }
 .disliked-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

@@ -2,35 +2,35 @@
 defineOptions({ name: 'Search' })
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { videoApi, comicApi } from '../api'
+import { videoApi, galleryApi } from '../api'
 import type { MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
 const q = ref((route.query.q as string) || '')
 const videoResults = ref<MediaItem[]>([])
-const comicResults = ref<MediaItem[]>([])
+const galleryResults = ref<MediaItem[]>([])
 const loading = ref(false)
 
 const search = async () => {
   const query = q.value.trim()
   if (!query) {
     videoResults.value = []
-    comicResults.value = []
+    galleryResults.value = []
     return
   }
   loading.value = true
   try {
     const [v, c] = await Promise.all([
       videoApi.getVideos({ search: query, limit: 60 }) as any,
-      comicApi.getComics({ search: query, limit: 60 }) as any
+      galleryApi.getGallerys({ search: query, limit: 60 }) as any
     ])
     videoResults.value = (v?.videos || []).map((x: any) => ({
       type: 'video', hash: x.hash, title: x.title,
       cover: x.thumbnail || '', thumbnail: x.thumbnail, duration: x.duration, raw: x
     }))
-    comicResults.value = (c?.comics || []).map((x: any) => ({
-      type: 'comic', hash: x.hash, title: x.title,
+    galleryResults.value = (c?.galleries || []).map((x: any) => ({
+      type: 'gallery', hash: x.hash, title: x.title,
       cover: x.cover_url || '', pageCount: x.page_count, raw: x
     }))
   } catch (e) {
@@ -56,10 +56,10 @@ onMounted(search)
         <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
         </svg>
-        <input v-model="q" type="text" placeholder="搜索视频、漫画..." class="search-input" autofocus />
+        <input v-model="q" type="text" placeholder="搜索视频、图集..." class="search-input" autofocus />
       </div>
       <p v-if="q.trim()" class="result-summary">
-        找到 {{ videoResults.length }} 个视频、{{ comicResults.length }} 本漫画
+        找到 {{ videoResults.length }} 个视频、{{ galleryResults.length }} 本图集
       </p>
     </div>
 
@@ -72,10 +72,10 @@ onMounted(search)
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1.5">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <p>输入关键词，同时搜索视频与漫画</p>
+      <p>输入关键词，同时搜索视频与图集</p>
     </div>
 
-    <div v-else-if="videoResults.length === 0 && comicResults.length === 0" class="empty-state">
+    <div v-else-if="videoResults.length === 0 && galleryResults.length === 0" class="empty-state">
       <p>没有找到与「{{ q.trim() }}」相关的内容</p>
     </div>
 
@@ -92,14 +92,14 @@ onMounted(search)
         </div>
       </section>
 
-      <section v-if="comicResults.length > 0" class="result-section">
-        <h2 class="section-title">漫画（{{ comicResults.length }}）</h2>
+      <section v-if="galleryResults.length > 0" class="result-section">
+        <h2 class="section-title">图集（{{ galleryResults.length }}）</h2>
         <div class="result-grid">
           <MediaCard
-            v-for="item in comicResults"
+            v-for="item in galleryResults"
             :key="item.type + ':' + item.hash"
             :item="item"
-            data-testid="search-comic"
+            data-testid="search-gallery"
           />
         </div>
       </section>

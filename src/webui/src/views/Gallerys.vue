@@ -1,59 +1,59 @@
 <script setup lang="ts">
-defineOptions({ name: 'Comics' })
+defineOptions({ name: 'Gallerys' })
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useComicStore } from '../stores/comicStore'
+import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
-import ComicCard from '../components/ComicCard.vue'
+import GalleryCard from '../components/GalleryCard.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
-import type { Comic } from '../types'
-import { comicApi } from '../api'
+import type { Gallery } from '../types'
+import { galleryApi } from '../api'
 
 const router = useRouter()
 const route = useRoute()
-const comicStore = useComicStore()
+const galleryStore = useGalleryStore()
 const userStore = useUserStore()
 
 // 标签筛选（对齐资源库的标签下拉）
 const allTags = ref<any[]>([])
 const loadTags = async () => {
   try {
-    const res: any = await comicApi.getComicTags({ tree: false })
-    allTags.value = (res.tags || []).filter((t: any) => t.comic_count > 0)
+    const res: any = await galleryApi.getGalleryTags({ tree: false })
+    allTags.value = (res.tags || []).filter((t: any) => t.gallery_count > 0)
   } catch {
     allTags.value = []
   }
 }
 const handleTagChange = (e: Event) => {
   const v = (e.target as HTMLSelectElement).value
-  comicStore.filterByTag(v === '' ? null : parseInt(v))
+  galleryStore.filterByTag(v === '' ? null : parseInt(v))
   updateUrl()
 }
 
-// 当前是否作为首页（Home）内嵌的漫画 tab 存在。
-// 内嵌时需在当前路径 '/' 上更新 query（保留 mode 等首页参数，避免整页跳转到 /comics 导致切换 tab 消失）；
-// 独立页（/comics）时维持原有跳转到 Comics 路由的行为。
+// 当前是否作为首页（Home）内嵌的图集 tab 存在。
+// 内嵌时需在当前路径 '/' 上更新 query（保留 mode 等首页参数，避免整页跳转到 /galleries 导致切换 tab 消失）；
+// 独立页（/galleries）时维持原有跳转到 Gallerys 路由的行为。
 const isEmbedded = computed(() => route.name === 'Home')
 
 // 将当前筛选/排序/分页状态同步到 URL（不产生历史记录）
 const updateUrl = () => {
-  const query = comicStore.toQuery()
+  const query = galleryStore.toQuery()
   if (isEmbedded.value) {
     router.replace({ query: { ...route.query, ...query } })
   } else {
-    router.replace({ name: 'Comics', query })
+    router.replace({ name: 'Gallerys', query })
   }
 }
 
-const loading = computed(() => comicStore.loading)
-const comics = computed(() => comicStore.comics)
-const libraries = computed(() => comicStore.libraries)
+const loading = computed(() => galleryStore.loading)
+const galleries = computed(() => galleryStore.galleries)
+const libraries = computed(() => galleryStore.libraries)
 
-// 返回顶部：把上次在详情页查看过的漫画置顶到随机推荐第一个
-const displayComics = computed(() => {
-  const list = [...comics.value]
+// 返回顶部：把上次在详情页查看过的图集置顶到随机推荐第一个
+const displayGallerys = computed(() => {
+  const list = [...galleries.value]
   try {
-    const last = sessionStorage.getItem('lastViewedComic')
+    const last = sessionStorage.getItem('lastViewedGallery')
     if (last) {
       const idx = list.findIndex((c) => c.hash === last)
       if (idx > 0) {
@@ -62,15 +62,15 @@ const displayComics = computed(() => {
       } else if (idx === 0) {
         // 已经在第一位，无需调整
       }
-      sessionStorage.removeItem('lastViewedComic')
+      sessionStorage.removeItem('lastViewedGallery')
     }
   } catch {}
   return list
 })
 
 const searchQuery = computed({
-  get: () => comicStore.searchQuery,
-  set: (v) => comicStore.searchQuery = v
+  get: () => galleryStore.searchQuery,
+  set: (v) => galleryStore.searchQuery = v
 })
 
 const sortOptions = [
@@ -83,24 +83,24 @@ const sortOptions = [
 ]
 
 // 续读
-const continueComics = ref<Comic[]>([])
+const continueGallerys = ref<Gallery[]>([])
 const loadContinue = async () => {
   try {
-    const res: any = await (await import('../api')).comicApi.getComics({ continue: true, limit: 50 })
-    continueComics.value = res.comics || []
+    const res: any = await (await import('../api')).galleryApi.getGallerys({ continue: true, limit: 50 })
+    continueGallerys.value = res.galleries || []
   } catch {
-    continueComics.value = []
+    continueGallerys.value = []
   }
 }
 
-const handleSortChange = (e: Event) => { comicStore.setSortBy((e.target as HTMLSelectElement).value); updateUrl() }
-const handleOrderChange = (e: Event) => { comicStore.setSortOrder((e.target as HTMLSelectElement).value); updateUrl() }
+const handleSortChange = (e: Event) => { galleryStore.setSortBy((e.target as HTMLSelectElement).value); updateUrl() }
+const handleOrderChange = (e: Event) => { galleryStore.setSortOrder((e.target as HTMLSelectElement).value); updateUrl() }
 const handleLibraryChange = (e: Event) => {
   const v = (e.target as HTMLSelectElement).value
-  comicStore.filterByLibrary(v === '' ? null : parseInt(v))
+  galleryStore.filterByLibrary(v === '' ? null : parseInt(v))
   updateUrl()
 }
-const handleComicClick = (c: Comic) => router.push({ name: 'Comic', params: { hash: c.hash } })
+const handleGalleryClick = (c: Gallery) => router.push({ name: 'Gallery', params: { hash: c.hash } })
 
 // ============ 编辑模式（抽屉编辑单条，对齐视频） ============
 const editMode = ref(false)
@@ -116,13 +116,13 @@ const openEdit = (c: any) => {
   editDrawerVisible.value = true
 }
 
-const confirmDeleteComic = async (c: Comic) => {
-  if (!window.confirm(`确定要将漫画「${c.title}」移入回收站吗？管理员可在回收站中恢复或彻底删除。`)) return
+const confirmDeleteGallery = async (c: Gallery) => {
+  if (!window.confirm(`确定要将图集「${c.title}」移入回收站吗？管理员可在回收站中恢复或彻底删除。`)) return
   try {
-    const res = await comicApi.deleteComic(c.hash)
+    const res = await galleryApi.deleteGallery(c.hash)
     if (res.data.success) {
       ElMessage.success(res.data.message || '已移入回收站')
-      comics.value = comics.value.filter(x => x.hash !== c.hash)
+      galleries.value = galleries.value.filter(x => x.hash !== c.hash)
     } else {
       ElMessage.error(res.data.message || '删除失败')
     }
@@ -131,7 +131,7 @@ const confirmDeleteComic = async (c: Comic) => {
   }
 }
 
-// 正常模式下点击卡片上的 tag → 按该 tag 筛选漫画
+// 正常模式下点击卡片上的 tag → 按该 tag 筛选图集
 const onTagClick = (tag: any) => {
   if (editMode.value) return
   let id = tag.id
@@ -140,33 +140,33 @@ const onTagClick = (tag: any) => {
     const found = allTags.value.find((t: any) => t.name === tag.name)
     if (found) id = found.id
   }
-  if (id != null) comicStore.filterByTag(id)
+  if (id != null) galleryStore.filterByTag(id)
 }
 
 // 抽屉保存后就地更新列表中的该条数据
 const onEditSaved = (updated: any) => {
-  const idx = comicStore.comics.findIndex((c: any) => c.hash === updated.hash)
+  const idx = galleryStore.galleries.findIndex((c: any) => c.hash === updated.hash)
   if (idx !== -1) {
-    comicStore.comics[idx] = { ...comicStore.comics[idx], ...updated }
+    galleryStore.galleries[idx] = { ...galleryStore.galleries[idx], ...updated }
   }
 }
 
 // 分页
-const currentPage = computed(() => Math.floor(comicStore.pagination.offset / comicStore.pagination.limit) + 1)
-const totalPages = computed(() => Math.ceil(comicStore.pagination.total / comicStore.pagination.limit) || 1)
+const currentPage = computed(() => Math.floor(galleryStore.pagination.offset / galleryStore.pagination.limit) + 1)
+const totalPages = computed(() => Math.ceil(galleryStore.pagination.total / galleryStore.pagination.limit) || 1)
 const goToPage = async (p: number) => {
   if (p < 1 || p > totalPages.value) return
   // 乐观更新高亮，避免等待请求期间页码跳动
-  comicStore.pagination.offset = (p - 1) * comicStore.pagination.limit
+  galleryStore.pagination.offset = (p - 1) * galleryStore.pagination.limit
   // 只更新 URL（page 写入 query），由 route.query 监听负责拉取对应页数据，
   // 避免直接拉取与 updateUrl 触发 watcher 造成的重复请求与页码回退。
   // 始终带上 page 参数，确保切换到第 1 页时 watcher 也能正确触发重新拉取。
-  const query = comicStore.toQuery()
+  const query = galleryStore.toQuery()
   query.page = String(p)
   if (isEmbedded.value) {
     router.push({ query: { ...route.query, ...query } })
   } else {
-    router.push({ name: 'Comics', query })
+    router.push({ name: 'Gallerys', query })
   }
 }
 const pageRange = computed(() => {
@@ -188,22 +188,22 @@ const pageRange = computed(() => {
 let searchTimer: number | null = null
 watch(searchQuery, (q) => {
   if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => { comicStore.searchComics(q); updateUrl() }, 500)
+  searchTimer = window.setTimeout(() => { galleryStore.searchGallerys(q); updateUrl() }, 500)
 })
 
 onMounted(async () => {
   // 如果 URL 带 query 参数（刷新/分享链接/前进后退），从其中恢复状态
   if (Object.keys(route.query).length > 0) {
     await Promise.all([
-      comicStore.fetchUserLibraries(),
-      comicStore.initFromQuery(route.query as Record<string, string>),
+      galleryStore.fetchUserLibraries(),
+      galleryStore.initFromQuery(route.query as Record<string, string>),
       loadContinue(),
       loadTags()
     ])
   } else {
     await Promise.all([
-      comicStore.fetchUserLibraries(),
-      comicStore.fetchComics(true),
+      galleryStore.fetchUserLibraries(),
+      galleryStore.fetchGallerys(true),
       loadContinue(),
       loadTags()
     ])
@@ -213,34 +213,34 @@ onMounted(async () => {
 // 监听路由 query 变化（处理浏览器后退/前进或 URL 直接访问场景）
 watch(() => route.query, async (newQuery) => {
   if (Object.keys(newQuery).length === 0) return
-  await comicStore.initFromQuery(newQuery as Record<string, string>)
+  await galleryStore.initFromQuery(newQuery as Record<string, string>)
 }, { immediate: false })
 </script>
 
 <template>
-  <div class="comics-container">
+  <div class="galleries-container">
     <div class="action-bar">
       <div class="search-box">
         <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
         </svg>
-        <input v-model="searchQuery" type="text" placeholder="搜索漫画名称..." class="search-input" />
+        <input v-model="searchQuery" type="text" placeholder="搜索图集名称..." class="search-input" />
       </div>
       <div class="sort-box">
-        <select class="sort-select" :value="comicStore.sortBy" @change="handleSortChange">
+        <select class="sort-select" :value="galleryStore.sortBy" @change="handleSortChange">
           <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
-        <select class="sort-order-select" :value="comicStore.sortOrder" @change="handleOrderChange">
+        <select class="sort-order-select" :value="galleryStore.sortOrder" @change="handleOrderChange">
           <option value="desc">倒序</option>
           <option value="asc">正序</option>
         </select>
-        <select class="library-select" :value="comicStore.selectedLibraryId || ''" @change="handleLibraryChange">
+        <select class="library-select" :value="galleryStore.selectedLibraryId || ''" @change="handleLibraryChange">
           <option value="">全部资源库</option>
           <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
         </select>
-        <select class="library-select tag-select" :value="comicStore.selectedTagId || ''" @change="handleTagChange">
+        <select class="library-select tag-select" :value="galleryStore.selectedTagId || ''" @change="handleTagChange">
           <option value="">全部标签</option>
-          <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.comic_count }})</option>
+          <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.gallery_count }})</option>
         </select>
       </div>
       <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
@@ -248,11 +248,11 @@ watch(() => route.query, async (newQuery) => {
         <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
       </button>
       <div class="view-toggle">
-        <button class="view-toggle-btn" :class="{ active: comicStore.viewMode === 'grid' }" @click="comicStore.setViewMode('grid')" title="缩略图">
+        <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'grid' }" @click="galleryStore.setViewMode('grid')" title="缩略图">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           <span>缩略图</span>
         </button>
-        <button class="view-toggle-btn" :class="{ active: comicStore.viewMode === 'list' }" @click="comicStore.setViewMode('list')" title="列表">
+        <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'list' }" @click="galleryStore.setViewMode('list')" title="列表">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           <span>列表</span>
         </button>
@@ -260,41 +260,41 @@ watch(() => route.query, async (newQuery) => {
     </div>
 
     <!-- 继续阅读（默认收起，可点击展开；数量受控） -->
-    <div v-if="continueComics.length > 0" class="continue-section">
+    <div v-if="continueGallerys.length > 0" class="continue-section">
       <div class="continue-header" :class="{ expanded: continueExpanded }" @click="continueExpanded = !continueExpanded">
         <div class="continue-title">
           <svg class="chev" :class="{ open: continueExpanded }" viewBox="0 0 24 24" width="18" height="18">
             <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <h2 class="section-title">继续阅读</h2>
-          <span class="continue-count">{{ continueComics.length }}</span>
+          <span class="continue-count">{{ continueGallerys.length }}</span>
         </div>
-        <span class="continue-hint">{{ continueExpanded ? '收起' : `展开全部 (${continueComics.length})` }}</span>
+        <span class="continue-hint">{{ continueExpanded ? '收起' : `展开全部 (${continueGallerys.length})` }}</span>
       </div>
-      <div v-show="continueExpanded" class="comic-grid">
-        <ComicCard v-for="c in continueComics.slice(0, CONTINUE_MAX)" :key="c.hash" :comic="c" @click="handleComicClick" />
+      <div v-show="continueExpanded" class="gallery-grid">
+        <GalleryCard v-for="c in continueGallerys.slice(0, CONTINUE_MAX)" :key="c.hash" :gallery="c" @click="handleGalleryClick" />
       </div>
-      <p v-if="continueExpanded && continueComics.length > CONTINUE_MAX" class="continue-more">仅显示最近 {{ CONTINUE_MAX }} 本</p>
+      <p v-if="continueExpanded && continueGallerys.length > CONTINUE_MAX" class="continue-more">仅显示最近 {{ CONTINUE_MAX }} 本</p>
     </div>
 
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
 
     <template v-else>
-      <div v-if="comics.length > 0" class="comic-section">
-        <div v-if="comicStore.viewMode === 'grid'" class="comic-grid">
-          <ComicCard
-            v-for="c in displayComics"
+      <div v-if="galleries.length > 0" class="gallery-section">
+        <div v-if="galleryStore.viewMode === 'grid'" class="gallery-grid">
+          <GalleryCard
+            v-for="c in displayGallerys"
             :key="c.hash"
-            :comic="c"
+            :gallery="c"
             :editable="editMode"
-            @click="handleComicClick"
+            @click="handleGalleryClick"
             @edit="openEdit"
             @tag-click="onTagClick"
           />
         </div>
-        <div v-else class="comic-list">
-          <div v-for="c in displayComics" :key="c.hash" class="comic-list-row" @click="editMode ? openEdit(c) : handleComicClick(c)">
-            <div class="list-thumb" @click.stop="editMode ? openEdit(c) : handleComicClick(c)">
+        <div v-else class="gallery-list">
+          <div v-for="c in displayGallerys" :key="c.hash" class="gallery-list-row" @click="editMode ? openEdit(c) : handleGalleryClick(c)">
+            <div class="list-thumb" @click.stop="editMode ? openEdit(c) : handleGalleryClick(c)">
               <img :src="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'" loading="lazy" @error="(e:any)=>e.target.src='/placeholder.jpg'" />
               <span class="list-pages">{{ c.page_count }}P</span>
             </div>
@@ -314,15 +314,15 @@ watch(() => route.query, async (newQuery) => {
               <button
                 v-if="editMode"
                 class="list-action-btn delete"
-                @click.stop="confirmDeleteComic(c)"
+                @click.stop="confirmDeleteGallery(c)"
                 title="删除（移入回收站）"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
               </button>
               <template v-else>
-                <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="comicStore.interact(c.hash,'like')">♥</button>
-                <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="comicStore.interact(c.hash,'favorite')">★</button>
-                <button class="list-action-btn delete" @click.stop="confirmDeleteComic(c)" title="删除（移入回收站）">
+                <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="galleryStore.interact(c.hash,'like')">♥</button>
+                <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="galleryStore.interact(c.hash,'favorite')">★</button>
+                <button class="list-action-btn delete" @click.stop="confirmDeleteGallery(c)" title="删除（移入回收站）">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                 </button>
               </template>
@@ -330,9 +330,9 @@ watch(() => route.query, async (newQuery) => {
           </div>
         </div>
       </div>
-      <div v-if="comics.length === 0" class="empty-state">
+      <div v-if="galleries.length === 0" class="empty-state">
         <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        <p>暂无漫画</p>
+        <p>暂无图集</p>
         <p class="empty-tip" v-if="userStore.isAdmin">在资源库里放入「扁平的图片文件夹」（每本 >=2 张图）即可自动收录。</p>
       </div>
 
@@ -349,10 +349,10 @@ watch(() => route.query, async (newQuery) => {
       </div>
     </template>
 
-    <!-- 编辑抽屉（漫画） -->
+    <!-- 编辑抽屉（图集） -->
     <ItemEditDrawer
       :visible="editDrawerVisible"
-      type="comic"
+      type="gallery"
       :item="editingItem"
       @update:visible="editDrawerVisible = $event"
       @saved="onEditSaved"
@@ -361,7 +361,7 @@ watch(() => route.query, async (newQuery) => {
 </template>
 
 <style scoped>
-.comics-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.galleries-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .action-bar { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; flex-wrap: wrap; }
 .search-box { flex: 1; max-width: 500px; position: relative; }
 .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #666; }
@@ -372,10 +372,10 @@ watch(() => route.query, async (newQuery) => {
 .view-toggle { display: flex; gap: 4px; background: #252525; border: 1px solid #333; border-radius: 8px; padding: 3px; margin-left: auto; }
 .view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: #aaa; font-size: 13px; border-radius: 6px; cursor: pointer; }
 .view-toggle-btn.active { background: #2196F3; color: #fff; }
-.comic-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-.comic-list { display: flex; flex-direction: column; gap: 8px; }
-.comic-list-row { display: flex; align-items: center; gap: 14px; padding: 8px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
-.comic-list-row:hover { background: #222; }
+.gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.gallery-list { display: flex; flex-direction: column; gap: 8px; }
+.gallery-list-row { display: flex; align-items: center; gap: 14px; padding: 8px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
+.gallery-list-row:hover { background: #222; }
 .list-thumb { position: relative; width: 120px; flex-shrink: 0; aspect-ratio: 3/4; overflow: hidden; border-radius: 8px; background: #000; }
 .list-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .list-pages { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.7); color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
@@ -409,11 +409,11 @@ watch(() => route.query, async (newQuery) => {
 .page-btn.active { background: #2196F3; color: #fff; border-color: #2196F3; }
 .page-ellipsis { color: #666; padding: 0 4px; }
 .page-info { color: #888; font-size: 13px; margin-left: 12px; }
-@media (max-width: 1200px) { .comic-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 900px) { .comic-grid { grid-template-columns: repeat(2, 1fr); } .view-toggle { margin-left: 0; } }
+@media (max-width: 1200px) { .gallery-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 900px) { .gallery-grid { grid-template-columns: repeat(2, 1fr); } .view-toggle { margin-left: 0; } }
 @media (max-width: 600px) {
-  .comics-container { padding: 12px; }
-  .comic-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .galleries-container { padding: 12px; }
+  .gallery-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
   .search-box { max-width: 100%; width: 100%; }
   .action-bar { flex-direction: column; align-items: stretch; }
 }
@@ -449,5 +449,5 @@ watch(() => route.query, async (newQuery) => {
 .chev.open { transform: rotate(90deg); }
 .continue-hint { color: #888; font-size: 13px; }
 .continue-more { margin: 10px 2px 0; color: #666; font-size: 12px; }
-.continue-section .comic-grid { margin-top: 14px; }
+.continue-section .gallery-grid { margin-top: 14px; }
 </style>

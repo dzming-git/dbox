@@ -86,22 +86,22 @@ export const videoApi = {
   createCollection: (name: string) => api.post('/api/favorite-collections', { name }),
   deleteCollection: (id: number) => api.delete(`/api/favorite-collections/${id}`),
   getCollectionVideos: (id: number) => api.get(`/api/favorite-collections/${id}/videos`),
-  addToCollection: (id: number, type: 'video' | 'comic', hash: string) =>
+  addToCollection: (id: number, type: 'video' | 'gallery', hash: string) =>
     api.post(`/api/favorite-collections/${id}/videos`, { type, hash }),
-  removeFromCollection: (id: number, type: 'video' | 'comic', hash: string) =>
+  removeFromCollection: (id: number, type: 'video' | 'gallery', hash: string) =>
     api.delete(`/api/favorite-collections/${id}/videos`, { data: { type, hash } }),
 
   deleteVideo: (hash: string, deleteFile = false) =>
     api.delete(`/api/video/${hash}`, { data: { delete_file: deleteFile } }),
 
-  deleteComic: (hash: string, deleteFile = false) =>
-    api.delete(`/api/comic/${hash}`, { data: { delete_file: deleteFile } }),
+  deleteGallery: (hash: string, deleteFile = false) =>
+    api.delete(`/api/gallery/${hash}`, { data: { delete_file: deleteFile } }),
 
   // 回收站（管理员）
   getTrash: () => api.get('/api/admin/trash'),
-  restoreTrash: (type: 'video' | 'comic', hash: string) =>
+  restoreTrash: (type: 'video' | 'gallery', hash: string) =>
     api.post('/api/admin/trash/restore', { type, hash }),
-  purgeTrash: (type: 'video' | 'comic', hash: string) =>
+  purgeTrash: (type: 'video' | 'gallery', hash: string) =>
     api.post('/api/admin/trash/purge', { type, hash }),
   emptyTrash: () => api.post('/api/admin/trash/empty'),
   
@@ -121,7 +121,7 @@ export const videoApi = {
     api.get('/api/status')
 }
 
-// 合集模块（独立于收藏夹）：视频+漫画通用、支持排序与多归属、反向查询
+// 合集模块（独立于收藏夹）：视频+图集通用、支持排序与多归属、反向查询
 export const collectionSetApi = {
   getCollections: () => api.get('/api/collections'),
   createCollection: (data: { name: string; description?: string; is_public?: boolean }) =>
@@ -130,13 +130,13 @@ export const collectionSetApi = {
   updateCollection: (id: number, data: any) => api.put(`/api/collections/${id}`, data),
   deleteCollection: (id: number) => api.delete(`/api/collections/${id}`),
   getItems: (id: number) => api.get(`/api/collections/${id}/items`),
-  addItem: (id: number, data: { item_type: 'video' | 'comic'; item_hash: string; position?: number }) =>
+  addItem: (id: number, data: { item_type: 'video' | 'gallery'; item_hash: string; position?: number }) =>
     api.post(`/api/collections/${id}/items`, data),
   reorderItems: (id: number, orderedIds: number[]) =>
     api.post(`/api/collections/${id}/items/reorder`, { ordered_ids: orderedIds }),
   removeItem: (id: number, itemId: number) =>
     api.delete(`/api/collections/${id}/items/${itemId}`),
-  getByItem: (itemType: 'video' | 'comic', itemHash: string) =>
+  getByItem: (itemType: 'video' | 'gallery', itemHash: string) =>
     api.get('/api/collections/by-item', { params: { item_type: itemType, item_hash: itemHash } }),
 }
 
@@ -308,10 +308,10 @@ export const serviceManageApi = {
     api.post(`/api/admin/services/${serviceName}/control`, { action })
 }
 
-// 漫画模式 API
-export const comicApi = {
+// 图集模式 API
+export const galleryApi = {
   // 列表 / 筛选 / 排序 / 分页
-  getComics: (params?: {
+  getGallerys: (params?: {
     library_id?: number
     search?: string
     sort?: string
@@ -322,64 +322,64 @@ export const comicApi = {
     continue?: boolean
     limit?: number
     offset?: number
-  }) => api.get('/api/comics', { params }),
+  }) => api.get('/api/galleries', { params }),
 
   // 详情（含全部页面）
-  getComic: (hash: string) =>
-    api.get(`/api/comic/${hash}`),
+  getGallery: (hash: string) =>
+    api.get(`/api/gallery/${hash}`),
 
   // 删除（移入回收站；管理员传 deleteFile=true 可永久删除）
-  deleteComic: (hash: string, deleteFile = false) =>
-    api.delete(`/api/comic/${hash}`, { data: { delete_file: deleteFile } }),
+  deleteGallery: (hash: string, deleteFile = false) =>
+    api.delete(`/api/gallery/${hash}`, { data: { delete_file: deleteFile } }),
 
-  // 重新加载漫画资源（从磁盘重新同步页面/封面，图片被替换/增删后强制刷新）
-  reloadComic: (hash: string) =>
-    api.post(`/api/comic/${hash}/reload`),
+  // 重新加载图集资源（从磁盘重新同步页面/封面，图片被替换/增删后强制刷新）
+  reloadGallery: (hash: string) =>
+    api.post(`/api/gallery/${hash}/reload`),
 
   // 点赞 / 收藏 / 不喜欢
   interact: (hash: string, type: 'like' | 'favorite' | 'dislike') =>
-    api.post(`/api/comic/${hash}/${type}`),
+    api.post(`/api/gallery/${hash}/${type}`),
 
   // 阅读进度
     getProgress: (hash: string) =>
-      api.get(`/api/comic/${hash}/progress`),
+      api.get(`/api/gallery/${hash}/progress`),
     saveProgress: (hash: string, page: number, progress: number) =>
-      api.post(`/api/comic/${hash}/progress`, { page, progress }),
+      api.post(`/api/gallery/${hash}/progress`, { page, progress }),
     setContinue: (hash: string, add: boolean) =>
-      api.post(`/api/comic/${hash}/continue`, { add }),
+      api.post(`/api/gallery/${hash}/continue`, { add }),
 
-  // 我的漫画列表（与视频的 /api/favorites|likes|disliked|history 对齐，地位等同）
-  getFavorites: () => api.get('/api/comics/favorites'),
-  getLikes: () => api.get('/api/comics/likes'),
-  getDisliked: () => api.get('/api/comics/disliked'),
-  getHistory: () => api.get('/api/comics/history'),
+  // 我的图集列表（与视频的 /api/favorites|likes|disliked|history 对齐，地位等同）
+  getFavorites: () => api.get('/api/galleries/favorites'),
+  getLikes: () => api.get('/api/galleries/likes'),
+  getDisliked: () => api.get('/api/galleries/disliked'),
+  getHistory: () => api.get('/api/galleries/history'),
 
-  // 管理员：扫描库的漫画
+  // 管理员：扫描库的图集
   scan: (libraryId: number) =>
-    api.post(`/api/admin/libraries/${libraryId}/scan-comics`, {}),
+    api.post(`/api/admin/libraries/${libraryId}/scan-galleries`, {}),
   scanStatus: (libraryId: number) =>
-    api.get(`/api/admin/libraries/${libraryId}/comic-scan-status`),
+    api.get(`/api/admin/libraries/${libraryId}/gallery-scan-status`),
 
   // 标签（复用主应用 tags 表，对齐视频标签体系）
-  getComicTags: (params?: { tree?: boolean }) => api.get('/api/comics/tags', { params }),
-  // 更新漫画信息（标题、所属资源库）
-  updateComic: (hash: string, data: { title?: string; library_id?: number | null }) =>
-    api.post(`/api/comic/${hash}/update`, data),
-  getComicTagsByHash: (hash: string) => api.get(`/api/comic/${hash}/tags`),
-  setComicTags: (hash: string, tags: string[]) => api.post(`/api/comic/${hash}/tags`, { tags }),
-  removeComicTag: (hash: string, tagId: number) =>
-    api.delete(`/api/comic/${hash}/tags`, { data: { tag_id: tagId } }),
+  getGalleryTags: (params?: { tree?: boolean }) => api.get('/api/galleries/tags', { params }),
+  // 更新图集信息（标题、所属资源库）
+  updateGallery: (hash: string, data: { title?: string; library_id?: number | null }) =>
+    api.post(`/api/gallery/${hash}/update`, data),
+  getGalleryTagsByHash: (hash: string) => api.get(`/api/gallery/${hash}/tags`),
+  setGalleryTags: (hash: string, tags: string[]) => api.post(`/api/gallery/${hash}/tags`, { tags }),
+  removeGalleryTag: (hash: string, tagId: number) =>
+    api.delete(`/api/gallery/${hash}/tags`, { data: { tag_id: tagId } }),
 
   // 合集（播放列表，对齐视频 Playlist）
-  getPlaylists: () => api.get('/api/comic-playlists'),
+  getPlaylists: () => api.get('/api/gallery-playlists'),
   createPlaylist: (data: { name: string; description?: string; is_public?: boolean }) =>
-    api.post('/api/comic-playlists', data),
-  getPlaylist: (id: number) => api.get(`/api/comic-playlists/${id}`),
-  updatePlaylist: (id: number, data: any) => api.put(`/api/comic-playlists/${id}`, data),
-  deletePlaylist: (id: number) => api.delete(`/api/comic-playlists/${id}`),
-  addToPlaylist: (id: number, hash: string) => api.post(`/api/comic-playlists/${id}/comics`, { hash }),
-  removeFromPlaylist: (id: number, hash: string) => api.delete(`/api/comic-playlists/${id}/comics/${hash}`),
-  reorderPlaylist: (id: number, order: string[]) => api.put(`/api/comic-playlists/${id}/comics/reorder`, { order }),
+    api.post('/api/gallery-playlists', data),
+  getPlaylist: (id: number) => api.get(`/api/gallery-playlists/${id}`),
+  updatePlaylist: (id: number, data: any) => api.put(`/api/gallery-playlists/${id}`, data),
+  deletePlaylist: (id: number) => api.delete(`/api/gallery-playlists/${id}`),
+  addToPlaylist: (id: number, hash: string) => api.post(`/api/gallery-playlists/${id}/galleries`, { hash }),
+  removeFromPlaylist: (id: number, hash: string) => api.delete(`/api/gallery-playlists/${id}/galleries/${hash}`),
+  reorderPlaylist: (id: number, order: string[]) => api.put(`/api/gallery-playlists/${id}/galleries/reorder`, { order }),
 }
 
 // 系统控制 API（电脑关机）
@@ -391,7 +391,7 @@ export const systemApi = {
     api.post('/api/system/shutdown/cancel')
 }
 
-// 帖子（Post）API：帖子通过资源索引表自由引用视频/图片集（漫画）/未来文本
+// 帖子（Post）API：帖子通过资源索引表自由引用视频/图片集（图集）/未来文本
 export const postApi = {
   // 列表（仅未删除）
   list: (params?: { library_id?: number }) =>
@@ -422,6 +422,7 @@ export const resourceApi = {
 // 文本模式（未来内容管理）
 export const textApi = {
   list: (params?: { library_id?: number; search?: string }) => api.get('/api/texts', { params }),
+  get: (id: number) => api.get(`/api/texts/${id}`),
   create: (data: { title: string; body?: string; summary?: string; location?: string; library_id?: number }) =>
     api.post('/api/texts', data),
   update: (id: number, data: any) => api.put(`/api/texts/${id}`, data),

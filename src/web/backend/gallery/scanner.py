@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-漫画扫描器
+图集扫描器
 
-把资源库磁盘目录里的「扁平图片文件夹」识别为一本漫画：
-  - 漫画 = 一个目录，其直接子文件里图片数 >= MIN_PAGES 且不含「带图片的子目录」
+把资源库磁盘目录里的「扁平图片文件夹」识别为一本图集：
+  - 图集 = 一个目录，其直接子文件里图片数 >= MIN_PAGES 且不含「带图片的子目录」
   - 支持递归（子目录若自身满足上述条件，也会被识别为独立的一本）
-  - 每本漫画按 内容指纹(hash) 去重入库；重命名（改变 folder_path）会被识别为同一本并更新路径
-  - 扫描完成后，磁盘上已不存在的漫画会被清理
+  - 每本图集按 内容指纹(hash) 去重入库；重命名（改变 folder_path）会被识别为同一本并更新路径
+  - 扫描完成后，磁盘上已不存在的图集会被清理
 
 图片格式：jpg/jpeg/png/webp/gif/bmp/avif
 """
@@ -33,7 +33,7 @@ def _load_app_config():
     return {}
 
 
-def _comic_targets_from_scan_directories():
+def _gallery_targets_from_scan_directories():
     """兜底：使用 config.json 中的 scan_directories（已配置的扫描根目录）。"""
     cfg = _load_app_config()
     out = []
@@ -44,8 +44,8 @@ def _comic_targets_from_scan_directories():
     return out
 
 
-def _resolve_comic_targets(library_id, app=None):
-    """漫画扫描的磁盘目标解析，按优先级回退，保证即使 resourced/watcher 不可用也能扫描已配置目录：
+def _resolve_gallery_targets(library_id, app=None):
+    """图集扫描的磁盘目标解析，按优先级回退，保证即使 resourced/watcher 不可用也能扫描已配置目录：
     1) 通过 library_watcher 单例（来自 resourced 的库路径 + 子文件夹）；
     2) 直接调用 resourced 服务获取库路径与其文件夹；
     3) config.json 的 scan_directories（兜底，已配置的扫描根目录）。
@@ -64,7 +64,7 @@ def _resolve_comic_targets(library_id, app=None):
     # 2) 直接调用 resourced
     try:
         from servicebus import BusClient
-        bus = BusClient(f'comic-scan-{os.getpid()}', host='127.0.0.1', rpc_port=15555, pub_port=15556)
+        bus = BusClient(f'gallery-scan-{os.getpid()}', host='127.0.0.1', rpc_port=15555, pub_port=15556)
         res = bus.call_method('com.dplayer.resourced', 'com.dplayer.Resourced', 'ListLibraries', {}, timeout=5000)
         if res and res.get('success'):
             name = None
@@ -94,7 +94,7 @@ def _resolve_comic_targets(library_id, app=None):
         pass
 
     # 3) 兜底：scan_directories
-    return _comic_targets_from_scan_directories()
+    return _gallery_targets_from_scan_directories()
 
 
 def _natural_key(s: str):
@@ -121,27 +121,27 @@ def _dir_has_image_children(folder: str) -> bool:
     return False
 
 
-def _sync_pages(comic, pages):
-    """重建某漫画的页面记录（简单可靠；漫画页变动时数量不多，开销可接受）。"""
-    from core.models import db, ComicPage
-    ComicPage.query.filter_by(comic_id=comic.id).delete()
+def _sync_pages(gallery, pages):
+    """重建某图集的页面记录（简单可靠；图集页变动时数量不多，开销可接受）。"""
+    from core.models import db, GalleryPage
+    GalleryPage.query.filter_by(gallery_id=gallery.id).delete()
     for i, p in enumerate(pages):
-        db.session.add(ComicPage(comic_id=comic.id, page_index=i, file_path=p))
+        db.session.add(GalleryPage(gallery_id=gallery.id, page_index=i, file_path=p))
 
 
-def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
-    """扫描单个资源库，识别其中的漫画并写入 comics 表。
+def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None):
+    """扫描单个资源库，识别其中的图集并写入 galleries 表。
 
     Args:
         library_id: web 资源库 ID
         app: Flask app（用于 app_context）
-        min_pages: 一个目录至少包含多少张图片才算漫画
+        min_pages: 一个目录至少包含多少张图片才算图集
         max_depth: 从库根目录向下的最大递归层数
         log: 可选日志对象（提供 .debug(level, msg)）
     Returns:
         dict: {success, added, updated, removed, total, message}
     """
-    from core.models import db, Comic, ResourceLibrary
+    from core.models import db, Gallery, ResourceLibrary
 
     def debug(level, msg):
         if log:
@@ -160,7 +160,7 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
         # 扫描发现的资源归属 root 用户（管理员对所有资源有权限）
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
-        targets = _resolve_comic_targets(library_id, app)
+        targets = _resolve_gallery_targets(library_id, app)
         if not targets:
             return {'success': False, 'message': '未找到该库的磁盘目录（resourced 不可用或配置缺失）'}
 
@@ -177,7 +177,7 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                 dirnames[:] = []
                 continue
             images = [f for f in filenames if f.lower().endswith(IMAGE_EXTS)]
-            # 若某个子目录本身含图片，则该子目录很可能是另一本漫画，当前目录不算
+            # 若某个子目录本身含图片，则该子目录很可能是另一本图集，当前目录不算
             sub_has_images = any(
                 os.path.isdir(os.path.join(dirpath, d)) and _dir_has_image_children(os.path.join(dirpath, d))
                 for d in dirnames
@@ -186,10 +186,10 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                 pages = _list_images(dirpath)
                 if not pages:
                     continue
-                chash = Comic.generate_hash(dirpath, pages)
+                chash = Gallery.generate_hash(dirpath, pages)
                 seen_hashes.add(chash)
                 with app.app_context():
-                    existing = Comic.query.filter_by(hash=chash).first()
+                    existing = Gallery.query.filter_by(hash=chash).first()
                     if existing:
                         changed = False
                         if existing.folder_path != dirpath:
@@ -214,7 +214,7 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                             db.session.commit()
                             updated += 1
                     else:
-                        c = Comic(
+                        c = Gallery(
                             hash=chash,
                             title=os.path.basename(dirpath.rstrip(os.sep)),
                             folder_path=dirpath,
@@ -228,25 +228,25 @@ def scan_library_comics(library_id, app, min_pages=2, max_depth=6, log=None):
                         db.session.commit()
                         added += 1
 
-    # 清理：库中已不存在（或磁盘目录已删除）的漫画
+    # 清理：库中已不存在（或磁盘目录已删除）的图集
     with app.app_context():
-        for c in Comic.query.filter_by(library_id=library_id).all():
+        for c in Gallery.query.filter_by(library_id=library_id).all():
             if c.hash not in seen_hashes or not (c.folder_path and os.path.isdir(c.folder_path)):
                 db.session.delete(c)
                 removed += 1
         db.session.commit()
-        total = Comic.query.filter_by(library_id=library_id).count()
+        total = Gallery.query.filter_by(library_id=library_id).count()
 
-    debug('INFO', f'[ComicScan] 库 {library_id}: 新增 {added}, 更新 {updated}, 清理 {removed}, 现存 {total}')
+    debug('INFO', f'[GalleryScan] 库 {library_id}: 新增 {added}, 更新 {updated}, 清理 {removed}, 现存 {total}')
     return {'success': True, 'added': added, 'updated': updated, 'removed': removed, 'total': total}
 
 
-def scan_all_comics(app, log=None):
+def scan_all_galleries(app, log=None):
     """扫描所有资源库（供需要时一次性全量扫描）。"""
     from core.models import ResourceLibrary
     results = []
     with app.app_context():
         libs = ResourceLibrary.query.filter_by(is_active=True).all()
     for lib in libs:
-        results.append(scan_library_comics(lib.id, app, log=log))
+        results.append(scan_library_galleries(lib.id, app, log=log))
     return results

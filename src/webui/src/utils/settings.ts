@@ -131,7 +131,7 @@ export function getSettingSource(key: string): SettingScope | 'default' {
   return 'default'
 }
 
-// 兼容 videoStore / comicStore 调用
+// 兼容 videoStore / galleryStore 调用
 export function getDefaultSort(): { sort: string; order: string } {
   const s = getEffectiveSettings()
   return { sort: s.defaultSort, order: s.defaultOrder }
