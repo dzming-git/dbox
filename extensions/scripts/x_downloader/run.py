@@ -190,7 +190,7 @@ def get_system_proxy():
     # 2) 交互式登录用户（HKCU 取不到时的主要路径）
     best = None
     try:
-        with winreg.OpenKey(winreg.HKEY_USERS) as users:
+        with winreg.OpenKey(winreg.HKEY_USERS, '') as users:
             i = 0
             while True:
                 try:
