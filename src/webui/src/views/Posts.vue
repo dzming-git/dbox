@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { postApi, resourceApi } from '../api'
 import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 
 const userStore = useUserStore()
+const router = useRouter()
 
 const posts = ref<Post[]>([])
 const loading = ref(false)
@@ -64,10 +66,16 @@ onMounted(fetchPosts)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const formTitle = ref('')
-const formContent = ref('')
-const editingRefs = ref<Array<{ resource_index_id: number; kind: string; title: string; cover: string; note: string }>>([])
+const formContent = ref('')          // 正文：纯文本 + 内联资源标记 [文字](res:ID:mode)
 const saving = ref(false)
+const contentInput = ref<any>(null)  // 正文文本框，用于插入标记时光标定位
 
+// 插入资源弹窗
+const resourcePickerVisible = ref(false)
+const selectedCandidate = ref<ResourceIndex | null>(null)
+const pickerDisplayMode = ref<'embed' | 'link'>('embed')  // 超链接+内嵌预览 / 仅超链接
+
+// 候选资源池（弹窗内选择）
 const candidateTab = ref<'video_file' | 'comic_folder' | 'text'>('video_file')
 const candidates = ref<ResourceIndex[]>([])
 const candidateSearch = ref('')
@@ -86,36 +94,63 @@ const loadCandidates = async () => {
   candidatesLoaded.value = true
 }
 
-const isSelected = (rid: number) => editingRefs.value.some(r => r.resource_index_id === rid)
+// 内联资源标记解析（与后端 parse_post_content_tokens 对应）
+const POST_TOKEN_RE = /\[([^\]]*)\]\(res:(\d+):(link|embed)\)/g
 
-const toggleCandidate = (item: ResourceIndex) => {
-  const idx = editingRefs.value.findIndex(r => r.resource_index_id === item.id)
-  if (idx >= 0) {
-    editingRefs.value.splice(idx, 1)
-  } else {
-    const p = item.presentation || {}
-    editingRefs.value.push({
-      resource_index_id: item.id,
-      kind: item.kind,
-      title: p.title || item.location || '未命名',
-      cover: p.thumbnail || '',
-      note: '',
-    })
+function parseContentTokens(content: string) {
+  const out: { resource_index_id: number; mode: string; label: string }[] = []
+  if (!content) return out
+  POST_TOKEN_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = POST_TOKEN_RE.exec(content))) {
+    out.push({ label: m[1], resource_index_id: parseInt(m[2], 10), mode: m[3] })
   }
+  return out
 }
 
-const moveRef = (index: number, dir: -1 | 1) => {
-  const target = index + dir
-  if (target < 0 || target >= editingRefs.value.length) return
-  const arr = editingRefs.value
-  ;[arr[index], arr[target]] = [arr[target], arr[index]]
+function tokenRefIds(content: string) {
+  return new Set(parseContentTokens(content).map(t => t.resource_index_id))
+}
+
+// 把正文拆成文本段 / 引用段，供视图渲染
+function renderSegments(content: string, refs: any[]) {
+  const segs: any[] = []
+  if (!content) return segs
+  const byId = new Map((refs || []).map(r => [r.resource_index_id, r]))
+  let last = 0
+  POST_TOKEN_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = POST_TOKEN_RE.exec(content))) {
+    if (m.index > last) segs.push({ type: 'text', text: content.slice(last, m.index) })
+    const rid = parseInt(m[2], 10)
+    segs.push({ type: 'ref', label: m[1], mode: m[3], resource_index_id: rid, ref: byId.get(rid) || null })
+    last = m.index + m[0].length
+  }
+  if (last < content.length) segs.push({ type: 'text', text: content.slice(last) })
+  return segs
+}
+
+// 正文未引用的引用（兼容旧帖：引用以列表形式存在，不在正文中）
+function orphanRefs(post: any) {
+  const ids = tokenRefIds(post.content || '')
+  return (post.refs || []).filter((r: any) => !ids.has(r.resource_index_id))
+}
+
+function labelForRef(r: any) {
+  return r.presentation?.title || r.video?.title || r.comic?.title || r.text?.title || r.location || ('资源 ' + r.resource_index_id)
+}
+
+function openRefLink(r: any) {
+  if (!r) return
+  if (r.video) { router.push(`/video/${r.video.hash}`); return }
+  if (r.comic) { router.push(`/comic/${r.comic.hash}`); return }
+  // 文本 / 仅属于帖子的资源没有独立播放页，链接仅作展示
 }
 
 const openCreate = async () => {
   editingId.value = null
   formTitle.value = ''
   formContent.value = ''
-  editingRefs.value = []
   candidateTab.value = 'video_file'
   candidates.value = []
   candidateSearch.value = ''
@@ -127,13 +162,14 @@ const openCreate = async () => {
 const openEdit = async (d: Post) => {
   editingId.value = d.id
   formTitle.value = d.title
-  formContent.value = d.content
-  editingRefs.value = (d.refs || []).map(r => {
-    if (r.video) return { resource_index_id: r.video.resource_index_id, kind: 'video_file', title: r.video.title, cover: r.video.thumbnail || '', note: r.note || '' }
-    if (r.comic) return { resource_index_id: r.comic.resource_index_id, kind: 'comic_folder', title: r.comic.title, cover: (r.comic as any).cover_url || '', note: r.note || '' }
-    if (r.text) return { resource_index_id: r.text.resource_index_id, kind: 'text', title: r.text.presentation?.title || '文本', cover: r.text.presentation?.thumbnail || '', note: r.note || '' }
-    return { resource_index_id: r.resource_index_id, kind: r.kind || 'video_file', title: r.presentation?.title || '未命名', cover: r.presentation?.thumbnail || '', note: r.note || '' }
-  })
+  formContent.value = d.content || ''
+  // 把正文中未出现的引用以标记形式补回，便于继续编辑（旧帖升级为新格式）
+  const ids = tokenRefIds(formContent.value)
+  for (const r of (d.refs || [])) {
+    if (!ids.has(r.resource_index_id)) {
+      formContent.value += `\n[${labelForRef(r)}](res:${r.resource_index_id}:embed)`
+    }
+  }
   candidateTab.value = 'video_file'
   candidates.value = []
   candidateSearch.value = ''
@@ -142,14 +178,43 @@ const openEdit = async (d: Post) => {
   await loadCandidates()
 }
 
+const openResourcePicker = () => {
+  resourcePickerVisible.value = true
+  selectedCandidate.value = null
+}
+
+const insertResource = () => {
+  if (!selectedCandidate.value) return
+  const c = selectedCandidate.value
+  const label = (c.presentation && c.presentation.title) || c.location || ('资源 ' + c.id)
+  const token = `[${label}](res:${c.id}:${pickerDisplayMode.value})`
+  const base = contentInput.value
+  const el: HTMLTextAreaElement | undefined =
+    (base && base.textarea) ? base.textarea : base
+  const cur = formContent.value
+  if (el) {
+    const start = el.selectionStart ?? cur.length
+    const end = el.selectionEnd ?? cur.length
+    formContent.value = cur.slice(0, start) + token + cur.slice(end)
+    nextTick(() => {
+      const pos = start + token.length
+      el.focus()
+      el.setSelectionRange(pos, pos)
+    })
+  } else {
+    formContent.value = cur + token
+  }
+  resourcePickerVisible.value = false
+  selectedCandidate.value = null
+}
+
 const save = async () => {
   if (saving.value) return
   saving.value = true
   try {
     const payload = {
       title: formTitle.value,
-      content: formContent.value,
-      refs: editingRefs.value.map(r => ({ resource_index_id: r.resource_index_id, note: r.note })),
+      content: formContent.value,   // 引用通过正文内联标记表达，后端解析
     }
     if (editingId.value) {
       await postApi.update(editingId.value, payload)
@@ -223,15 +288,23 @@ const formatDate = (s?: string) => {
           </div>
         </div>
 
-        <p v-if="d.content" class="post-content">{{ d.content }}</p>
+        <div v-if="d.content" class="post-content">
+          <template v-for="(seg, i) in renderSegments(d.content, d.refs)" :key="i">
+            <template v-if="seg.type === 'text'">{{ seg.text }}</template>
+            <span v-else class="inline-ref">
+              <a class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
+              <MediaCard v-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" />
+            </span>
+          </template>
+        </div>
 
-        <div v-if="d.refs && d.refs.length" class="post-refs">
-          <div v-for="(refItem, i) in d.refs" :key="refItem.ref_id || i" class="ref-block">
+        <div v-if="orphanRefs(d).length" class="post-refs">
+          <div v-for="(refItem, i) in orphanRefs(d)" :key="refItem.ref_id || i" class="ref-block">
             <div v-if="refItem.note" class="ref-note">{{ refItem.note }}</div>
             <MediaCard :item="toMediaItem(refItem)" />
           </div>
         </div>
-        <p v-else class="no-refs">（暂无引用资源）</p>
+        <p v-if="!d.content && (!d.refs || !d.refs.length)" class="no-refs">（暂无内容）</p>
       </div>
     </div>
 
@@ -244,48 +317,57 @@ const formatDate = (s?: string) => {
         <input class="text-input" v-model="formTitle" placeholder="给这条帖子起个标题" />
 
         <label class="field-label">正文</label>
-        <textarea class="text-area" v-model="formContent" rows="4" placeholder="写点什么..."></textarea>
-
-        <label class="field-label">引用资源（视频 / 图片集 / 文本，跨模式选择）</label>
-        <div class="ref-editor">
-          <div class="ref-list">
-            <p v-if="editingRefs.length === 0" class="ref-empty">尚未选择任何引用，下面从资源池添加。</p>
-            <div v-for="(r, i) in editingRefs" :key="i" class="ref-row">
-              <span class="ref-type" :class="r.kind === 'video_file' ? 'video' : r.kind === 'comic_folder' ? 'comic' : 'text'">{{ KIND_LABEL[r.kind] || r.kind }}</span>
-              <span class="ref-name">{{ r.title }}</span>
-              <input class="ref-note-input" v-model="r.note" placeholder="备注（可选）" />
-              <button class="ref-move" @click="moveRef(i, -1)" title="上移">↑</button>
-              <button class="ref-move" @click="moveRef(i, 1)" title="下移">↓</button>
-              <button class="ref-del" @click="editingRefs.splice(i, 1)" title="移除">✕</button>
-            </div>
-          </div>
-
-          <div class="picker">
-            <div class="picker-tabs">
-              <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
-              <button :class="{ active: candidateTab === 'comic_folder' }" @click="candidateTab = 'comic_folder'; candidatesLoaded = false; loadCandidates()">图片集</button>
-              <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
-              <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
-            </div>
-            <div class="picker-grid">
-              <div
-                v-for="item in candidates"
-                :key="item.id"
-                class="picker-item"
-                :class="{ selected: isSelected(item.id) }"
-                @click="toggleCandidate(item)"
-              >
-                <img :src="item.presentation?.thumbnail || ''" class="picker-thumb" />
-                <span class="picker-name">{{ item.presentation?.title || item.location }}</span>
-              </div>
-              <p v-if="candidates.length === 0" class="ref-empty">该模式暂无资源</p>
-            </div>
-          </div>
+        <div class="content-toolbar">
+          <button type="button" class="insert-res-btn" @click="openResourcePicker">插入资源</button>
+          <span class="content-tip">在正文中随时「插入资源」：以超链接方式嵌入，可选择仅超链接或超链接+内嵌预览。</span>
         </div>
+        <textarea ref="contentInput" class="text-area" v-model="formContent" rows="6"
+          placeholder="写点什么... 例如：今天看了 [一个很棒的片子](res:12:embed)，强烈推荐！"></textarea>
 
         <div class="modal-ops">
           <button class="cancel-btn" @click="dialogVisible = false">取消</button>
           <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 插入资源弹窗 -->
+    <div v-if="resourcePickerVisible" class="modal-mask" @click.self="resourcePickerVisible = false">
+      <div class="modal picker-modal">
+        <h3 class="modal-title">插入资源</h3>
+        <p class="content-tip">选择一个资源插入到正文光标处，作为超链接；可指定展示方式。</p>
+
+        <div class="picker">
+          <div class="picker-tabs">
+            <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
+            <button :class="{ active: candidateTab === 'comic_folder' }" @click="candidateTab = 'comic_folder'; candidatesLoaded = false; loadCandidates()">图片集</button>
+            <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
+            <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
+          </div>
+          <div class="picker-grid">
+            <div
+              v-for="item in candidates"
+              :key="item.id"
+              class="picker-item"
+              :class="{ selected: selectedCandidate && selectedCandidate.id === item.id }"
+              @click="selectedCandidate = item"
+            >
+              <img :src="item.presentation?.thumbnail || ''" class="picker-thumb" />
+              <span class="picker-name">{{ item.presentation?.title || item.location }}</span>
+            </div>
+            <p v-if="candidates.length === 0" class="ref-empty">该模式暂无资源</p>
+          </div>
+        </div>
+
+        <div class="display-mode">
+          <span class="field-label" style="margin:0">展示方式</span>
+          <label class="mode-opt"><input type="radio" value="embed" v-model="pickerDisplayMode" /> 超链接 + 内嵌预览</label>
+          <label class="mode-opt"><input type="radio" value="link" v-model="pickerDisplayMode" /> 仅超链接</label>
+        </div>
+
+        <div class="modal-ops">
+          <button class="cancel-btn" @click="resourcePickerVisible = false">取消</button>
+          <button class="save-btn" :disabled="!selectedCandidate" @click="insertResource">插入</button>
         </div>
       </div>
     </div>
@@ -335,19 +417,30 @@ const formatDate = (s?: string) => {
 .text-area { resize: vertical; }
 .text-input:focus, .text-area:focus { outline: none; border-color: #2196F3; }
 
-.ref-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
-@media (max-width: 700px) { .ref-editor { grid-template-columns: 1fr; } }
-.ref-list { background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 10px; min-height: 220px; }
+.content-toolbar { display: flex; align-items: center; gap: 12px; margin: 6px 0; flex-wrap: wrap; }
+.insert-res-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border: 1px solid #2196F3; border-radius: 8px;
+  background: rgba(33,150,243,0.12); color: #64b5f6; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.insert-res-btn:hover { background: rgba(33,150,243,0.24); color: #90caf9; }
+.content-tip { color: #888; font-size: 12px; line-height: 1.5; }
+
+/* 正文内联引用 */
+.inline-ref { display: inline; }
+.ref-link {
+  color: #64b5f6; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.ref-link:hover { color: #90caf9; }
+.inline-ref :deep(.media-card) { margin: 10px 0; max-width: 320px; }
+
 .ref-empty { color: #666; font-size: 13px; }
-.ref-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #262626; }
-.ref-type { font-size: 11px; padding: 2px 8px; border-radius: 4px; color: #fff; }
-.ref-type.video { background: rgba(33,150,243,0.85); }
-.ref-type.comic { background: rgba(255,152,0,0.85); }
-.ref-type.text { background: rgba(76,175,80,0.85); }
-.ref-name { flex: 1; color: #ddd; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ref-note-input { width: 90px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #ccc; padding: 4px 6px; font-size: 12px; }
-.ref-move, .ref-del { width: 26px; height: 26px; border: 1px solid #333; background: #252525; color: #aaa; border-radius: 6px; cursor: pointer; }
-.ref-del:hover { color: #ff6b6b; border-color: #ff6b6b; }
+
+/* 插入资源弹窗 */
+.picker-modal { max-width: 720px; }
+.display-mode { display: flex; align-items: center; gap: 18px; margin-top: 16px; flex-wrap: wrap; }
+.mode-opt { display: inline-flex; align-items: center; gap: 6px; color: #ddd; font-size: 13px; cursor: pointer; }
+.mode-opt input { accent-color: #2196F3; }
 
 .picker { background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 10px; min-height: 220px; display: flex; flex-direction: column; }
 .picker-tabs { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }

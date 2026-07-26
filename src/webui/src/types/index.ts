@@ -308,6 +308,7 @@ export interface PostRef {
   position: number
   note: string
   resource_index_id: number
+  display_mode?: 'link' | 'embed'   // 'link' 仅超链接 / 'embed' 超链接+内嵌预览
   kind?: string          // 'video_file' | 'comic_folder' | 'text'
   location?: string
   video?: Video

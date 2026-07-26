@@ -373,10 +373,11 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
     return ri
 
 
-def create_post(title, content=None, resource_index_ids=None, user_id=None):
+def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None):
     """由一组资源索引创建一条帖子（组合模式）。
 
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
+    display_modes: 可选 {resource_index_id: 'link'|'embed'}，缺省按 'embed' 处理。
     """
     d = Post(title=title or '未命名帖子', content=content, owner_id=user_id)
     db.session.add(d)
@@ -385,7 +386,8 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None):
         ri = ResourceIndex.query.get(rid)
         if not ri:
             continue
-        ref = PostRef(post_id=d.id, resource_index_id=rid, position=i)
+        mode = (display_modes or {}).get(rid, 'embed')
+        ref = PostRef(post_id=d.id, resource_index_id=rid, position=i, display_mode=mode)
         db.session.add(ref)
     db.session.commit()
     return d
@@ -1458,6 +1460,7 @@ class Post(db.Model):
                     'position': r.position,
                     'note': r.note,
                     'resource_index_id': r.resource_index_id,
+                    'display_mode': r.display_mode,
                 }
                 ri = r.resource_index
                 if ri:
@@ -1490,14 +1493,41 @@ class Post(db.Model):
         return d
 
 
+# 帖子正文内联资源的标记语法：[可见文字](res:资源索引ID:显示模式)
+# 显示模式 display_mode ∈ {'link': 仅超链接, 'embed': 超链接 + 内嵌预览}
+POST_REF_TOKEN_RE = __import__('re').compile(r'\[([^\]]*)\]\(res:(\d+):(link|embed)\)')
+
+
+def parse_post_content_tokens(content):
+    """解析帖子正文中的内联资源标记，返回有序列表：
+    [{resource_index_id:int, display_mode:str, label:str}, ...]
+    """
+    if not content:
+        return []
+    out = []
+    for m in POST_REF_TOKEN_RE.finditer(content):
+        label, rid, mode = m.group(1), m.group(2), m.group(3)
+        out.append({
+            'resource_index_id': int(rid),
+            'display_mode': mode,
+            'label': label,
+        })
+    return out
+
+
 class PostRef(db.Model):
-    """帖子 - 资源索引 关联：一条帖子可引用多个索引（视频 / 图片集 / 文本），可带备注与顺序。"""
+    """帖子 - 资源索引 关联：一条帖子可引用多个索引（视频 / 图片集 / 文本），可带备注与顺序。
+
+    正文通过标记语法内联引用（见 parse_post_content_tokens），display_mode 控制该引用
+    在帖子流里是「仅超链接」还是「超链接 + 内嵌预览」。
+    """
     __tablename__ = 'post_refs'
     id = db.Column(db.Integer, primary_key=True)
     post_id = db.Column('dynamic_id', db.Integer, db.ForeignKey('posts.id'), nullable=False)
     resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=False)
     position = db.Column(db.Integer, default=0)
     note = db.Column(db.Text, default='')
+    display_mode = db.Column(db.String(16), default='embed', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     post = db.relationship('Post', back_populates='refs')
@@ -1510,6 +1540,7 @@ class PostRef(db.Model):
             'resource_index_id': self.resource_index_id,
             'position': self.position,
             'note': self.note,
+            'display_mode': self.display_mode,
         }
 
 
@@ -1541,6 +1572,24 @@ def _migrate_dynamic_tables_to_posts():
             print(f'动态->帖子 表迁移跳过: {e}')
 
 
+def _migrate_post_ref_display_mode():
+    """帖子引用新增 display_mode 列（'link' 仅超链接 / 'embed' 超链接+内嵌预览），幂等。"""
+    try:
+        cols = [c[1] for c in db.session.execute(
+            db.text("PRAGMA table_info(post_refs)")).fetchall()]
+        if 'display_mode' not in cols:
+            db.session.execute(db.text(
+                "ALTER TABLE post_refs ADD COLUMN display_mode VARCHAR(16) NOT NULL DEFAULT 'embed'"))
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'post_refs.display_mode 迁移跳过: {e}')
+        except Exception:
+            print(f'post_refs.display_mode 迁移跳过: {e}')
+
+
 def migrate_resource_index():
     """[资源索引表] 将 videos.local_path / comics.folder_path 的历史数据回填到 resource_index，
     并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
@@ -1551,6 +1600,8 @@ def migrate_resource_index():
     """
     # 0) 历史表 dynamics/dynamic_refs 重命名为 posts/post_refs（动态 -> 帖子）
     _migrate_dynamic_tables_to_posts()
+    # 0.1) 帖子引用新增 display_mode 列
+    _migrate_post_ref_display_mode()
     try:
         # 1) 为已存在的实体表新增 resource_index_id 列（指向 resource_index.id）
         for table in ('videos', 'comics'):

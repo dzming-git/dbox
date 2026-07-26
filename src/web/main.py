@@ -236,7 +236,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User
+from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
 from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
 from auth_service import AuthService, init_root_user
 
@@ -5667,6 +5667,28 @@ def _resolve_post_refs(refs):
     return result
 
 
+def _build_post_refs(content, refs_param):
+    """由帖子正文的内联标记构建 PostRef 列表（含 display_mode）。
+
+    优先解析正文里的 [文字](res:ID:mode) 标记；若正文无标记，回退到传统的 refs 参数。
+    """
+    tokens = parse_post_content_tokens(content or '')
+    built = []
+    if tokens:
+        for pos, t in enumerate(tokens):
+            ri = ResourceIndex.query.get(t['resource_index_id'])
+            if ri:
+                built.append(PostRef(
+                    resource_index_id=ri.id, position=pos,
+                    note='', display_mode=t['display_mode']))
+        return built
+    for pos, (ri, note) in enumerate(_resolve_post_refs(refs_param)):
+        built.append(PostRef(
+            resource_index_id=ri.id, position=pos,
+            note=note, display_mode='embed'))
+    return built
+
+
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
     library_id = request.args.get('library_id', type=int)
@@ -5689,8 +5711,8 @@ def create_post():
     data = request.get_json(force=True, silent=True) or {}
     d = Post(title=data.get('title', ''), content=data.get('content', ''),
                 owner_id=user.id, library_id=data.get('library_id'))
-    for pos, (ri, note) in enumerate(_resolve_post_refs(data.get('refs'))):
-        d.refs.append(PostRef(resource_index_id=ri.id, position=pos, note=note))
+    for ref in _build_post_refs(data.get('content', ''), data.get('refs')):
+        d.refs.append(ref)
     db.session.add(d)
     db.session.commit()
     return jsonify(d.to_dict(resolve=True)), 201
@@ -5718,10 +5740,10 @@ def update_post(did):
         d.content = data['content']
     if 'library_id' in data:
         d.library_id = data['library_id']
-    if 'refs' in data:
+    if 'refs' in data or 'content' in data:
         d.refs.clear()
-        for pos, (ri, note) in enumerate(_resolve_post_refs(data['refs'])):
-            d.refs.append(PostRef(resource_index_id=ri.id, position=pos, note=note))
+        for ref in _build_post_refs(data.get('content', ''), data.get('refs')):
+            d.refs.append(ref)
     d.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify(d.to_dict(resolve=True))
