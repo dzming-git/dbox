@@ -41,6 +41,11 @@ except Exception:
     _socks_mod = None
     HAS_SOCKS = False
 
+try:
+    import winreg
+except Exception:
+    winreg = None
+
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
 
@@ -123,16 +128,132 @@ def error(message):
     emit({'type': 'error', 'message': message})
 
 
+def _is_auto_proxy(p):
+    """是否应自动读取系统代理：留空或 auto/system/detect。"""
+    return not (p or '').strip() or (p or '').strip().lower() in ('auto', 'system', 'detect', '0')
+
+
+def _normalize_proxy_server(server):
+    """把注册表 ProxyServer 归一为 URL 字符串（socks5:// 或 http://）。"""
+    server = (server or '').strip()
+    if not server:
+        return None
+    # 分协议格式：http=host:port;https=...;socks=host:port
+    if '=' in server:
+        parts = {}
+        for seg in server.split(';'):
+            if '=' in seg:
+                proto, addr = seg.split('=', 1)
+                parts[proto.strip().lower()] = addr.strip()
+        for proto in ('socks', 'socks5', 'https', 'http'):
+            if proto in parts:
+                addr = parts[proto]
+                return ('socks5://' if proto.startswith('socks') else 'http://') + addr
+        addr = next(iter(parts.values()))
+        return ('socks5://' if addr.startswith('socks') else 'http://') + addr
+    # 单一地址：默认按 SOCKS 处理（X 通常走 SOCKS 代理）
+    return 'socks5://' + server
+
+
+def _read_proxy_from_key(key):
+    """从已打开的 Internet Settings 键读取代理 URL，未启用/缺失则返回 None。"""
+    try:
+        enabled = winreg.QueryValueEx(key, 'ProxyEnable')[0]
+    except OSError:
+        return None
+    if not enabled:
+        return None
+    try:
+        server = winreg.QueryValueEx(key, 'ProxyServer')[0]
+    except OSError:
+        return None
+    return _normalize_proxy_server(server) if server else None
+
+
+def get_system_proxy():
+    """读取 Windows 系统代理（与浏览器一致），返回 URL 字符串或 None。
+
+    注意：下载器以 LocalSystem 服务运行，其 HKEY_CURRENT_USER 取不到用户代理，
+    故优先枚举 HKEY_USERS 下【当前交互登录用户】的配置，再回退机器级。
+    """
+    if winreg is None:
+        return None
+    # 1) 当前进程用户（万一服务以用户身份运行）
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r'Software\Microsoft\Windows\CurrentVersion\Internet Settings') as k:
+            p = _read_proxy_from_key(k)
+            if p:
+                return p
+    except OSError:
+        pass
+    # 2) 交互式登录用户（HKCU 取不到时的主要路径）
+    best = None
+    try:
+        with winreg.OpenKey(winreg.HKEY_USERS) as users:
+            i = 0
+            while True:
+                try:
+                    sid = winreg.EnumKey(users, i)
+                except OSError:
+                    break
+                i += 1
+                path = rf'{sid}\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+                try:
+                    with winreg.OpenKey(winreg.HKEY_USERS, path) as k:
+                        p = _read_proxy_from_key(k)
+                except OSError:
+                    p = None
+                if not p:
+                    continue
+                # 优先交互式会话（Console / RDP，排除 Service）
+                interactive = False
+                try:
+                    with winreg.OpenKey(winreg.HKEY_USERS, rf'{sid}\Volatile Environment') as ve:
+                        try:
+                            sname = winreg.QueryValueEx(ve, 'SESSIONNAME')[0]
+                            interactive = bool(sname) and sname != 'Service'
+                        except OSError:
+                            pass
+                except OSError:
+                    pass
+                if interactive:
+                    return p
+                if best is None:
+                    best = p
+    except OSError:
+        pass
+    if best:
+        return best
+    # 3) 机器级
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r'Software\Microsoft\Windows\CurrentVersion\Internet Settings') as k:
+            p = _read_proxy_from_key(k)
+            if p:
+                return p
+    except OSError:
+        pass
+    return None
+
+
 def parse_proxy(p):
     """解析代理参数，返回 dict：
        - None：直连
        - {'type':'http','addr':'http://host:port'}：HTTP/HTTPS 代理
        - {'type':'socks','scheme':'socks5'|'socks5h'|'socks4','host':..,'port':..}
        无 scheme 前缀时默认按 HTTP 处理（兼容旧值）。
+       留空或 auto/system/detect 时自动读取 Windows 系统代理（与浏览器一致）。
     """
     p = (p or '').strip()
-    if not p:
-        return None
+    if _is_auto_proxy(p):
+        sys_p = get_system_proxy()
+        if sys_p:
+            log(f'自动使用系统代理: {sys_p}')
+            p = sys_p
+        else:
+            log('未检测到系统代理，直连访问 X')
+            return None
     if '://' in p:
         scheme, rest = p.split('://', 1)
         scheme = scheme.lower()

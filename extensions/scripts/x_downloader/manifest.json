@@ -19,10 +19,10 @@
     {
       "name": "proxy",
       "type": "string",
-      "label": "代理地址（可选）",
+      "label": "代理地址（可选，默认自动）",
       "required": false,
-      "default": "socks5://127.0.0.1:33211",
-      "description": "访问 X 的代理。支持 SOCKS 与 HTTP：socks5://host:port、socks5h://host:port（由代理解析域名）、socks4://host:port、http://host:port。无前缀时按 HTTP 处理。留空则直连。注意 urllib 不支持 SOCKS，SOCKS 需 pip install pysocks。"
+      "default": "auto",
+      "description": "访问 X 的代理。留空或填 auto/system 时自动读取 Windows 系统代理（与浏览器一致，无需手填端口）；也可手动指定：socks5://host:port、socks5h://host:port（由代理解析域名）、socks4://host:port、http://host:port。无前缀时按 HTTP 处理。注意 urllib 不支持 SOCKS，SOCKS 需 pip install pysocks。"
     },
     {
       "name": "library_id",
