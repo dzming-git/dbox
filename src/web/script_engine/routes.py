@@ -42,32 +42,30 @@ def init_script_engine(app):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '')
-        if token.startswith('Bearer '):
-            token = token[7:]
+        _auth = request.headers.get('Authorization', '')
+        token = _auth[7:] if _auth.startswith('Bearer ') else _auth
         if not token:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-        try:
-            payload = None
-            last_err = None
-            for secret in _JWT_SECRETS:
-                try:
-                    payload = jwt.decode(token, secret)
-                    break
-                except Exception as e:
-                    last_err = e
-            if payload is None:
-                raise last_err or ValueError('无效的 token')
-            if payload.get('type') != 'access':
-                return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
-            g.user_id = payload.get('user_id')
-            g.role = payload.get('role', 0)
-            g.username = payload.get('username')
-            if g.role < UserRole.ADMIN:
-                return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
-            return f(*args, **kwargs)
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'无效的 token: {e}', 'code': 401}), 401
+        # 仅校验鉴权；处理函数本身的异常（如业务 500）必须如实抛出，
+        # 绝不能被这里吞掉伪装成「无效的 token: 401」。
+        payload = None
+        last_err = None
+        for secret in _JWT_SECRETS:
+            try:
+                payload = jwt.decode(token, secret)
+                break
+            except Exception as e:
+                last_err = e
+        if payload is None:
+            return jsonify({'success': False, 'message': f'无效的 token: {last_err}', 'code': 401}), 401
+        if payload.get('type') != 'access':
+            return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
+        g.user_id = payload.get('user_id')
+        g.role = payload.get('role', 0)
+        g.username = payload.get('username')
+        if g.role < UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+        return f(*args, **kwargs)
     return decorated
 
 

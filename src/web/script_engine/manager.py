@@ -56,6 +56,8 @@ class ScriptJobManager:
         self.vault = CookieVault(data_dir)
         self._db = sqlite3.connect(os.path.join(data_dir, 'script_jobs.db'),
                                    check_same_thread=False)
+        # 用 Row 工厂：列按【列名】访问，避免 SELECT * 与 cols 列表顺序不一致导致错位
+        self._db.row_factory = sqlite3.Row
         self._init_db()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self.reload()
@@ -665,11 +667,8 @@ class ScriptJobManager:
             r = self._db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
         if not r:
             return None
-        cols = ['id', 'script_id', 'script_name', 'status', 'progress', 'params', 'result',
-                'owner_id', 'token', 'working_dir', 'library_id', 'notified', 'error',
-                'awaiting', 'pending_input', 'input_response',
-                'created_at', 'updated_at']
-        return dict(zip(cols, r))
+        # 使用 Row 工厂 -> 按列名访问，杜绝因 ALTER 追加列导致的顺序错位
+        return dict(r)
 
     def _set_status(self, job_id, status):
         with self._lock:
