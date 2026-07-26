@@ -9,13 +9,14 @@ import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Comics from './Comics.vue'
+import MixedFeed from './MixedFeed.vue'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
 const route = useRoute()
 
 // 首页媒体类型切换：视频 / 漫画 对等展示，模式写入 URL（?mode=video|comic）
-const mediaTab = ref<'video' | 'comic'>(route.query.mode === 'comic' ? 'comic' : 'video')
+const mediaTab = ref<'video' | 'comic' | 'mixed'>(route.query.mode === 'comic' ? 'comic' : (route.query.mode === 'mixed' ? 'mixed' : 'video'))
 
 // 切换媒体模式时同步到 URL，并从 URL 回读（支持前进/后退、直接分享链接）
 // 切换模式时清空与模式绑定的其他参数（排序、页码、筛选、搜索等），仅保留 mode，使其恢复默认。
@@ -27,7 +28,7 @@ watch(mediaTab, (val) => {
 watch(
   () => route.query.mode,
   (val) => {
-    const m = val === 'comic' ? 'comic' : 'video'
+    const m = val === 'comic' ? 'comic' : (val === 'mixed' ? 'mixed' : 'video')
     if (mediaTab.value !== m) mediaTab.value = m
   }
 )
@@ -540,6 +541,16 @@ const onListImgError = (e: Event) => {
         </svg>
         漫画
       </button>
+      <button
+        class="media-tab"
+        :class="{ active: mediaTab === 'mixed' }"
+        @click="mediaTab = 'mixed'"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6h16M4 12h16M4 18h10"/>
+        </svg>
+        动态
+      </button>
     </div>
 
     <!-- 操作栏 - 移到顶部 -->
@@ -887,7 +898,9 @@ const onListImgError = (e: Event) => {
     </template>
     </div>
     <!-- 漫画内容（仅漫画 tab 显示） -->
-    <Comics v-else />
+    <Comics v-else-if="mediaTab === 'comic'" />
+    <!-- 动态（混排）内容：视频 + 漫画聚合信息流 -->
+    <MixedFeed v-else-if="mediaTab === 'mixed'" />
 
     <!-- 编辑抽屉（视频/漫画通用） -->
     <ItemEditDrawer

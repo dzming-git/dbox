@@ -118,3 +118,27 @@ export async function fetchHistory(): Promise<MediaItem[]> {
     c?.success && Array.isArray(c.comics) ? c.comics.map(normalizeComic) : []
   return sortByDateDesc([...videoItems, ...comicItems])
 }
+
+// 动态（混排）模式：把视频与漫画两类资源按时间聚合为统一信息流。
+// 设计要点：不复制数据，仅做「引用聚合」——视频/漫画实体各自单一存在，
+// 同一实体可同时出现在「视频」「漫画」「动态」多个视图中，但数据只有一份
+//（解决「同一资源实体同时存在于多个资源」的重复/不一致问题）。
+export async function fetchMixedFeed(params?: {
+  limit?: number
+  search?: string
+  library_id?: number
+}): Promise<MediaItem[]> {
+  const limit = params?.limit || 60
+  const [v, c] = await Promise.allSettled([
+    videoApi.getVideos({ limit, search: params?.search, library_id: params?.library_id }) as any,
+    comicApi.getComics({ limit, search: params?.search, library_id: params?.library_id }) as any,
+  ])
+  const items: MediaItem[] = []
+  if (v.status === 'fulfilled' && Array.isArray(v.value?.videos)) {
+    items.push(...v.value.videos.map(normalizeVideo))
+  }
+  if (c.status === 'fulfilled' && Array.isArray(c.value?.comics)) {
+    items.push(...c.value.comics.map(normalizeComic))
+  }
+  return sortByDateDesc(items)
+}
