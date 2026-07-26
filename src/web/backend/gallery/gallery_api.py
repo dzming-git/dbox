@@ -278,7 +278,8 @@ def list_galleries():
         result = []
         for c in galleries:
             d = c.to_dict()
-            d['cover_url'] = _gallery_url(c.cover_path) + _gallery_ver_param(c)
+            # 统一封面入口：封面来自资源索引（缺失时由模型兜底为第一页封面路由）
+            d['cover_url'] = (c.cover_url or _gallery_url(c.cover_path)) + _gallery_ver_param(c)
             d['is_liked'] = c.id in liked_ids
             d['is_favorited'] = c.id in favorited_ids
             d['is_disliked'] = c.id in disliked_ids
@@ -306,7 +307,7 @@ def get_gallery(gallery_hash):
         pages = GalleryPage.query.filter_by(gallery_id=c.id).order_by(GalleryPage.page_index).all()
         ver = _gallery_ver_param(c)
         d['pages'] = [{'index': p.page_index + 1, 'url': _gallery_url(p.file_path) + ver} for p in pages]
-        d['cover_url'] = _gallery_url(c.cover_path) + ver
+        d['cover_url'] = (c.cover_url or _gallery_url(c.cover_path)) + ver
         if key:
             d['is_liked'] = GalleryInteraction.query.filter_by(
                 gallery_id=c.id, user_session=key, interaction_type='like').first() is not None
@@ -449,7 +450,7 @@ def _gallery_interaction_rows(key, itype, date_field):
         if not c or c.in_trash:
             continue
         d = c.to_dict()
-        d['cover_url'] = _gallery_url(c.cover_path)
+        d['cover_url'] = c.cover_url or _gallery_url(c.cover_path)
         d[date_field] = row.created_at.isoformat() if row.created_at else None
         items.append(d)
     return items
@@ -502,7 +503,7 @@ def list_gallery_history():
             if not c:
                 continue
             d = c.to_dict()
-            d['cover_url'] = _gallery_url(c.cover_path) + _gallery_ver_param(c)
+            d['cover_url'] = (c.cover_url or _gallery_url(c.cover_path)) + _gallery_ver_param(c)
             d['page'] = row.page
             d['last_page'] = row.page
             d['progress'] = row.progress

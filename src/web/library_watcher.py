@@ -501,6 +501,11 @@ class ResourceLibraryWatcher:
 
                 db.session.commit()
 
+                # 统一封面入口：确保资源索引封面与视频缩略图一致（首次启动后 resource_index 已存在）
+                if existing.resource_index and not existing.resource_index.cover:
+                    existing.resource_index.cover = existing.thumbnail or f'/thumbnail/{vhash}'
+                    db.session.commit()
+
                 if is_new and self._thumbnail_bus:
                     try:
                         self._thumbnail_bus.call_method(

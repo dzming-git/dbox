@@ -156,6 +156,7 @@ class ResourceIndex(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     kind = db.Column(db.String(20), nullable=False, index=True)
     location = db.Column(db.String(600), nullable=False)
+    cover = db.Column(db.String(2000), nullable=True)  # 统一封面入口：封面服务 URL，所有上层实体（视频/图集/帖子）从索引读取
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     hash = db.Column(db.String(64), index=True)
     meta = db.Column(db.Text)  # JSON: 通用资产呈现（见类文档）
@@ -202,6 +203,7 @@ class ResourceIndex(db.Model):
             'location': self.location,
             'library_id': self.library_id,
             'hash': self.hash,
+            'cover': self.cover,
             'meta': self.get_meta(),
             'presentation': self.presentation(),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -482,7 +484,8 @@ class Video(db.Model):
             'title': self.title,
             'description': self.description,
             'url': f'/api/videos/{self.id}/play',
-            'thumbnail': self.thumbnail,
+            'thumbnail': self.cover_url,
+            'cover_url': self.cover_url,
             'duration': self.duration,
             'file_size': self.file_size,
             'view_count': self.view_count,
@@ -503,6 +506,13 @@ class Video(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+    @property
+    def cover_url(self):
+        """统一封面入口：优先取资源索引的 cover，缺失时兜底为缩略图路由。"""
+        if self.resource_index and self.resource_index.cover:
+            return self.resource_index.cover
+        return self.thumbnail or f'/thumbnail/{self.hash}'
 
 
 class Tag(db.Model):
@@ -1238,6 +1248,13 @@ class Gallery(db.Model):
             return self.pages[0].file_path
         return None
 
+    @property
+    def cover_url(self):
+        """统一封面入口：优先取资源索引的 cover，缺失时兜底为第一页封面路由。"""
+        if self.resource_index and self.resource_index.cover:
+            return self.resource_index.cover
+        return f'/gallery-cover/{self.hash}' if self.hash else None
+
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # 上传者/资源归属者，NULL 表示历史资源
     page_count = db.Column(db.Integer, default=0)
@@ -1490,7 +1507,17 @@ class Post(db.Model):
             d['refs'] = items
         else:
             d['refs'] = [r.to_dict() for r in self.refs]
+        d['cover_url'] = self.cover_url
         return d
+
+    @property
+    def cover_url(self):
+        """统一封面入口：帖子本身没有资源索引，封面取首个带封面的引用资源（按 refs 顺序）。"""
+        for r in self.refs:
+            ri = r.resource_index
+            if ri is not None and ri.cover:
+                return ri.cover
+        return None
 
 
 # 帖子正文内联资源的标记语法：[可见文字](res:资源索引ID:显示模式)
@@ -1720,6 +1747,29 @@ def migrate_resource_index():
     except Exception as e:
         db.session.rollback()
         print(f'[WARN] resource_index 迁移跳过: {e}')
+
+    # 5) 统一封面入口：在 resource_index 上新增 cover 列，并把存量封面回填到索引。
+    #    独立执行，不依赖上面的旧列迁移步骤，确保存量封面一定能被回填。
+    try:
+        _ri_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(resource_index)")).fetchall()]
+        if 'cover' not in _ri_cols:
+            db.session.execute(db.text("ALTER TABLE resource_index ADD COLUMN cover VARCHAR(2000)"))
+            db.session.commit()
+        # 视频封面：优先用实体 thumbnail，兜底为缩略图路由
+        for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
+            ri = v.resource_index
+            if ri is not None and not ri.cover:
+                ri.cover = v.thumbnail or f'/thumbnail/{v.hash}'
+        # 图集封面：第一页封面路由（/gallery-cover/{hash}）
+        for c in Gallery.query.filter(Gallery.resource_index_id.isnot(None)).all():
+            ri = c.resource_index
+            if ri is not None and not ri.cover and c.hash:
+                ri.cover = f'/gallery-cover/{c.hash}'
+        db.session.commit()
+        print(f'[MIGRATE] resource_index.cover 封面回填完成')
+    except Exception as e:
+        db.session.rollback()
+        print(f'[WARN] resource_index.cover 迁移跳过: {e}')
 
 
 def migrate_collection_videos_schema():

@@ -162,7 +162,7 @@ def get_videos():
                 'duration': format_duration(video.duration),
                 'file_size': format_size(video.file_size),
                 'created_at': video.created_at.isoformat() if video.created_at else None,
-                'thumbnail_url': video.thumbnail or '',
+                'thumbnail_url': video.cover_url or '',
                 'description': video.description or '',
                 'priority': video.priority or 0
             })
@@ -279,7 +279,7 @@ def upload_video():
                 'id': video.id,
                 'title': video.title,
                 'path': video.local_path,
-                'thumbnail_url': video.thumbnail
+                'thumbnail_url': video.cover_url
             }
         })
 

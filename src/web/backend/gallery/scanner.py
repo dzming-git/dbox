@@ -224,6 +224,9 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None):
                         )
                         db.session.add(c)
                         db.session.flush()
+                        # 统一封面入口：新建图集时即把封面写入资源索引
+                        if c.resource_index and not c.resource_index.cover:
+                            c.resource_index.cover = f'/gallery-cover/{c.hash}'
                         _sync_pages(c, pages)
                         db.session.commit()
                         added += 1

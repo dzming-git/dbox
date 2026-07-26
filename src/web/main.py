@@ -1510,7 +1510,7 @@ def list_collection_videos(collection_id):
                     continue
                 d = c.to_dict()
                 d['type'] = 'gallery'
-                d['cover_url'] = f'/gallery-cover/{c.hash}'
+                d['cover_url'] = c.cover_url or f'/gallery-cover/{c.hash}'
                 d['favorited_at'] = it.created_at.isoformat() if it.created_at else None
                 videos.append(d)
             else:
@@ -5883,12 +5883,15 @@ def resource_index_pool():
         modes = [m.mode for m in ri.memberships]
         if mode and mode != ResourceMode.POST and mode not in modes:
             continue
-        d = ri.to_dict()
+        d = ri.to_dict()  # 已含 cover 字段
         d['modes'] = modes
-        if not (d.get('presentation') or {}).get('thumbnail'):
-            thumb = thumb_by_ri.get(ri.id)
-            if thumb:
-                d.setdefault('presentation', {})['thumbnail'] = thumb
+        # 统一封面入口：优先用 resource_index.cover，缺失时回退到 Video 实体 thumbnail
+        cover = ri.cover
+        if not cover and ri.kind == 'video_file':
+            cover = thumb_by_ri.get(ri.id)
+        if cover:
+            d['cover'] = cover
+            d.setdefault('presentation', {})['thumbnail'] = cover
         if search:
             title = (ri.get_meta().get('title') or ri._basename() or '').lower()
             if search.lower() not in title:
