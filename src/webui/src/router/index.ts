@@ -132,7 +132,7 @@ const router = createRouter({
 export { routes }
 
 // 路由守卫 - 全局认证拦截
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
   
   // 设置页面标题
@@ -160,8 +160,18 @@ router.beforeEach((to, from, next) => {
     return
   }
   
-  // 3. 检查是否需要管理员权限
+  // 3. 检查是否需要管理员权限（全局管理员 或 资源库管理员均可进入）
   if (to.meta.requiresAdmin && !userStore.isAdmin) {
+    if (userStore.isLoggedIn) {
+      // 资源库管理员：拉取可管理库后再放行；否则导向首页
+      if (!userStore.canManageResources) {
+        await userStore.fetchManageableLibraries()
+      }
+      if (userStore.canManageResources) {
+        next()
+        return
+      }
+    }
     next({ name: 'Home' })
     return
   }

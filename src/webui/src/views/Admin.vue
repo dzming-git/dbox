@@ -28,6 +28,8 @@ import AdminScripts from './admin/AdminScripts.vue'
 const userStore = useUserStore()
 const videoStore = useVideoStore()
 const router = useRouter()
+// 仅资源库管理员（非全局管理员）：只开放资源库管理，隐藏其它管理标签页
+const isResourceAdminOnly = computed(() => userStore.canManageResources && !userStore.isAdmin)
 const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
@@ -548,11 +550,11 @@ const accessLevelOptions = [
   { value: 'custom', label: '自定义' }
 ]
 
-// 获取所有资源库
+// 获取当前用户可管理的资源库（全局管理员返回全部；资源库管理员返回其管理的库）
 const fetchLibraries = async () => {
   loading.value.libraries = true
   try {
-    const res = await api.get('/api/admin/libraries') as any
+    const res = await api.get('/api/my-libraries') as any
     if (res.success) {
       libraries.value = res.data
     }
@@ -1527,7 +1529,7 @@ onMounted(() => {
   if (restoredTab === 'videos') { fetchLibraries(); fetchVideos() }
   else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
-  else if (restoredTab === 'libraries') { fetchLibraries(); fetchUserGroups() }
+  else if (restoredTab === 'libraries') { fetchLibraries(); if (userStore.isAdmin) fetchUserGroups() }
 })
 
 // 组件卸载时停止轮询
@@ -1556,11 +1558,13 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'dashboard' }"
           @click="switchTab('dashboard')"
+          v-if="!isResourceAdminOnly"
         >📊 仪表板</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'videos' }"
           @click="switchTab('videos')"
+          v-if="!isResourceAdminOnly"
         >🎬 视频管理</button>
         <button
           class="tab-btn"
@@ -1572,12 +1576,13 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'libraries' }"
           @click="switchTab('libraries')"
-          v-if="userStore.isRoot"
+          v-if="userStore.isRoot || userStore.canManageResources"
         >📁 资源库管理</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'thumbnail' }"
           @click="switchTab('thumbnail')"
+          v-if="!isResourceAdminOnly"
         >🖼️ 缩略图管理</button>
       </div>
 
@@ -1587,6 +1592,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'config' }"
           @click="switchTab('config')"
+          v-if="!isResourceAdminOnly"
         >⚙️ 系统配置</button>
         <button
           class="tab-btn"
@@ -1598,6 +1604,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'monitor' }"
           @click="switchTab('monitor')"
+          v-if="!isResourceAdminOnly"
         >📈 系统监控</button>
         <button
           class="tab-btn"
@@ -1609,6 +1616,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'sync' }"
           @click="switchTab('sync')"
+          v-if="!isResourceAdminOnly"
         >🔄 开发同步</button>
         <button
           class="tab-btn"
@@ -2413,11 +2421,11 @@ onUnmounted(() => {
         <div class="section-header">
           <h3>资源库管理</h3>
           <div class="header-actions">
-            <button class="action-btn" @click="scanAllLibraries()" :disabled="scanAllScanning">
+            <button class="action-btn" @click="scanAllLibraries()" :disabled="scanAllScanning" v-if="userStore.isAdmin">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               {{ scanAllScanning ? '全量扫描中...' : '🔄 扫描全部库（同步文件名/标题）' }}
             </button>
-            <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true">+ 新建资源库</button>
+            <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true" v-if="userStore.isAdmin">+ 新建资源库</button>
           </div>
         </div>
         <div v-if="scanAllMessage" class="scan-all-status">{{ scanAllMessage }}</div>
@@ -2432,6 +2440,7 @@ onUnmounted(() => {
                 :class="['toggle-active-btn', lib.is_active ? 'active' : 'inactive']"
                 @click="toggleLibraryActive(lib)"
                 :title="lib.is_active ? '点击禁用' : '点击激活'"
+                v-if="userStore.isAdmin"
               >
                 {{ lib.is_active ? '✓ 激活' : '✗ 禁用' }}
               </button>
@@ -2453,11 +2462,11 @@ onUnmounted(() => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
                 导入
               </button>
-              <button class="action-btn" @click="editLibrary(lib)" title="编辑">
+              <button class="action-btn" @click="editLibrary(lib)" title="编辑" v-if="userStore.isAdmin">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 编辑
               </button>
-              <button class="action-btn" @click="fetchLibraryPermissions(lib.id); showPermissionModal = true" title="权限设置">
+              <button class="action-btn" @click="fetchLibraryPermissions(lib.id); showPermissionModal = true" title="权限设置" v-if="userStore.isAdmin">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 权限
               </button>
@@ -2465,7 +2474,7 @@ onUnmounted(() => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                 文件夹
               </button>
-              <button class="action-btn danger" @click="deleteLibrary(lib.id)" title="删除">
+              <button class="action-btn danger" @click="deleteLibrary(lib.id)" title="删除" v-if="userStore.isAdmin">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 删除
               </button>

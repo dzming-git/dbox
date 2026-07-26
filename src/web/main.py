@@ -241,7 +241,7 @@ from auth_service import AuthService, init_root_user
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
 try:
     sys.path.insert(0, os.path.join(_SRC_DIR, 'resource'))
-    from resource.models import ResourceLibraryDB
+    from resource.models import ResourceLibraryDB, ResourceFolderDB
     _HAS_RESOURCE_DB = True
 except Exception:
     _HAS_RESOURCE_DB = False
@@ -463,6 +463,97 @@ def admin_required(f):
             return jsonify({'success': False, 'message': f'无效的 token: {str(e)}', 'code': 401}), 401
     
     return decorated
+
+
+# ============ 资源库管理员权限（按库授权，区别于全局管理员） ============
+def _resolve_dplayer_library_id_by_folder(folder_id):
+    """folder_id 为 resourced 的文件夹 id，反查对应的 dplayer 资源库 id。"""
+    if not _HAS_RESOURCE_DB:
+        return None
+    try:
+        folder = ResourceFolderDB.get_by_id(folder_id)
+        if not folder:
+            return None
+        rl = ResourceLibraryDB.get_by_id(folder.library_id)
+        if not rl:
+            return None
+        lib = ResourceLibrary.query.filter_by(name=rl.name).first()
+        return lib.id if lib else None
+    except Exception:
+        return None
+
+
+def _is_library_admin(user_id, library_id):
+    """用户是否为该资源库的 'admin'（资源管理员），含用户组授权。"""
+    if LibraryPermission.query.filter_by(user_id=user_id, library_id=library_id, role='admin').first():
+        return True
+    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+    if member_groups:
+        if LibraryPermission.query.filter(
+            LibraryPermission.group_id.in_(member_groups),
+            LibraryPermission.library_id == library_id,
+            LibraryPermission.role == 'admin'
+        ).first():
+            return True
+    return False
+
+
+def _user_library_admin_ids(user_id):
+    """返回用户可作为 'admin' 管理的 dplayer 资源库 id 集合（含用户组授权）。"""
+    ids = set()
+    for p in LibraryPermission.query.filter_by(user_id=user_id, role='admin').all():
+        ids.add(p.library_id)
+    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+    if member_groups:
+        for p in LibraryPermission.query.filter(
+            LibraryPermission.group_id.in_(member_groups),
+            LibraryPermission.role == 'admin'
+        ).all():
+            ids.add(p.library_id)
+    return ids
+
+
+def library_admin_required(param='library_id'):
+    """要求：登录用户 且 (全局管理员) 或 (该资源库的 'admin' 权限持有者)。
+
+    param: 'library_id' 使用 URL 中的 dplayer 库 id；
+           'folder_id' 则按 folder 反查对应的 dplayer 库 id。
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user_id, role = resolve_identity()
+            if not user_id:
+                return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+            if role >= UserRole.ADMIN:
+                return f(*args, **kwargs)
+            lid = kwargs.get(param)
+            if param == 'folder_id':
+                lid = _resolve_dplayer_library_id_by_folder(lid)
+            if lid is None or not _is_library_admin(user_id, lid):
+                return jsonify({'success': False, 'message': '需要该资源库管理员权限', 'code': 403}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+def resource_manager_required(f):
+    """要求：登录用户 且 (全局管理员) 或 (任一资源库的 'admin' 权限持有者)。
+
+    用于与具体资源库无关的通用操作（如文件系统浏览、创建文件夹、按路径扫描）。
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user_id, role = resolve_identity()
+        if not user_id:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        if role >= UserRole.ADMIN:
+            return f(*args, **kwargs)
+        if _user_library_admin_ids(user_id):
+            return f(*args, **kwargs)
+        return jsonify({'success': False, 'message': '需要资源库管理员权限', 'code': 403}), 403
+    return decorated
+
 
 # ============ 分层设置（用户 / 全局 / 浏览器） ============
 # 合并优先级（高 -> 低）：browser > user > global > defaults
@@ -3051,6 +3142,38 @@ def get_libraries():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@app.route('/api/my-libraries', methods=['GET'])
+def get_my_libraries():
+    """获取当前用户可管理的资源库。
+
+    全局管理员返回全部；资源库管理员（LibraryPermission.role='admin'）返回其管理的资源库。
+    用于前端在「非全局管理员」场景下展示可管理的资源库。
+    """
+    try:
+        user_id, role = resolve_identity()
+        if not user_id:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        if role >= UserRole.ADMIN:
+            libs = ResourceLibrary.query.order_by(ResourceLibrary.created_at.desc()).all()
+        else:
+            admin_ids = _user_library_admin_ids(user_id)
+            if not admin_ids:
+                return jsonify({'success': True, 'data': []})
+            libs = ResourceLibrary.query.filter(ResourceLibrary.id.in_(admin_ids)).all()
+        result = []
+        for lib in libs:
+            lib_dict = lib.to_dict(include_stats=True)
+            try:
+                lib_dict['video_count'] = Video.query.filter_by(library_id=lib.id).count()
+            except Exception:
+                lib_dict['video_count'] = 0
+            result.append(lib_dict)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        log.debug('ERROR', f"获取我的资源库失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/admin/libraries', methods=['POST'])
 @admin_required
 def create_library():
@@ -3233,7 +3356,7 @@ def delete_library(library_id):
 # ============ 文件夹管理 API（调用 resourced 服务） =================
 
 @app.route('/api/admin/libraries/<int:library_id>/folders', methods=['GET'])
-@admin_required
+@library_admin_required('library_id')
 def get_library_folders(library_id):
     """获取资源库的所有文件夹"""
     try:
@@ -3289,7 +3412,7 @@ def test_add_folder():
 
 
 @app.route('/api/admin/libraries/<int:library_id>/folders', methods=['POST'])
-@admin_required
+@library_admin_required('library_id')
 def add_library_folder(library_id):
     """添加文件夹到资源库"""
     try:
@@ -3334,7 +3457,7 @@ def add_library_folder(library_id):
 
 
 @app.route('/api/admin/folders/<int:folder_id>', methods=['PUT'])
-@admin_required
+@library_admin_required('folder_id')
 def update_folder(folder_id):
     """更新文件夹"""
     try:
@@ -3361,7 +3484,7 @@ def update_folder(folder_id):
 
 
 @app.route('/api/admin/folders/<int:folder_id>', methods=['DELETE'])
-@admin_required
+@library_admin_required('folder_id')
 def delete_folder(folder_id):
     """删除文件夹"""
     try:
@@ -3386,7 +3509,7 @@ def delete_folder(folder_id):
 
 
 @app.route('/api/admin/folders/<int:folder_id>/set-default', methods=['POST'])
-@admin_required
+@library_admin_required('folder_id')
 def set_default_folder(folder_id):
     """设置文件夹为默认上传路径"""
     try:
@@ -3438,7 +3561,7 @@ def _list_system_drives():
 
 
 @app.route('/api/admin/system/folders', methods=['GET'])
-@admin_required
+@resource_manager_required
 def list_system_folders():
     """浏览服务器文件系统：返回指定路径下的子目录（及可选文件）。path 为空时返回盘符。"""
     try:
@@ -3472,7 +3595,7 @@ def list_system_folders():
 
 
 @app.route('/api/admin/system/folders', methods=['POST'])
-@admin_required
+@resource_manager_required
 def create_system_folder():
     """在指定路径下新建文件夹。body: { path, name }"""
     try:
@@ -3498,7 +3621,7 @@ def create_system_folder():
 # ============ 资源库扫描 API =================
 
 @app.route('/api/admin/libraries/<int:library_id>/scan', methods=['POST'])
-@admin_required
+@library_admin_required('library_id')
 def scan_library(library_id):
     """启动资源库扫描（异步，立即返回）。
 
@@ -3547,7 +3670,7 @@ def scan_library(library_id):
 
 
 @app.route('/api/admin/libraries/<int:library_id>/scan-status', methods=['GET'])
-@admin_required
+@library_admin_required('library_id')
 def get_library_scan_status(library_id):
     """获取资源库扫描进度（轮询接口，web 侧驱动 Video 索引）"""
     try:
@@ -3770,7 +3893,7 @@ def delete_library_permission(library_id, perm_id):
 # ============ 批量导入视频 API =================
 
 @app.route('/api/admin/scan-folder', methods=['POST'])
-@admin_required
+@resource_manager_required
 def scan_folder():
     """扫描指定文件夹，预览视频文件
     
@@ -3797,6 +3920,31 @@ def scan_folder():
         
         if not os.path.isdir(folder_path):
             return jsonify({'success': False, 'message': '指定的路径不是文件夹'}), 400
+        
+        # 资源库管理员（非全局管理员）只能扫描其管理的资源库下的文件夹
+        user_id, role = resolve_identity()
+        if role < UserRole.ADMIN and _HAS_RESOURCE_DB:
+            admin_ids = _user_library_admin_ids(user_id)
+            allowed = False
+            norm_target = os.path.normcase(os.path.abspath(folder_path))
+            for lid in admin_ids:
+                res_id = _resolve_resource_library_id(lid)
+                if not res_id:
+                    continue
+                rl = ResourceLibraryDB.get_by_id(res_id)
+                if not rl:
+                    continue
+                for f in ResourceFolderDB.get_by_library(rl.id):
+                    if not f.path:
+                        continue
+                    fp = os.path.normcase(os.path.abspath(f.path))
+                    if norm_target == fp or norm_target.startswith(fp + os.sep):
+                        allowed = True
+                        break
+                if allowed:
+                    break
+            if not allowed:
+                return jsonify({'success': False, 'message': '只能扫描您管理的资源库下的文件夹', 'code': 403}), 403
         
         # 扫描视频文件
         videos = []
