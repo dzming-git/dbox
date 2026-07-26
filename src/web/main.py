@@ -5832,6 +5832,14 @@ def resource_index_pool():
     if kind:
         q = q.filter_by(kind=kind)
     items = q.order_by(ResourceIndex.updated_at.desc()).limit(500).all()
+    # 补全缩略图：video_file/comic_folder 的缩略图在 Video/Comic 实体上，
+    # 资源索引 meta.thumbnail 往往为空，导致帖子引用选择器预览图无法显示。
+    video_ri_ids = [ri.id for ri in items if ri.kind == 'video_file']
+    thumb_by_ri = {}
+    if video_ri_ids:
+        for v in Video.query.filter(Video.resource_index_id.in_(video_ri_ids)).all():
+            if v.resource_index_id and v.thumbnail:
+                thumb_by_ri[v.resource_index_id] = v.thumbnail
     result = []
     for ri in items:
         modes = [m.mode for m in ri.memberships]
@@ -5839,6 +5847,10 @@ def resource_index_pool():
             continue
         d = ri.to_dict()
         d['modes'] = modes
+        if not (d.get('presentation') or {}).get('thumbnail'):
+            thumb = thumb_by_ri.get(ri.id)
+            if thumb:
+                d.setdefault('presentation', {})['thumbnail'] = thumb
         if search:
             title = (ri.get_meta().get('title') or ri._basename() or '').lower()
             if search.lower() not in title:
