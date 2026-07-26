@@ -321,10 +321,13 @@ def get_guest_token(opener, cookie_header):
 
 
 def extract_from_api(tweet_id, cookie_header, opener):
-    """调用 statuses/show.json 接口（结构化数据，最可靠），失败返回 []。"""
+    """调用 statuses/show.json 接口（结构化数据，最可靠），失败返回 ([], '')。
+
+    返回 (media_list, full_text)。
+    """
     gt = get_guest_token(opener, cookie_header)
     if not gt:
-        return []
+        return [], ''
     url = (f'https://api.x.com/1.1/statuses/show.json'
            f'?id={tweet_id}&tweet_mode=extended')
     headers = {
@@ -337,7 +340,10 @@ def extract_from_api(tweet_id, cookie_header, opener):
         data = json.loads(fetch_text(url, opener, headers, timeout=40))
     except Exception as e:
         log(f'接口解析失败（将仅用页面解析）: {e}', level='warn')
-        return []
+        return [], ''
+    text = (data.get('full_text') or data.get('text') or '').strip()
+    # 去掉末尾的 t.co 短链占位（X 在 extended 模式会把链接放到 entities 里）
+    text = re.sub(r'\s*https://t\.co/\w+\s*$', '', text).strip()
     media = []
     entities = data.get('extended_entities') or data.get('entities') or {}
     for ent in entities.get('media', []):
@@ -356,14 +362,30 @@ def extract_from_api(tweet_id, cookie_header, opener):
                 media.append({'type': 'video',
                               'url': pick_m3u8(m3u8),
                               'label': '视频/动图'})
-    return media
+    return media, text
+
+
+def extract_tweet_text_from_html(html):
+    """从推文页面 HTML 尽力提取正文（页面版正文字段分散，作为接口失败时的兜底）。"""
+    if not html:
+        return ''
+    # 优先从 <meta property="og:description"> 提取（含推文正文）
+    m = re.search(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']',
+                  html, re.IGNORECASE)
+    if m:
+        desc = m.group(1)
+        # og:description 形如 "作者名: 正文" 或含 "· X" 后缀，做简单清洗
+        desc = re.sub(r'\s*—\s*X\s*$', '', desc)
+        desc = re.sub(r'\s*·\s*X\s*$', '', desc)
+        return desc.strip()
+    return ''
 
 
 def extract_media(url, cookie_header, proxy_cfg):
-    """解析推文，返回媒体列表：[{type:'image'|'video', url, label}]。
+    """解析推文，返回 (媒体列表, 推文文字)。
 
     策略：优先页面 HTML 解析（无需 Bearer，直接用用户 Cookie）；
-          若页面未解析到，则用 statuses/show.json 接口降级补全。
+          若页面未解析到，则用 statuses/show.json 接口降级补全（接口同时带回正文）。
     """
     opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header)
@@ -377,18 +399,22 @@ def extract_media(url, cookie_header, proxy_cfg):
         log(f'页面抓取失败: {e}', level='warn')
 
     media = extract_from_html(html, cookie_header) if html else []
+    text = extract_tweet_text_from_html(html)
     # 带 Cookie 却解析不到（很可能是 Cookie 过期，X 返回登录页），回退无 Cookie 访客页
     if not media and cookie_header:
         log('带 Cookie 未解析到媒体，尝试无 Cookie 重新抓取…')
         try:
             html2 = fetch_text(url, opener, build_headers(''), timeout=45)
             media = extract_from_html(html2, '') if html2 else []
+            text = text or extract_tweet_text_from_html(html2)
         except Exception as e:
             log(f'无 Cookie 抓取失败: {e}', level='warn')
     if not media and tweet_id != 'x':
         log('页面未解析到媒体，尝试接口方式…')
-        media = extract_from_api(tweet_id, cookie_header, opener)
-    return media
+        api_media, api_text = extract_from_api(tweet_id, cookie_header, opener)
+        media = api_media
+        text = text or api_text
+    return media, text
 
 
 # ---------------- 下载 ----------------
@@ -585,9 +611,12 @@ def main():
     cookie_header = resolve_cookie(context.get('cookies', {}) or {})
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
-    # 入库模式：外部脚本在此声明每个资源归属哪些模式（见 docs/multi_mode_resource_management.md）
-    target_modes = params.get('target_modes') or ['video']
-    group = tweet_id  # 同一任务内的文件聚合为一条动态帖子
+    # 入库开关：视频是否进视频列表、图片是否进图集；帖子（组合）始终创建并包含文字
+    add_video = bool(params.get('add_video', True))
+    add_gallery = bool(params.get('add_gallery', True))
+    # 解析 tweet id（同一任务内的文件聚合为一条帖子）
+    tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
+    group = tweet_id
     proxy_cfg = parse_proxy(params.get('proxy'))
     global _PROXY_CFG
     _PROXY_CFG = proxy_cfg
@@ -606,12 +635,14 @@ def main():
     tweet_id = m.group(1) if m else 'x'
 
     progress(5, '开始解析推文')
+    tweet_text = ''
     try:
         if simulate:
             log('演示模式：合成媒体列表（不联网）')
             media = simulate_media()
+            tweet_text = '这是演示推文的文字内容（演示模式）。'
         else:
-            media = extract_media(url, cookie_header, proxy_cfg)
+            media, tweet_text = extract_media(url, cookie_header, proxy_cfg)
     except Exception as e:
         error(str(e))
         sys.exit(1)
@@ -619,6 +650,12 @@ def main():
     if not media:
         error('未在该推文中找到任何图片或视频')
         sys.exit(1)
+
+    # 推文文字作为帖子正文；取前 200 字作帖子标题展示用
+    post_content = (tweet_text or '').strip()
+    post_title = (post_content[:200] if post_content else f'X 推文 {tweet_id}')
+    if not post_content:
+        log('未解析到推文文字，帖子将仅含媒体', level='warn')
 
     log(f'解析到 {len(media)} 个媒体：' + '，'.join(x['label'] for x in media))
 
@@ -668,17 +705,27 @@ def main():
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
                     path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg)
+                # 图片：是否进图集(gallery) + 始终进帖子(post)
+                modes = ['gallery', 'post'] if add_gallery else ['post']
                 downloaded.append({'path': path, 'type': 'image',
-                                    'target_modes': target_modes, 'group': group})
-                log(f'已下载图片: {os.path.basename(path)}')
+                                    'target_modes': modes, 'group': group,
+                                    'content': post_content, 'post_title': post_title,
+                                    'source_url': url, 'caption': item.get('label')})
+                log(f'已下载图片: {os.path.basename(path)}'
+                    + ('（含图集）' if add_gallery else '（仅帖子）'))
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
                     path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg)
+                # 视频：是否进视频列表(video) + 始终进帖子(post)
+                modes = ['video', 'post'] if add_video else ['post']
                 downloaded.append({'path': path, 'type': 'video',
-                                   'target_modes': target_modes, 'group': group})
-                log(f'已下载视频: {os.path.basename(path)}')
+                                   'target_modes': modes, 'group': group,
+                                   'content': post_content, 'post_title': post_title,
+                                   'source_url': url, 'caption': item.get('label')})
+                log(f'已下载视频: {os.path.basename(path)}'
+                    + ('（含视频列表）' if add_video else '（仅帖子）'))
             progress(pct, f'下载进度 {idx}/{total}')
         except Exception as e:
             error(f'下载失败（{item["label"]}）: {e}')

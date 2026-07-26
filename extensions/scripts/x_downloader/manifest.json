@@ -33,12 +33,18 @@
       "description": "下载的视频将移动并入库到该资源库；图片也会暂存到该资源库目录"
     },
     {
-      "name": "target_modes",
-      "type": "multi_enum",
-      "label": "入库模式",
-      "enum": ["video", "comic", "text", "post"],
-      "default": ["video"],
-      "description": "选择下载资源归属的模式：video→视频列表可见；comic→漫画列表可见；post→只在帖子（组合）中可见、不进列表（适合图文+视频一体的帖子）；可多选。同一任务的多个文件会自动聚合成一条帖子。"
+      "name": "add_video",
+      "type": "bool",
+      "label": "视频加入视频列表",
+      "default": true,
+      "description": "勾选后，推文中的视频会出现在视频列表中；不勾选则视频仅在帖子内可见（不进视频列表）。"
+    },
+    {
+      "name": "add_gallery",
+      "type": "bool",
+      "label": "图片加入图集",
+      "default": true,
+      "description": "勾选后，推文中的图片会组成图集（漫画列表）可见；不勾选则图片仅在帖子内可见（不进图集）。"
     },
     {
       "name": "simulate",

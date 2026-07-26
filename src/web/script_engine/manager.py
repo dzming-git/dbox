@@ -525,7 +525,11 @@ class ScriptJobManager:
                 rid = res.get('resource_index_id')
                 if rid:
                     gk = group or '_default_'
-                    post_groups.setdefault(gk, {'title': f.get('post_title'), 'ids': []})
+                    g = post_groups.setdefault(gk, {'title': f.get('post_title'),
+                                                   'content': f.get('content'), 'ids': []})
+                    # 若组内尚未记录正文，用首个带 content 的文件填充
+                    if not g.get('content') and f.get('content'):
+                        g['content'] = f.get('content')
                     post_groups[gk]['ids'].append(rid)
         # 聚合帖子：同组资源合成一条帖子（例：图文+视频一体的下载）
         if post_groups:
@@ -534,7 +538,8 @@ class ScriptJobManager:
                     from core.models import create_post
                     for gk, g in post_groups.items():
                         if g['ids']:
-                            d = create_post(g.get('title') or '脚本生成的帖子', None, g['ids'], user_id=owner_id)
+                            d = create_post(g.get('title') or '脚本生成的帖子',
+                                            g.get('content'), g['ids'], user_id=owner_id)
                             self._append_log(job_id, 'info',
                                              f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
             except Exception as e:
