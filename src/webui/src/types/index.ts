@@ -302,8 +302,8 @@ export interface AvailableMode {
   count: number
 }
 
-// ============ 动态（Dynamic）：通过资源索引表自由引用视频 / 图片集（漫画）/ 文本 ============
-export interface DynamicRef {
+// ============ 帖子（Post）：通过资源索引表自由引用视频 / 图片集（漫画）/ 文本 ============
+export interface PostRef {
   ref_id: number
   position: number
   note: string
@@ -316,7 +316,7 @@ export interface DynamicRef {
   presentation?: ResourcePresentation   // 引用目标无富化实体时的兜底呈现
 }
 
-export interface Dynamic {
+export interface Post {
   id: number
   title: string
   content: string
@@ -325,6 +325,6 @@ export interface Dynamic {
   in_trash: boolean
   created_at?: string
   updated_at?: string
-  refs: DynamicRef[]
+  refs: PostRef[]
 }
 

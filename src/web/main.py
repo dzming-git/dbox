@@ -236,7 +236,7 @@ from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
 from core.models import FavoriteCollection, CollectionVideo, Comic
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
-from core.models import ResourceIndex, Dynamic, DynamicRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User
+from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User
 from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
 from auth_service import AuthService, init_root_user
 
@@ -5631,11 +5631,11 @@ except Exception as e:
     print(f'[WARNING] 资源库文件夹监控模块不可用: {e}')
 
 
-# ============ 动态（Dynamic）API ============
-# 动态只持有对 resource_index 的引用，可自由引用视频 / 图片集（漫画）/ 未来文本等，
-# 同一资源可被多个动态共享，且移动磁盘资源只需更新索引表一行即可全局跟随。
+# ============ 帖子（Post）API ============
+# 帖子只持有对 resource_index 的引用，可自由引用视频 / 图片集（漫画）/ 未来文本等，
+# 同一资源可被多个帖子共享，且移动磁盘资源只需更新索引表一行即可全局跟随。
 
-def _resolve_dynamic_refs(refs):
+def _resolve_post_refs(refs):
     """将请求体中的引用解析为 (ResourceIndex, note) 列表。
 
     支持两种写法：
@@ -5667,48 +5667,48 @@ def _resolve_dynamic_refs(refs):
     return result
 
 
-@app.route('/api/dynamics', methods=['GET'])
-def get_dynamics():
+@app.route('/api/posts', methods=['GET'])
+def get_posts():
     library_id = request.args.get('library_id', type=int)
     include_trash = request.args.get('include_trash') == '1'
-    q = Dynamic.query
+    q = Post.query
     if not include_trash:
         q = q.filter_by(in_trash=False)
     if library_id is not None:
         q = q.filter_by(library_id=library_id)
-    dynamics = q.order_by(Dynamic.created_at.desc()).all()
-    return jsonify({'dynamics': [d.to_dict(resolve=True) for d in dynamics], 'total': len(dynamics)})
+    posts = q.order_by(Post.created_at.desc()).all()
+    return jsonify({'posts': [d.to_dict(resolve=True) for d in posts], 'total': len(posts)})
 
 
-@app.route('/api/dynamics', methods=['POST'])
+@app.route('/api/posts', methods=['POST'])
 @auth_required
-def create_dynamic():
+def create_post():
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
-    d = Dynamic(title=data.get('title', ''), content=data.get('content', ''),
+    d = Post(title=data.get('title', ''), content=data.get('content', ''),
                 owner_id=user.id, library_id=data.get('library_id'))
-    for pos, (ri, note) in enumerate(_resolve_dynamic_refs(data.get('refs'))):
-        d.refs.append(DynamicRef(resource_index_id=ri.id, position=pos, note=note))
+    for pos, (ri, note) in enumerate(_resolve_post_refs(data.get('refs'))):
+        d.refs.append(PostRef(resource_index_id=ri.id, position=pos, note=note))
     db.session.add(d)
     db.session.commit()
     return jsonify(d.to_dict(resolve=True)), 201
 
 
-@app.route('/api/dynamics/<int:did>', methods=['GET'])
-def get_dynamic(did):
-    d = Dynamic.query.get_or_404(did)
+@app.route('/api/posts/<int:did>', methods=['GET'])
+def get_post(did):
+    d = Post.query.get_or_404(did)
     return jsonify(d.to_dict(resolve=True))
 
 
-@app.route('/api/dynamics/<int:did>', methods=['PUT'])
+@app.route('/api/posts/<int:did>', methods=['PUT'])
 @auth_required
-def update_dynamic(did):
+def update_post(did):
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
-    d = Dynamic.query.get_or_404(did)
+    d = Post.query.get_or_404(did)
     if d.owner_id != user.id and user.role != UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
     data = request.get_json(force=True, silent=True) or {}
@@ -5720,20 +5720,20 @@ def update_dynamic(did):
         d.library_id = data['library_id']
     if 'refs' in data:
         d.refs.clear()
-        for pos, (ri, note) in enumerate(_resolve_dynamic_refs(data['refs'])):
-            d.refs.append(DynamicRef(resource_index_id=ri.id, position=pos, note=note))
+        for pos, (ri, note) in enumerate(_resolve_post_refs(data['refs'])):
+            d.refs.append(PostRef(resource_index_id=ri.id, position=pos, note=note))
     d.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify(d.to_dict(resolve=True))
 
 
-@app.route('/api/dynamics/<int:did>', methods=['DELETE'])
+@app.route('/api/posts/<int:did>', methods=['DELETE'])
 @auth_required
-def delete_dynamic(did):
+def delete_post(did):
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
-    d = Dynamic.query.get_or_404(did)
+    d = Post.query.get_or_404(did)
     if d.owner_id != user.id and user.role != UserRole.ADMIN:
         return jsonify({'error': '无权删除'}), 403
     d.in_trash = True
@@ -5742,43 +5742,43 @@ def delete_dynamic(did):
     return jsonify({'success': True})
 
 
-@app.route('/api/dynamics/<int:did>/refs', methods=['POST'])
+@app.route('/api/posts/<int:did>/refs', methods=['POST'])
 @auth_required
-def add_dynamic_ref(did):
+def add_post_ref(did):
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
-    d = Dynamic.query.get_or_404(did)
+    d = Post.query.get_or_404(did)
     if d.owner_id != user.id and user.role != UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
     data = request.get_json(force=True, silent=True) or {}
-    refs = _resolve_dynamic_refs([data])
+    refs = _resolve_post_refs([data])
     if not refs:
         return jsonify({'error': '无效的资源引用'}), 400
     ri, note = refs[0]
     pos = (d.refs[-1].position + 1) if d.refs else 0
-    ref = DynamicRef(dynamic_id=d.id, resource_index_id=ri.id, position=pos, note=note)
+    ref = PostRef(post_id=d.id, resource_index_id=ri.id, position=pos, note=note)
     db.session.add(ref)
     db.session.commit()
     return jsonify(ref.to_dict()), 201
 
 
-@app.route('/api/dynamics/<int:did>/refs/<int:rid>', methods=['DELETE'])
+@app.route('/api/posts/<int:did>/refs/<int:rid>', methods=['DELETE'])
 @auth_required
-def remove_dynamic_ref(did, rid):
+def remove_post_ref(did, rid):
     user = resolve_user()
     if not user:
         return jsonify({'error': '未登录'}), 401
-    d = Dynamic.query.get_or_404(did)
+    d = Post.query.get_or_404(did)
     if d.owner_id != user.id and user.role != UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
-    ref = DynamicRef.query.filter_by(id=rid, dynamic_id=did).first_or_404()
+    ref = PostRef.query.filter_by(id=rid, post_id=did).first_or_404()
     db.session.delete(ref)
     db.session.commit()
     return jsonify({'success': True})
 
 
-# ============ 多模式资源管理（资源归属模式：视频/漫画/图文/文本/动态） ============
+# ============ 多模式资源管理（资源归属模式：视频/漫画/图文/文本/帖子） ============
 
 def resolve_user():
     """统一解析当前用户：优先 JWT 中间件注入的 g.user_id，回退到 session 用户。
@@ -5796,9 +5796,9 @@ def resolve_user():
 
 @app.route('/api/resource-index', methods=['GET'])
 def resource_index_pool():
-    """统一资源池：供动态引用选择器 / 各模式复用。支持按模式、库、类型、关键字筛选。
+    """统一资源池：供帖子引用选择器 / 各模式复用。支持按模式、库、类型、关键字筛选。
 
-    只读接口，与 /api/videos、/api/dynamics 列表保持一致，公开可访问。
+    只读接口，与 /api/videos、/api/posts 列表保持一致，公开可访问。
     """
     mode = request.args.get('mode')
     library_id = request.args.get('library_id', type=int)
@@ -5813,7 +5813,7 @@ def resource_index_pool():
     result = []
     for ri in items:
         modes = [m.mode for m in ri.memberships]
-        if mode and mode != ResourceMode.DYNAMIC and mode not in modes:
+        if mode and mode != ResourceMode.POST and mode not in modes:
             continue
         d = ri.to_dict()
         d['modes'] = modes
@@ -5927,13 +5927,13 @@ def available_modes():
     """返回当前可用模式及数量，供首页 tab 动态渲染。"""
     counts = dict(db.session.query(ResourceModeMembership.mode, db.func.count())
                   .group_by(ResourceModeMembership.mode).all())
-    dyn_count = db.session.query(DynamicRef.resource_index_id).distinct().count()
+    dyn_count = db.session.query(PostRef.resource_index_id).distinct().count()
     modes = []
     for m in ResourceMode.SINGLE:
         if counts.get(m):
             modes.append({'mode': m, 'count': counts[m]})
     if dyn_count:
-        modes.append({'mode': ResourceMode.DYNAMIC, 'count': dyn_count})
+        modes.append({'mode': ResourceMode.POST, 'count': dyn_count})
     return jsonify({'modes': modes})
 
 

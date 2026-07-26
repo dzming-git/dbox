@@ -30,7 +30,7 @@ async function load() {
   try {
     items.value = await fetchMixedFeed({ limit: 60 })
   } catch (e) {
-    console.error('加载动态失败', e)
+    console.error('加载帖子失败', e)
     items.value = []
   } finally {
     loading.value = false

@@ -477,10 +477,10 @@ class ScriptJobManager:
     def _reconcile(self, job_id, library_id, files):
         """把脚本产出文件从临时目录移动到资源库路径（跨盘安全），再按 modes 入库。
 
-        返回移动后的最终路径列表。同组（group）的 dynamic 资源会被聚合成一条动态帖子。
+        返回移动后的最终路径列表。同组（group）的资源会被聚合成一条帖子（组合模式）。
         """
         final_paths = []
-        dynamic_groups = {}  # group_key -> {'title':..., 'ids':[...]}
+        post_groups = {}  # group_key -> {'title':..., 'ids':[...]}
         if not library_id:
             return final_paths
         job = self._get_job_row(job_id)
@@ -520,25 +520,25 @@ class ScriptJobManager:
             self._append_log(job_id, 'info' if res.get('success') else 'error',
                              '入库: ' + res.get('message', ''))
             final_paths.append(path)
-            # 收集动态模式资源，用于聚合为帖子（组合模式）
-            if res.get('success') and 'dynamic' in (res.get('modes') or []):
+            # 收集帖子模式资源，用于聚合为帖子（组合模式）
+            if res.get('success') and 'post' in (res.get('modes') or []):
                 rid = res.get('resource_index_id')
                 if rid:
                     gk = group or '_default_'
-                    dynamic_groups.setdefault(gk, {'title': f.get('post_title'), 'ids': []})
-                    dynamic_groups[gk]['ids'].append(rid)
-        # 聚合动态：同组资源合成一条动态帖子（例：图文+视频一体的下载）
-        if dynamic_groups:
+                    post_groups.setdefault(gk, {'title': f.get('post_title'), 'ids': []})
+                    post_groups[gk]['ids'].append(rid)
+        # 聚合帖子：同组资源合成一条帖子（例：图文+视频一体的下载）
+        if post_groups:
             try:
                 with self.app.app_context():
-                    from core.models import create_dynamic
-                    for gk, g in dynamic_groups.items():
+                    from core.models import create_post
+                    for gk, g in post_groups.items():
                         if g['ids']:
-                            d = create_dynamic(g.get('title') or '脚本生成的动态', None, g['ids'], user_id=owner_id)
+                            d = create_post(g.get('title') or '脚本生成的帖子', None, g['ids'], user_id=owner_id)
                             self._append_log(job_id, 'info',
-                                             f'已生成动态帖子 #{d.id}（{len(g["ids"])} 个资源）')
+                                             f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
             except Exception as e:
-                self._append_log(job_id, 'error', f'生成动态失败: {e}')
+                self._append_log(job_id, 'error', f'生成帖子失败: {e}')
         return final_paths
 
     # ---------- 取消 ----------

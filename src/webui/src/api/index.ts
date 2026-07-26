@@ -391,23 +391,23 @@ export const systemApi = {
     api.post('/api/system/shutdown/cancel')
 }
 
-// 动态（Dynamic）API：帖子通过资源索引表自由引用视频/图片集（漫画）/未来文本
-export const dynamicApi = {
+// 帖子（Post）API：帖子通过资源索引表自由引用视频/图片集（漫画）/未来文本
+export const postApi = {
   // 列表（仅未删除）
   list: (params?: { library_id?: number }) =>
-    api.get('/api/dynamics', { params }),
+    api.get('/api/posts', { params }),
   get: (id: number) =>
-    api.get(`/api/dynamics/${id}`),
+    api.get(`/api/posts/${id}`),
   // 创建：refs 为 [{ resource_index_id, note? }]
   create: (data: { title: string; content: string; library_id?: number; refs: Array<{ resource_index_id: number; note?: string }> }) =>
-    api.post('/api/dynamics', data),
+    api.post('/api/posts', data),
   update: (id: number, data: any) =>
-    api.put(`/api/dynamics/${id}`, data),
+    api.put(`/api/posts/${id}`, data),
   remove: (id: number) =>
-    api.delete(`/api/dynamics/${id}`),
+    api.delete(`/api/posts/${id}`),
 }
 
-// 统一资源池：跨模式选择资源（视频 / 图片集 / 文本），供动态引用选择器复用
+// 统一资源池：跨模式选择资源（视频 / 图片集 / 文本），供帖子引用选择器复用
 export const resourceApi = {
   pool: (params?: { mode?: string; library_id?: number; kind?: string; search?: string }) =>
     api.get('/api/resource-index', { params }),

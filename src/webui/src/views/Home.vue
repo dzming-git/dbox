@@ -9,7 +9,7 @@ import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Comics from './Comics.vue'
-import Dynamics from './Dynamics.vue'
+import Posts from './Posts.vue'
 import Texts from './Texts.vue'
 import type { Video, Tag } from '../types'
 
@@ -550,7 +550,7 @@ const onListImgError = (e: Event) => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M4 6h16M4 12h16M4 18h10"/>
         </svg>
-        动态
+        帖子
       </button>
       <button
         class="media-tab"
@@ -910,8 +910,8 @@ const onListImgError = (e: Event) => {
     </div>
     <!-- 漫画内容（仅漫画 tab 显示） -->
     <Comics v-else-if="mediaTab === 'comic'" />
-    <!-- 动态（帖子）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
-    <Dynamics v-else-if="mediaTab === 'mixed'" />
+    <!-- 帖子（Post）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
+    <Posts v-else-if="mediaTab === 'mixed'" />
     <!-- 文本模式（未来内容管理，复用同一套资源索引机制） -->
     <Texts v-else-if="mediaTab === 'text'" />
 

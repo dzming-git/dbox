@@ -2,10 +2,10 @@
 
 设计（见 docs/multi_mode_resource_management.md）：
 - ResourceIndex 是通用资产；kind: video_file / comic_folder / text。
-- modes 决定资源归属哪些单资源模式（video/comic/text）；组合模式 dynamic 由 Dynamic 引用表达。
+- modes 决定资源归属哪些单资源模式（video/comic/text）；组合模式 post 由 Post 引用表达。
 - 例：modes=['video'] -> 建 Video，视频列表可见；
-     modes=['dynamic'] -> 只建 ResourceIndex（不建 Video），由后续 Dynamic 引用，视频列表不可见；
-     modes=['video','dynamic'] -> 视频列表与动态帖子均可见。
+     modes=['post'] -> 只建 ResourceIndex（不建 Video），由后续 Post 引用，视频列表不可见；
+     modes=['video','post'] -> 视频列表与帖子均可见。
 """
 import os
 
@@ -82,7 +82,7 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                 if not ri:
                     ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
             else:
-                # 非主模式（如只进动态的 video、或 text）：直接建索引，不建富化实体
+                # 非主模式（如只进帖子的 video、或 text）：直接建索引，不建富化实体
                 ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
 
             # 2) 应用模式归属（membership 行 + 富化实体同步增删）

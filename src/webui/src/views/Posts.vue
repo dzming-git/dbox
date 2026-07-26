@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
-import { dynamicApi, resourceApi } from '../api'
-import type { Dynamic, DynamicRef, ResourceIndex } from '../types'
+import { postApi, resourceApi } from '../api'
+import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 
 const userStore = useUserStore()
 
-const dynamics = ref<Dynamic[]>([])
+const posts = ref<Post[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -17,8 +17,8 @@ const KIND_LABEL: Record<string, string> = {
   text: '文本',
 }
 
-// 把动态引用解析为 MediaCard 需要的 MediaItem（含「只属于动态」资源的兜底呈现）
-const toMediaItem = (refItem: DynamicRef) => {
+// 把帖子引用解析为 MediaCard 需要的 MediaItem（含「只属于帖子」资源的兜底呈现）
+const toMediaItem = (refItem: PostRef) => {
   if (refItem.video) {
     const v = refItem.video
     return { type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
@@ -45,20 +45,20 @@ const toMediaItem = (refItem: DynamicRef) => {
   return null
 }
 
-const fetchDynamics = async () => {
+const fetchPosts = async () => {
   loading.value = true
   error.value = ''
   try {
-    const res: any = await dynamicApi.list()
-    dynamics.value = res.dynamics || []
+    const res: any = await postApi.list()
+    posts.value = res.posts || []
   } catch (e: any) {
-    error.value = e?.message || '加载动态失败'
+    error.value = e?.message || '加载帖子失败'
   } finally {
     loading.value = false
   }
 }
 
-onMounted(fetchDynamics)
+onMounted(fetchPosts)
 
 // ============ 新建 / 编辑 ============
 const dialogVisible = ref(false)
@@ -124,7 +124,7 @@ const openCreate = async () => {
   await loadCandidates()
 }
 
-const openEdit = async (d: Dynamic) => {
+const openEdit = async (d: Post) => {
   editingId.value = d.id
   formTitle.value = d.title
   formContent.value = d.content
@@ -152,12 +152,12 @@ const save = async () => {
       refs: editingRefs.value.map(r => ({ resource_index_id: r.resource_index_id, note: r.note })),
     }
     if (editingId.value) {
-      await dynamicApi.update(editingId.value, payload)
+      await postApi.update(editingId.value, payload)
     } else {
-      await dynamicApi.create(payload)
+      await postApi.create(payload)
     }
     dialogVisible.value = false
-    await fetchDynamics()
+    await fetchPosts()
   } catch (e: any) {
     error.value = e?.message || '保存失败'
   } finally {
@@ -165,17 +165,17 @@ const save = async () => {
   }
 }
 
-const removeDynamic = async (d: Dynamic) => {
-  if (!confirm(`确定删除动态「${d.title || '未命名'}」？`)) return
+const removePost = async (d: Post) => {
+  if (!confirm(`确定删除帖子「${d.title || '未命名'}」？`)) return
   try {
-    await dynamicApi.remove(d.id)
-    await fetchDynamics()
+    await postApi.remove(d.id)
+    await fetchPosts()
   } catch (e: any) {
     error.value = e?.message || '删除失败'
   }
 }
 
-const canEdit = (d: Dynamic) =>
+const canEdit = (d: Post) =>
   userStore.user && (userStore.user.id === d.owner_id || userStore.user.role >= 2)
 
 const onSearchCandidate = async () => {
@@ -191,41 +191,41 @@ const formatDate = (s?: string) => {
 </script>
 
 <template>
-  <div class="dynamics-container">
-    <div class="dynamics-header">
-      <h2 class="section-title">动态</h2>
+  <div class="posts-container">
+    <div class="posts-header">
+      <h2 class="section-title">帖子</h2>
       <button class="create-btn" @click="openCreate">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        新建动态
+        新建帖子
       </button>
     </div>
 
-    <p class="hint">动态通过「资源索引表」自由引用视频 / 图片集（漫画）/ 文本。一个资源可同时出现在多个动态，也可「只属于动态、不进视频/漫画列表」（如下载脚本把图文+视频一体入库到动态模式）。</p>
+    <p class="hint">帖子通过「资源索引表」自由引用视频 / 图片集（漫画）/ 文本。一个资源可同时出现在多个帖子，也可「只属于帖子、不进视频/漫画列表」（如下载脚本把图文+视频一体入库到帖子模式）。</p>
 
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
-    <div v-else-if="dynamics.length === 0" class="empty-state">
-      <p>还没有动态，点击「新建动态」开始创作。</p>
+    <div v-else-if="posts.length === 0" class="empty-state">
+      <p>还没有帖子，点击「新建帖子」开始创作。</p>
     </div>
 
-    <div v-else class="dynamics-list">
-      <div v-for="d in dynamics" :key="d.id" class="dynamic-card">
-        <div class="dynamic-head">
+    <div v-else class="posts-list">
+      <div v-for="d in posts" :key="d.id" class="post-card">
+        <div class="post-head">
           <div>
-            <h3 class="dynamic-title">{{ d.title || '未命名动态' }}</h3>
-            <span class="dynamic-date">{{ formatDate(d.created_at) }}</span>
+            <h3 class="post-title">{{ d.title || '未命名帖子' }}</h3>
+            <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
-          <div v-if="canEdit(d)" class="dynamic-ops">
+          <div v-if="canEdit(d)" class="post-ops">
             <button class="op-btn" title="编辑" @click="openEdit(d)">编辑</button>
-            <button class="op-btn danger" title="删除" @click="removeDynamic(d)">删除</button>
+            <button class="op-btn danger" title="删除" @click="removePost(d)">删除</button>
           </div>
         </div>
 
-        <p v-if="d.content" class="dynamic-content">{{ d.content }}</p>
+        <p v-if="d.content" class="post-content">{{ d.content }}</p>
 
-        <div v-if="d.refs && d.refs.length" class="dynamic-refs">
+        <div v-if="d.refs && d.refs.length" class="post-refs">
           <div v-for="(refItem, i) in d.refs" :key="refItem.ref_id || i" class="ref-block">
             <div v-if="refItem.note" class="ref-note">{{ refItem.note }}</div>
             <MediaCard :item="toMediaItem(refItem)" />
@@ -238,10 +238,10 @@ const formatDate = (s?: string) => {
     <!-- 新建 / 编辑弹窗 -->
     <div v-if="dialogVisible" class="modal-mask" @click.self="dialogVisible = false">
       <div class="modal">
-        <h3 class="modal-title">{{ editingId ? '编辑动态' : '新建动态' }}</h3>
+        <h3 class="modal-title">{{ editingId ? '编辑帖子' : '新建帖子' }}</h3>
 
         <label class="field-label">标题</label>
-        <input class="text-input" v-model="formTitle" placeholder="给这条动态起个标题" />
+        <input class="text-input" v-model="formTitle" placeholder="给这条帖子起个标题" />
 
         <label class="field-label">正文</label>
         <textarea class="text-area" v-model="formContent" rows="4" placeholder="写点什么..."></textarea>
@@ -293,8 +293,8 @@ const formatDate = (s?: string) => {
 </template>
 
 <style scoped>
-.dynamics-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.dynamics-header { display: flex; align-items: center; justify-content: space-between; }
+.posts-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.posts-header { display: flex; align-items: center; justify-content: space-between; }
 .section-title { font-size: 20px; font-weight: 600; color: #fff; margin: 0; }
 .create-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -310,18 +310,18 @@ const formatDate = (s?: string) => {
 .error-box { color: #ff6b6b; padding: 12px; background: #2a1a1a; border-radius: 8px; }
 .empty-state { color: #666; text-align: center; padding: 60px 0; }
 
-.dynamics-list { display: flex; flex-direction: column; gap: 20px; }
-.dynamic-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; }
-.dynamic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.dynamic-title { font-size: 17px; font-weight: 600; color: #fff; margin: 0; }
-.dynamic-date { font-size: 12px; color: #777; }
-.dynamic-ops { display: flex; gap: 8px; flex-shrink: 0; }
+.posts-list { display: flex; flex-direction: column; gap: 20px; }
+.post-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; }
+.post-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.post-title { font-size: 17px; font-weight: 600; color: #fff; margin: 0; }
+.post-date { font-size: 12px; color: #777; }
+.post-ops { display: flex; gap: 8px; flex-shrink: 0; }
 .op-btn { padding: 5px 12px; border: 1px solid #3a3a3a; background: #252525; color: #ccc; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .op-btn:hover { color: #fff; }
 .op-btn.danger:hover { color: #ff6b6b; border-color: #ff6b6b; }
-.dynamic-content { color: #ddd; font-size: 14px; line-height: 1.6; margin: 12px 0; white-space: pre-wrap; }
+.post-content { color: #ddd; font-size: 14px; line-height: 1.6; margin: 12px 0; white-space: pre-wrap; }
 
-.dynamic-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
+.post-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
 .ref-block { display: flex; flex-direction: column; gap: 6px; }
 .ref-note { font-size: 12px; color: #9ecbff; background: #16263a; border-radius: 6px; padding: 4px 8px; align-self: flex-start; }
 .no-refs { color: #666; font-size: 13px; }

@@ -139,7 +139,7 @@ class UserSession(db.Model):
         }
 
 class ResourceIndex(db.Model):
-    """资源索引表：解耦「实体（视频/漫画/动态/文本）」与「本体在磁盘上的具体位置」。
+    """资源索引表：解耦「实体（视频/漫画/帖子/文本）」与「本体在磁盘上的具体位置」。
 
     每个实体只持有 resource_index_id，通过本表指向具体的磁盘路径：
       - kind='video_file'   -> location 为视频文件
@@ -180,7 +180,7 @@ class ResourceIndex(db.Model):
         return self.location.replace('\\', '/').rstrip('/').split('/')[-1]
 
     def presentation(self):
-        """通用资产呈现：任一模式（含只属于动态的资源）都能用同一套字段渲染卡片。"""
+        """通用资产呈现：任一模式（含只属于帖子的资源）都能用同一套字段渲染卡片。"""
         m = self.get_meta()
         return {
             'title': m.get('title') or self._basename(),
@@ -212,18 +212,18 @@ class ResourceMode:
     """资源模式（逻辑呈现轴）。
 
     - 单资源模式（video/comic/text）：可见性 = resource_memberships 中对应 mode 的归属行。
-    - 组合模式（dynamic）：由 Dynamic 通过 DynamicRef 引用资源表达，不写入 membership 表。
+    - 组合模式（post）：由 Post 通过 PostRef 引用资源表达，不写入 membership 表。
     """
     VIDEO = 'video'
     COMIC = 'comic'
     TEXT = 'text'
-    DYNAMIC = 'dynamic'   # 组合模式
+    POST = 'post'   # 组合模式
 
     SINGLE = (VIDEO, COMIC, TEXT)  # 单资源模式集合
 
     @classmethod
     def is_valid(cls, mode):
-        return mode in (cls.VIDEO, cls.COMIC, cls.TEXT, cls.DYNAMIC)
+        return mode in (cls.VIDEO, cls.COMIC, cls.TEXT, cls.POST)
 
     @classmethod
     def is_single(cls, mode):
@@ -350,11 +350,11 @@ def delete_mode_enrichment(ri, mode):
 def set_resource_modes(ri, modes, collection_id=None, user_id=None):
     """设置资源的单资源模式归属（membership 行 + 富化实体同步增删）。
 
-    组合模式（dynamic）不在此处理——它由 Dynamic 通过 DynamicRef 引用表达。
+    组合模式（post）不在此处理——它由 Post 通过 PostRef 引用表达。
     """
     wanted = []
     for m in (modes or []):
-        if m == ResourceMode.DYNAMIC or not ResourceMode.is_valid(m):
+        if m == ResourceMode.POST or not ResourceMode.is_valid(m):
             continue
         if m not in wanted:
             wanted.append(m)
@@ -373,19 +373,19 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
     return ri
 
 
-def create_dynamic(title, content=None, resource_index_ids=None, user_id=None):
-    """由一组资源索引创建一条动态（组合模式帖子）。
+def create_post(title, content=None, resource_index_ids=None, user_id=None):
+    """由一组资源索引创建一条帖子（组合模式）。
 
-    例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条动态，视频模式不会单独出现。
+    例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
     """
-    d = Dynamic(title=title or '未命名动态', content=content, owner_id=user_id)
+    d = Post(title=title or '未命名帖子', content=content, owner_id=user_id)
     db.session.add(d)
     db.session.flush()
     for i, rid in enumerate(resource_index_ids):
         ri = ResourceIndex.query.get(rid)
         if not ri:
             continue
-        ref = DynamicRef(dynamic_id=d.id, resource_index_id=rid, position=i)
+        ref = PostRef(post_id=d.id, resource_index_id=rid, position=i)
         db.session.add(ref)
     db.session.commit()
     return d
@@ -1419,13 +1419,13 @@ class ComicPlaylistItem(db.Model):
         return d
 
 
-class Dynamic(db.Model):
-    """动态（帖子）：通过资源索引表自由引用多个资源（视频 / 图片集 / 文本等）并编排顺序。
+class Post(db.Model):
+    """帖子：通过资源索引表自由引用多个资源（视频 / 图片集 / 文本等）并编排顺序。
 
-    动态本身不持有任何具体文件，只持有对 resource_index 的引用，
-    因此同一视频 / 图片集可被多个动态、多个模式共享，且不复制数据。
+    帖子本身不持有任何具体文件，只持有对 resource_index 的引用，
+    因此同一视频 / 图片集可被多个帖子、多个模式共享，且不复制数据。
     """
-    __tablename__ = 'dynamics'
+    __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(300), nullable=False, default='')
     content = db.Column(db.Text, default='')  # 文字正文
@@ -1436,8 +1436,8 @@ class Dynamic(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    refs = db.relationship('DynamicRef', back_populates='dynamic',
-                            cascade='all, delete-orphan', order_by='DynamicRef.position')
+    refs = db.relationship('PostRef', back_populates='post',
+                            cascade='all, delete-orphan', order_by='PostRef.position')
 
     def to_dict(self, resolve=True):
         d = {
@@ -1469,7 +1469,7 @@ class Dynamic(db.Model):
                         if v:
                             entry['video'] = v.to_dict()
                         else:
-                            # 只属于动态、未建 Video 实体的视频：用通用呈现渲染
+                            # 只属于帖子、未建 Video 实体的视频：用通用呈现渲染
                             entry['presentation'] = ri.presentation()
                     elif ri.kind == 'comic_folder':
                         c = Comic.query.filter_by(resource_index_id=ri.id).first()
@@ -1490,27 +1490,55 @@ class Dynamic(db.Model):
         return d
 
 
-class DynamicRef(db.Model):
-    """动态 - 资源索引 关联：一条动态可引用多个索引（视频 / 图片集 / 文本），可带备注与顺序。"""
-    __tablename__ = 'dynamic_refs'
+class PostRef(db.Model):
+    """帖子 - 资源索引 关联：一条帖子可引用多个索引（视频 / 图片集 / 文本），可带备注与顺序。"""
+    __tablename__ = 'post_refs'
     id = db.Column(db.Integer, primary_key=True)
-    dynamic_id = db.Column(db.Integer, db.ForeignKey('dynamics.id'), nullable=False)
+    post_id = db.Column('dynamic_id', db.Integer, db.ForeignKey('posts.id'), nullable=False)
     resource_index_id = db.Column(db.Integer, db.ForeignKey('resource_index.id'), nullable=False)
     position = db.Column(db.Integer, default=0)
     note = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    dynamic = db.relationship('Dynamic', back_populates='refs')
+    post = db.relationship('Post', back_populates='refs')
     resource_index = db.relationship('ResourceIndex')
 
     def to_dict(self):
         return {
             'id': self.id,
-            'dynamic_id': self.dynamic_id,
+            'post_id': self.post_id,
             'resource_index_id': self.resource_index_id,
             'position': self.position,
             'note': self.note,
         }
+
+
+def _migrate_dynamic_tables_to_posts():
+    """动态 -> 帖子：将历史表 dynamics/dynamic_refs 重命名为 posts/post_refs（幂等，向后兼容旧数据）。"""
+    try:
+        for old, new in (('dynamics', 'posts'), ('dynamic_refs', 'post_refs')):
+            old_e = db.session.execute(
+                db.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {'n': old}).fetchone()
+            new_e = db.session.execute(
+                db.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {'n': new}).fetchone()
+            if old_e and not new_e:
+                db.session.execute(db.text(f"ALTER TABLE {old} RENAME TO {new}"))
+                db.session.commit()
+            elif old_e and new_e:
+                # create_all 已在本轮启动生成空的新表，丢弃后把旧表数据迁过来
+                db.session.execute(db.text(f"DROP TABLE {new}"))
+                db.session.commit()
+                db.session.execute(db.text(f"ALTER TABLE {old} RENAME TO {new}"))
+                db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'动态->帖子 表迁移跳过: {e}')
+        except Exception:
+            print(f'动态->帖子 表迁移跳过: {e}')
 
 
 def migrate_resource_index():
@@ -1521,6 +1549,8 @@ def migrate_resource_index():
     - 仅对尚未绑定 resource_index 的实体回填（幂等）。
     - 旧的 local_path / folder_path 列保留在库中但不被模型映射（避免破坏性 DROP COLUMN）。
     """
+    # 0) 历史表 dynamics/dynamic_refs 重命名为 posts/post_refs（动态 -> 帖子）
+    _migrate_dynamic_tables_to_posts()
     try:
         # 1) 为已存在的实体表新增 resource_index_id 列（指向 resource_index.id）
         for table in ('videos', 'comics'):

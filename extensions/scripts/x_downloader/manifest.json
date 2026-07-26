@@ -36,9 +36,9 @@
       "name": "target_modes",
       "type": "multi_enum",
       "label": "入库模式",
-      "enum": ["video", "comic", "text", "dynamic"],
+      "enum": ["video", "comic", "text", "post"],
       "default": ["video"],
-      "description": "选择下载资源归属的模式：video→视频列表可见；comic→漫画列表可见；dynamic→只在动态（帖子）中可见、不进列表（适合图文+视频一体的帖子）；可多选。同一任务的多个文件会自动聚合成一条动态。"
+      "description": "选择下载资源归属的模式：video→视频列表可见；comic→漫画列表可见；post→只在帖子（组合）中可见、不进列表（适合图文+视频一体的帖子）；可多选。同一任务的多个文件会自动聚合成一条帖子。"
     },
     {
       "name": "simulate",
