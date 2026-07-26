@@ -534,28 +534,48 @@ def extract_from_api(tweet_id, cookie_header, opener):
     """调用 GraphQL TweetDetail 接口（结构化数据，登录墙/SPA 推文唯一可靠来源）。
 
     返回 (media_list, full_text)。
+
+    关键：带登录 Cookie 时 GraphQL 无需 guest_token 即可访问，故跳过访客接口
+    （guest/activate 在部分代理下会握手超时，阻塞整个流程）。仅当响应中找不到
+    目标推文节点、且当前没有 guest_token 时，才退一步补取 guest_token 重试。
     """
-    gt = get_guest_token(opener, '')
-    if not gt:
-        return [], ''
     qid = _get_tweet_detail_qid()
-    for attempt in (0, 1):
+    # 登录态无需 guest_token；游客态才需要，先取一次
+    gt = None if cookie_header else get_guest_token(opener, '')
+    tweet = None
+    for _ in range(4):
         try:
             data = _graphql_tweet_detail(tweet_id, cookie_header, opener, gt, qid)
         except _GraphQLQueryNotFound:
-            # query id 已过期，重新发现后重试一次
-            if attempt == 0:
-                qid = _discover_tweet_detail_qid(opener, cookie_header)
-                if qid:
-                    continue
-            data = None
-        except Exception as e:
-            log(f'GraphQL 接口解析失败（将仅用页面解析）: {e}', level='warn')
+            new_qid = _discover_tweet_detail_qid(opener, cookie_header)
+            if new_qid:
+                qid = new_qid
+                continue
             return [], ''
-        break
-    if not data:
+        except urllib.error.HTTPError as e:
+            # 401/403 可能是登录态失效，补取 guest_token 以游客态重试
+            if e.code in (401, 403) and gt is None:
+                gt = get_guest_token(opener, '')
+                if gt:
+                    continue
+            log(f'GraphQL 接口解析失败（HTTP {e.code}）: {e}', level='warn')
+            return [], ''
+        except Exception as e:
+            log(f'GraphQL 接口解析失败: {e}', level='warn')
+            return [], ''
+        if not isinstance(data, dict):
+            return [], ''
+        # 优先精确匹配目标推文；匹配不到再取任意推文节点
+        tweet = _find_tweet_node(data, tweet_id) or _find_tweet_node(data)
+        if tweet:
+            break
+        # 没找到节点：可能需要 guest_token（游客态），补取后重试
+        if gt is None:
+            gt = get_guest_token(opener, '')
+            if gt:
+                continue
+            return [], ''
         return [], ''
-    tweet = _find_tweet_node(data, tweet_id) or _find_tweet_node(data)
     if not tweet:
         return [], ''
     leg = tweet.get('legacy', {})
@@ -748,9 +768,9 @@ def extract_media(url, cookie_header, proxy_cfg):
 
     media = extract_from_html(html, '') if html else []
     text = extract_tweet_text_from_html(html)
-    # 带 Cookie 却解析不到（很可能是 Cookie 过期，X 返回登录页），回退无 Cookie 访客页
+    # 游客页未解析到媒体，再用登录态（带 Cookie）尝试一次，可能拿到更完整内容
     if not media and cookie_header:
-        log('带 Cookie 未解析到媒体，尝试无 Cookie 重新抓取…')
+        log('游客页未解析到媒体，尝试带 Cookie 重新抓取…')
         try:
             html2 = fetch_text(url, opener, build_headers(cookie_header, with_bearer=False), timeout=45)
             media = extract_from_html(html2, cookie_header) if html2 else []
@@ -1041,8 +1061,9 @@ def main():
 
     progress(40, f'开始下载 {len(selected)} 个媒体')
 
-    # 下载阶段同样需要 guest_token（m3u8 媒体请求鉴权降级用）
-    guest_token = get_guest_token(make_opener(proxy_cfg), '') if tweet_id != 'x' else None
+    # 下载阶段：登录态无需 guest_token（媒体请求用 Cookie 鉴权即可），仅游客态补取
+    guest_token = (get_guest_token(make_opener(proxy_cfg), '')
+                   if (tweet_id != 'x' and not cookie_header) else None)
 
     downloaded = []
     total = len(selected)
