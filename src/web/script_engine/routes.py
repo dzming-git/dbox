@@ -135,7 +135,11 @@ def cancel_job(job_id):
 @script_bp.route('/api/scripts/<job_id>/notify', methods=['POST'])
 def notify(job_id):
     """脚本回调：上报新资源入库。仅凭任务令牌鉴权。"""
-    token = request.args.get('token') or (request.get_json(silent=True) or {}).get('token')
+    _auth = request.headers.get('Authorization', '')
+    if _auth.startswith('Bearer '):
+        token = _auth[7:].strip()
+    else:
+        token = request.args.get('token') or (request.get_json(silent=True) or {}).get('token')
     body = request.get_json(silent=True) or {}
     files = body.get('files', [])
     ok, msg = mgr.notify(job_id, token, files)
@@ -147,7 +151,11 @@ def notify(job_id):
 @script_bp.route('/api/scripts/jobs/<job_id>/input', methods=['GET'])
 def get_input(job_id):
     """脚本长轮询用户输入，仅凭任务令牌鉴权。超时返回 204，由脚本重试。"""
-    token = request.args.get('token')
+    _auth = request.headers.get('Authorization', '')
+    if _auth.startswith('Bearer '):
+        token = _auth[7:].strip()
+    else:
+        token = request.args.get('token')
     value, err = mgr.get_input(job_id, token, timeout=30)
     if err == '任务不存在':
         return jsonify({'success': False, 'message': err}), 404

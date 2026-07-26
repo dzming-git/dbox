@@ -9,7 +9,7 @@
 """
 import os
 
-from core.models import ResourceIndex, ResourceMode, set_resource_modes
+from core.models import ResourceIndex, ResourceMode, set_resource_modes, db
 
 
 def _is_video_ext(path):

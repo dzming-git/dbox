@@ -67,6 +67,57 @@ M3U8_RE = re.compile(
 RENDITION_RE = re.compile(r'/vid/\d+x\d+/', re.IGNORECASE)
 
 
+# ---------------------------------------------------------------------------
+# ffmpeg 定位
+# ---------------------------------------------------------------------------
+# 服务通常以 LocalSystem 运行，其 PATH 不含用户经 WinGet 安装的 ffmpeg
+# （位于 %LOCALAPPDATA%\Microsoft\WinGet\Links）；但 LocalSystem 对该路径
+# 有读取权限，故在 PATH 之外额外扫描常见安装位置，并用绝对路径调用。
+_FFMPEG_EXE = None
+
+
+def find_ffmpeg():
+    """定位 ffmpeg 可执行文件，优先 PATH，其次扫描常见安装位置。"""
+    global _FFMPEG_EXE
+    if _FFMPEG_EXE is not None:
+        return _FFMPEG_EXE
+    candidates = []
+    p = shutil.which('ffmpeg')
+    if p:
+        candidates.append(p)
+    env = os.environ.get('FFMPEG_PATH')
+    if env:
+        candidates.append(env)
+    # 扫描所有用户 profile 下的 WinGet Links（与运行账户无关）
+    try:
+        import glob as _glob
+        for _pat in (r'C:/Users/*/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe',
+                     r'C:/Users/*/AppData/Local/Microsoft/WinGet/Packages/*/ffmpeg-*/bin/ffmpeg.exe'):
+            for _c in _glob.glob(_pat):
+                candidates.append(_c)
+    except Exception:
+        pass
+    # 机器级常见位置
+    for _base in (os.environ.get('ProgramFiles'), os.environ.get('ProgramFiles(x86)'),
+                  'C:/ProgramData', 'C:/ffmpeg', 'C:/Program Files/ffmpeg'):
+        if _base:
+            candidates.append(os.path.join(_base, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            candidates.append(os.path.join(_base, 'ffmpeg', 'ffmpeg.exe'))
+    candidates.append('C:/Windows/System32/ffmpeg.exe')
+    for _c in candidates:
+        if _c and os.path.isfile(_c):
+            _FFMPEG_EXE = _c
+            return _c
+    return None
+
+
+def ffmpeg_exe():
+    exe = find_ffmpeg()
+    if not exe:
+        raise RuntimeError('未找到 ffmpeg：请安装 ffmpeg 并加入 PATH，或设置环境变量 FFMPEG_PATH')
+    return exe
+
+
 # ---------------- stdout 上报 ----------------
 def emit(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + '\n')
@@ -339,7 +390,8 @@ def fetch_input(input_ctx, timeout=25):
         except urllib.error.HTTPError as e:
             if e.code == 204:
                 continue
-            if e.code in (400, 404):
+            if e.code in (400, 404, 403):
+                # 令牌无效/无权限：无需重试，按"无选择"处理（默认下载全部）
                 return None
             time.sleep(2)
         except Exception:
@@ -470,7 +522,7 @@ def get_guest_token(opener, cookie_header):
         headers['Cookie'] = cookie_header
     try:
         req = urllib.request.Request(url, data=b'', headers=headers, method='POST')
-        with opener.open(req, timeout=30) as r:
+        with opener.open(req, timeout=8) as r:
             data = json.loads(r.read().decode('utf-8', 'replace'))
         return data.get('guest_token')
     except Exception as e:
@@ -550,8 +602,6 @@ def extract_media(url, cookie_header, proxy_cfg):
     """
     opener = make_opener(proxy_cfg)
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
-
-    guest_token = get_guest_token(opener, '') if tweet_id != 'x' else None
 
     log('正在抓取推文页面…')
     html = None
@@ -689,7 +739,7 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
     # concat 协议要求相对路径（避免 Windows 盘符冒号冲突），故以 working_dir 为 cwd
     concat_in = 'concat:' + '|'.join(names)
     out_path = os.path.join(working_dir, f'{prefix}.mp4').replace(chr(92), '/')
-    cmd = ['ffmpeg', '-y', '-i', concat_in, '-c', 'copy', out_path]
+    cmd = [ffmpeg_exe(), '-y', '-i', concat_in, '-c', 'copy', out_path]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
                           cwd=working_dir)
     if proc.returncode != 0 or not os.path.exists(out_path):
@@ -729,7 +779,7 @@ def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, gu
 
     # 混流
     final = os.path.join(working_dir, f'{tweet_id}.mp4').replace(chr(92), '/')
-    cmd = ['ffmpeg', '-y', '-i', 'video.mp4', '-i', 'audio.mp4',
+    cmd = [ffmpeg_exe(), '-y', '-i', 'video.mp4', '-i', 'audio.mp4',
            '-c', 'copy', final]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
                           cwd=working_dir)
