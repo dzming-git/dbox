@@ -32,7 +32,11 @@ const readerEl = ref<HTMLElement | null>(null)
 const total = computed(() => gallery.value?.page_count || 0)
 const pages = computed(() => gallery.value?.pages || [])
 
-const withToken = (url: string) => (url && userStore.token) ? `${url}?token=${userStore.token}` : (url || '')
+const withToken = (url: string) => {
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  return userStore.token ? `${url}${sep}token=${userStore.token}` : url
+}
 
 const scrollContainer = ref<HTMLElement | null>(null)
 

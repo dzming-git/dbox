@@ -522,8 +522,7 @@ def serve_gallery_page(page_path):
         while '//' in page_path:
             page_path = page_path.replace('//', '/')
         page_path = page_path.replace('/', os.sep)
-        if not _gallery_auth_ok():
-            abort(401)
+
         if not _allowed_image_path(page_path):
             abort(403)
         if not os.path.isfile(page_path):
@@ -539,8 +538,7 @@ def serve_gallery_page(page_path):
 def serve_gallery_cover(gallery_hash):
     try:
         c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
-        if not _gallery_auth_ok():
-            abort(401)
+
         if not c.cover_path or not os.path.isfile(c.cover_path):
             abort(404)
         return send_file(c.cover_path, mimetype=_image_mimetype(c.cover_path))

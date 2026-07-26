@@ -28,7 +28,8 @@ const hasError = ref(false)
 
 const withToken = (url: string) => {
   if (!url) return ''
-  return userStore.token ? `${url}?token=${userStore.token}` : url
+  const sep = url.includes('?') ? '&' : '?'
+  return userStore.token ? `${url}${sep}token=${userStore.token}` : url
 }
 
 const loadThumb = () => {
