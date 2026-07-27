@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchHistory, type MediaItem } from '../utils/media'
+import { galleryApi } from '../api'
 import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
@@ -21,7 +22,7 @@ onMounted(async () => {
 })
 
 // 视频历史存于 localStorage；图集历史存于后端。删除仅对视频生效。
-const onAction = (payload: { name: string; item: MediaItem }) => {
+const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name === 'continue') {
     if (item.type === 'video') {
@@ -35,15 +36,35 @@ const onAction = (payload: { name: string; item: MediaItem }) => {
       localStorage.setItem('watchHistory', JSON.stringify(arr.filter(h => h.hash !== item.hash)))
       history.value = history.value.filter(it => !(it.type === 'video' && it.hash === item.hash))
       showToast('已删除观看记录')
+    } else if (item.type === 'gallery') {
+      // 图集删除 = 阅读进度归零，移出历史（后端按 progress>0 过滤）
+      try {
+        await galleryApi.saveProgress(item.hash, 0, 0)
+      } catch (e) {
+        console.error('清空图集历史失败:', e)
+      }
+      history.value = history.value.filter(it => !(it.type === 'gallery' && it.hash === item.hash))
+      showToast('已删除观看记录')
     }
   }
 }
 
-const clearAllHistory = () => {
-  if (confirm('确定要清空观看历史吗？（仅清空视频记录，图集阅读进度在图集内管理）')) {
+const clearAllHistory = async () => {
+  if (confirm('确定要清空观看历史吗？（视频记录与图集阅读进度都会清空）')) {
     localStorage.setItem('watchHistory', '[]')
-    history.value = history.value.filter(it => it.type === 'gallery')
-    showToast('已清空视频观看历史')
+    // 将图集阅读进度归零，移出历史
+    try {
+      const res = await galleryApi.getHistory() as any
+      if (res?.success && Array.isArray(res.galleries)) {
+        for (const g of res.galleries) {
+          try { await galleryApi.saveProgress(g.hash, 0, 0) } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) {
+      console.error('清空图集历史失败:', e)
+    }
+    history.value = []
+    showToast('已清空观看历史')
   }
 }
 
@@ -94,7 +115,7 @@ const showToast = (message: string) => {
         v-for="item in history"
         :key="item.type + ':' + item.hash"
         :item="item"
-        :actions="item.type === 'video' ? ['continue', 'delete'] : ['continue']"
+        :actions="['continue', 'delete']"
         @action="onAction"
         data-testid="history-item"
       />

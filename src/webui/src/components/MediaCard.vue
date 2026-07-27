@@ -135,9 +135,10 @@ const onAction = (name: string, e: Event) => {
         @click="onAction('delete', $event)"
         data-testid="delete-history-button"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
         </svg>
+        <span>删除</span>
       </button>
     </div>
   </div>
@@ -255,18 +256,18 @@ const onAction = (name: string, e: Event) => {
 }
 .continue-btn:hover { background: #1976D2; }
 .delete-btn {
-  width: 34px;
-  height: 34px;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  border-radius: 50%;
-  color: #aaa;
-  cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: rgba(244, 67, 54, 0.15);
+  border: none;
+  border-radius: 6px;
+  color: #f44336;
+  font-size: 13px;
+  cursor: pointer;
 }
-.delete-btn:hover { background: rgba(244, 67, 54, 0.2); color: #f44336; }
+.delete-btn:hover { background: rgba(244, 67, 54, 0.3); color: #ff6659; }
 @media (max-width: 768px) {
   .action-btn { opacity: 1; }
 }
