@@ -120,11 +120,11 @@ const confirmDeleteGallery = async (c: Gallery) => {
   if (!window.confirm(`确定要将图集「${c.title}」移入回收站吗？管理员可在回收站中恢复或彻底删除。`)) return
   try {
     const res = await galleryApi.deleteGallery(c.hash)
-    if (res.data.success) {
-      ElMessage.success(res.data.message || '已移入回收站')
+    if (res.success) {
+      ElMessage.success(res.message || '已移入回收站')
       galleries.value = galleries.value.filter(x => x.hash !== c.hash)
     } else {
-      ElMessage.error(res.data.message || '删除失败')
+      ElMessage.error(res.message || '删除失败')
     }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '删除失败')
