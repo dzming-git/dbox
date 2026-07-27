@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
+import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { tagApi, videoApi, collectionSetApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
@@ -12,6 +13,7 @@ const route = useRoute()
 const router = useRouter()
 const videoStore = useVideoStore()
 const userStore = useUserStore()
+const watchLaterStore = useWatchLaterStore()
 
 // 检查当前用户是否为管理员（使用 userStore 的统一判断）
 const isAdmin = computed(() => userStore.isAdmin)
@@ -32,7 +34,6 @@ const loading = ref(true)
 const isFavorited = ref(false)
 const isLiked = ref(false)
 const isDisliked = ref(false)
-const isWatchLater = ref(false)
 const videoPlayer = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
@@ -201,15 +202,15 @@ watch(videoHash, async () => {
   await loadVideo()
 })
 
+// 稍后看状态（统一基于 watchLaterStore，跨四种资源类型）
+const isWatchLater = computed(() => !!video.value && watchLaterStore.has('video', video.value.hash))
+
 // 从后端加载用户交互状态（登录用户绑定账号，跨设备一致，以后端为准）
 const loadUserInteractions = () => {
   if (!video.value) return
   isFavorited.value = !!video.value.is_favorited
   isLiked.value = !!video.value.is_liked
   isDisliked.value = !!video.value.is_disliked
-  // 稍后看仍基于本地缓存（后端暂无此功能）
-  const watchLaterVideos = JSON.parse(localStorage.getItem('watchLaterVideos') || '[]')
-  isWatchLater.value = watchLaterVideos.includes(video.value.hash)
 }
 
 // 获取推荐视频
@@ -305,38 +306,6 @@ const saveDislikeStatus = () => {
   localStorage.setItem('dislikedVideos', JSON.stringify(dislikedVideos))
 }
 
-// 保存稍后看状态到localStorage
-const saveWatchLaterStatus = () => {
-  if (!video.value) return
-  const watchLaterVideos = JSON.parse(localStorage.getItem('watchLaterVideos') || '[]')
-  const watchLaterList = JSON.parse(localStorage.getItem('watchLater') || '[]')
-  
-  if (isWatchLater.value) {
-    if (!watchLaterVideos.includes(video.value.hash)) {
-      watchLaterVideos.push(video.value.hash)
-    }
-    // 添加到稍后看列表
-    if (!watchLaterList.find((v: any) => v.hash === video.value!.hash)) {
-      watchLaterList.push({
-        hash: video.value.hash,
-        title: video.value.title,
-        thumbnail: video.value.thumbnail,
-        duration: video.value.duration,
-        added_at: new Date().toISOString()
-      })
-    }
-  } else {
-    const index = watchLaterVideos.indexOf(video.value.hash)
-    if (index > -1) watchLaterVideos.splice(index, 1)
-    // 从稍后看列表移除
-    const wlIndex = watchLaterList.findIndex((v: any) => v.hash === video.value!.hash)
-    if (wlIndex > -1) watchLaterList.splice(wlIndex, 1)
-  }
-  
-  localStorage.setItem('watchLaterVideos', JSON.stringify(watchLaterVideos))
-  localStorage.setItem('watchLater', JSON.stringify(watchLaterList))
-}
-
 // 添加到观看历史
 const addToHistory = () => {
   if (!video.value) return
@@ -425,10 +394,14 @@ const handleDislike = async () => {
 
 const handleWatchLater = async () => {
   if (!video.value) return
-  isWatchLater.value = !isWatchLater.value
-  saveWatchLaterStatus()
+  watchLaterStore.toggle({
+    type: 'video',
+    id: video.value.hash,
+    title: video.value.title,
+    thumbnail: video.value.thumbnail,
+  })
   // 显示提示
-  const message = isWatchLater.value ? '已添加到稍后看' : '已从稍后看移除'
+  const message = watchLaterStore.has('video', video.value.hash) ? '已添加到稍后看' : '已从稍后看移除'
   showToast(message)
 }
 

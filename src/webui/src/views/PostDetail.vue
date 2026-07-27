@@ -2,10 +2,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
+import { useWatchLaterStore } from '../stores/watchLaterStore'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
 const router = useRouter()
+const watchLaterStore = useWatchLaterStore()
 
 const post = ref<any>(null)
 const loading = ref(false)
@@ -126,11 +128,27 @@ const renderedOrphans = computed(() => {
   if (!post.value) return []
   return orphanRefs(post.value).map((refItem: any) => ({ refItem, item: toMediaItem(refItem) }))
 })
+
+const isWatchLater = computed(() => !!post.value && watchLaterStore.has('post', String(post.value.id)))
+const toggleWatchLater = () => {
+  if (!post.value) return
+  const id = String(post.value.id)
+  watchLaterStore.toggle({ type: 'post', id, title: post.value.title || '未命名帖子' })
+}
 </script>
 
 <template>
   <div class="detail-container">
-    <button class="back-btn" @click="router.back()">← 返回</button>
+    <div class="detail-topbar">
+      <button class="back-btn" @click="router.back()">← 返回</button>
+      <button class="watchlater-detail-btn" :class="{ active: isWatchLater }" @click="toggleWatchLater">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+        <span>{{ isWatchLater ? '已加入稍后再看' : '稍后再看' }}</span>
+      </button>
+    </div>
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="post" class="detail-card">
@@ -188,8 +206,12 @@ const renderedOrphans = computed(() => {
 
 <style scoped>
 .detail-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.back-btn { background: #252525; border: 1px solid #333; color: #ccc; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; margin-bottom: 16px; }
+.back-btn { background: #252525; border: 1px solid #333; color: #ccc; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
 .back-btn:hover { color: #fff; }
+.detail-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.watchlater-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: #2a2a2a; border: 1px solid #333; color: #bbb; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.watchlater-detail-btn:hover { color: #fff; background: #333; }
+.watchlater-detail-btn.active { color: #ffb300; border-color: rgba(255,179,0,0.4); background: rgba(255,179,0,0.12); }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #aaa; }
 .spinner { width: 36px; height: 36px; border: 3px solid #333; border-top-color: #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

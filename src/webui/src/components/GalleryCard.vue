@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { Gallery } from '../types'
 import { useUserStore } from '../stores/userStore'
 import { useGalleryStore } from '../stores/galleryStore'
+import WatchLaterButton from './WatchLaterButton.vue'
 
 const props = defineProps<{
   gallery: Gallery
@@ -44,19 +45,6 @@ const loadThumb = () => {
 }
 loadThumb()
 watch(() => props.gallery.hash, loadThumb)
-
-const handleLike = (e: Event) => {
-  e.stopPropagation()
-  galleryStore.interact(props.gallery.hash, 'like')
-}
-const handleFavorite = (e: Event) => {
-  e.stopPropagation()
-  galleryStore.interact(props.gallery.hash, 'favorite')
-}
-const handleDislike = (e: Event) => {
-  e.stopPropagation()
-  galleryStore.interact(props.gallery.hash, 'dislike')
-}
 
 const cardStyle = computed(() => {
   const map = { large: { height: '180px' }, normal: { height: '135px' }, small: { height: '101px' } }
@@ -110,23 +98,13 @@ const handleClick = () => {
       <div class="continue-progress" v-if="(gallery.progress || 0) > 0">
         <div class="continue-progress-bar" :style="{ width: progressPercent + '%' }"></div>
       </div>
-      <div class="card-actions">
-        <button class="card-action-btn like-action" :class="{ active: gallery.is_liked }" @click="handleLike" title="点赞">
-          <svg width="18" height="18" viewBox="0 0 24 24" :fill="gallery.is_liked ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
-          </svg>
-        </button>
-        <button class="card-action-btn favorite-action" :class="{ active: gallery.is_favorited }" @click="handleFavorite" title="收藏">
-          <svg width="18" height="18" viewBox="0 0 24 24" :fill="gallery.is_favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-        </button>
-        <button class="card-action-btn dislike-action" :class="{ active: gallery.is_disliked }" @click="handleDislike" title="我不喜欢">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
-          </svg>
-        </button>
-      </div>
+      <WatchLaterButton
+        variant="overlay"
+        type="gallery"
+        :id="gallery.hash"
+        :title="gallery.title"
+        :thumbnail="gallery.cover_url"
+      />
     </div>
     <div class="gallery-info">
       <h3 class="title" :title="gallery.title">{{ gallery.title }}</h3>
@@ -164,15 +142,6 @@ const handleClick = () => {
 .continue-badge { position: absolute; top: 8px; left: 8px; background: rgba(33,150,243,0.85); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .continue-progress { position: absolute; left: 0; bottom: 0; width: 100%; height: 4px; background: rgba(0,0,0,0.5); }
 .continue-progress-bar { height: 100%; background: #2196F3; }
-.card-actions { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 2; }
-.card-action-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); border: none; border-radius: 50%; color: #fff; cursor: pointer; transition: all 0.2s ease; }
-.card-action-btn:hover { background: rgba(0,0,0,0.8); }
-.like-action:hover, .like-action.active { color: #ff4757; }
-.like-action.active { background: rgba(255,71,87,0.2); }
-.favorite-action:hover, .favorite-action.active { color: #ffa502; }
-.favorite-action.active { background: rgba(255,165,2,0.2); }
-.dislike-action:hover, .dislike-action.active { color: #ffd93d; }
-.dislike-action.active { background: rgba(255,217,61,0.2); }
 .gallery-info { padding: 8px 0; }
 .title { font-size: 14px; font-weight: 500; color: #fff; margin: 0 0 4px 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2; height: 40px; }
 .meta { display: flex; gap: 12px; font-size: 12px; color: #999; }

@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
-import { useVideoStore } from '../stores/videoStore'
+import WatchLaterButton from './WatchLaterButton.vue'
 
 const props = defineProps<{
   video: Video
@@ -17,7 +17,6 @@ const emit = defineEmits<{
 }>()
 
 const userStore = useUserStore()
-const videoStore = useVideoStore()
 
 // 将视频标签展开为可点击的标签（含选中的补充项，以 名称/补充项 形式展示）
 const tagLabels = computed(() => {
@@ -34,24 +33,6 @@ const tagLabels = computed(() => {
   }
   return out
 })
-
-// 标记/取消不喜欢（踩）
-const handleDislike = (event: Event) => {
-  event.stopPropagation()
-  videoStore.dislikeVideo(props.video.hash)
-}
-
-// 点赞/取消点赞（比较喜欢）
-const handleLike = async (event: Event) => {
-  event.stopPropagation()
-  await videoStore.likeVideo(props.video.hash)
-}
-
-// 收藏/取消收藏（非常喜欢）
-const handleFavorite = async (event: Event) => {
-  event.stopPropagation()
-  await videoStore.favoriteVideo(props.video.hash)
-}
 
 // 监听 video.hash 变化，重置缩略图状态
 watch(() => props.video.hash, () => {
@@ -161,45 +142,14 @@ const handleImageError = () => {
         </svg>
       </button>
 
-      <!-- 卡片右上角操作：点赞(左) 收藏(中) 我不喜欢(右) -->
-      <div class="card-actions">
-        <!-- 点赞：比较喜欢 -->
-        <button
-          class="card-action-btn like-action"
-          :class="{ active: video.is_liked }"
-          @click="handleLike"
-          :title="video.is_liked ? '取消点赞' : '点赞'"
-          data-testid="card-like-button"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" :fill="video.is_liked ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
-          </svg>
-        </button>
-        <!-- 收藏：非常喜欢 -->
-        <button
-          class="card-action-btn favorite-action"
-          :class="{ active: video.is_favorited }"
-          @click="handleFavorite"
-          :title="video.is_favorited ? '取消收藏' : '收藏'"
-          data-testid="card-favorite-button"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" :fill="video.is_favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-        </button>
-        <!-- 不喜欢按钮 -->
-        <button
-          class="card-action-btn dislike-action"
-          :class="{ active: video.disliked }"
-          @click="handleDislike"
-          :title="video.disliked ? '取消屏蔽' : '我不喜欢'"
-          data-testid="card-dislike-button"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
-          </svg>
-        </button>
-      </div>
+      <!-- 稍后再看角标 -->
+      <WatchLaterButton
+        variant="overlay"
+        type="video"
+        :id="video.hash"
+        :title="video.title"
+        :thumbnail="video.thumbnail"
+      />
       <!-- 播放图标 -->
       <div class="play-overlay">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="white">

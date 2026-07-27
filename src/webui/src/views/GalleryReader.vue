@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { useGalleryStore } from '../stores/galleryStore'
+import { useWatchLaterStore } from '../stores/watchLaterStore'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import { useToast } from '../composables/useToast'
 import type { Gallery } from '../types'
@@ -13,6 +14,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const galleryStore = useGalleryStore()
+const watchLaterStore = useWatchLaterStore()
 
 const gallery = ref<Gallery | null>(null)
 const loading = ref(true)
@@ -272,6 +274,19 @@ const interact = (type: 'like' | 'favorite' | 'dislike') => {
   galleryStore.interact(gallery.value.hash, type)
 }
 
+const isWatchLater = computed(() => !!gallery.value && watchLaterStore.has('gallery', gallery.value.hash))
+const toggleWatchLater = () => {
+  if (!gallery.value) return
+  const hash = gallery.value.hash
+  watchLaterStore.toggle({
+    type: 'gallery',
+    id: hash,
+    title: gallery.value.title,
+    thumbnail: gallery.value.cover_url,
+  })
+  showToast(watchLaterStore.has('gallery', hash) ? '已添加到稍后再看' : '已从稍后再看移除')
+}
+
 // 显式加入 / 移出「继续阅读」列表（用户主动选择，不自动按打开行为加入）
 const toggleContinue = async () => {
   if (!gallery.value) return
@@ -511,6 +526,14 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <button class="bar-action" :class="{active: gallery.is_favorited}" @click="interact('favorite')" title="收藏">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
           <span>收藏</span>
+        </button>
+        <!-- 稍后再看 -->
+        <button class="bar-action" :class="{active: isWatchLater}" @click="toggleWatchLater" title="稍后再看">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <span>稍后再看</span>
         </button>
         <!-- 加入 / 移出继续阅读（清晰文字标签） -->
         <button class="bar-action" :class="{active: isInContinue}" @click="toggleContinue" :title="isInContinue ? '已在继续阅读' : '加入继续阅读'">

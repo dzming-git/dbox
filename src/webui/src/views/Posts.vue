@@ -5,6 +5,7 @@ import { useUserStore } from '../stores/userStore'
 import { postApi, resourceApi } from '../api'
 import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
+import WatchLaterButton from '../components/WatchLaterButton.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -286,9 +287,12 @@ const formatDate = (s?: string) => {
             <h3 class="post-title">{{ d.title || '未命名帖子' }}</h3>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
-          <div v-if="canEdit(d)" class="post-ops">
-            <button class="op-btn" title="编辑" @click.stop="openEdit(d)">编辑</button>
-            <button class="op-btn danger" title="删除" @click.stop="removePost(d)">删除</button>
+          <div class="post-ops">
+            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '未命名帖子'" />
+            <template v-if="canEdit(d)">
+              <button class="op-btn" title="编辑" @click.stop="openEdit(d)">编辑</button>
+              <button class="op-btn danger" title="删除" @click.stop="removePost(d)">删除</button>
+            </template>
           </div>
         </div>
 

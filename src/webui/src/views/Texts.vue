@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
 import type { TextResource } from '../types'
+import WatchLaterButton from '../components/WatchLaterButton.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -113,9 +114,12 @@ const formatDate = (s?: string) => {
         <div class="text-head">
           <h3 class="text-title">{{ t.presentation?.title || '未命名文本' }}</h3>
           <span class="text-date">{{ formatDate(t.updated_at) }}</span>
-          <div v-if="canEdit()" class="text-ops">
-            <button class="op-btn" @click.stop="openEdit(t)">编辑</button>
-            <button class="op-btn danger" @click.stop="removeText(t)">删除</button>
+          <div class="text-ops">
+            <WatchLaterButton variant="bar" type="text" :id="String(t.id)" :title="t.presentation?.title || '未命名文本'" />
+            <template v-if="canEdit()">
+              <button class="op-btn" @click.stop="openEdit(t)">编辑</button>
+              <button class="op-btn danger" @click.stop="removeText(t)">删除</button>
+            </template>
           </div>
         </div>
         <p v-if="t.summary" class="text-summary">{{ t.summary }}</p>
