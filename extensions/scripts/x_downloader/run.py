@@ -1048,7 +1048,7 @@ def main():
     # 入库开关：视频是否进视频列表、图片是否进图集；帖子（组合）始终创建并包含文字
     add_video = bool(params.get('add_video', True))
     add_gallery = bool(params.get('add_gallery', True))
-    # 标题：可选项；留空则回退到推文正文前 200 字
+    # 标题：可选项；由用户在加载脚本时选择是否填写。留空则帖子不含标题。
     title_param = params.get('title')
     title_param = str(title_param).strip() if title_param else ''
     # 解析 tweet id（同一任务内的文件聚合为一条帖子）
@@ -1088,13 +1088,13 @@ def main():
         error('未在该推文中找到任何图片或视频')
         sys.exit(1)
 
-    # 推文文字作为帖子正文；标题优先取用户可选的 title 参数，否则回退正文前 200 字
+    # 推文文字作为帖子正文；标题仅当用户在加载脚本中填写了 title 参数才设置，否则帖子无标题
     post_content = (tweet_text or '').strip()
-    post_title = (title_param or (post_content[:200] if post_content else f'X 推文 {tweet_id}'))
-    if title_param:
-        log(f'使用自定义标题: {title_param}')
-    elif not post_content:
-        log('未解析到推文文字，帖子将仅含媒体', level='warn')
+    post_title = title_param
+    if post_title:
+        log(f'使用自定义标题: {post_title}')
+    else:
+        log('未填写标题，帖子将以无标题创建', level='warn')
 
     log(f'解析到 {len(media)} 个媒体：' + '，'.join(x['label'] for x in media))
 
