@@ -1066,6 +1066,7 @@ def main():
                    if (tweet_id != 'x' and not cookie_header) else None)
 
     downloaded = []
+    image_files = []  # 图片路径收集，循环后再聚合为一本图集
     total = len(selected)
     for idx, item in enumerate(selected, start=1):
         pct = 40 + int(50 * idx / total)
@@ -1075,14 +1076,8 @@ def main():
                     path = write_sim_placeholder(working_dir, idx, 'image')
                 else:
                     path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg, guest_token)
-                # 图片：是否进图集(gallery) + 始终进帖子(post)
-                modes = ['gallery', 'post'] if add_gallery else ['post']
-                downloaded.append({'path': path, 'type': 'image',
-                                    'target_modes': modes, 'group': group,
-                                    'content': post_content, 'post_title': post_title,
-                                    'source_url': url, 'caption': item.get('label')})
-                log(f'已下载图片: {os.path.basename(path)}'
-                    + ('（含图集）' if add_gallery else '（仅帖子）'))
+                image_files.append((path, item.get('label')))
+                log(f'已下载图片: {os.path.basename(path)}')
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
@@ -1099,6 +1094,38 @@ def main():
             progress(pct, f'下载进度 {idx}/{total}')
         except Exception as e:
             error(f'下载失败（{item["label"]}）: {e}')
+
+    # 图片：同一个 URL 的图片统一放进同一目录，作为「一本图集」入库
+    # （避免每张图各成一本图集；帖子也能把整组图片聚在一起展示）
+    if image_files:
+        img_dir = os.path.join(working_dir, 'images')
+        os.makedirs(img_dir, exist_ok=True)
+        kept = []
+        for i, (p, label) in enumerate(image_files, start=1):
+            if not p:
+                continue
+            if not os.path.isfile(p):
+                kept.append(p)  # 模拟占位等情况：直接计入，不移动
+                continue
+            ext = os.path.splitext(p)[1].lower() or '.jpg'
+            if ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'):
+                ext = '.jpg'
+            dst = os.path.join(img_dir, f'{i:02d}{ext}')
+            try:
+                if os.path.abspath(p) != os.path.abspath(dst):
+                    shutil.move(p, dst)
+                kept.append(dst)
+            except Exception as e:
+                log(f'图片归集失败: {p} -> {e}', level='warn')
+                kept.append(p)
+        if kept:
+            modes = ['gallery', 'post'] if add_gallery else ['post']
+            downloaded.append({'path': img_dir, 'type': 'gallery',
+                               'target_modes': modes, 'group': group,
+                               'content': post_content, 'post_title': post_title,
+                               'source_url': url, 'caption': f'图片（{len(kept)}）'})
+            log(f'已聚合 {len(kept)} 张图片为图集'
+                + ('（含图集）' if add_gallery else '（仅帖子）'))
 
     if not downloaded:
         error('没有任何文件下载成功')

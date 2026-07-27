@@ -126,10 +126,11 @@ def _sync_pages(gallery, pages):
     from core.models import db, GalleryPage
     GalleryPage.query.filter_by(gallery_id=gallery.id).delete()
     for i, p in enumerate(pages):
-        db.session.add(GalleryPage(gallery_id=gallery.id, page_index=i, file_path=p))
+        db.session.add(GalleryPage(gallery_id=gallery.id, comic_id=gallery.id,
+                                   page_index=i, file_path=p))
 
 
-def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None):
+def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, specific_paths=None):
     """扫描单个资源库，识别其中的图集并写入 galleries 表。
 
     Args:
@@ -138,9 +139,70 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None):
         min_pages: 一个目录至少包含多少张图片才算图集
         max_depth: 从库根目录向下的最大递归层数
         log: 可选日志对象（提供 .debug(level, msg)）
+        specific_paths: 若提供，则直接把给定目录当作图集登记（脚本产出常用），
+            不再依赖资源库磁盘监控根目录，且单图目录也会登记为图集。
     Returns:
         dict: {success, added, updated, removed, total, message}
     """
+    # 指定目录模式（脚本产出）：直接把给定目录作为图集登记。
+    # 用于 X 等脚本把「一个 URL 的图片」放进同一目录、需聚合成一本图集的场景；
+    # 此时资源库未必配置了磁盘监控根，且单图目录也应能成集。
+    if specific_paths:
+        targets = [os.path.abspath(sp) for sp in specific_paths
+                   if os.path.isdir(os.path.abspath(sp))]
+        if not targets:
+            return {'success': False, 'message': '指定的图集目录不存在或不是文件夹'}
+        added = updated = 0
+        seen_hashes = set()
+        with app.app_context():
+            from core.models import db, Gallery, User, UserRole, ResourceIndex
+            root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
+            root_id = root_user.id if root_user else 1
+            for dirpath in targets:
+                images = _list_images(dirpath)
+                if not images:
+                    continue
+                chash = Gallery.generate_hash(dirpath, images)
+                seen_hashes.add(chash)
+                # 复用 ingest_file 已创建的、与该目录同 location 的资源索引，
+                # 避免产生「孤儿」资源索引导致帖子引用找不到图集。
+                ri = ResourceIndex.query.filter(
+                    ResourceIndex.kind == 'gallery_folder',
+                    db.func.lower(ResourceIndex.location) == dirpath.lower()
+                ).first()
+                existing = Gallery.query.filter_by(hash=chash).first()
+                if existing:
+                    if ri and existing.resource_index_id != ri.id:
+                        existing.resource_index = ri
+                    elif existing.resource_index is None:
+                        existing.resource_index = ResourceIndex(
+                            kind='gallery_folder', location=dirpath, library_id=library_id)
+                    existing.folder_path = dirpath
+                    existing.page_count = len(images)
+                    existing.updated_at = datetime.utcnow()
+                    _sync_pages(existing, images)
+                    if existing.resource_index and not existing.resource_index.cover:
+                        existing.resource_index.cover = f'/gallery-cover/{existing.hash}'
+                    db.session.commit()
+                    updated += 1
+                else:
+                    c = Gallery(hash=chash, title=os.path.basename(dirpath.rstrip(os.sep)),
+                                page_count=len(images), library_id=library_id, owner_id=root_id)
+                    if ri:
+                        c.resource_index = ri
+                    else:
+                        c.folder_path = dirpath
+                    db.session.add(c)
+                    db.session.flush()
+                    if c.resource_index and not c.resource_index.cover:
+                        c.resource_index.cover = f'/gallery-cover/{c.hash}'
+                    _sync_pages(c, images)
+                    db.session.commit()
+                    added += 1
+        return {'success': True, 'added': added, 'updated': updated, 'removed': 0,
+                'total': len(seen_hashes),
+                'message': f'指定目录图集：新增 {added}，更新 {updated}'}
+
     from core.models import db, Gallery, ResourceLibrary
 
     def debug(level, msg):

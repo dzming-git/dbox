@@ -1312,6 +1312,8 @@ class GalleryPage(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     gallery_id = db.Column(db.Integer, db.ForeignKey('galleries.id'), nullable=False, index=True)
+    # 兼容老版本 SQLite：部分库仍保留 comic_id 列且为 NOT NULL，与 gallery_id 同值同步写入
+    comic_id = db.Column(db.Integer, nullable=True)
     page_index = db.Column(db.Integer, nullable=False)   # 从 0 开始
     file_path = db.Column(db.String(600), index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
