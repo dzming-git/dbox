@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
 import MediaCard from '../components/MediaCard.vue'
@@ -54,14 +54,33 @@ function toMediaItem(refItem: any) {
     return { type: 'gallery', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at }
   }
   if (refItem.text) {
-    return { type: 'gallery', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '', pageCount: 0 }
+    return { type: 'text', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '' }
+  }
+  if (refItem.docUrl) {
+    return { type: 'document', docUrl: refItem.docUrl, title: (refItem.presentation?.title) || '文档', caption: (refItem.presentation?.caption) || '' }
   }
   if (refItem.presentation) {
     const p = refItem.presentation
+    // 帖子专属图集（仅 post 模式、未建 Gallery 实体）：直接内联渲染资源目录下的图片
+    if (refItem.kind === 'gallery_folder' && refItem.images && refItem.images.length) {
+      return {
+        type: 'gallery_folder',
+        resourceIndexId: refItem.resource_index_id,
+        images: refItem.images,
+        title: p.title || '图片',
+        caption: p.caption || '',
+        pageCount: refItem.images.length,
+      }
+    }
     const isVideo = refItem.kind === 'video_file'
     return { type: isVideo ? 'video' : 'gallery', hash: String(refItem.resource_index_id), title: p.title || '未命名资源', cover: p.thumbnail || '', duration: isVideo ? (p.duration || 0) : 0, pageCount: isVideo ? 0 : (p.page_count || 0) }
   }
   return null
+}
+
+function mediaTypeOf(refItem: any) {
+  const it = toMediaItem(refItem)
+  return it ? it.type : ''
 }
 
 function openRefLink(r: any) {
@@ -91,6 +110,22 @@ const fetchPost = async () => {
   }
 }
 onMounted(fetchPost)
+
+// 帖子专属图集内联渲染 + 点击放大
+const lightbox = ref<{ images: string[]; index: number } | null>(null)
+function openLightbox(images: string[], index: number) { lightbox.value = { images, index } }
+function closeLightbox() { lightbox.value = null }
+function lightboxPrev() {
+  if (lightbox.value) lightbox.value.index = (lightbox.value.index - 1 + lightbox.value.images.length) % lightbox.value.images.length
+}
+function lightboxNext() {
+  if (lightbox.value) lightbox.value.index = (lightbox.value.index + 1) % lightbox.value.images.length
+}
+
+const renderedOrphans = computed(() => {
+  if (!post.value) return []
+  return orphanRefs(post.value).map((refItem: any) => ({ refItem, item: toMediaItem(refItem) }))
+})
 </script>
 
 <template>
@@ -107,18 +142,46 @@ onMounted(fetchPost)
           <template v-if="seg.type === 'text'">{{ seg.text }}</template>
           <span v-else class="inline-ref">
             <a class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
-            <MediaCard v-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" @click="openRefLink(seg.ref)" />
+            <template v-if="mediaTypeOf(seg.ref) === 'gallery_folder'">
+              <div class="inline-gallery">
+                <img v-for="(src, gi) in (toMediaItem(seg.ref) as any).images" :key="gi" :src="src" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(seg.ref) as any).images, gi)" />
+              </div>
+            </template>
+            <a v-else-if="mediaTypeOf(seg.ref) === 'document'" class="doc-card" :href="(toMediaItem(seg.ref) as any).docUrl" target="_blank" download>
+              <span class="doc-icon">📄</span>
+              <span class="doc-name">{{ (toMediaItem(seg.ref) as any).title }}</span>
+              <span class="doc-dl">下载</span>
+            </a>
+            <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" @click="openRefLink(seg.ref)" />
           </span>
         </template>
       </div>
 
-      <div v-if="orphanRefs(post).length" class="detail-refs">
-        <div v-for="(refItem, i) in orphanRefs(post)" :key="refItem.ref_id || i" class="ref-block" @click="openRefLink(refItem)">
-          <div v-if="refItem.note" class="ref-note">{{ refItem.note }}</div>
-          <MediaCard :item="toMediaItem(refItem)" />
+      <div v-if="renderedOrphans.length" class="detail-refs">
+        <div v-for="(ro, i) in renderedOrphans" :key="ro.refItem.ref_id || i" class="ref-block">
+          <div v-if="ro.refItem.note" class="ref-note">{{ ro.refItem.note }}</div>
+          <template v-if="ro.item && ro.item.type === 'gallery_folder'">
+            <div class="inline-gallery">
+              <img v-for="(src, gi) in ro.item.images" :key="gi" :src="src" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images, gi)" />
+            </div>
+          </template>
+          <a v-else-if="ro.item && ro.item.type === 'document'" class="doc-card" :href="ro.item.docUrl" target="_blank" download>
+            <span class="doc-icon">📄</span>
+            <span class="doc-name">{{ ro.item.title }}</span>
+            <span class="doc-dl">下载</span>
+          </a>
+          <MediaCard v-else-if="ro.item" :item="ro.item" @click="openRefLink(ro.refItem)" />
         </div>
       </div>
       <p v-if="!post.content && (!post.refs || !post.refs.length)" class="no-refs">（暂无内容）</p>
+    </div>
+
+    <div v-if="lightbox" class="lightbox" @click.self="closeLightbox">
+      <button class="lightbox-nav lightbox-prev" @click="lightboxPrev">‹</button>
+      <img class="lightbox-img" :src="lightbox.images[lightbox.index]" />
+      <button class="lightbox-nav lightbox-next" @click="lightboxNext">›</button>
+      <span class="lightbox-count">{{ lightbox.index + 1 }} / {{ lightbox.images.length }}</span>
+      <button class="lightbox-close" @click="closeLightbox">×</button>
     </div>
   </div>
 </template>
@@ -143,4 +206,19 @@ onMounted(fetchPost)
 .ref-link { color: #64b5f6; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .ref-link:hover { color: #90caf9; }
 .inline-ref :deep(.media-card) { margin: 10px 0; max-width: 320px; }
+.inline-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; max-width: 640px; }
+.inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid #2a2a2a; transition: transform .15s; }
+.inline-gallery-img:hover { transform: scale(1.02); border-color: #2196F3; }
+.doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: #16263a; border: 1px solid #234; border-radius: 10px; color: #cfe6ff; text-decoration: none; cursor: pointer; max-width: 100%; }
+.doc-card:hover { border-color: #2196F3; color: #fff; }
+.doc-icon { font-size: 22px; }
+.doc-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.doc-dl { margin-left: auto; font-size: 12px; color: #64b5f6; background: #0d1b2a; border-radius: 6px; padding: 3px 10px; }
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 6px; }
+.lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,.12); border: none; color: #fff; font-size: 40px; width: 56px; height: 56px; border-radius: 50%; cursor: pointer; }
+.lightbox-prev { left: 20px; }
+.lightbox-next { right: 20px; }
+.lightbox-close { position: absolute; top: 20px; right: 24px; background: none; border: none; color: #fff; font-size: 36px; cursor: pointer; }
+.lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #ddd; font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
 </style>

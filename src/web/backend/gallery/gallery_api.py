@@ -535,6 +535,56 @@ def serve_gallery_page(page_path):
         abort(500)
 
 
+# ============ 帖子专属图集文件服务 ============
+# 帖子专属的 gallery_folder 资源（仅 post 模式、未建 Gallery 实体）直接按
+# resource_index 位置提供图片，避免依赖 GalleryPage 表，也不进图集列表。
+_IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif')
+
+
+def _gallery_folder_images(ri):
+    """列出 gallery_folder 资源目录下的图片文件（按名称排序）。"""
+    if not ri or ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
+        return []
+    return sorted(f for f in os.listdir(ri.location) if f.lower().endswith(_IMAGE_EXTS))
+
+
+@gallery_bp.route('/resource-file/<int:rid>/<int:idx>', methods=['GET'])
+def serve_resource_file(rid, idx):
+    try:
+        ri = ResourceIndex.query.get_or_404(rid)
+        if ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
+            abort(404)
+        files = _gallery_folder_images(ri)
+        if idx < 0 or idx >= len(files):
+            abort(404)
+        fp = os.path.normpath(os.path.join(ri.location, files[idx]))
+        root = os.path.normpath(ri.location)
+        if not (fp == root or fp.startswith(root + os.sep)):
+            abort(403)
+        if not os.path.isfile(fp):
+            abort(404)
+        return send_file(fp, mimetype=_image_mimetype(fp))
+    except HTTPException:
+        raise
+    except Exception:
+        abort(500)
+
+
+@gallery_bp.route('/resource-file/<int:rid>/doc', methods=['GET'])
+def serve_resource_document(rid):
+    """提供帖子专属文档附件（PDF / Office 等）下载。"""
+    try:
+        ri = ResourceIndex.query.get_or_404(rid)
+        if ri.kind != 'document_file' or not ri.location or not os.path.isfile(ri.location):
+            abort(404)
+        return send_file(ri.location, as_attachment=True,
+                         download_name=os.path.basename(ri.location))
+    except HTTPException:
+        raise
+    except Exception:
+        abort(500)
+
+
 @gallery_bp.route('/gallery-cover/<gallery_hash>', methods=['GET'])
 def serve_gallery_cover(gallery_hash):
     try:

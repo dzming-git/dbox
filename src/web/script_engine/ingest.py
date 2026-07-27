@@ -18,7 +18,7 @@ def _is_video_ext(path):
                    '.m4v', '.mpg', '.mpeg', '.wmv', '.3gp')
 
 
-_KIND_TO_RI = {'video': 'video_file', 'gallery': 'gallery_folder', 'image': 'gallery_folder', 'text': 'text'}
+_KIND_TO_RI = {'video': 'video_file', 'gallery': 'gallery_folder', 'image': 'gallery_folder', 'text': 'text', 'document': 'document_file'}
 
 
 def _get_or_create_resource_index(library_id, path, ri_kind, meta):

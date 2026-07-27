@@ -47,6 +47,14 @@
       "description": "勾选后，推文中的图片会组成图集（漫画列表）可见；不勾选则图片仅在帖子内可见（不进图集）。"
     },
     {
+      "name": "title",
+      "type": "string",
+      "label": "帖子标题（可选）",
+      "required": false,
+      "default": "",
+      "description": "可选。留空则自动使用推文正文前 200 字作为标题；填写后将作为帖子标题。"
+    },
+    {
       "name": "simulate",
       "type": "bool",
       "label": "演示模式（不联网）",

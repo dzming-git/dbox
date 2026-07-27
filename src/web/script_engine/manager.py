@@ -507,11 +507,30 @@ class ScriptJobManager:
             if not path or not os.path.exists(path):
                 continue
             # 若仍在临时目录，移动到资源库默认路径（shutil.move 支持跨盘）
-            if lib_path and os.path.abspath(path).startswith(os.path.abspath(working_dir)):
-                dest = os.path.join(lib_path, os.path.basename(path))
+            if os.path.abspath(path).startswith(os.path.abspath(working_dir)):
+                if lib_path:
+                    dest = os.path.join(lib_path, os.path.basename(path))
+                else:
+                    # 资源库未配置磁盘根目录时，落到稳定的持久目录，
+                    # 否则文件留在临时目录、任务结束后被 _cleanup 删除导致网页打不开
+                    base = os.path.join(self._data_dir(), 'ingested', str(library_id))
+                    os.makedirs(base, exist_ok=True)
+                    if os.path.isdir(path):
+                        stem = group or os.path.splitext(os.path.basename(path))[0] or uuid.uuid4().hex[:8]
+                        dest = os.path.join(base, str(stem))
+                    else:
+                        dest = os.path.join(base, os.path.basename(path))
+                    # 避免同名冲突：追加数字后缀
+                    if os.path.exists(dest):
+                        i = 1
+                        cand = f'{dest}_{i}'
+                        while os.path.exists(cand):
+                            i += 1
+                            cand = f'{dest}_{i}'
+                        dest = cand
                 try:
                     if os.path.abspath(path) != os.path.abspath(dest):
-                        os.makedirs(lib_path, exist_ok=True)
+                        os.makedirs(os.path.dirname(dest) or base, exist_ok=True)
                         shutil.move(path, dest)
                         path = dest
                 except Exception as e:

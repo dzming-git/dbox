@@ -1,5 +1,6 @@
 import json
 import re
+import os
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import hashlib
@@ -208,6 +209,16 @@ class ResourceIndex(db.Model):
             'presentation': self.presentation(),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+_IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif')
+
+
+def _gallery_folder_image_list(ri):
+    """列出 gallery_folder 资源目录下的图片文件（按名称排序），供帖子专属图集内联渲染。"""
+    if not ri or ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
+        return []
+    return sorted(f for f in os.listdir(ri.location) if f.lower().endswith(_IMAGE_EXTS))
 
 
 class ResourceMode:
@@ -1498,13 +1509,23 @@ class Post(db.Model):
                         if c:
                             entry['gallery'] = c.to_dict()
                         else:
+                            # 帖子专属图集（仅 post 模式、未建 Gallery 实体）：
+                            # 直接按资源索引目录提供图片，列表与详情页可内联渲染
                             entry['presentation'] = ri.presentation()
+                            entry['images'] = [
+                                f'/resource-file/{ri.id}/{i}'
+                                for i in range(len(_gallery_folder_image_list(ri)))
+                            ]
                     elif ri.kind == 'text':
                         t = Text.query.filter_by(resource_index_id=ri.id).first()
                         if t:
                             entry['text'] = t.to_dict()
                         else:
                             entry['presentation'] = ri.presentation()
+                    elif ri.kind == 'document_file':
+                        # 帖子专属文档附件：提供下载地址，正文/详情页渲染为可下载卡片
+                        entry['presentation'] = ri.presentation()
+                        entry['docUrl'] = f'/resource-file/{ri.id}/doc'
                 items.append(entry)
             d['refs'] = items
         else:

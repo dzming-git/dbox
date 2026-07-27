@@ -600,6 +600,13 @@ def extract_from_api(tweet_id, cookie_header, opener):
                 media.append({'type': 'video',
                               'url': pick_m3u8(m3u8),
                               'label': '视频/动图'})
+        elif mtype == 'document':
+            # X 文档附件：记录下载地址与媒体 id，供下载阶段抓取实际文档
+            media.append({'type': 'document',
+                          'url': ent.get('media_url') or ent.get('media_url_https') or '',
+                          'media_id': ent.get('id_str') or ent.get('id') or '',
+                          'thumbnail': ent.get('media_url_https') or '',
+                          'label': '文档'})
     return media, text
 
 
@@ -945,6 +952,67 @@ def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, gu
     return final
 
 
+def _looks_like_html(data):
+    head = data[:512].lstrip().lower()
+    return head.startswith(b'<!doctype') or head.startswith(b'<html') or head.startswith(b'<?xml')
+
+
+def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_token):
+    """下载 X 文档附件（PDF / Office 等）。
+
+    X 文档真实下载地址不在 entities 里直接给出，这里按优先级尝试若干候选地址，
+    并用「内容是否为 HTML 错误页」做校验，避免把 404 页面存成假文档。
+    全部失败时退化为下载缩略图（至少有一张预览图）。
+    """
+    opener = make_opener(proxy_cfg)
+    headers = build_headers(cookie_header, guest_token=guest_token)
+    media_id = media.get('media_id') or ''
+
+    candidates = []
+    if media_id:
+        candidates.append(f'https://pbs.twimg.com/document/{media_id}/{media_id}?format=pdf&name=orig')
+    if media.get('url'):
+        candidates.append(media['url'])
+
+    last_err = None
+    for u in candidates:
+        try:
+            data = fetch_bytes(u, opener, headers, timeout=90)
+            if _looks_like_html(data):
+                last_err = f'文档地址返回 HTML（疑似失效）: {u}'
+                continue
+            # 按内容/URL 猜测扩展名
+            ext = '.pdf'
+            lowered = u.lower()
+            if '.docx' in lowered or data[:4] == b'PK\x03\x04':
+                ext = '.docx' if '.docx' in lowered else ('.zip' if data[:4] == b'PK\x03\x04' else '.bin')
+            elif '.xlsx' in lowered:
+                ext = '.xlsx'
+            elif '.pptx' in lowered:
+                ext = '.pptx'
+            elif '.txt' in lowered:
+                ext = '.txt'
+            dest = os.path.join(working_dir, f'doc_{idx}{ext}')
+            with open(dest, 'wb') as f:
+                f.write(data)
+            log(f'已下载文档: {os.path.basename(dest)}')
+            return dest
+        except Exception as e:
+            last_err = f'{u}: {e}'
+            log(f'文档候选地址失败: {last_err}', level='warn')
+
+    # 退化：下载缩略图作为预览图
+    thumb = media.get('thumbnail') or ''
+    if thumb:
+        try:
+            dest = download_image(thumb, cookie_header, working_dir, idx, proxy_cfg, guest_token)
+            log('文档实际文件未取到，已退化为下载缩略图预览', level='warn')
+            return dest
+        except Exception as e:
+            log(f'文档缩略图也下载失败: {e}', level='warn')
+    raise RuntimeError(f'文档下载失败: {last_err}')
+
+
 def simulate_media():
     """演示用：合成 3 个媒体（2 图 + 1 视频），用于体现“二次选择”交互。"""
     return [
@@ -955,7 +1023,7 @@ def simulate_media():
 
 
 def write_sim_placeholder(working_dir, index, mtype):
-    ext = '.jpg' if mtype == 'image' else '.mp4'
+    ext = {'image': '.jpg', 'video': '.mp4', 'document': '.pdf'}.get(mtype, '.bin')
     dest = os.path.join(working_dir, f'x_demo_{index}{ext}')
     with open(dest, 'w', encoding='utf-8') as f:
         f.write(f'demo placeholder for {mtype}\n')
@@ -980,6 +1048,9 @@ def main():
     # 入库开关：视频是否进视频列表、图片是否进图集；帖子（组合）始终创建并包含文字
     add_video = bool(params.get('add_video', True))
     add_gallery = bool(params.get('add_gallery', True))
+    # 标题：可选项；留空则回退到推文正文前 200 字
+    title_param = params.get('title')
+    title_param = str(title_param).strip() if title_param else ''
     # 解析 tweet id（同一任务内的文件聚合为一条帖子）
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
     group = tweet_id
@@ -1017,10 +1088,12 @@ def main():
         error('未在该推文中找到任何图片或视频')
         sys.exit(1)
 
-    # 推文文字作为帖子正文；取前 200 字作帖子标题展示用
+    # 推文文字作为帖子正文；标题优先取用户可选的 title 参数，否则回退正文前 200 字
     post_content = (tweet_text or '').strip()
-    post_title = (post_content[:200] if post_content else f'X 推文 {tweet_id}')
-    if not post_content:
+    post_title = (title_param or (post_content[:200] if post_content else f'X 推文 {tweet_id}'))
+    if title_param:
+        log(f'使用自定义标题: {title_param}')
+    elif not post_content:
         log('未解析到推文文字，帖子将仅含媒体', level='warn')
 
     log(f'解析到 {len(media)} 个媒体：' + '，'.join(x['label'] for x in media))
@@ -1078,6 +1151,17 @@ def main():
                     path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg, guest_token)
                 image_files.append((path, item.get('label')))
                 log(f'已下载图片: {os.path.basename(path)}')
+            elif item['type'] == 'document':
+                if simulate:
+                    path = write_sim_placeholder(working_dir, idx, 'document')
+                else:
+                    path = download_document(item, cookie_header, working_dir, idx, proxy_cfg, guest_token)
+                # 文档：仅进帖子（post），作为可下载附件
+                downloaded.append({'path': path, 'type': 'document',
+                                   'target_modes': ['post'], 'group': group,
+                                   'content': post_content, 'post_title': post_title,
+                                   'source_url': url, 'caption': item.get('label') or '文档'})
+                log(f'已下载文档: {os.path.basename(path)}（仅帖子）')
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
