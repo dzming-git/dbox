@@ -38,6 +38,10 @@ export default defineConfig({
       '/gallery-cover': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true
+      },
+      '/resource-file': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
       }
     }
   }
