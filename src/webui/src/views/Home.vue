@@ -19,7 +19,6 @@ const route = useRoute()
 const watchLaterStore = useWatchLaterStore()
 
 // 稍后再看面板
-const showWatchLater = ref(false)
 const watchLaterList = computed(() => watchLaterStore.list)
 const watchLaterCount = computed(() => watchLaterStore.count)
 const TYPE_PATH: Record<WatchLaterType, string> = {
@@ -31,7 +30,7 @@ const TYPE_PATH: Record<WatchLaterType, string> = {
 const typeLabel = (t: WatchLaterType) =>
   ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
 const openWatchLater = (it: WatchLaterItem) => {
-  showWatchLater.value = false
+  watchLaterStore.panelOpen = false
   router.push(TYPE_PATH[it.type] + it.id)
 }
 
@@ -584,7 +583,7 @@ const onListImgError = (e: Event) => {
       </button>
     </div>
     <!-- 稍后再看入口（右上角） -->
-    <button class="watchlater-top-btn" @click="showWatchLater = !showWatchLater" title="稍后再看">
+    <button class="watchlater-top-btn" @click="watchLaterStore.panelOpen = !watchLaterStore.panelOpen" title="稍后再看">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
       </svg>
@@ -595,12 +594,12 @@ const onListImgError = (e: Event) => {
 
     <!-- 稍后再看列表面板 -->
     <transition name="wl-fade">
-      <div class="watchlater-panel" v-if="showWatchLater">
+      <div class="watchlater-panel" v-if="watchLaterStore.panelOpen">
         <div class="wl-panel-head">
           <span class="wl-panel-title">稍后再看（{{ watchLaterCount }}）</span>
           <div class="wl-panel-actions">
             <button class="wl-clear" v-if="watchLaterCount" @click="watchLaterStore.clear()">清空</button>
-            <button class="wl-close" @click="showWatchLater = false">收起</button>
+            <button class="wl-close" @click="watchLaterStore.panelOpen = false">收起</button>
           </div>
         </div>
         <div class="wl-panel-body" v-if="watchLaterList.length">

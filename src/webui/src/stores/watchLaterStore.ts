@@ -31,6 +31,9 @@ function persist(list: WatchLaterItem[]) {
 export const useWatchLaterStore = defineStore('watchLater', () => {
   const items = ref<WatchLaterItem[]>(load())
 
+  // 列表面板是否展开：新增条目时自动展开，方便用户看到「稍后再看」列表
+  const panelOpen = ref(false)
+
   const list = computed(() =>
     [...items.value].sort((a, b) => (a.addedAt < b.addedAt ? 1 : -1))
   )
@@ -46,6 +49,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     if (has(item.type, item.id)) return
     items.value.push({ ...item, addedAt: new Date().toISOString() })
     persist(items.value)
+    panelOpen.value = true
   }
 
   const remove = (type: WatchLaterType, id: string) => {
@@ -63,5 +67,5 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     persist(items.value)
   }
 
-  return { items, list, count, has, add, remove, toggle, clear, keyOf }
+  return { items, list, count, has, add, remove, toggle, clear, keyOf, panelOpen }
 })
