@@ -160,25 +160,6 @@ const openCreate = async () => {
   await loadCandidates()
 }
 
-const openEdit = async (d: Post) => {
-  editingId.value = d.id
-  formTitle.value = d.title
-  formContent.value = d.content || ''
-  // 把正文中未出现的引用以标记形式补回，便于继续编辑（旧帖升级为新格式）
-  const ids = tokenRefIds(formContent.value)
-  for (const r of (d.refs || [])) {
-    if (!ids.has(r.resource_index_id)) {
-      formContent.value += `\n[${labelForRef(r)}](res:${r.resource_index_id}:embed)`
-    }
-  }
-  candidateTab.value = 'video_file'
-  candidates.value = []
-  candidateSearch.value = ''
-  candidatesLoaded.value = false
-  dialogVisible.value = true
-  await loadCandidates()
-}
-
 const openPost = (d: Post) => {
   router.push(`/post/${d.id}`)
 }
@@ -235,19 +216,6 @@ const save = async () => {
   }
 }
 
-const removePost = async (d: Post) => {
-  if (!confirm(`确定删除帖子「${d.title || '未命名'}」？`)) return
-  try {
-    await postApi.remove(d.id)
-    await fetchPosts()
-  } catch (e: any) {
-    error.value = e?.message || '删除失败'
-  }
-}
-
-const canEdit = (d: Post) =>
-  userStore.user && (userStore.user.id === d.owner_id || userStore.user.role >= 2)
-
 const onSearchCandidate = async () => {
   candidatesLoaded.value = false
   await loadCandidates()
@@ -289,10 +257,6 @@ const formatDate = (s?: string) => {
           </div>
           <div class="post-ops">
             <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '未命名帖子'" />
-            <template v-if="canEdit(d)">
-              <button class="op-btn" title="编辑" @click.stop="openEdit(d)">编辑</button>
-              <button class="op-btn danger" title="删除" @click.stop="removePost(d)">删除</button>
-            </template>
           </div>
         </div>
 

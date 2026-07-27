@@ -44,14 +44,6 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const openEdit = (t: TextResource) => {
-  editingId.value = t.id
-  formTitle.value = t.presentation?.title || t.summary || ''
-  formSummary.value = t.summary || ''
-  formBody.value = t.body || ''
-  dialogVisible.value = true
-}
-
 const save = async () => {
   if (saving.value) return
   saving.value = true
@@ -70,18 +62,6 @@ const save = async () => {
     saving.value = false
   }
 }
-
-const removeText = async (t: TextResource) => {
-  if (!confirm(`确定删除文本「${t.presentation?.title || '未命名'}」？`)) return
-  try {
-    await textApi.remove(t.id)
-    await fetchTexts()
-  } catch (e: any) {
-    error.value = e?.message || '删除失败'
-  }
-}
-
-const canEdit = () => userStore.user && userStore.user.role >= 2
 
 const openText = (t: TextResource) => {
   router.push(`/text/${t.id}`)
@@ -116,10 +96,6 @@ const formatDate = (s?: string) => {
           <span class="text-date">{{ formatDate(t.updated_at) }}</span>
           <div class="text-ops">
             <WatchLaterButton variant="bar" type="text" :id="String(t.id)" :title="t.presentation?.title || '未命名文本'" />
-            <template v-if="canEdit()">
-              <button class="op-btn" @click.stop="openEdit(t)">编辑</button>
-              <button class="op-btn danger" @click.stop="removeText(t)">删除</button>
-            </template>
           </div>
         </div>
         <p v-if="t.summary" class="text-summary">{{ t.summary }}</p>

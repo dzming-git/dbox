@@ -10,13 +10,11 @@ const props = defineProps<{
   size?: 'large' | 'normal' | 'small'
   selectable?: boolean
   selected?: boolean
-  editable?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [gallery: Gallery]
   toggleSelect: [gallery: Gallery]
-  edit: [gallery: Gallery]
   tagClick: [tag: any]
 }>()
 
@@ -58,10 +56,6 @@ const handleClick = () => {
     emit('toggleSelect', props.gallery)
     return
   }
-  if (props.editable) {
-    emit('edit', props.gallery)
-    return
-  }
   emit('click', props.gallery)
 }
 </script>
@@ -80,18 +74,6 @@ const handleClick = () => {
         @error="hasError = true; thumbnailUrl = '/placeholder.jpg'"
       />
       <span class="page-count" v-if="gallery.page_count">{{ gallery.page_count }}P</span>
-      <!-- 编辑入口 -->
-      <button
-        v-if="editable"
-        class="edit-overlay"
-        @click.stop="emit('edit', gallery)"
-        title="编辑"
-        data-testid="card-edit"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-        </svg>
-      </button>
       <div class="continue-badge" v-if="(gallery.progress || 0) > 0 && (gallery.progress || 0) < 1">
         续读 {{ progressPercent }}%
       </div>
@@ -116,7 +98,7 @@ const handleClick = () => {
         </span>
       </div>
       <!-- 标签：正常模式下点击跳转到该标签筛选 -->
-      <div v-if="!editable && gallery.tags && gallery.tags.length" class="card-tags">
+      <div v-if="gallery.tags && gallery.tags.length" class="card-tags">
         <span
           v-for="t in gallery.tags"
           :key="t.id"

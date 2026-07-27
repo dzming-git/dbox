@@ -3,11 +3,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
+import { useUserStore } from '../stores/userStore'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
 const router = useRouter()
 const watchLaterStore = useWatchLaterStore()
+const userStore = useUserStore()
 
 const post = ref<any>(null)
 const loading = ref(false)
@@ -135,6 +137,23 @@ const toggleWatchLater = () => {
   const id = String(post.value.id)
   watchLaterStore.toggle({ type: 'post', id, title: post.value.title || '未命名帖子' })
 }
+
+// 删除（仅作者或管理员，列表/卡片已不再提供删除入口）
+const canManage = computed(() => {
+  const u = userStore.user
+  if (!u || !post.value) return false
+  return u.role >= 2 || u.id === post.value.owner_id
+})
+const removePost = async () => {
+  if (!post.value) return
+  if (!confirm('确定删除该帖子？此操作不可恢复。')) return
+  try {
+    await postApi.remove(post.value.id)
+    router.push('/?mode=mixed')
+  } catch (e: any) {
+    alert(e?.message || '删除失败')
+  }
+}
 </script>
 
 <template>
@@ -147,6 +166,10 @@ const toggleWatchLater = () => {
           <path d="M12 7v5l3 2" />
         </svg>
         <span>{{ isWatchLater ? '已加入稍后再看' : '稍后再看' }}</span>
+      </button>
+      <button v-if="canManage" class="delete-detail-btn" @click="removePost" title="删除帖子">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        <span>删除</span>
       </button>
     </div>
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
@@ -212,6 +235,8 @@ const toggleWatchLater = () => {
 .watchlater-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: #2a2a2a; border: 1px solid #333; color: #bbb; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
 .watchlater-detail-btn:hover { color: #fff; background: #333; }
 .watchlater-detail-btn.active { color: #ffb300; border-color: rgba(255,179,0,0.4); background: rgba(255,179,0,0.12); }
+.delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #5a2a2a; background: #2a1a1a; color: #ff6b6b; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.delete-detail-btn:hover { background: #3a2020; color: #ff8a8a; }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #aaa; }
 .spinner { width: 36px; height: 36px; border: 3px solid #333; border-top-color: #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

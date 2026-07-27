@@ -5,7 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
 import GalleryCard from '../components/GalleryCard.vue'
-import ItemEditDrawer from '../components/ItemEditDrawer.vue'
+import WatchLaterButton from '../components/WatchLaterButton.vue'
 import type { Gallery } from '../types'
 import { galleryApi } from '../api'
 
@@ -102,38 +102,8 @@ const handleLibraryChange = (e: Event) => {
 }
 const handleGalleryClick = (c: Gallery) => router.push({ name: 'Gallery', params: { hash: c.hash } })
 
-// ============ 编辑模式（抽屉编辑单条，对齐视频） ============
-const editMode = ref(false)
-const editDrawerVisible = ref(false)
-const editingItem = ref<any>(null)
-
-const toggleEditMode = () => {
-  editMode.value = !editMode.value
-}
-
-const openEdit = (c: any) => {
-  editingItem.value = c
-  editDrawerVisible.value = true
-}
-
-const confirmDeleteGallery = async (c: Gallery) => {
-  if (!window.confirm(`确定要将图集「${c.title}」移入回收站吗？管理员可在回收站中恢复或彻底删除。`)) return
-  try {
-    const res = await galleryApi.deleteGallery(c.hash)
-    if (res.success) {
-      ElMessage.success(res.message || '已移入回收站')
-      galleries.value = galleries.value.filter(x => x.hash !== c.hash)
-    } else {
-      ElMessage.error(res.message || '删除失败')
-    }
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '删除失败')
-  }
-}
-
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选图集
 const onTagClick = (tag: any) => {
-  if (editMode.value) return
   let id = tag.id
   // 通过抽屉新增的标签可能缺少 id，按名称在标签表中回查
   if (id == null && tag.name) {
@@ -141,14 +111,6 @@ const onTagClick = (tag: any) => {
     if (found) id = found.id
   }
   if (id != null) galleryStore.filterByTag(id)
-}
-
-// 抽屉保存后就地更新列表中的该条数据
-const onEditSaved = (updated: any) => {
-  const idx = galleryStore.galleries.findIndex((c: any) => c.hash === updated.hash)
-  if (idx !== -1) {
-    galleryStore.galleries[idx] = { ...galleryStore.galleries[idx], ...updated }
-  }
 }
 
 // 分页
@@ -243,10 +205,6 @@ watch(() => route.query, async (newQuery) => {
           <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.gallery_count }})</option>
         </select>
       </div>
-      <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-        <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
-      </button>
       <div class="view-toggle">
         <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'grid' }" @click="galleryStore.setViewMode('grid')" title="缩略图">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -286,15 +244,13 @@ watch(() => route.query, async (newQuery) => {
             v-for="c in displayGallerys"
             :key="c.hash"
             :gallery="c"
-            :editable="editMode"
             @click="handleGalleryClick"
-            @edit="openEdit"
             @tag-click="onTagClick"
           />
         </div>
         <div v-else class="gallery-list">
-          <div v-for="c in displayGallerys" :key="c.hash" class="gallery-list-row" @click="editMode ? openEdit(c) : handleGalleryClick(c)">
-            <div class="list-thumb" @click.stop="editMode ? openEdit(c) : handleGalleryClick(c)">
+          <div v-for="c in displayGallerys" :key="c.hash" class="gallery-list-row" @click="handleGalleryClick(c)">
+            <div class="list-thumb" @click.stop="handleGalleryClick(c)">
               <img :src="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'" loading="lazy" @error="(e:any)=>e.target.src='/placeholder.jpg'" />
               <span class="list-pages">{{ c.page_count }}P</span>
             </div>
@@ -303,29 +259,7 @@ watch(() => route.query, async (newQuery) => {
               <div class="list-meta"><span>{{ c.page_count }} 页</span><span v-if="c.like_count>0">♥ {{ c.like_count }}</span></div>
             </div>
             <div class="list-actions">
-              <button
-                v-if="editMode"
-                class="list-action-btn edit"
-                @click.stop="openEdit(c)"
-                title="编辑"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-              </button>
-              <button
-                v-if="editMode"
-                class="list-action-btn delete"
-                @click.stop="confirmDeleteGallery(c)"
-                title="删除（移入回收站）"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-              </button>
-              <template v-else>
-                <button class="list-action-btn like" :class="{active:c.is_liked}" @click.stop="galleryStore.interact(c.hash,'like')">♥</button>
-                <button class="list-action-btn favorite" :class="{active:c.is_favorited}" @click.stop="galleryStore.interact(c.hash,'favorite')">★</button>
-                <button class="list-action-btn delete" @click.stop="confirmDeleteGallery(c)" title="删除（移入回收站）">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                </button>
-              </template>
+              <WatchLaterButton variant="bar" type="gallery" :id="c.hash" :title="c.title" :thumbnail="c.cover_url" />
             </div>
           </div>
         </div>
@@ -348,15 +282,6 @@ watch(() => route.query, async (newQuery) => {
         <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
     </template>
-
-    <!-- 编辑抽屉（图集） -->
-    <ItemEditDrawer
-      :visible="editDrawerVisible"
-      type="gallery"
-      :item="editingItem"
-      @update:visible="editDrawerVisible = $event"
-      @saved="onEditSaved"
-    />
   </div>
 </template>
 

@@ -3,11 +3,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { textApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
+import { useUserStore } from '../stores/userStore'
 import type { TextResource } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const watchLaterStore = useWatchLaterStore()
+const userStore = useUserStore()
 
 const text = ref<TextResource | null>(null)
 const loading = ref(true)
@@ -18,6 +20,19 @@ const toggleWatchLater = () => {
   if (!text.value) return
   const id = String(text.value.id)
   watchLaterStore.toggle({ type: 'text', id, title: title() })
+}
+
+// 删除（仅管理员，列表/卡片已不再提供删除入口）
+const canManage = computed(() => !!userStore.user && userStore.user.role >= 2)
+const removeText = async () => {
+  if (!text.value) return
+  if (!confirm('确定删除该文本？此操作不可恢复。')) return
+  try {
+    await textApi.remove(text.value.id)
+    router.push('/?mode=text')
+  } catch (e: any) {
+    alert(e?.message || '删除失败')
+  }
 }
 
 const title = () => text.value?.presentation?.title || `文本 ${text.value?.id ?? ''}`
@@ -54,6 +69,10 @@ const goBack = () => {
         </svg>
         <span>{{ isWatchLater ? '已加入稍后再看' : '稍后再看' }}</span>
       </button>
+      <button v-if="canManage" class="delete-detail-btn" @click="removeText" title="删除文本">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        <span>删除</span>
+      </button>
     </header>
 
     <div v-if="loading" class="detail-loading">加载中…</div>
@@ -85,6 +104,8 @@ const goBack = () => {
 }
 .watchlater-detail-btn:hover { color: #333; }
 .watchlater-detail-btn.active { color: #ff9f00; border-color: rgba(255,159,0,0.5); background: rgba(255,159,0,0.1); }
+.delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e0b4b4; background: #fff0f0; color: #d33; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px; white-space: nowrap; }
+.delete-detail-btn:hover { background: #ffe0e0; color: #b22; }
 .detail-loading, .detail-error { padding: 32px; text-align: center; color: #888; }
 .text-summary { color: #666; font-size: 14px; background: #f6f6f8; padding: 10px 14px; border-radius: 8px; }
 .text-content {
