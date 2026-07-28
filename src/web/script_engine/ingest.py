@@ -10,7 +10,8 @@
 import os
 from urllib.parse import quote
 
-from core.models import ResourceIndex, ResourceMode, set_resource_modes, db, Video, generate_hash
+from core.models import ResourceIndex, ResourceMode, set_resource_modes, db, Video
+
 
 
 def _is_video_ext(path):
@@ -82,7 +83,7 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                     if not v:
                         v = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
                 if not v:
-                    vhash = generate_hash(path)
+                    vhash = Video.generate_hash(path)
                     v = Video(
                         title=os.path.basename(path),
                         url=f'/local_video/{quote(os.path.abspath(path))}',
@@ -100,12 +101,13 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                     ri.set_meta(meta)
             elif kind == 'gallery' and ResourceMode.GALLERY in modes:
                 from backend.gallery.scanner import scan_library_galleries
-                galleries = scan_library_galleries(library_id, app=app, specific_paths=[path])
-                ri = None
-                for c in galleries:
-                    if c.resource_index and c.resource_index.location == path:
-                        ri = c.resource_index
-                        break
+                # scan_library_galleries 返回 dict（含 added/updated），不返回 Gallery 列表；
+                # 它内部已按 location 复用/新建 ResourceIndex，这里直接按 location 取回即可。
+                scan_library_galleries(library_id, app=app, specific_paths=[path])
+                ri = ResourceIndex.query.filter(
+                    ResourceIndex.kind == ri_kind,
+                    db.func.lower(ResourceIndex.location) == os.path.abspath(path).lower(),
+                ).first()
                 if not ri:
                     ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
             else:

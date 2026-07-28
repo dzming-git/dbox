@@ -404,8 +404,8 @@ export const postApi = {
     api.post('/api/posts', data),
   update: (id: number, data: any) =>
     api.put(`/api/posts/${id}`, data),
-  remove: (id: number) =>
-    api.delete(`/api/posts/${id}`),
+  remove: (id: number, data?: { delete_resources?: boolean }) =>
+    api.delete(`/api/posts/${id}`, data ? { data } : undefined),
 }
 
 // 统一资源池：跨模式选择资源（视频 / 图片集 / 文本），供帖子引用选择器复用

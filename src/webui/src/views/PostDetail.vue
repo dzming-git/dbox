@@ -11,6 +11,13 @@ const router = useRouter()
 const watchLaterStore = useWatchLaterStore()
 const userStore = useUserStore()
 
+function withToken(url: string): string {
+  if (!url) return url
+  const token = userStore.token
+  if (!token) return url
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + token
+}
+
 const post = ref<any>(null)
 const loading = ref(false)
 const error = ref('')
@@ -55,7 +62,7 @@ function toMediaItem(refItem: any) {
   }
   if (refItem.gallery) {
     const c = refItem.gallery
-    return { type: 'gallery', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at }
+    return { type: 'gallery', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at, images: (refItem.images || []) as string[] }
   }
   if (refItem.text) {
     return { type: 'text', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '' }
@@ -204,9 +211,9 @@ const removePost = async () => {
       <div v-if="renderedOrphans.length" class="detail-refs">
         <div v-for="(ro, i) in renderedOrphans" :key="ro.refItem.ref_id || i" class="ref-block">
           <div v-if="ro.refItem.note" class="ref-note">{{ ro.refItem.note }}</div>
-          <template v-if="ro.item && ro.item.type === 'gallery_folder'">
+          <template v-if="ro.item && (ro.item.type === 'gallery_folder' || (ro.item.type === 'gallery' && ro.item.images && ro.item.images.length))">
             <div class="inline-gallery">
-              <img v-for="(src, gi) in ro.item.images" :key="gi" :src="src" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images, gi)" />
+              <img v-for="(src, gi) in ro.item.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images.map(withToken), gi)" />
             </div>
           </template>
           <a v-else-if="ro.item && ro.item.type === 'document'" class="doc-card" :href="ro.item.docUrl" target="_blank" download>

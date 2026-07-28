@@ -1,6 +1,7 @@
 import json
 import re
 import os
+import urllib.parse
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import hashlib
@@ -1523,6 +1524,11 @@ class Post(db.Model):
                         c = Gallery.query.filter_by(resource_index_id=ri.id).first()
                         if c:
                             entry['gallery'] = c.to_dict()
+                            # 附带图集页面图片 URL 列表，供前端内联渲染多张图
+                            entry['images'] = [
+                                f'/gallery-page/{urllib.parse.quote(p.file_path)}'
+                                for p in c.pages
+                            ]
                         else:
                             # 帖子专属图集（仅 post 模式、未建 Gallery 实体）：
                             # 直接按资源索引目录提供图片，列表与详情页可内联渲染
