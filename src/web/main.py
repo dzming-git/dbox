@@ -435,36 +435,50 @@ def auth_required(f):
     return decorated
 
 def admin_required(f):
-    """管理员权限装饰器 - 需要 JWT 认证"""
+    """管理员权限装饰器 - 兼容 JWT 与 session 两套登录态
+
+    前端登录默认走 Flask session（无 JWT），故优先用 Bearer 解析 JWT，
+    解析失败时回退到 session（AuthService.get_current_user），避免管理员被误踢出登录。
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
+        user = None
         token = request.headers.get('Authorization', '')
         if token.startswith('Bearer '):
             token = token[7:]
-        
-        if not token:
+        if token:
+            try:
+                from authlib.jose import jwt
+                SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
+                payload = jwt.decode(token, SECRET_KEY)
+                if payload.get('type') == 'access':
+                    user = User.query.get(payload.get('user_id'))
+                    if user:
+                        g.user_id = payload.get('user_id')
+                        g.role = payload.get('role', 0)
+                        g.username = payload.get('username')
+            except Exception:
+                user = None
+
+        # JWT 解析失败或缺失时，回退到 session 登录态（前端默认）
+        if user is None:
+            user = AuthService.get_current_user()
+
+        if user is None:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-        
-        try:
-            from authlib.jose import jwt
-            SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
-            payload = jwt.decode(token, SECRET_KEY)
-            
-            if payload.get('type') != 'access':
-                return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
-            
-            g.user_id = payload.get('user_id')
-            g.role = payload.get('role', 0)
-            g.username = payload.get('username')
-            
-            # 检查是否是管理员或更高权限
-            if g.role < UserRole.ADMIN:
-                return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
-            
-            return f(*args, **kwargs)
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'无效的 token: {str(e)}', 'code': 401}), 401
-    
+
+        # 确保 g 上记录身份（session 回退路径）
+        if not hasattr(g, 'user_id') or g.user_id is None:
+            g.user_id = user.id
+            g.role = getattr(user, 'role', 0)
+            g.username = getattr(user, 'username', None)
+
+        # 检查是否是管理员或更高权限
+        if g.role < UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+
+        return f(*args, **kwargs)
+
     return decorated
 
 
