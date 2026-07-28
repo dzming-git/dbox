@@ -147,8 +147,11 @@ const canManage = computed(() => {
 const removePost = async () => {
   if (!post.value) return
   if (!confirm('确定删除该帖子？此操作不可恢复。')) return
+  const delRes = confirm('是否同时删除该帖子关联的资源（图片/视频）？\n选择「确定」将彻底移除这些资源（仅当资源未被其它帖子或媒体库使用时）；选择「取消」仅删除帖子，资源保留在资源管理界面。')
   try {
-    await postApi.remove(post.value.id)
+    const res: any = await postApi.remove(post.value.id, { delete_resources: delRes })
+    const n = res?.deleted_resources?.length || 0
+    if (n > 0) alert(`帖子已删除，并移除了 ${n} 个关联资源`)
     router.push('/?mode=mixed')
   } catch (e: any) {
     alert(e?.message || '删除失败')

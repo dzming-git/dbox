@@ -5993,10 +5993,42 @@ def delete_post(did):
     d = Post.query.get_or_404(did)
     if d.owner_id != user.id and user.role < UserRole.ADMIN:
         return jsonify({'error': '无权删除'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    delete_resources = bool(data.get('delete_resources', False))
+
+    # 收集关联的资源索引 id（用于可选的连带删除）
+    ri_ids = [r.resource_index_id for r in d.refs]
+
+    # 先软删除帖子本身（进入回收站，可恢复）
     d.in_trash = True
     d.trashed_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({'success': True})
+
+    deleted_resources = []
+    if delete_resources:
+        for rid in ri_ids:
+            ri = ResourceIndex.query.get(rid)
+            if not ri:
+                continue
+            # 仍被其它「未删除」帖子引用 -> 不删（共享资源）
+            other = (PostRef.query
+                     .filter(PostRef.resource_index_id == rid)
+                     .join(Post)
+                     .filter(Post.id != d.id, Post.in_trash == False)
+                     .first())
+            if other:
+                continue
+            # 该资源仍有视频 / 图集实体（在库中可用）-> 不删，避免误删其它库数据
+            if Video.query.filter_by(resource_index_id=rid).first():
+                continue
+            if Gallery.query.filter_by(resource_index_id=rid).first():
+                continue
+            # 删除孤立资源索引（其 URL/路径仍保留在磁盘，仅移除索引记录）
+            db.session.delete(ri)
+            deleted_resources.append(rid)
+        db.session.commit()
+
+    return jsonify({'success': True, 'deleted_resources': deleted_resources})
 
 
 @app.route('/api/posts/<int:did>/refs', methods=['POST'])
