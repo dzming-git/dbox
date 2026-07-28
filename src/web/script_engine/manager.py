@@ -537,7 +537,8 @@ class ScriptJobManager:
                     self._append_log(job_id, 'error', f'移动文件失败: {e}')
                     continue
             res = ingest_file(library_id, path, self.app, kind, modes=modes,
-                              collection_id=collection_id, meta=meta, user_id=owner_id)
+                              collection_id=collection_id, meta=meta, user_id=owner_id,
+                              hidden=bool(f.get('hidden')))
             self._append_log(job_id, 'info' if res.get('success') else 'error',
                              '入库: ' + res.get('message', ''))
             final_paths.append(path)

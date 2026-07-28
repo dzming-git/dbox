@@ -418,6 +418,8 @@ export const resourceApi = {
   createCollection: (data: { name: string; mode: string; library_id?: number }) =>
     api.post('/api/mode-collections', data),
   modes: () => api.get('/api/modes'),
+  setHidden: (id: number, hidden: boolean) =>
+    api.patch(`/api/resource-index/${id}/hidden`, { hidden }),
 }
 
 // 文本模式（未来内容管理）

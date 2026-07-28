@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
-import { tagApi, videoApi, collectionSetApi } from '../api'
+import { tagApi, videoApi, collectionSetApi, resourceApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
@@ -781,6 +781,24 @@ const onEditSaved = (updated: any) => {
   video.value = { ...video.value, ...updated }
 }
 
+// 资源隐藏 / 显示切换（仅管理员）：隐藏后不出现在视频库列表，仅在帖子流可见
+const togglingHidden = ref(false)
+const isHidden = computed(() => !!video.value?.hidden)
+async function toggleHidden() {
+  if (!video.value || togglingHidden.value) return
+  const rid = video.value.resource_index_id
+  if (!rid) return
+  togglingHidden.value = true
+  try {
+    const res = await resourceApi.setHidden(rid, !isHidden.value)
+    video.value = { ...video.value, hidden: res.hidden }
+  } catch (e) {
+    console.error('切换隐藏状态失败', e)
+  } finally {
+    togglingHidden.value = false
+  }
+}
+
 // ============ 精彩片段标记 ============
 const formatMarkerTime = (sec: number) => {
   const s = Math.max(0, Math.floor(sec))
@@ -1544,6 +1562,20 @@ const handleDelete = async () => {
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
             编辑
+          </button>
+          <button
+            v-if="isAdmin"
+            class="edit-video-btn hide-toggle-btn"
+            @click="toggleHidden"
+            :title="isHidden ? '资源已隐藏，点击使其在视频库显示' : '资源可见，点击隐藏（仅帖子流可见）'"
+            data-testid="toggle-hidden-button"
+            :disabled="togglingHidden"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+            {{ isHidden ? '已隐藏' : '显示中' }}
           </button>
         </div>
 

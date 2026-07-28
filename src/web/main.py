@@ -1016,6 +1016,11 @@ def get_videos():
 
         query = Video.query.filter(Video.in_trash == False).options(joinedload(Video.resource_index))
 
+        # 过滤被隐藏的资源（hidden=True 仅在帖子流可见，不出现在视频库列表）
+        query = query.filter(
+            ~Video.resource_index.has(ResourceIndex.hidden == True)
+        )
+
         # ============ 过滤被禁用的资源库 ============
         # 获取当前用户可访问的激活资源库ID列表
         allowed_library_ids = []
@@ -6218,6 +6223,25 @@ def repoint_resource_index(rid):
     if not new_loc:
         return jsonify({'error': '缺少 location'}), 400
     ri.location = new_loc
+    ri.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(ri.to_dict())
+
+
+@app.route('/api/resource-index/<int:rid>/hidden', methods=['PATCH'])
+def set_resource_index_hidden(rid):
+    """设置资源是否隐藏：隐藏的资源不出现在视频 / 图集库列表，仅在帖子流可见。
+
+    仅管理员可操作（来自帖子详情点进资源界面后编辑）。
+    """
+    user_id, role = resolve_identity()
+    if not user_id or role < UserRole.ADMIN:
+        return jsonify({'error': '需要管理员权限'}), 403
+    ri = ResourceIndex.query.get_or_404(rid)
+    data = request.get_json(force=True, silent=True) or {}
+    if 'hidden' not in data:
+        return jsonify({'error': '缺少 hidden 字段'}), 400
+    ri.hidden = bool(data['hidden'])
     ri.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify(ri.to_dict())

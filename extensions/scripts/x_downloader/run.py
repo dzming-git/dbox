@@ -1070,9 +1070,9 @@ def main():
     cookie_header = resolve_cookie(context.get('cookies', {}) or {})
     url = (params.get('url') or '').strip()
     simulate = bool(params.get('simulate'))
-    # 入库开关：视频是否进视频列表、图片是否进图集；帖子（组合）始终创建并包含文字
-    add_video = bool(params.get('add_video', True))
-    add_gallery = bool(params.get('add_gallery', True))
+    # 隐藏开关（替换原 add_video/add_gallery）：下载的资源默认隐藏，
+    # 不进视频库/图集库列表，仅在帖子流可见。取消隐藏后进入对应资源库。
+    hidden = bool(params.get('hidden', True))
     # 标题：可选项；由用户在加载脚本时选择是否填写。留空则帖子不含标题。
     title_param = params.get('title')
     title_param = str(title_param).strip() if title_param else ''
@@ -1192,14 +1192,16 @@ def main():
                     path = write_sim_placeholder(working_dir, idx, 'video')
                 else:
                     path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg, guest_token)
-                # 视频：是否进视频列表(video) + 始终进帖子(post)
-                modes = ['video', 'post'] if add_video else ['post']
+                # 视频：始终进 video + post 实体（数据完整，便于取消隐藏即时恢复），
+                # 是否对普通用户可见由 hidden 标志控制（默认隐藏，不进视频库列表）
+                modes = ['video', 'post']
                 downloaded.append({'path': path, 'type': 'video',
                                    'target_modes': modes, 'group': group,
+                                   'hidden': hidden,
                                    'content': post_content, 'post_title': post_title,
                                    'source_url': url, 'caption': item.get('label')})
                 log(f'已下载视频: {os.path.basename(path)}'
-                    + ('（含视频列表）' if add_video else '（仅帖子）'))
+                    + ('（已隐藏，仅帖子可见）' if hidden else '（已进视频库）'))
             progress(pct, f'下载进度 {idx}/{total}')
         except Exception as e:
             error(f'下载失败（{item["label"]}）: {e}')
@@ -1228,13 +1230,14 @@ def main():
                 log(f'图片归集失败: {p} -> {e}', level='warn')
                 kept.append(p)
         if kept:
-            modes = ['gallery', 'post'] if add_gallery else ['post']
+            modes = ['gallery', 'post']
             downloaded.append({'path': img_dir, 'type': 'gallery',
                                'target_modes': modes, 'group': group,
+                               'hidden': hidden,
                                'content': post_content, 'post_title': post_title,
                                'source_url': url, 'caption': f'图片（{len(kept)}）'})
             log(f'已聚合 {len(kept)} 张图片为图集'
-                + ('（含图集）' if add_gallery else '（仅帖子）'))
+                + ('（已隐藏，仅帖子可见）' if hidden else '（已进图集库）'))
 
     if not downloaded:
         error('没有任何文件下载成功')

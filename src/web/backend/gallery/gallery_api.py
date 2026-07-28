@@ -205,6 +205,11 @@ def list_galleries():
         query = Gallery.query.filter(Gallery.in_trash == False).options(
             joinedload(Gallery.resource_index), joinedload(Gallery.pages))
 
+        # 过滤被隐藏的资源（hidden=True 仅在帖子流可见，不出现在图集库列表）
+        query = query.filter(
+            ~Gallery.resource_index.has(ResourceIndex.hidden == True)
+        )
+
         # ============ 资源库权限过滤（与视频 /api/videos 对齐）============
         allowed_libs = _allowed_library_ids()
         if allowed_libs:

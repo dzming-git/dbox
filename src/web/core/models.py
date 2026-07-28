@@ -161,6 +161,7 @@ class ResourceIndex(db.Model):
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
     hash = db.Column(db.String(64), index=True)
     meta = db.Column(db.Text)  # JSON: 通用资产呈现（见类文档）
+    hidden = db.Column(db.Boolean, default=False, nullable=False)  # 是否隐藏：隐藏的资源不出现在视频/图集库列表，仅在帖子流可见
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -205,6 +206,7 @@ class ResourceIndex(db.Model):
             'library_id': self.library_id,
             'hash': self.hash,
             'cover': self.cover,
+            'hidden': bool(self.hidden),
             'meta': self.get_meta(),
             'presentation': self.presentation(),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -493,6 +495,7 @@ class Video(db.Model):
         return {
             'id': self.id,
             'hash': self.hash,
+            'resource_index_id': self.resource_index_id,
             'title': self.title,
             'description': self.description,
             'url': f'/api/videos/{self.id}/play',
@@ -511,6 +514,7 @@ class Video(db.Model):
             'local_path': self.local_path,
             'file_name': self.file_name,
             'owner_id': self.owner_id,
+            'hidden': bool(self.resource_index.hidden) if self.resource_index else False,
             'tags': [
                 {**vt.tag.to_dict(), 'selected_qualifiers': vt.get_selected_qualifiers()}
                 for vt in self.tags if vt.tag is not None
@@ -1307,12 +1311,14 @@ class Gallery(db.Model):
         return {
             'id': self.id,
             'hash': self.hash,
+            'resource_index_id': self.resource_index_id,
             'title': self.title,
             'page_count': self.page_count,
             'library_id': self.library_id,
             'owner_id': self.owner_id,
             'like_count': self.like_count,
             'favorite_count': self.favorite_count,
+            'hidden': bool(self.resource_index.hidden) if self.resource_index else False,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -1802,6 +1808,17 @@ def migrate_resource_index():
     except Exception as e:
         db.session.rollback()
         print(f'[WARN] resource_index.cover 迁移跳过: {e}')
+
+    # 6) 资源「是否隐藏」标志列：create_all 会为新库建列，此处补旧库列（默认 False）。
+    try:
+        _ri_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(resource_index)")).fetchall()]
+        if 'hidden' not in _ri_cols:
+            db.session.execute(db.text("ALTER TABLE resource_index ADD COLUMN hidden BOOLEAN DEFAULT 0 NOT NULL"))
+            db.session.commit()
+        print(f'[MIGRATE] resource_index.hidden 列就绪')
+    except Exception as e:
+        db.session.rollback()
+        print(f'[WARN] resource_index.hidden 迁移跳过: {e}')
 
 
 def migrate_collection_videos_schema():

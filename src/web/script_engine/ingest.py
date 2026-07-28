@@ -38,7 +38,7 @@ def _get_or_create_resource_index(library_id, path, ri_kind, meta):
 
 
 def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_id=None,
-                meta=None, user_id=None):
+                meta=None, user_id=None, hidden=False):
     """把一个文件/目录登记进指定资源库，并按 modes 归属模式。
 
     返回 dict：{success, resource_index_id?, kind?, modes?, message}
@@ -56,6 +56,8 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
 
     ri_kind = _KIND_TO_RI.get(kind, kind)
     modes = [m for m in (modes or ('video',)) if ResourceMode.is_valid(m)]
+    # 是否隐藏：隐藏的资源不进视频/图集库列表，仅在帖子流可见（X 下载默认隐藏）
+    _hidden = bool(hidden)
 
     try:
         with app.app_context():
@@ -111,6 +113,7 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                 ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
 
             # 2) 应用模式归属（membership 行 + 富化实体同步增删）
+            ri.hidden = _hidden
             set_resource_modes(ri, modes, collection_id=collection_id, user_id=user_id)
             db.session.commit()
             return {

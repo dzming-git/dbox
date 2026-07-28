@@ -33,18 +33,11 @@
       "description": "下载的视频将移动并入库到该资源库；图片也会暂存到该资源库目录"
     },
     {
-      "name": "add_video",
+      "name": "hidden",
       "type": "bool",
-      "label": "视频加入视频列表",
+      "label": "隐藏资源（默认勾选）",
       "default": true,
-      "description": "勾选后，推文中的视频会出现在视频列表中；不勾选则视频仅在帖子内可见（不进视频列表）。"
-    },
-    {
-      "name": "add_gallery",
-      "type": "bool",
-      "label": "图片加入图集",
-      "default": true,
-      "description": "勾选后，推文中的图片会组成图集（漫画列表）可见；不勾选则图片仅在帖子内可见（不进图集）。"
+      "description": "勾选后，下载的视频/图片只出现在帖子流中，不进入视频库/图集库列表（默认隐藏，避免污染资源库）。取消勾选则资源正常进入对应资源库。"
     },
     {
       "name": "title",
