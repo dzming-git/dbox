@@ -802,9 +802,9 @@ def resolve_identity():
     # 1. 优先 JWT Bearer Token
     auth_header = request.headers.get('Authorization', '')
     if auth_header.startswith('Bearer '):
+        _token = auth_header[7:]
         try:
             from authlib.jose import jwt as _jwt
-            _token = auth_header[7:]
             _payload = None
             for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
                 try:
@@ -816,7 +816,15 @@ def resolve_identity():
                 return _payload.get('user_id'), int(_payload.get('role', 0))
         except Exception:
             pass
-    # 2. 回退到 session token（前端主要使用的登录方式）
+        # 前端实际鉴权方式：Bearer 后接的是 session_token（非 JWT），
+        # 通过 UserSession 表反查登录用户。
+        try:
+            user = AuthService.get_user_by_token(_token)
+            if user:
+                return user.id, int(user.role)
+        except Exception:
+            pass
+    # 2. 回退到 session cookie（Flask session 中的 auth_token）
     try:
         user = AuthService.get_current_user()
         if user:

@@ -190,6 +190,34 @@ class AuthService:
             return None
 
     @staticmethod
+    def get_user_by_token(token):
+        """通过 Authorization: Bearer <session_token> 中的 session_token 反查登录用户。
+
+        前端登录后将后端返回的 session_token 存入 localStorage，并以
+        `Authorization: Bearer <session_token>` 发送；该 token 并非 JWT，
+        而是 UserSession.session_token。此处直接用它反查有效用户。
+        """
+        if not token:
+            return None
+        try:
+            if hasattr(g, 'current_user') and getattr(g, 'current_user', None):
+                return g.current_user
+            user_session = UserSession.query.filter_by(
+                session_token=token,
+                is_active=True
+            ).first()
+            if not user_session or user_session.is_expired():
+                return None
+            user = User.query.get(user_session.user_id)
+            if not user or not user.is_active:
+                return None
+            g.current_user = user
+            return user
+        except Exception as e:
+            log.debug('ERROR', f"通过 token 获取用户失败: {e}")
+            return None
+
+    @staticmethod
     def get_current_role():
         """获取当前用户的角色
         

@@ -8,6 +8,7 @@ const API_BASE = ''  // 统一使用相对路径，开发时由 Vite 代理处�
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 10000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }

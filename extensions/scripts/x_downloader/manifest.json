@@ -36,14 +36,14 @@
       "name": "add_video",
       "type": "bool",
       "label": "视频加入视频列表",
-      "default": false,
+      "default": true,
       "description": "勾选后，推文中的视频会出现在视频列表中；不勾选则视频仅在帖子内可见（不进视频列表）。"
     },
     {
       "name": "add_gallery",
       "type": "bool",
       "label": "图片加入图集",
-      "default": false,
+      "default": true,
       "description": "勾选后，推文中的图片会组成图集（漫画列表）可见；不勾选则图片仅在帖子内可见（不进图集）。"
     },
     {
