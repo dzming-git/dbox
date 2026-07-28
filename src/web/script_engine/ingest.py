@@ -8,8 +8,9 @@
      modes=['video','post'] -> 视频列表与帖子均可见。
 """
 import os
+from urllib.parse import quote
 
-from core.models import ResourceIndex, ResourceMode, set_resource_modes, db
+from core.models import ResourceIndex, ResourceMode, set_resource_modes, db, Video, generate_hash
 
 
 def _is_video_ext(path):
@@ -60,15 +61,39 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
         with app.app_context():
             # 1) 获取/创建 ResourceIndex（按 location + kind 去重）
             if kind == 'video' and ResourceMode.VIDEO in modes:
-                # 复用既有扫描/去重/缩略图逻辑（会建 Video + ResourceIndex）
+                # 确保视频资源索引存在（按 location + kind 去重）
+                ri = ResourceIndex.query.filter_by(location=path, kind='video_file').first()
+                if not ri:
+                    ri = _get_or_create_resource_index(library_id, path, 'video_file', meta)
+                # 优先复用既有 watcher 的扫描/去重/缩略图逻辑建 Video
+                v = None
                 from library_watcher import get_watcher
                 w = get_watcher()
-                if not w:
-                    return {'success': False, 'message': 'library_watcher 未初始化，无法入库视频'}
-                entry = w.upsert_video(path, library_id)
-                ri = entry.resource_index if entry else None
-                if not ri:
-                    return {'success': False, 'message': f'视频入库失败: {path}'}
+                if w:
+                    try:
+                        v = w.upsert_video(path, library_id)
+                    except Exception:
+                        v = None
+                # watcher 不可用（如脚本独立进程）时，直接构建 Video 实体并关联本资源索引
+                if not v:
+                    v = Video.query.filter_by(local_path=path).first()
+                    if not v:
+                        v = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
+                if not v:
+                    vhash = generate_hash(path)
+                    v = Video(
+                        title=os.path.basename(path),
+                        url=f'/local_video/{quote(os.path.abspath(path))}',
+                        hash=vhash,
+                        local_path=path,
+                        library_id=library_id,
+                        resource_index_id=ri.id,
+                    )
+                    db.session.add(v)
+                db.session.flush()
+                if v.resource_index_id != ri.id:
+                    v.resource_index_id = ri.id
+                    db.session.flush()
                 if meta:
                     ri.set_meta(meta)
             elif kind == 'gallery' and ResourceMode.GALLERY in modes:

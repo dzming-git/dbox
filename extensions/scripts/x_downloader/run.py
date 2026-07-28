@@ -484,18 +484,35 @@ def build_headers(cookie_header, with_bearer=True, guest_token=None):
     return h
 
 
-def extract_from_html(html, cookie_header):
-    """从推文页面 HTML 中正则抓取图片原图与视频 m3u8。"""
+# X 推文块：<article data-testid="tweet">...</article>
+ARTICLE_RE = re.compile(r'<article\b[^>]*>.*?</article>', re.S | re.I)
+
+
+def _focal_article_html(page_html, tweet_id):
+    """只保留目标推文所在的 <article> 块，避免把评论/回复里的图片也抓下来。"""
+    if not tweet_id or tweet_id == 'x':
+        return page_html
+    for art in ARTICLE_RE.findall(page_html):
+        if f'/status/{tweet_id}' in art:
+            return art
+    # 极少数情况没匹配到，退化为整页（不应发生）
+    return page_html
+
+
+def extract_from_html(html, cookie_header, tweet_id=''):
+    """从推文页面 HTML 中正则抓取图片原图与视频 m3u8。只解析目标推文自身，排除评论。"""
+    if html:
+        html = _focal_article_html(html, tweet_id)
     media = []
     seen_img = set()
-    for m in IMG_RE.finditer(html):
+    for m in IMG_RE.finditer(html or ''):
         base = m.group(0)
         if base in seen_img:
             continue
         seen_img.add(base)
         orig = base + '?name=orig'
         media.append({'type': 'image', 'url': orig, 'label': '图片'})
-    m3u8_urls = [m.group(0) for m in M3U8_RE.finditer(html)]
+    m3u8_urls = [m.group(0) for m in M3U8_RE.finditer(html or '')]
     if m3u8_urls:
         best = pick_m3u8(m3u8_urls)
         media.append({'type': 'video', 'url': best, 'label': '视频/动图'})
@@ -738,11 +755,19 @@ def _find_tweet_node(node, target_id=None):
     return None
 
 
-def extract_tweet_text_from_html(html):
+def extract_tweet_text_from_html(html, tweet_id=''):
     """从推文页面 HTML 尽力提取正文（页面版正文字段分散，作为接口失败时的兜底）。"""
     if not html:
         return ''
-    # 优先从 <meta property="og:description"> 提取（含推文正文）
+    # 优先从目标推文的 tweetText 块提取（最贴近真实正文）
+    block = _focal_article_html(html, tweet_id) if tweet_id else html
+    m = re.search(r'<div data-testid=["\']tweetText["\'][^>]*>(.*?)</div>', block, re.S)
+    if m:
+        txt = re.sub(r'<[^>]+>', '', m.group(1))
+        txt = html.unescape(txt).replace('\n', ' ').strip()
+        if txt:
+            return txt
+    # 兜底：og:description（含推文正文）
     m = re.search(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']',
                   html, re.IGNORECASE)
     if m:
@@ -773,15 +798,15 @@ def extract_media(url, cookie_header, proxy_cfg):
     except Exception as e:
         log(f'页面抓取失败: {e}', level='warn')
 
-    media = extract_from_html(html, '') if html else []
-    text = extract_tweet_text_from_html(html)
+    media = extract_from_html(html, '', tweet_id) if html else []
+    text = extract_tweet_text_from_html(html, tweet_id)
     # 游客页未解析到媒体，再用登录态（带 Cookie）尝试一次，可能拿到更完整内容
     if not media and cookie_header:
         log('游客页未解析到媒体，尝试带 Cookie 重新抓取…')
         try:
             html2 = fetch_text(url, opener, build_headers(cookie_header, with_bearer=False), timeout=45)
-            media = extract_from_html(html2, cookie_header) if html2 else []
-            text = text or extract_tweet_text_from_html(html2)
+            media = extract_from_html(html2, cookie_header, tweet_id) if html2 else []
+            text = text or extract_tweet_text_from_html(html2, tweet_id)
         except Exception as e:
             log(f'无 Cookie 抓取失败: {e}', level='warn')
     if not media and tweet_id != 'x':

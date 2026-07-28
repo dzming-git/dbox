@@ -1496,6 +1496,14 @@ class Post(db.Model):
                 if ri:
                     entry['kind'] = ri.kind
                     entry['location'] = ri.location
+                    # 兼容前端：输出映射后的 type（video/gallery/text/document）
+                    _KIND_TO_TYPE = {
+                        'video_file': 'video',
+                        'gallery_folder': 'gallery',
+                        'text': 'text',
+                        'document_file': 'document',
+                    }
+                    entry['type'] = _KIND_TO_TYPE.get(ri.kind, ri.kind)
                     # 解析出实际实体（视频 / 图集）的概要
                     if ri.kind == 'video_file':
                         v = Video.query.filter_by(resource_index_id=ri.id).first()
