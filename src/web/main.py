@@ -2795,15 +2795,19 @@ def admin_list_resources():
             })
 
     if rtype in ('', 'text'):
-        q = Text.query
+        # Text 实体本身只有 body/summary，标题/库/时间都来自关联的资源索引
+        q = Text.query.join(ResourceIndex, Text.resource_index_id == ResourceIndex.id)
         if search:
-            q = q.filter(_like(Text.title))
-        for t in q.order_by(Text.created_at.desc()).all():
+            q = q.filter(ResourceIndex.meta.like(f'%{search}%'))
+        for t in q.order_by(ResourceIndex.updated_at.desc()).all():
+            ri = t.resource_index
+            pres = ri.presentation() if ri else {}
+            title = (pres.get('title') if pres else None) or '未命名文本'
             items.append({
-                'type': 'text', 'id': t.id, 'title': t.title or '未命名文本',
-                'library_id': getattr(t, 'library_id', None), 'cover': None,
-                'owner_id': getattr(t, 'owner_id', None),
-                'updated_at': str(getattr(t, 'updated_at', None) or t.created_at),
+                'type': 'text', 'id': t.id, 'title': title,
+                'library_id': ri.library_id if ri else None, 'cover': None,
+                'owner_id': None,
+                'updated_at': str(ri.updated_at) if ri and ri.updated_at else str(t.id),
             })
 
     items.sort(key=lambda x: x['updated_at'], reverse=True)

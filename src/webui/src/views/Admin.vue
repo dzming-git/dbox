@@ -3900,6 +3900,31 @@ onUnmounted(() => {
   width: 240px;
 }
 
+.search-select {
+  padding: 8px 36px 8px 16px;
+  border: 1px solid #2d2d3f;
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: #2a2a38;
+  color: #e0e0e0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0b0' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+
+.search-select:hover {
+  background-color: #32323f;
+}
+
+.search-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
 .data-table-container {
   background: #23232f;
   border-radius: 12px;
