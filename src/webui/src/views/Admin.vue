@@ -565,6 +565,99 @@ const fetchLibraries = async () => {
   }
 }
 
+// ============ 资源管理（视频/图集/帖子/文本 统一列表，管理员高权限） ============
+const resources = ref<any[]>([])
+const resourceSearch = ref('')
+const resourceTypeFilter = ref('')
+const resourcePage = ref(1)
+const resourceTotal = ref(0)
+const resourceLoading = ref(false)
+const editingResource = ref<any>(null)
+const showResourceEditModal = ref(false)
+const RESOURCE_PAGE_SIZE = 20
+
+const libraryName = (libId: any) => {
+  if (libId === null || libId === undefined || libId === '') return '-'
+  const lib = libraries.value.find((l: any) => l.id === Number(libId))
+  return lib ? lib.name : `#${libId}`
+}
+const resourceTypeLabel = (t: string) => ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
+
+const fetchResources = async (resetPage = true) => {
+  if (resetPage) resourcePage.value = 1
+  resourceLoading.value = true
+  try {
+    const params: any = { limit: RESOURCE_PAGE_SIZE, offset: (resourcePage.value - 1) * RESOURCE_PAGE_SIZE }
+    if (resourceSearch.value.trim()) params.search = resourceSearch.value.trim()
+    if (resourceTypeFilter.value) params.type = resourceTypeFilter.value
+    if (resourceLibraryFilter.value !== '') params.library_id = resourceLibraryFilter.value
+    const res = await api.get('/api/admin/resources', { params }) as any
+    if (res.success) {
+      resources.value = res.items || []
+      resourceTotal.value = res.total || 0
+    }
+  } catch (e) {
+    console.error('加载资源列表失败:', e)
+  } finally {
+    resourceLoading.value = false
+  }
+}
+
+const editResource = (item: any) => {
+  // 帖子/文本需先拉取完整内容用于编辑
+  const r = { ...item }
+  if (item.type === 'post' || item.type === 'text') {
+    api.get(`/api/${item.type === 'post' ? 'posts' : 'texts'}/${item.id}`)
+      .then((res: any) => {
+        const full = res.data || res
+        r.content = full.content || ''
+        r.summary = full.summary || ''
+        r.body = full.body || ''
+        editingResource.value = r
+        showResourceEditModal.value = true
+      })
+      .catch(() => { editingResource.value = r; showResourceEditModal.value = true })
+  } else {
+    editingResource.value = r
+    showResourceEditModal.value = true
+  }
+}
+
+const saveResourceEdit = async () => {
+  const r = editingResource.value
+  if (!r) return
+  try {
+    const payload: any = { title: r.title }
+    if (r.type === 'post') payload.content = r.content
+    if (r.type === 'text') { payload.summary = r.summary; payload.body = r.body }
+    const res = await api.put(`/api/admin/resources/${r.type}/${r.id}`, payload) as any
+    if (res.success) {
+      showToast('保存成功')
+      showResourceEditModal.value = false
+      fetchResources(false)
+    } else {
+      showToast(res.message || '保存失败')
+    }
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || e?.message || '保存失败')
+  }
+}
+
+const deleteResource = async (item: any) => {
+  if (!confirm(`确定删除该${resourceTypeLabel(item.type)}「${item.title}」？此操作不可恢复。`)) return
+  try {
+    const res = await api.delete(`/api/admin/resources/${item.type}/${item.id}`) as any
+    if (res.success) {
+      showToast('删除成功')
+      fetchResources(false)
+    } else {
+      showToast(res.message || '删除失败')
+    }
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || e?.message || '删除失败')
+  }
+}
+
 // 创建资源库
 const createLibrary = async () => {
   if (!libraryForm.value.name.trim()) {
@@ -1514,6 +1607,7 @@ const switchTab = (tab: string) => {
     fetchLibraries()
     fetchUserGroups()
   }
+  if (tab === 'resources') { fetchLibraries(); fetchResources() }
   // 离开服务管理页时停止轮询
   if (tab !== 'services') stopServicePolling()
 }
@@ -1530,6 +1624,7 @@ onMounted(() => {
   else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); if (userStore.isAdmin) fetchUserGroups() }
+  else if (restoredTab === 'resources') { fetchLibraries(); fetchResources() }
 })
 
 // 组件卸载时停止轮询
@@ -1566,6 +1661,12 @@ onUnmounted(() => {
           @click="switchTab('videos')"
           v-if="!isResourceAdminOnly"
         >🎬 视频管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'resources' }"
+          @click="switchTab('resources')"
+          v-if="!isResourceAdminOnly"
+        >🗂️ 资源管理</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'trash' }"
@@ -2115,6 +2216,69 @@ onUnmounted(() => {
 
       <!-- 系统配置标签页 -->
       <AdminConfig v-if="activeTab === 'config'" />
+
+      <!-- 资源管理标签页（视频/图集/帖子/文本 统一列表，管理员高权限） -->
+      <div v-if="activeTab === 'resources'" class="tab-content">
+        <div class="section-header">
+          <h3>资源管理 <span class="muted">（视频 · 图集 · 帖子 · 文本，管理员可编辑/删除任意资源）</span></h3>
+          <div class="section-actions">
+            <select v-model="resourceTypeFilter" @change="fetchResources()" class="search-select">
+              <option value="">全部类型</option>
+              <option value="video">视频</option>
+              <option value="gallery">图集</option>
+              <option value="post">帖子</option>
+              <option value="text">文本</option>
+            </select>
+            <select v-model="resourceLibraryFilter" @change="fetchResources()" class="search-select">
+              <option value="">全部资源库</option>
+              <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
+            </select>
+            <input
+              v-model="resourceSearch"
+              @keyup.enter="fetchResources()"
+              type="text"
+              placeholder="搜索标题..."
+              class="search-input"
+            />
+            <button class="action-btn" @click="fetchResources()">搜索</button>
+          </div>
+        </div>
+
+        <div v-if="resourceLoading" class="loading">加载中...</div>
+        <table v-else class="data-table">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>标题</th>
+              <th>资源库</th>
+              <th>更新时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in resources" :key="r.type + ':' + r.id">
+              <td><span class="type-badge" :class="'type-' + r.type">{{ resourceTypeLabel(r.type) }}</span></td>
+              <td class="res-title">
+                <img v-if="r.cover" :src="r.cover" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
+                <span :title="r.title">{{ r.title }}</span>
+              </td>
+              <td>{{ libraryName(r.library_id) }}</td>
+              <td>{{ formatDate(r.updated_at) }}</td>
+              <td class="row-actions">
+                <button class="icon-btn" @click="editResource(r)" title="编辑">✏️</button>
+                <button class="icon-btn danger" @click="deleteResource(r)" title="删除">🗑️</button>
+              </td>
+            </tr>
+            <tr v-if="resources.length === 0"><td colspan="5" class="empty">暂无资源</td></tr>
+          </tbody>
+        </table>
+
+        <div v-if="resourceTotal > RESOURCE_PAGE_SIZE" class="pagination">
+          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage--; fetchResources(false)">上一页</button>
+          <span class="page-info">第 {{ resourcePage }} / {{ Math.ceil(resourceTotal / RESOURCE_PAGE_SIZE) }} 页（共 {{ resourceTotal }} 条）</span>
+          <button class="page-btn" :disabled="resourcePage >= Math.ceil(resourceTotal / RESOURCE_PAGE_SIZE)" @click="resourcePage++; fetchResources(false)">下一页</button>
+        </div>
+      </div>
 
       <!-- 外部脚本标签页 -->
       <AdminScripts v-if="activeTab === 'scripts'" />
@@ -2701,6 +2865,39 @@ onUnmounted(() => {
         <div class="modal-footer">
           <button class="action-btn" @click="showVideoEditModal = false">取消</button>
           <button class="action-btn primary" @click="saveVideoEdit">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 资源编辑弹窗（统一：视频/图集/帖子/文本） -->
+    <div v-if="showResourceEditModal" class="modal-overlay" @click="showResourceEditModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>编辑{{ editingResource ? resourceTypeLabel(editingResource.type) : '' }}（管理员）</h3>
+          <button class="close-btn" @click="showResourceEditModal = false">×</button>
+        </div>
+        <div class="modal-body" v-if="editingResource">
+          <div class="form-group">
+            <label>标题</label>
+            <input v-model="editingResource.title" class="form-input" />
+          </div>
+          <div class="form-group" v-if="editingResource.type === 'post'">
+            <label>正文</label>
+            <textarea v-model="editingResource.content" class="form-input" rows="8"></textarea>
+          </div>
+          <div class="form-group" v-if="editingResource.type === 'text'">
+            <label>简介</label>
+            <input v-model="editingResource.summary" class="form-input" />
+            <label>正文</label>
+            <textarea v-model="editingResource.body" class="form-input" rows="8"></textarea>
+          </div>
+          <div class="form-group" v-if="editingResource.type === 'video' || editingResource.type === 'gallery'">
+            <p class="muted">该资源类型仅支持修改标题（其余字段由存储与元数据决定）。</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" @click="showResourceEditModal = false">取消</button>
+          <button class="action-btn primary" @click="saveResourceEdit">保存</button>
         </div>
       </div>
     </div>
@@ -3716,6 +3913,24 @@ onUnmounted(() => {
   min-width: 600px;  /* 确保小屏幕下表格不会被压缩 */
   border-collapse: collapse;
 }
+
+/* 资源管理标签页 */
+.type-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+.type-badge.type-video { background: #2196F3; }
+.type-badge.type-gallery { background: #9C27B0; }
+.type-badge.type-post { background: #FF9800; }
+.type-badge.type-text { background: #4CAF50; }
+.res-title { display: flex; align-items: center; gap: 10px; max-width: 420px; }
+.res-thumb { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; background: #2a2a2a; flex-shrink: 0; }
+.res-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted { color: #8b949e; font-weight: 400; font-size: 13px; }
 
 .data-table th,
 .data-table td {

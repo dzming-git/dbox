@@ -2710,6 +2710,171 @@ def batch_update_priority():
         log.debug('ERROR', f"批量更新优先级失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+# ============ 统一管理界面：资源列表（视频/图集/帖子/文本，管理员高权限） ============
+@app.route('/api/admin/resources', methods=['GET'])
+@admin_required
+def admin_list_resources():
+    """统一管理界面资源列表：涵盖视频/图集/帖子/文本，支持类型筛选、搜索、分页。管理员拥有完全编辑权限。"""
+    rtype = (request.args.get('type') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    library_id = request.args.get('library_id', '')
+    try:
+        limit = int(request.args.get('limit', 20))
+    except (TypeError, ValueError):
+        limit = 20
+    try:
+        offset = int(request.args.get('offset', 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    lib_filter = None
+    if library_id not in ('', None):
+        try:
+            lib_filter = int(library_id)
+        except (TypeError, ValueError):
+            lib_filter = None
+
+    def _like(col):
+        return col.like(f'%{search}%') if search else True
+
+    items = []
+
+    if rtype in ('', 'video'):
+        q = Video.query
+        if search:
+            q = q.filter(_like(Video.title))
+        if lib_filter is not None:
+            q = q.filter(Video.library_id == lib_filter)
+        for v in q.order_by(Video.created_at.desc()).all():
+            items.append({
+                'type': 'video', 'id': v.hash, 'title': v.title,
+                'library_id': v.library_id, 'cover': v.thumbnail,
+                'owner_id': getattr(v, 'owner_id', None),
+                'updated_at': str(getattr(v, 'updated_at', None) or v.created_at),
+            })
+
+    if rtype in ('', 'gallery'):
+        q = Gallery.query
+        if search:
+            q = q.filter(_like(Gallery.title))
+        if lib_filter is not None:
+            q = q.filter(Gallery.library_id == lib_filter)
+        for g in q.order_by(Gallery.created_at.desc()).all():
+            items.append({
+                'type': 'gallery', 'id': g.hash, 'title': g.title,
+                'library_id': g.library_id, 'cover': g.cover_url,
+                'owner_id': getattr(g, 'owner_id', None),
+                'updated_at': str(getattr(g, 'updated_at', None) or g.created_at),
+            })
+
+    if rtype in ('', 'post'):
+        q = Post.query
+        if search:
+            q = q.filter(_like(Post.title))
+        for p in q.order_by(Post.created_at.desc()).all():
+            items.append({
+                'type': 'post', 'id': p.id, 'title': p.title or '未命名帖子',
+                'library_id': getattr(p, 'library_id', None), 'cover': p.cover_url,
+                'owner_id': p.owner_id,
+                'updated_at': str(getattr(p, 'updated_at', None) or p.created_at),
+            })
+
+    if rtype in ('', 'text'):
+        q = Text.query
+        if search:
+            q = q.filter(_like(Text.title))
+        for t in q.order_by(Text.created_at.desc()).all():
+            items.append({
+                'type': 'text', 'id': t.id, 'title': t.title or '未命名文本',
+                'library_id': getattr(t, 'library_id', None), 'cover': None,
+                'owner_id': getattr(t, 'owner_id', None),
+                'updated_at': str(getattr(t, 'updated_at', None) or t.created_at),
+            })
+
+    items.sort(key=lambda x: x['updated_at'], reverse=True)
+    total = len(items)
+    page = items[offset:offset + limit]
+    return jsonify({'success': True, 'items': page, 'total': total})
+
+
+@app.route('/api/admin/resources/<rtype>/<rid>', methods=['PUT'])
+@admin_required
+def admin_update_resource(rtype, rid):
+    """管理员更新任意资源（高权限，不受归属限制）。支持标题；帖子可改正文；文本可改标题/简介/正文。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        if rtype == 'video':
+            obj = Video.query.filter_by(hash=rid).first()
+            if not obj:
+                return jsonify({'success': False, 'message': '视频不存在'}), 404
+            if 'title' in data:
+                obj.title = data['title']
+        elif rtype == 'gallery':
+            obj = Gallery.query.filter_by(hash=rid).first()
+            if not obj:
+                return jsonify({'success': False, 'message': '图集不存在'}), 404
+            if 'title' in data:
+                obj.title = data['title']
+        elif rtype == 'post':
+            obj = Post.query.get(int(rid))
+            if not obj:
+                return jsonify({'success': False, 'message': '帖子不存在'}), 404
+            if 'title' in data:
+                obj.title = data['title']
+            if 'content' in data:
+                obj.content = data['content']
+        elif rtype == 'text':
+            obj = Text.query.get(int(rid))
+            if not obj:
+                return jsonify({'success': False, 'message': '文本不存在'}), 404
+            if 'title' in data:
+                obj.title = data['title']
+            if 'summary' in data:
+                obj.summary = data['summary']
+            if 'body' in data:
+                obj.body = data['body']
+        else:
+            return jsonify({'success': False, 'message': '未知资源类型'}), 400
+        db.session.commit()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"管理员更新资源失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/admin/resources/<rtype>/<rid>', methods=['DELETE'])
+@admin_required
+def admin_delete_resource(rtype, rid):
+    """管理员删除任意资源（高权限）。"""
+    try:
+        if rtype == 'video':
+            obj = Video.query.filter_by(hash=rid).first()
+            if obj:
+                db.session.delete(obj)
+        elif rtype == 'gallery':
+            obj = Gallery.query.filter_by(hash=rid).first()
+            if obj:
+                db.session.delete(obj)
+        elif rtype == 'post':
+            obj = Post.query.get(int(rid))
+            if obj:
+                db.session.delete(obj)
+        elif rtype == 'text':
+            obj = Text.query.get(int(rid))
+            if obj:
+                db.session.delete(obj)
+        else:
+            return jsonify({'success': False, 'message': '未知资源类型'}), 400
+        db.session.commit()
+        return jsonify({'success': True, 'message': '删除成功'})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"管理员删除资源失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 # --- 缩略图服务 ---
 
 @app.route('/thumbnail/<video_hash>')
