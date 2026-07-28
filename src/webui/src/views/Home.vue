@@ -6,6 +6,7 @@ import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
+import WatchLaterButton from '../components/WatchLaterButton.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Gallerys from './Gallerys.vue'
@@ -892,39 +893,14 @@ const onListImgError = (e: Event) => {
                   <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
                 </svg>
               </button>
-              <button
+              <WatchLaterButton
                 v-if="!editMode"
-                class="list-action-btn like"
-                :class="{ active: video.is_liked }"
-                @click.stop="videoStore.likeVideo(video.hash)"
-                :title="video.is_liked ? '取消点赞' : '点赞'"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" :fill="video.is_liked ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-                  <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
-                </svg>
-              </button>
-              <button
-                v-if="!editMode"
-                class="list-action-btn favorite"
-                :class="{ active: video.is_favorited }"
-                @click.stop="videoStore.favoriteVideo(video.hash)"
-                :title="video.is_favorited ? '取消收藏' : '收藏'"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" :fill="video.is_favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-                </svg>
-              </button>
-              <button
-                v-if="!editMode"
-                class="list-action-btn dislike"
-                :class="{ active: video.disliked }"
-                @click.stop="videoStore.dislikeVideo(video.hash)"
-                :title="video.disliked ? '取消屏蔽' : '我不喜欢'"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
-                </svg>
-              </button>
+                variant="bar"
+                type="video"
+                :id="video.hash"
+                :title="video.title"
+                :thumbnail="video.thumbnail"
+              />
             </div>
           </div>
         </div>
