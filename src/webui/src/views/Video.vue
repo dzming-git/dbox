@@ -195,7 +195,14 @@ onMounted(async () => {
   // 先检查是否是共享链接访问
   await checkSharedLink()
   await loadVideo()
+  document.addEventListener('click', onDocClickCloseMenu)
 })
+
+function onDocClickCloseMenu(e: Event) {
+  if (!moreMenuOpen.value) return
+  const wrap = document.querySelector('.more-menu-wrap')
+  if (wrap && !wrap.contains(e.target as Node)) moreMenuOpen.value = false
+}
 
 // 切换视频（含合集内上一集/下一集）时重新加载
 watch(videoHash, async () => {
@@ -766,6 +773,7 @@ const copyShareUrl = () => {
 // 页面卸载时停止同步
 onUnmounted(() => {
   stopSyncLoop()
+  document.removeEventListener('click', onDocClickCloseMenu)
 })
 
 // 打开编辑抽屉（管理员可编辑标题/简介/优先级/资源库/标签）
@@ -783,6 +791,7 @@ const onEditSaved = (updated: any) => {
 
 // 资源隐藏 / 显示切换（仅管理员）：隐藏后不出现在视频库列表，仅在帖子流可见
 const togglingHidden = ref(false)
+const moreMenuOpen = ref(false)
 const isHidden = computed(() => !!video.value?.hidden)
 async function toggleHidden() {
   if (!video.value || togglingHidden.value) return
@@ -1550,33 +1559,49 @@ const handleDelete = async () => {
         <!-- 查看模式 -->
         <div class="video-title-row">
           <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
-          <button
-            v-if="canManageVideo"
-            class="edit-video-btn"
-            @click="openEditDrawer"
-            title="编辑视频信息"
-            data-testid="edit-video-button"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-            编辑
-          </button>
-          <button
-            v-if="isAdmin"
-            class="edit-video-btn hide-toggle-btn"
-            @click="toggleHidden"
-            :title="isHidden ? '资源已隐藏，点击使其在视频库显示' : '资源可见，点击隐藏（仅帖子流可见）'"
-            data-testid="toggle-hidden-button"
-            :disabled="togglingHidden"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-              <line x1="1" y1="1" x2="23" y2="23"/>
-            </svg>
-            {{ isHidden ? '已隐藏' : '显示中' }}
-          </button>
+          <div class="title-actions">
+            <button
+              v-if="canManageVideo"
+              class="edit-video-btn"
+              @click="openEditDrawer"
+              title="编辑视频信息"
+              data-testid="edit-video-button"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              编辑
+            </button>
+            <div v-if="isAdmin" class="more-menu-wrap">
+              <button
+                class="edit-video-btn more-menu-btn"
+                @click="moreMenuOpen = !moreMenuOpen"
+                title="更多操作"
+                :aria-expanded="moreMenuOpen"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <circle cx="5" cy="12" r="1.6"/>
+                  <circle cx="12" cy="12" r="1.6"/>
+                  <circle cx="19" cy="12" r="1.6"/>
+                </svg>
+              </button>
+              <div v-if="moreMenuOpen" class="more-menu" @click="moreMenuOpen = false">
+                <button
+                  class="more-menu-item"
+                  @click="toggleHidden"
+                  :disabled="togglingHidden"
+                  data-testid="toggle-hidden-button"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                  {{ isHidden ? '显示资源（在视频库可见）' : '隐藏资源（仅帖子流可见）' }}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="video-meta">
@@ -2421,6 +2446,14 @@ const handleDelete = async () => {
   margin-bottom: 12px;
 }
 
+/* 标题右侧操作区：编辑按钮 + “更多”菜单，整体靠右对齐 */
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* 标题旁的“编辑”按钮（管理员） */
 .edit-video-btn {
   display: inline-flex;
@@ -2442,6 +2475,39 @@ const handleDelete = async () => {
   color: #fff;
   background: #2d2d2d;
 }
+
+/* “更多”菜单（收纳不常用操作：显示/隐藏） */
+.more-menu-wrap { position: relative; flex-shrink: 0; }
+.more-menu-btn { padding: 7px 10px; }
+.more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: #1f1f1f;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  z-index: 50;
+}
+.more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #ddd;
+  font-size: 13px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.more-menu-item:hover { background: #2d2d2d; color: #fff; }
+.more-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
 
 .video-meta {
