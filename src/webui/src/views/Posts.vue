@@ -252,11 +252,11 @@ const formatDate = (s?: string) => {
       <div v-for="d in posts" :key="d.id" class="post-card">
         <div class="post-head">
           <div class="post-head-main" @click="openPost(d)">
-            <h3 class="post-title">{{ d.title || '未命名帖子' }}</h3>
+            <h3 v-if="d.title" class="post-title">{{ d.title }}</h3>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
           <div class="post-ops">
-            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '未命名帖子'" />
+            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || ''" />
           </div>
         </div>
 

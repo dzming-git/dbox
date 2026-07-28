@@ -237,7 +237,7 @@ from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreferenc
 from core.models import FavoriteCollection, CollectionVideo, Gallery
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index, migrate_post_title_nullable
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -319,6 +319,7 @@ with app.app_context():
     migrate_collection_videos_schema()
     migrate_owner_columns()
     migrate_tag_qualifiers()
+    migrate_post_title_nullable()
     init_root_user()
     print("[DEBUG] Database initialized")
 

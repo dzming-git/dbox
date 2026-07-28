@@ -135,7 +135,7 @@ const isWatchLater = computed(() => !!post.value && watchLaterStore.has('post', 
 const toggleWatchLater = () => {
   if (!post.value) return
   const id = String(post.value.id)
-  watchLaterStore.toggle({ type: 'post', id, title: post.value.title || '未命名帖子' })
+  watchLaterStore.toggle({ type: 'post', id, title: post.value.title || '' })
 }
 
 // 删除（仅作者或管理员，列表/卡片已不再提供删除入口）
@@ -175,7 +175,7 @@ const removePost = async () => {
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="post" class="detail-card">
-      <h1 class="detail-title">{{ post.title || '未命名帖子' }}</h1>
+      <h1 v-if="post.title" class="detail-title">{{ post.title }}</h1>
       <div class="detail-meta">发布于 {{ formatDate(post.created_at) }} · 更新于 {{ formatDate(post.updated_at) }}</div>
 
       <div v-if="post.content" class="detail-content">

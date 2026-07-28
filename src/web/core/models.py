@@ -392,7 +392,8 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
     display_modes: 可选 {resource_index_id: 'link'|'embed'}，缺省按 'embed' 处理。
     """
-    d = Post(title=title or '未命名帖子', content=content, owner_id=user_id)
+    # 帖子标题可选：用户不填则存空，前端展示时根本不渲染标题区域
+    d = Post(title=title or None, content=content, owner_id=user_id)
     db.session.add(d)
     db.session.flush()
     for i, rid in enumerate(resource_index_ids):
@@ -1459,7 +1460,7 @@ class Post(db.Model):
     """
     __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(300), nullable=False, default='')
+    title = db.Column(db.String(300), nullable=True, default='')
     content = db.Column(db.Text, default='')  # 文字正文
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     library_id = db.Column(db.Integer, db.ForeignKey('resource_libraries.id'), nullable=True)
@@ -1918,6 +1919,55 @@ def migrate_tag_qualifiers():
             conn.commit()
     except Exception as e:
         print(f'[WARN] tag qualifiers 迁移跳过: {e}')
+
+
+def migrate_post_title_nullable():
+    """帖子标题改为可空：支持用户不写标题的帖子（存储 NULL，前端展示时不渲染标题区域）。
+
+    SQLite 不支持直接 ALTER COLUMN 去掉 NOT NULL，采用重建表法，保留全部数据。
+    幂等：仅当 posts.title 仍为 NOT NULL 时执行。
+    """
+    try:
+        with db.engine.connect() as conn:
+            cols = {r[1]: r for r in conn.execute(
+                db.text("PRAGMA table_info(posts)")).fetchall()}
+            if 'title' not in cols:
+                print('[INFO] posts 表不存在，跳过标题可空迁移')
+                return
+            if cols['title'][3] == 0:  # notnull == 0 表示已可空
+                print('[INFO] posts.title 已可空，跳过迁移')
+                return
+            # 重建表：title 改为可空
+            conn.execute(db.text("PRAGMA foreign_keys=OFF"))
+            conn.execute(db.text("BEGIN"))
+            conn.execute(db.text("""
+                CREATE TABLE posts_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    title VARCHAR(300),
+                    content TEXT,
+                    owner_id INTEGER,
+                    library_id INTEGER,
+                    in_trash BOOLEAN,
+                    trashed_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(owner_id) REFERENCES users (id),
+                    FOREIGN KEY(library_id) REFERENCES resource_libraries (id)
+                )
+            """))
+            conn.execute(db.text("""
+                INSERT INTO posts_new (id, title, content, owner_id, library_id,
+                                       in_trash, trashed_at, created_at, updated_at)
+                SELECT id, title, content, owner_id, library_id,
+                       in_trash, trashed_at, created_at, updated_at FROM posts
+            """))
+            conn.execute(db.text("DROP TABLE posts"))
+            conn.execute(db.text("ALTER TABLE posts_new RENAME TO posts"))
+            conn.execute(db.text("COMMIT"))
+            conn.execute(db.text("PRAGMA foreign_keys=ON"))
+            print('[MIGRATE] posts.title 已改为可空')
+    except Exception as e:
+        print(f'[WARN] post title 可空迁移跳过: {e}')
 
 
 
