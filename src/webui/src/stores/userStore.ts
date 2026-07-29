@@ -20,6 +20,7 @@ const getStoredUser = (): User | null => {
 export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(getStoredUser())
   const token = ref<string | null>(localStorage.getItem('token'))
+  const refreshToken = ref<string | null>(localStorage.getItem('refresh_token'))
   
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => 
@@ -53,21 +54,38 @@ export const useUserStore = defineStore('user', () => {
   const logout = () => {
     user.value = null
     token.value = null
+    refreshToken.value = null
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    localStorage.removeItem('refresh_token')
   }
   
-  const setUser = (userData: User, tokenValue: string) => {
+  const setUser = (userData: User, tokenValue: string, refreshTokenValue?: string) => {
     user.value = userData
     token.value = tokenValue
     localStorage.setItem('token', tokenValue)
     localStorage.setItem('user', JSON.stringify(userData))
+    if (refreshTokenValue) {
+      refreshToken.value = refreshTokenValue
+      localStorage.setItem('refresh_token', refreshTokenValue)
+    }
     fetchManageableLibraries()
+  }
+
+  // 仅更新 token（刷新接口成功后调用），避免重置用户信息
+  const setTokens = (accessToken: string, refreshTokenValue?: string) => {
+    token.value = accessToken
+    localStorage.setItem('token', accessToken)
+    if (refreshTokenValue) {
+      refreshToken.value = refreshTokenValue
+      localStorage.setItem('refresh_token', refreshTokenValue)
+    }
   }
   
   return {
     user,
     token,
+    refreshToken,
     isLoggedIn,
     isAdmin,
     isRoot,
@@ -76,6 +94,7 @@ export const useUserStore = defineStore('user', () => {
     login,
     logout,
     setUser,
+    setTokens,
     fetchManageableLibraries
   }
 })

@@ -26,18 +26,103 @@ api.interceptors.request.use(
   error => Promise.reject(error)
 )
 
+// ---- 401 自动刷新 access_token，避免登录态被无故踢出 ----
+// 用 refresh_token 静默换取新 access_token；仅在刷新也失败时才清理并跳登录。
+let isRefreshing = false
+let pendingQueue: Array<(token: string | null) => void> = []
+
+function subscribeTokenRefresh(cb: (token: string | null) => void) {
+  pendingQueue.push(cb)
+}
+function onRefreshed(token: string | null) {
+  pendingQueue.forEach(cb => cb(token))
+  pendingQueue = []
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('refresh_token')
+  if (!refreshToken) return null
+  try {
+    // 注意：用裸 axios 调用，不经过 api 拦截器，避免对刷新接口自身递归触发刷新
+    const resp = await axios.post('/api/v2/auth/refresh', { refresh_token: refreshToken }, {
+      headers: { 'Content-Type': 'application/json' }
+    })
+    const data = resp.data
+    if (data && data.success && data.data && data.data.access_token) {
+      const newToken = data.data.access_token
+      localStorage.setItem('token', newToken)
+      try {
+        const { useUserStore } = await import('../stores/userStore')
+        useUserStore().setTokens(newToken, data.data.refresh_token)
+      } catch {
+        // 忽略 store 未就绪的情况，token 已写入 localStorage
+      }
+      return newToken
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function clearAuthAndRedirect() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('refresh_token')
+  localStorage.removeItem('user')
+  try {
+    const { useUserStore } = await import('../stores/userStore')
+    useUserStore().logout()
+  } catch {
+    // ignore
+  }
+  const currentPath = window.location.pathname + window.location.search
+  if (currentPath !== '/login') {
+    window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+  }
+}
+
 // 响应拦截器
 api.interceptors.response.use(
   response => response.data,
-  error => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      // 获取当前路径，用于登录后跳转回来
-      const currentPath = window.location.pathname + window.location.search
-      const loginUrl = currentPath !== '/login' 
-        ? `/login?redirect=${encodeURIComponent(currentPath)}`
-        : '/login'
-      window.location.href = loginUrl
+  async error => {
+    const original = error.config as any
+    const status = error.response?.status
+    if (status === 401 && original && !original._retry) {
+      const url: string = original.url || ''
+      // 登录/刷新接口本身返回 401：直接清理并跳登录（不再重试，避免死循环）
+      if (url.includes('/api/v2/auth/login') || url.includes('/api/v2/auth/refresh')) {
+        await clearAuthAndRedirect()
+        return Promise.reject(error)
+      }
+      // 已有刷新在进行：排队，等刷新完成后用新 token 重试
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          subscribeTokenRefresh(token => {
+            if (token) {
+              original._retry = true
+              original.headers.Authorization = `Bearer ${token}`
+              resolve(api(original))
+            } else {
+              reject(error)
+            }
+          })
+        })
+      }
+      original._retry = true
+      isRefreshing = true
+      try {
+        const newToken = await refreshAccessToken()
+        if (newToken) {
+          onRefreshed(newToken)
+          original.headers.Authorization = `Bearer ${newToken}`
+          return api(original)
+        }
+        onRefreshed(null)
+        await clearAuthAndRedirect()
+      } finally {
+        isRefreshing = false
+      }
+      return Promise.reject(error)
     }
     return Promise.reject(error)
   }

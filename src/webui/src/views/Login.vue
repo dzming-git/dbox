@@ -45,8 +45,8 @@ const handleLogin = async () => {
     })
 
     if (response.data.success) {
-      // 保存用户信息和token (v2 API 结构: data.user, data.access_token)
-      userStore.setUser(response.data.data.user, response.data.data.access_token)
+      // 保存用户信息和token (v2 API 结构: data.user, data.access_token, data.refresh_token)
+      userStore.setUser(response.data.data.user, response.data.data.access_token, response.data.data.refresh_token)
       
       // 登录成功，跳转到原页面或首页
       const redirect = route.query.redirect as string
