@@ -2775,11 +2775,17 @@ def admin_list_resources():
         if lib_filter is not None:
             q = q.filter(Video.library_id == lib_filter)
         for v in q.order_by(Video.created_at.desc()).all():
+            pres = v.resource_index.presentation() if v.resource_index else {}
             items.append({
                 'type': 'video', 'id': v.hash, 'title': v.title,
                 'library_id': v.library_id, 'cover': v.thumbnail,
                 'owner_id': getattr(v, 'owner_id', None),
                 'updated_at': str(getattr(v, 'updated_at', None) or v.created_at),
+                'file_size': getattr(v, 'file_size', None),
+                'duration': pres.get('duration') or getattr(v, 'duration', None),
+                'width': pres.get('width') or getattr(v, 'width', None),
+                'height': pres.get('height') or getattr(v, 'height', None),
+                'views': getattr(v, 'view_count', None),
             })
 
     if rtype in ('', 'gallery'):
@@ -2789,11 +2795,13 @@ def admin_list_resources():
         if lib_filter is not None:
             q = q.filter(Gallery.library_id == lib_filter)
         for g in q.order_by(Gallery.created_at.desc()).all():
+            pres = g.resource_index.presentation() if g.resource_index else {}
             items.append({
                 'type': 'gallery', 'id': g.hash, 'title': g.title,
                 'library_id': g.library_id, 'cover': g.cover_url,
                 'owner_id': getattr(g, 'owner_id', None),
                 'updated_at': str(getattr(g, 'updated_at', None) or g.created_at),
+                'page_count': getattr(g, 'page_count', None) or pres.get('page_count'),
             })
 
     if rtype in ('', 'post'):
@@ -2806,6 +2814,7 @@ def admin_list_resources():
                 'library_id': getattr(p, 'library_id', None), 'cover': p.cover_url,
                 'owner_id': p.owner_id,
                 'updated_at': str(getattr(p, 'updated_at', None) or p.created_at),
+                'content_length': len((p.content or '') if isinstance(p.content, str) else ''),
             })
 
     if rtype in ('', 'text'):
@@ -2817,11 +2826,13 @@ def admin_list_resources():
             ri = t.resource_index
             pres = ri.presentation() if ri else {}
             title = (pres.get('title') if pres else None) or '未命名文本'
+            body = t.body or ''
             items.append({
                 'type': 'text', 'id': t.id, 'title': title,
                 'library_id': ri.library_id if ri else None, 'cover': None,
                 'owner_id': None,
                 'updated_at': str(ri.updated_at) if ri and ri.updated_at else str(t.id),
+                'char_count': len(body),
             })
 
     items.sort(key=lambda x: x['updated_at'], reverse=True)

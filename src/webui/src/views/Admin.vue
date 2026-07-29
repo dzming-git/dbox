@@ -19,6 +19,7 @@ import {
   getPriorityLabel
 } from '../utils/adminCommon'
 import { useToast } from '../composables/useToast'
+import { withThumbToken } from '../utils/media'
 import AdminLogs from '../admin/AdminLogs.vue'
 import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
@@ -582,6 +583,31 @@ const libraryName = (libId: any) => {
   return lib ? lib.name : `#${libId}`
 }
 const resourceTypeLabel = (t: string) => ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
+
+const formatDuration = (sec: any) => {
+  if (sec === null || sec === undefined || isNaN(Number(sec))) return '-'
+  const s = Math.round(Number(sec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = s % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`
+}
+const formatResolution = (w: any, h: any) => {
+  if (!w || !h) return '-'
+  return `${w}×${h}`
+}
+const formatCount = (n: any) => (n === null || n === undefined ? '-' : String(n))
+
+// 空状态行的跨列数：随当前子标签动态计算（标题 + 各类型独有列 + 资源库 + 更新时间 + 操作）
+const resourceColspan = computed(() => {
+  let base = 1 + 1 + 1 + 1 // 标题 + 资源库 + 更新时间 + 操作
+  if (resourceTypeFilter.value === '' || resourceTypeFilter.value === 'video') base += 3 // 大小+时长+分辨率
+  if (resourceTypeFilter.value === 'gallery') base += 1 // 图片个数
+  if (resourceTypeFilter.value === 'post') base += 1 // 正文字数
+  if (resourceTypeFilter.value === 'text') base += 1 // 字数
+  return base
+})
 
 const fetchResources = async (resetPage = true) => {
   if (resetPage) resourcePage.value = 1
@@ -1599,7 +1625,6 @@ const syncStatusColor = computed(() => {
 // ============ 切换标签页 ============
 const switchTab = (tab: string) => {
   activeTab.value = tab
-  if (tab === 'videos') { fetchLibraries(); fetchVideos() }
   if (tab === 'trash') { loadTrash() }
   if (tab === 'thumbnail') fetchThumbnailConfig()
   if (tab === 'services') { fetchServices(); startServicePolling() }
@@ -1620,8 +1645,7 @@ onMounted(() => {
   loadHotStats()
   // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
   const restoredTab = activeTab.value
-  if (restoredTab === 'videos') { fetchLibraries(); fetchVideos() }
-  else if (restoredTab === 'thumbnail') fetchThumbnailConfig()
+  if (restoredTab === 'thumbnail') fetchThumbnailConfig()
   else if (restoredTab === 'services') { fetchServices(); startServicePolling() }
   else if (restoredTab === 'libraries') { fetchLibraries(); if (userStore.isAdmin) fetchUserGroups() }
   else if (restoredTab === 'resources') { fetchLibraries(); fetchResources() }
@@ -1655,12 +1679,6 @@ onUnmounted(() => {
           @click="switchTab('dashboard')"
           v-if="!isResourceAdminOnly"
         >📊 仪表板</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'videos' }"
-          @click="switchTab('videos')"
-          v-if="!isResourceAdminOnly"
-        >🎬 视频管理</button>
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'resources' }"
@@ -2217,18 +2235,11 @@ onUnmounted(() => {
       <!-- 系统配置标签页 -->
       <AdminConfig v-if="activeTab === 'config'" />
 
-      <!-- 资源管理标签页（视频/图集/帖子/文本 统一列表，管理员高权限） -->
+      <!-- 资源管理标签页（视频/图集/帖子/文本 按子标签切换，各自展示独有属性，管理员可编辑/删除任意资源） -->
       <div v-if="activeTab === 'resources'" class="tab-content">
         <div class="section-header">
-          <h3>资源管理 <span class="muted">（视频 · 图集 · 帖子 · 文本，管理员可编辑/删除任意资源）</span></h3>
+          <h3>资源管理 <span class="muted">（按类型切换，管理员可编辑/删除任意资源）</span></h3>
           <div class="section-actions">
-            <select v-model="resourceTypeFilter" @change="fetchResources()" class="search-select">
-              <option value="">全部类型</option>
-              <option value="video">视频</option>
-              <option value="gallery">图集</option>
-              <option value="post">帖子</option>
-              <option value="text">文本</option>
-            </select>
             <select v-model="resourceLibraryFilter" @change="fetchResources()" class="search-select">
               <option value="">全部资源库</option>
               <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
@@ -2244,12 +2255,50 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- 资源类型子标签（按钮切换） -->
+        <div class="subtab-group">
+          <button
+            class="subtab-btn"
+            :class="{ active: resourceTypeFilter === '' }"
+            @click="resourceTypeFilter = ''; fetchResources()"
+          >全部</button>
+          <button
+            class="subtab-btn"
+            :class="{ active: resourceTypeFilter === 'video' }"
+            @click="resourceTypeFilter = 'video'; fetchResources()"
+          >🎬 视频</button>
+          <button
+            class="subtab-btn"
+            :class="{ active: resourceTypeFilter === 'gallery' }"
+            @click="resourceTypeFilter = 'gallery'; fetchResources()"
+          >🖼️ 图集</button>
+          <button
+            class="subtab-btn"
+            :class="{ active: resourceTypeFilter === 'post' }"
+            @click="resourceTypeFilter = 'post'; fetchResources()"
+          >📝 帖子</button>
+          <button
+            class="subtab-btn"
+            :class="{ active: resourceTypeFilter === 'text' }"
+            @click="resourceTypeFilter = 'text'; fetchResources()"
+          >📄 文本</button>
+        </div>
+
         <div v-if="resourceLoading" class="loading">加载中...</div>
         <table v-else class="data-table">
           <thead>
             <tr>
-              <th>类型</th>
               <th>标题</th>
+              <!-- 视频独有属性 -->
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">大小</th>
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">时长</th>
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">分辨率</th>
+              <!-- 图集独有属性 -->
+              <th v-if="resourceTypeFilter === 'gallery'">图片个数</th>
+              <!-- 帖子独有属性 -->
+              <th v-if="resourceTypeFilter === 'post'">正文字数</th>
+              <!-- 文本独有属性 -->
+              <th v-if="resourceTypeFilter === 'text'">字数</th>
               <th>资源库</th>
               <th>更新时间</th>
               <th>操作</th>
@@ -2257,11 +2306,20 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="r in resources" :key="r.type + ':' + r.id">
-              <td><span class="type-badge" :class="'type-' + r.type">{{ resourceTypeLabel(r.type) }}</span></td>
               <td class="res-title">
-                <img v-if="r.cover" :src="r.cover" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
+                <img v-if="r.cover" :src="withThumbToken(r.cover)" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
                 <span :title="r.title">{{ r.title }}</span>
               </td>
+              <!-- 视频独有属性 -->
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatSize(r.file_size) }}</td>
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatDuration(r.duration) }}</td>
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatResolution(r.width, r.height) }}</td>
+              <!-- 图集独有属性 -->
+              <td v-if="resourceTypeFilter === 'gallery'">{{ formatCount(r.page_count) }}</td>
+              <!-- 帖子独有属性 -->
+              <td v-if="resourceTypeFilter === 'post'">{{ formatCount(r.content_length) }}</td>
+              <!-- 文本独有属性 -->
+              <td v-if="resourceTypeFilter === 'text'">{{ formatCount(r.char_count) }}</td>
               <td>{{ libraryName(r.library_id) }}</td>
               <td>{{ formatDate(r.updated_at) }}</td>
               <td class="row-actions">
@@ -2269,7 +2327,7 @@ onUnmounted(() => {
                 <button class="icon-btn danger" @click="deleteResource(r)" title="删除">🗑️</button>
               </td>
             </tr>
-            <tr v-if="resources.length === 0"><td colspan="5" class="empty">暂无资源</td></tr>
+            <tr v-if="resources.length === 0"><td :colspan="resourceColspan" class="empty">暂无资源</td></tr>
           </tbody>
         </table>
 
