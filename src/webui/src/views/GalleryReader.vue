@@ -269,9 +269,20 @@ const toggleControls = () => {
   if (immersive.value) controlsVisible.value = !controlsVisible.value
 }
 
-const interact = (type: 'like' | 'favorite' | 'dislike') => {
+const interact = async (type: 'like' | 'favorite' | 'dislike') => {
   if (!gallery.value) return
-  galleryStore.interact(gallery.value.hash, type)
+  const res: any = await galleryStore.interact(gallery.value.hash, type)
+  // store 只更新 galleries 数组中的副本，详情页本地对象需同步刷新
+  if (res && res.success) {
+    gallery.value = {
+      ...gallery.value,
+      is_liked: type === 'like' ? res.active : gallery.value.is_liked,
+      is_favorited: type === 'favorite' ? res.active : gallery.value.is_favorited,
+      is_disliked: type === 'dislike' ? res.active : gallery.value.is_disliked,
+      like_count: type === 'like' ? res.like_count : gallery.value.like_count,
+      favorite_count: type === 'favorite' ? res.favorite_count : gallery.value.favorite_count,
+    }
+  }
 }
 
 const isWatchLater = computed(() => !!gallery.value && watchLaterStore.has('gallery', gallery.value.hash))
