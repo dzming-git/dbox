@@ -599,9 +599,29 @@ const formatResolution = (w: any, h: any) => {
 }
 const formatCount = (n: any) => (n === null || n === undefined ? '-' : String(n))
 
-// 空状态行的跨列数：随当前子标签动态计算（标题 + 各类型独有列 + 资源库 + 更新时间 + 操作）
+// 资源类型图标（用于资源管理列表的行首标识）
+const typeIcon = (t: string) => {
+  switch (t) {
+    case 'video': return '🎬'
+    case 'gallery': return '🖼️'
+    case 'post': return '📝'
+    case 'text': return '📄'
+    default: return '📦'
+  }
+}
+const typeLabel = (t: string) => {
+  switch (t) {
+    case 'video': return '视频'
+    case 'gallery': return '图集'
+    case 'post': return '帖子'
+    case 'text': return '文本'
+    default: return '资源'
+  }
+}
+
+// 空状态行的跨列数：随当前子标签动态计算（类型 + 标题 + 各类型独有列 + 资源库 + 更新时间 + 操作）
 const resourceColspan = computed(() => {
-  let base = 1 + 1 + 1 + 1 // 标题 + 资源库 + 更新时间 + 操作
+  let base = 1 + 1 + 1 + 1 + 1 // 类型 + 标题 + 资源库 + 更新时间 + 操作
   if (resourceTypeFilter.value === '' || resourceTypeFilter.value === 'video') base += 3 // 大小+时长+分辨率
   if (resourceTypeFilter.value === 'gallery') base += 1 // 图片个数
   if (resourceTypeFilter.value === 'post') base += 1 // 正文字数
@@ -2288,6 +2308,7 @@ onUnmounted(() => {
         <table v-else class="data-table">
           <thead>
             <tr>
+              <th>类型</th>
               <th>标题</th>
               <!-- 视频独有属性 -->
               <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">大小</th>
@@ -2306,6 +2327,11 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="r in resources" :key="r.type + ':' + r.id">
+              <td class="res-type">
+                <span class="type-badge" :class="'type-' + r.type">
+                  <span class="type-badge-icon">{{ typeIcon(r.type) }}</span>{{ typeLabel(r.type) }}
+                </span>
+              </td>
               <td class="res-title">
                 <img v-if="r.cover" :src="withThumbToken(r.cover)" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
                 <span :title="r.title">{{ r.title }}</span>
@@ -4010,6 +4036,8 @@ onUnmounted(() => {
 .type-badge.type-gallery { background: #9C27B0; }
 .type-badge.type-post { background: #FF9800; }
 .type-badge.type-text { background: #4CAF50; }
+.type-badge-icon { margin-right: 4px; }
+.res-type { white-space: nowrap; }
 .res-title { display: flex; align-items: center; gap: 10px; max-width: 420px; }
 .res-thumb { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; background: #2a2a2a; flex-shrink: 0; }
 .res-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
