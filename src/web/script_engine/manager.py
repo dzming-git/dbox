@@ -560,7 +560,7 @@ class ScriptJobManager:
                     from core.models import create_post
                     for gk, g in post_groups.items():
                         if g['ids']:
-                            d = create_post(g.get('title') or '脚本生成的帖子',
+                            d = create_post(g.get('title') or '',
                                             g.get('content'), g['ids'], user_id=owner_id)
                             self._append_log(job_id, 'info',
                                              f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
