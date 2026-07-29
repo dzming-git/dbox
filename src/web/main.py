@@ -6006,6 +6006,13 @@ def delete_post(did):
         return jsonify({'error': '无权删除'}), 403
     data = request.get_json(force=True, silent=True) or {}
     delete_resources = bool(data.get('delete_resources', False))
+    # 可指定仅删除部分资源（资源索引 id 列表）；不传则按 delete_resources 全量判断
+    selected_ids = data.get('resource_index_ids')
+    if selected_ids is not None:
+        try:
+            selected_ids = [int(x) for x in selected_ids]
+        except (TypeError, ValueError):
+            selected_ids = []
 
     # 收集关联的资源索引 id（用于可选的连带删除）
     ri_ids = [r.resource_index_id for r in d.refs]
@@ -6018,6 +6025,9 @@ def delete_post(did):
     deleted_resources = []
     if delete_resources:
         for rid in ri_ids:
+            # 用户指定了资源子集时，仅处理被勾选的资源
+            if selected_ids is not None and rid not in selected_ids:
+                continue
             ri = ResourceIndex.query.get(rid)
             if not ri:
                 continue

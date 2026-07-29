@@ -489,7 +489,7 @@ export const postApi = {
     api.post('/api/posts', data),
   update: (id: number, data: any) =>
     api.put(`/api/posts/${id}`, data),
-  remove: (id: number, data?: { delete_resources?: boolean }) =>
+  remove: (id: number, data?: { delete_resources?: boolean; resource_index_ids?: number[] }) =>
     api.delete(`/api/posts/${id}`, data ? { data } : undefined),
 }
 

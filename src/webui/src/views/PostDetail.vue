@@ -151,17 +151,59 @@ const canManage = computed(() => {
   if (!u || !post.value) return false
   return u.role >= 2 || u.id === post.value.owner_id
 })
+
+// 删除弹卡
+const showDeleteCard = ref(false)
+const deleting = ref(false)
+const deleteResources = ref(false)
+// 关联资源列表（用于勾选是否删除本体）
+const deleteResourceIds = ref<number[]>([])
+
+const associatedResources = computed(() => {
+  if (!post.value) return []
+  return (post.value.refs || []).map((r: any) => ({
+    resource_index_id: r.resource_index_id,
+    kind: r.kind,
+    type: r.type,
+    location: r.location,
+    cover_url: r.cover_url,
+    title: (r.video?.title) || (r.gallery?.title) || (r.presentation?.title) || (r.note) || r.location || '未命名资源',
+  }))
+})
+
+function openDeleteCard() {
+  if (!post.value) return
+  deleteResources.value = false
+  deleteResourceIds.value = []
+  showDeleteCard.value = true
+}
+function closeDeleteCard() {
+  if (deleting.value) return
+  showDeleteCard.value = false
+}
+function toggleResource(id: number) {
+  const i = deleteResourceIds.value.indexOf(id)
+  if (i >= 0) deleteResourceIds.value.splice(i, 1)
+  else deleteResourceIds.value.push(id)
+}
+
 const removePost = async () => {
   if (!post.value) return
-  if (!confirm('确定删除该帖子？此操作不可恢复。')) return
-  const delRes = confirm('是否同时删除该帖子关联的资源（图片/视频）？\n选择「确定」将彻底移除这些资源（仅当资源未被其它帖子或媒体库使用时）；选择「取消」仅删除帖子，资源保留在资源管理界面。')
+  deleting.value = true
   try {
-    const res: any = await postApi.remove(post.value.id, { delete_resources: delRes })
+    const payload: any = { delete_resources: deleteResources.value }
+    if (deleteResources.value && deleteResourceIds.value.length) {
+      payload.resource_index_ids = deleteResourceIds.value
+    }
+    const res: any = await postApi.remove(post.value.id, payload)
     const n = res?.deleted_resources?.length || 0
+    showDeleteCard.value = false
     if (n > 0) alert(`帖子已删除，并移除了 ${n} 个关联资源`)
     router.push('/?mode=mixed')
   } catch (e: any) {
     alert(e?.message || '删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 </script>
@@ -177,7 +219,7 @@ const removePost = async () => {
         </svg>
         <span>{{ isWatchLater ? '已加入稍后再看' : '稍后再看' }}</span>
       </button>
-      <button v-if="canManage" class="delete-detail-btn" @click="removePost" title="删除帖子">
+      <button v-if="canManage" class="delete-detail-btn" @click="openDeleteCard" title="删除帖子">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
         <span>删除</span>
       </button>
@@ -225,6 +267,44 @@ const removePost = async () => {
         </div>
       </div>
       <p v-if="!post.content && (!post.refs || !post.refs.length)" class="no-refs">（暂无内容）</p>
+    </div>
+
+    <!-- 删除确认弹卡 -->
+    <div v-if="showDeleteCard" class="del-mask" @click.self="closeDeleteCard">
+      <div class="del-card">
+        <div class="del-card-head">
+          <span class="del-icon">⚠️</span>
+          <h3>删除帖子</h3>
+        </div>
+        <p class="del-warn">确定要删除该帖子吗？此操作进入回收站，可恢复。</p>
+
+        <label class="del-check-row" :class="{ on: deleteResources }">
+          <input type="checkbox" v-model="deleteResources" />
+          <span class="del-check-text">
+            <strong>同时删除关联资源本体</strong>
+            <small>勾选后会移除该帖子独占、且未被其它帖子或媒体库使用的资源索引（磁盘文件仍保留）。被共享或仍在媒体库中的资源不会被删除。</small>
+          </span>
+        </label>
+
+        <div v-if="deleteResources && associatedResources.length" class="del-res-list">
+          <div v-for="r in associatedResources" :key="r.resource_index_id" class="del-res-item" @click="toggleResource(r.resource_index_id)">
+            <input type="checkbox" :checked="deleteResourceIds.includes(r.resource_index_id)" @click.stop.prevent="toggleResource(r.resource_index_id)" />
+            <img v-if="r.cover_url" :src="withToken(r.cover_url)" class="del-res-cover" />
+            <div class="del-res-info">
+              <div class="del-res-title">{{ r.title }}</div>
+              <div class="del-res-kind">{{ r.type || r.kind }}</div>
+            </div>
+          </div>
+        </div>
+        <p v-else-if="deleteResources && !associatedResources.length" class="del-no-res">该帖子没有关联的资源。</p>
+
+        <div class="del-actions">
+          <button class="del-cancel" @click="closeDeleteCard" :disabled="deleting">取消</button>
+          <button class="del-confirm" @click="removePost" :disabled="deleting">
+            {{ deleting ? '正在删除…' : '确认删除' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="lightbox" class="lightbox" @click.self="closeLightbox">
@@ -278,4 +358,32 @@ const removePost = async () => {
 .lightbox-next { right: 20px; }
 .lightbox-close { position: absolute; top: 20px; right: 24px; background: none; border: none; color: #fff; font-size: 36px; cursor: pointer; }
 .lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #ddd; font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
+.del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
+.del-card { width: 100%; max-width: 440px; background: #1c1c1c; border: 1px solid #333; border-radius: 16px; padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.del-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.del-card-head h3 { margin: 0; font-size: 18px; color: #fff; }
+.del-icon { font-size: 22px; }
+.del-warn { color: #ddd; font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
+.del-check-row { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid #333; border-radius: 10px; cursor: pointer; background: #202020; transition: border-color .15s, background .15s; }
+.del-check-row.on { border-color: rgba(255,179,0,.5); background: rgba(255,179,0,.08); }
+.del-check-row input { margin-top: 3px; width: 16px; height: 16px; accent-color: #ffb300; }
+.del-check-text { display: flex; flex-direction: column; gap: 4px; }
+.del-check-text strong { color: #fff; font-size: 14px; }
+.del-check-text small { color: #999; font-size: 12px; line-height: 1.5; }
+.del-res-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+.del-res-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid #2c2c2c; border-radius: 10px; cursor: pointer; background: #181818; transition: border-color .15s; }
+.del-res-item:hover { border-color: #3a3a3a; }
+.del-res-item input { width: 16px; height: 16px; accent-color: #ffb300; }
+.del-res-cover { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: #000; flex-shrink: 0; }
+.del-res-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.del-res-title { color: #eee; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.del-res-kind { color: #888; font-size: 11px; }
+.del-no-res { color: #888; font-size: 13px; margin: 12px 0 0; }
+.del-actions { display: flex; gap: 12px; margin-top: 20px; }
+.del-cancel, .del-confirm { flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; cursor: pointer; border: 1px solid transparent; }
+.del-cancel { background: #2a2a2a; border-color: #383838; color: #ccc; }
+.del-cancel:hover { background: #333; color: #fff; }
+.del-confirm { background: #b22; color: #fff; border-color: #d33; }
+.del-confirm:hover { background: #d22; }
+.del-confirm:disabled, .del-cancel:disabled { opacity: .55; cursor: not-allowed; }
 </style>
