@@ -2747,6 +2747,9 @@ def admin_list_resources():
     rtype = (request.args.get('type') or '').strip()
     search = (request.args.get('search') or '').strip()
     library_id = request.args.get('library_id', '')
+    # 是否包含被隐藏的资源（隐藏属性位于公共层 resource_index.hidden）。
+    # 管理界面默认显示全部（含已隐藏），便于管理员恢复显示。
+    show_hidden = request.args.get('show_hidden', 'true').lower() != 'false'
     try:
         limit = int(request.args.get('limit', 20))
     except (TypeError, ValueError):
@@ -2775,9 +2778,14 @@ def admin_list_resources():
         if lib_filter is not None:
             q = q.filter(Video.library_id == lib_filter)
         for v in q.order_by(Video.created_at.desc()).all():
-            pres = v.resource_index.presentation() if v.resource_index else {}
+            ri = v.resource_index
+            if not show_hidden and ri and ri.hidden:
+                continue
+            pres = ri.presentation() if ri else {}
             items.append({
                 'type': 'video', 'id': v.hash, 'title': v.title,
+                'resource_index_id': ri.id if ri else None,
+                'hidden': bool(ri.hidden) if ri else False,
                 'library_id': v.library_id, 'cover': v.thumbnail,
                 'owner_id': getattr(v, 'owner_id', None),
                 'updated_at': str(getattr(v, 'updated_at', None) or v.created_at),
@@ -2795,9 +2803,14 @@ def admin_list_resources():
         if lib_filter is not None:
             q = q.filter(Gallery.library_id == lib_filter)
         for g in q.order_by(Gallery.created_at.desc()).all():
-            pres = g.resource_index.presentation() if g.resource_index else {}
+            ri = g.resource_index
+            if not show_hidden and ri and ri.hidden:
+                continue
+            pres = ri.presentation() if ri else {}
             items.append({
                 'type': 'gallery', 'id': g.hash, 'title': g.title,
+                'resource_index_id': ri.id if ri else None,
+                'hidden': bool(ri.hidden) if ri else False,
                 'library_id': g.library_id, 'cover': g.cover_url,
                 'owner_id': getattr(g, 'owner_id', None),
                 'updated_at': str(getattr(g, 'updated_at', None) or g.created_at),
@@ -2809,8 +2822,13 @@ def admin_list_resources():
         if search:
             q = q.filter(_like(Post.title))
         for p in q.order_by(Post.created_at.desc()).all():
+            ri = p.refs[0].resource_index if p.refs else None
+            if not show_hidden and ri and ri.hidden:
+                continue
             items.append({
                 'type': 'post', 'id': p.id, 'title': p.title or '未命名帖子',
+                'resource_index_id': ri.id if ri else None,
+                'hidden': bool(ri.hidden) if ri else False,
                 'library_id': getattr(p, 'library_id', None), 'cover': p.cover_url,
                 'owner_id': p.owner_id,
                 'updated_at': str(getattr(p, 'updated_at', None) or p.created_at),
@@ -2829,6 +2847,8 @@ def admin_list_resources():
             body = t.body or ''
             items.append({
                 'type': 'text', 'id': t.id, 'title': title,
+                'resource_index_id': ri.id if ri else None,
+                'hidden': bool(ri.hidden) if ri else False,
                 'library_id': ri.library_id if ri else None, 'cover': None,
                 'owner_id': None,
                 'updated_at': str(ri.updated_at) if ri and ri.updated_at else str(t.id),

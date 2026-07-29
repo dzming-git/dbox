@@ -7,6 +7,7 @@ import api from '../api'
 import { videoApi, libraryApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
+import { resourceApi } from '../api'
 import {
   formatDate,
   formatPath,
@@ -573,6 +574,8 @@ const resourceTypeFilter = ref('')
 const resourcePage = ref(1)
 const resourceTotal = ref(0)
 const resourceLoading = ref(false)
+// 是否显示已隐藏的资源（隐藏属性位于公共层 resource_index.hidden）
+const showHiddenResources = ref(true)
 const editingResource = ref<any>(null)
 const showResourceEditModal = ref(false)
 const RESOURCE_PAGE_SIZE = 20
@@ -637,6 +640,7 @@ const fetchResources = async (resetPage = true) => {
     if (resourceSearch.value.trim()) params.search = resourceSearch.value.trim()
     if (resourceTypeFilter.value) params.type = resourceTypeFilter.value
     if (resourceLibraryFilter.value !== '') params.library_id = resourceLibraryFilter.value
+    params.show_hidden = showHiddenResources.value ? 'true' : 'false'
     const res = await api.get('/api/admin/resources', { params }) as any
     if (res.success) {
       resources.value = res.items || []
@@ -701,6 +705,31 @@ const deleteResource = async (item: any) => {
     }
   } catch (e: any) {
     showToast(e?.response?.data?.message || e?.message || '删除失败')
+  }
+}
+
+// 切换资源显示/隐藏（公共层：resource_index.hidden）
+const togglingHidden = ref<number | null>(null) // 正在切换的资源索引 id
+const toggleResourceHidden = async (item: any) => {
+  const rid = item.resource_index_id
+  if (!rid) {
+    showToast('该资源未关联资源索引，无法切换显示状态')
+    return
+  }
+  togglingHidden.value = rid
+  try {
+    const res: any = await resourceApi.setHidden(rid, !item.hidden) as any
+    if (res && res.success) {
+      const updated = res.hidden
+      item.hidden = updated
+      showToast(updated ? '已隐藏' : '已显示')
+    } else {
+      showToast((res && res.message) || '操作失败')
+    }
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || e?.message || '操作失败')
+  } finally {
+    togglingHidden.value = null
   }
 }
 
@@ -2304,6 +2333,12 @@ onUnmounted(() => {
           >📄 文本</button>
         </div>
 
+        <!-- 显示隐藏资源开关（公共层属性 resource_index.hidden） -->
+        <label class="show-hidden-toggle">
+          <input type="checkbox" v-model="showHiddenResources" @change="fetchResources()" />
+          <span>显示已隐藏的资源</span>
+        </label>
+
         <div v-if="resourceLoading" class="loading">加载中...</div>
         <table v-else class="data-table">
           <thead>
@@ -2335,6 +2370,7 @@ onUnmounted(() => {
               <td class="res-title">
                 <img v-if="r.cover" :src="withThumbToken(r.cover)" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
                 <span :title="r.title">{{ r.title }}</span>
+                <span v-if="r.hidden" class="hidden-badge">已隐藏</span>
               </td>
               <!-- 视频独有属性 -->
               <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatSize(r.file_size) }}</td>
@@ -2349,6 +2385,13 @@ onUnmounted(() => {
               <td>{{ libraryName(r.library_id) }}</td>
               <td>{{ formatDate(r.updated_at) }}</td>
               <td class="row-actions">
+                <button
+                  class="icon-btn"
+                  :class="{ active: r.hidden }"
+                  @click="toggleResourceHidden(r)"
+                  :title="r.hidden ? '已隐藏，点击显示' : '点击隐藏'"
+                  :disabled="togglingHidden === r.resource_index_id"
+                >{{ r.hidden ? '👁️' : '🙈' }}</button>
                 <button class="icon-btn" @click="editResource(r)" title="编辑">✏️</button>
                 <button class="icon-btn danger" @click="deleteResource(r)" title="删除">🗑️</button>
               </td>
@@ -4041,6 +4084,9 @@ onUnmounted(() => {
 .res-title { display: flex; align-items: center; gap: 10px; max-width: 420px; }
 .res-thumb { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; background: #2a2a2a; flex-shrink: 0; }
 .res-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hidden-badge { background: #5a3a00; color: #ffcf66; border: 1px solid #806020; border-radius: 6px; padding: 1px 7px; font-size: 11px; flex-shrink: 0; }
+.show-hidden-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 4px; color: #bbb; font-size: 13px; cursor: pointer; user-select: none; }
+.show-hidden-toggle input { width: 15px; height: 15px; accent-color: #ffb300; }
 .muted { color: #8b949e; font-weight: 400; font-size: 13px; }
 
 .data-table th,
