@@ -1320,6 +1320,7 @@ class Gallery(db.Model):
             'like_count': self.like_count,
             'favorite_count': self.favorite_count,
             'hidden': bool(self.resource_index.hidden) if self.resource_index else False,
+            'cover_url': self.cover_url,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -1512,6 +1513,8 @@ class Post(db.Model):
                         'document_file': 'document',
                     }
                     entry['type'] = _KIND_TO_TYPE.get(ri.kind, ri.kind)
+                    # 引用级封面：供前端卡片/列表直接取用，避免依赖 gallery/video 实体是否存在
+                    entry['cover_url'] = Post._ref_cover_url(ri)
                     # 解析出实际实体（视频 / 图集）的概要
                     if ri.kind == 'video_file':
                         v = Video.query.filter_by(resource_index_id=ri.id).first()
@@ -1554,13 +1557,51 @@ class Post(db.Model):
         d['cover_url'] = self.cover_url
         return d
 
+    @staticmethod
+    def _ref_cover_url(ri):
+        """按资源索引类型推导单条引用的封面 URL（不依赖 cover 字段是否设置）。"""
+        if ri is None:
+            return None
+        if ri.kind == 'gallery_folder':
+            c = Gallery.query.filter_by(resource_index_id=ri.id).first()
+            if c and c.hash:
+                return c.cover_url or f'/gallery-cover/{c.hash}'
+            return f'/resource-file/{ri.id}/0'
+        if ri.kind == 'video_file':
+            v = Video.query.filter_by(resource_index_id=ri.id).first()
+            if v:
+                return v.thumbnail or f'/thumbnail/{v.hash}'
+        if ri.cover:
+            return ri.cover
+        return None
+
     @property
     def cover_url(self):
-        """统一封面入口：帖子本身没有资源索引，封面取首个带封面的引用资源（按 refs 顺序）。"""
+        """统一封面入口：帖子本身没有资源索引，封面取首个带封面的引用资源（按 refs 顺序）。
+
+        若资源索引未显式设置 cover（历史数据 / 部分入库路径），按资源类型推导：
+          - 图集 -> /gallery-cover/{hash}
+          - 视频 -> 视频缩略图
+        """
         for r in self.refs:
             ri = r.resource_index
             if ri is not None and ri.cover:
                 return ri.cover
+        # 回退：引用资源的索引未设置 cover 时，按类型推导
+        for r in self.refs:
+            ri = r.resource_index
+            if ri is None:
+                continue
+            if ri.kind == 'gallery_folder':
+                c = Gallery.query.filter_by(resource_index_id=ri.id).first()
+                if c and c.hash:
+                    return f'/gallery-cover/{c.hash}'
+                # 帖子专属图集（无 Gallery 实体）：用图集文件夹首图
+                return f'/resource-file/{ri.id}/0'
+            elif ri.kind == 'video_file':
+                v = Video.query.filter_by(resource_index_id=ri.id).first()
+                if v:
+                    return v.thumbnail or f'/thumbnail/{v.hash}'
         return None
 
 

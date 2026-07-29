@@ -22,16 +22,18 @@ const KIND_LABEL: Record<string, string> = {
 
 // 把帖子引用解析为 MediaCard 需要的 MediaItem（含「只属于帖子」资源的兜底呈现）
 const toMediaItem = (refItem: PostRef) => {
+  // 优先使用后端给出的引用级封面（兼容“帖子专属、无 Gallery/Video 实体”的情况）
+  const cover = (refItem as any).cover_url || ''
   if (refItem.video) {
     const v = refItem.video
-    return { type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
+    return { type: 'video', hash: v.hash, title: v.title, cover: cover || v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
   }
   if (refItem.gallery) {
     const c = refItem.gallery
-    return { type: 'gallery', hash: c.hash, title: c.title, cover: (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
+    return { type: 'gallery', hash: c.hash, title: c.title, cover: cover || (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
   }
   if (refItem.text) {
-    return { type: 'gallery', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
+    return { type: 'gallery', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: cover || refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
   }
   if (refItem.presentation) {
     const p = refItem.presentation
@@ -40,7 +42,7 @@ const toMediaItem = (refItem: PostRef) => {
       type: isVideo ? 'video' : 'gallery',
       hash: String(refItem.resource_index_id),
       title: p.title || '未命名资源',
-      cover: p.thumbnail || '',
+      cover: cover || p.thumbnail || '',
       duration: isVideo ? (p.duration || 0) : 0,
       pageCount: isVideo ? 0 : (p.page_count || 0),
     } as any
