@@ -791,29 +791,60 @@ def extract_media(url, cookie_header, proxy_cfg):
     opener = make_opener(proxy_cfg)
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
 
+    def _norm_url(u):
+        """归一化媒体 URL 用于去重：去掉查询串与 :orig/:large 等格式后缀。"""
+        if not u:
+            return u
+        u = u.split('?', 1)[0]
+        u = re.sub(r':(orig|large|medium|small|thumb)$', '', u)
+        return u
+
     log('正在抓取推文页面…')
+    media = []
+    text = ''
+    seen = set()
+
+    def _add(items):
+        for it in items:
+            key = _norm_url(it.get('url', ''))
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            media.append(it)
+
+    # 1) 游客页 HTML（公开内容无需登录即可解析）
     html = None
     try:
         html = fetch_text(url, opener, build_headers('', with_bearer=False), timeout=45)
     except Exception as e:
         log(f'页面抓取失败: {e}', level='warn')
+    if html:
+        _add(extract_from_html(html, '', tweet_id))
+        text = text or extract_tweet_text_from_html(html, tweet_id)
 
-    media = extract_from_html(html, '', tweet_id) if html else []
-    text = extract_tweet_text_from_html(html, tweet_id)
-    # 游客页未解析到媒体，再用登录态（带 Cookie）尝试一次，可能拿到更完整内容
-    if not media and cookie_header:
-        log('游客页未解析到媒体，尝试带 Cookie 重新抓取…')
+    # 2) 带 Cookie 登录态再抓一次（可能拿到更完整内容）
+    if cookie_header:
         try:
             html2 = fetch_text(url, opener, build_headers(cookie_header, with_bearer=False), timeout=45)
-            media = extract_from_html(html2, cookie_header, tweet_id) if html2 else []
-            text = text or extract_tweet_text_from_html(html2, tweet_id)
+            if html2:
+                _add(extract_from_html(html2, cookie_header, tweet_id))
+                text = text or extract_tweet_text_from_html(html2, tweet_id)
         except Exception as e:
-            log(f'无 Cookie 抓取失败: {e}', level='warn')
-    if not media and tweet_id != 'x':
-        log('页面未解析到媒体，尝试 GraphQL 接口方式…')
-        api_media, api_text = extract_from_api(tweet_id, cookie_header, opener)
-        media = api_media
-        text = text or api_text
+            log(f'带 Cookie 抓取失败: {e}', level='warn')
+
+    # 3) GraphQL 接口（结构化数据，视频 m3u8 的最可靠来源）。
+    #    关键修复：即便 HTML 已解析到图片，也必须调用接口，否则会漏掉视频
+    #    （页面 HTML 多为 SPA，能抓到图片但抓不到视频 m3u8）。
+    #    无 Cookie 游客态仅在 HTML 未解析到媒体时才尝试（接口多半需要登录）。
+    if tweet_id != 'x' and (cookie_header or not media):
+        log('尝试 GraphQL 接口方式解析媒体（含视频）…')
+        try:
+            api_media, api_text = extract_from_api(tweet_id, cookie_header, opener)
+            _add(api_media)
+            text = text or api_text
+        except Exception as e:
+            log(f'GraphQL 接口解析失败: {e}', level='warn')
     return media, text
 
 
