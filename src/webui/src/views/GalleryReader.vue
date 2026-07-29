@@ -118,11 +118,28 @@ const onScroll = () => {
     // 非沉浸用 uiHidden（顶栏滑出并折叠占位），沉浸用 controlsVisible（顶栏隐藏、留出全屏）。
     if (!suppressDir.value) {
       const top = container.scrollTop
+      const maxScroll = container.scrollHeight - container.clientHeight
+      const atTop = top <= 2
+      const atBottom = maxScroll - top <= 2
+      // 内容不足以滚动（极短图集）时不做方向收起，避免顶部工具栏抖动
+      const notScrollable = maxScroll <= 2
       const d = top - lastScrollTop
-      if (d > 6) {
-        if (immersive.value) controlsVisible.value = false
-        else uiHidden.value = true
-      } else if (d < -6) {
+      if (notScrollable) {
+        // 不可滚动：保持显示状态（非沉浸显示控件，沉浸显示顶栏）
+        if (immersive.value) controlsVisible.value = true
+        else uiHidden.value = false
+      } else if (!atTop && !atBottom) {
+        // 仅在页面中部滚动时根据方向收起/显示；到达上/下边界时（易因回弹抖动）
+        // 跳过切换，防止顶部窗口高频显示/隐藏
+        if (d > 6) {
+          if (immersive.value) controlsVisible.value = false
+          else uiHidden.value = true
+        } else if (d < -6) {
+          if (immersive.value) controlsVisible.value = true
+          else uiHidden.value = false
+        }
+      } else {
+        // 处于边界：稳定在“显示”状态，避免回弹造成的方向抖动
         if (immersive.value) controlsVisible.value = true
         else uiHidden.value = false
       }
