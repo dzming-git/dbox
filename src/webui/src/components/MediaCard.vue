@@ -17,11 +17,15 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const coverUrl = computed(() => {
-  if (props.item.type === 'gallery' && props.item.cover && userStore.token) {
-    const sep = props.item.cover.includes('?') ? '&' : '?'
-    return props.item.cover + sep + 'token=' + userStore.token
+  const cover = props.item.cover
+  if (!cover) return '/default-thumb.jpg'
+  // JWT 模式下浏览器原生 <img> 请求无法携带 Authorization 头，
+  // 服务端 /thumbnail/、/gallery-cover/ 等受资源库权限保护的封面需带 token 查询参数才能访问。
+  if (userStore.token && (cover.startsWith('/thumbnail/') || cover.startsWith('/gallery-cover/'))) {
+    const sep = cover.includes('?') ? '&' : '?'
+    return cover + sep + 'token=' + userStore.token
   }
-  return props.item.cover || '/default-thumb.jpg'
+  return cover
 })
 
 const typeLabel = computed(() => (props.item.type === 'video' ? '视频' : '图集'))

@@ -8,6 +8,7 @@ import { tagApi, videoApi, collectionSetApi, resourceApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
+import { withThumbToken } from '../utils/media'
 
 const route = useRoute()
 const router = useRouter()
@@ -2069,7 +2070,7 @@ const handleDelete = async () => {
         >
           <div class="rec-thumbnail-wrapper">
             <img
-              :src="'/thumbnail/' + rec.hash"
+              :src="withThumbToken('/thumbnail/' + rec.hash)"
               :alt="(rec.title || rec.file_name || '')"
               class="rec-thumbnail"
               @error="($event.target as HTMLImageElement).src = '/placeholder.jpg'"

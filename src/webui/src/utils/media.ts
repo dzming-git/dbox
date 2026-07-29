@@ -1,6 +1,22 @@
 // 视频与图集的归一化层：把两类资源统一为 MediaItem，使收藏/点赞/不喜欢/历史
 // 等「我的」页面可以平等地合并展示，而不再只认视频。
 import { videoApi, galleryApi } from '../api'
+import { useUserStore } from '../stores/userStore'
+
+/**
+ * 为受资源库权限保护的封面/缩略图地址追加 token 查询参数。
+ * JWT 登录模式下浏览器原生 <img> 请求无法携带 Authorization 头，
+ * /thumbnail/、/gallery-cover/ 等接口需要 token 才能访问非公开库资源。
+ */
+export function withThumbToken(url?: string | null): string {
+  if (!url) return '/default-thumb.jpg'
+  const token = useUserStore().token
+  if (token && (url.startsWith('/thumbnail/') || url.startsWith('/gallery-cover/'))) {
+    const sep = url.includes('?') ? '&' : '?'
+    return url + sep + 'token=' + token
+  }
+  return url
+}
 
 export type MediaType = 'video' | 'gallery'
 

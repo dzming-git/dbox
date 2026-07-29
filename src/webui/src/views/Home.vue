@@ -13,6 +13,7 @@ import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
 import { useWatchLaterStore, type WatchLaterItem, type WatchLaterType } from '../stores/watchLaterStore'
+import { withThumbToken } from '../utils/media'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
@@ -816,7 +817,7 @@ const onListImgError = (e: Event) => {
           data-testid="continue-card"
         >
           <div class="continue-thumb">
-            <img :src="item.thumbnail" :alt="item.title" @error="onContinueImgError" />
+            <img :src="withThumbToken(item.thumbnail)" :alt="item.title" @error="onContinueImgError" />
             <span class="continue-duration">{{ formatDuration(item.duration) }}</span>
             <div class="continue-progress">
               <div class="continue-progress-bar" :style="{ width: progressPercent(item) + '%' }"></div>
