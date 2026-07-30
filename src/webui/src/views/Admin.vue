@@ -621,6 +621,18 @@ const typeLabel = (t: string) => {
     default: return '资源'
   }
 }
+// 封面加载失败的资源（资源索引被删除目录等非致命问题）标记为破图，改用占位图标
+const coverBroken = ref<Set<string>>(new Set())
+const coverKey = (r: any) => `${r.type}:${r.id}`
+const isCoverBroken = (r: any) => coverBroken.value.has(coverKey(r))
+const onCoverError = (r: any) => {
+  const k = coverKey(r)
+  if (!coverBroken.value.has(k)) {
+    const s = new Set(coverBroken.value)
+    s.add(k)
+    coverBroken.value = s
+  }
+}
 
 // 空状态行的跨列数：随当前子标签动态计算（类型 + 标题 + 各类型独有列 + 资源库 + 更新时间 + 操作）
 const resourceColspan = computed(() => {
@@ -2368,7 +2380,8 @@ onUnmounted(() => {
                 </span>
               </td>
               <td class="res-title">
-                <img v-if="r.cover" :src="withThumbToken(r.cover)" class="res-thumb" @error="(e:any)=>e.target.style.display='none'" />
+                <img v-if="r.cover && !isCoverBroken(r)" :src="withThumbToken(r.cover)" class="res-thumb" @error="onCoverError(r)" />
+                <span v-else class="res-thumb-placeholder">{{ typeIcon(r.type) }}</span>
                 <span :title="r.title">{{ r.title }}</span>
                 <span v-if="r.hidden" class="hidden-badge">已隐藏</span>
               </td>
@@ -4083,6 +4096,7 @@ onUnmounted(() => {
 .res-type { white-space: nowrap; }
 .res-title { display: flex; align-items: center; gap: 10px; max-width: 420px; }
 .res-thumb { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; background: #2a2a2a; flex-shrink: 0; }
+.res-thumb-placeholder { width: 40px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #2a2a2a; flex-shrink: 0; font-size: 16px; line-height: 1; }
 .res-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hidden-badge { background: #5a3a00; color: #ffcf66; border: 1px solid #806020; border-radius: 6px; padding: 1px 7px; font-size: 11px; flex-shrink: 0; }
 .show-hidden-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 4px; color: #bbb; font-size: 13px; cursor: pointer; user-select: none; }
@@ -4263,6 +4277,42 @@ onUnmounted(() => {
   color: #ccc;
   border-color: #23232f;
   cursor: not-allowed;
+}
+
+/* 资源管理：类型过滤标签组 */
+.subtab-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 16px;
+  background: #2a2a38;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #c9d1d9;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.subtab-btn:hover {
+  background: #2d2d3f;
+  color: #1890ff;
+}
+
+.subtab-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.35);
 }
 
 .page-info {
