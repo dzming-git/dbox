@@ -122,6 +122,7 @@ def migrate_if_needed():
             'id': iid,
             'title': make_title(s.get('content', '')),
             'content': s.get('content', ''),
+            'type': 'suggestion',
             'author': author,
             'author_id': None,
             'author_role': author_role,
@@ -192,6 +193,7 @@ def list_issues():
     admin = _is_admin()
 
     status = request.args.get('status', 'all')
+    ftype = request.args.get('type', 'all')
     keyword = (request.args.get('keyword') or '').strip().lower()
     try:
         page = max(1, int(request.args.get('page', 1)))
@@ -205,6 +207,8 @@ def list_issues():
     filtered = issues
     if status in ('open', 'closed'):
         filtered = [i for i in filtered if i.get('status') == status]
+    if ftype in ('bug', 'suggestion', 'other'):
+        filtered = [i for i in filtered if i.get('type', 'suggestion') == ftype]
     if keyword:
         filtered = [i for i in filtered
                     if keyword in (i.get('title', '') + i.get('content', '')).lower()]
@@ -215,7 +219,13 @@ def list_issues():
     start = (page - 1) * page_size
     page_items = filtered[start:start + page_size]
 
-    out = [_strip_contact(it, admin) for it in page_items]
+    # 兼容旧数据：未带 type 字段时默认按 suggestion 处理
+    def _with_type(it):
+        d = _strip_contact(it, admin)
+        d['type'] = it.get('type', 'suggestion')
+        return d
+
+    out = [_with_type(it) for it in page_items]
     open_count = sum(1 for i in issues if i.get('status') == 'open')
     closed_count = sum(1 for i in issues if i.get('status') == 'closed')
 
@@ -237,13 +247,15 @@ def create_issue():
     title = (data.get('title') or '').strip()
     content = (data.get('content') or '').strip()
     contact = (data.get('contact') or '').strip()
+    ftype = data.get('type') or 'suggestion'
+    if ftype not in ('bug', 'suggestion', 'other'):
+        ftype = 'suggestion'
 
-    if not content:
-        return jsonify({'success': False, 'message': '内容不能为空', 'code': 400}), 400
-    if len(content) < 5:
-        return jsonify({'success': False, 'message': '建议内容太短，请详细描述', 'code': 400}), 400
-    if not title:
+    # 内容非必填、不要求字数；标题缺省时由内容生成
+    if not title and content:
         title = make_title(content)
+    if not title:
+        title = '(无标题)'
 
     uid, role, username = _auth()
     if uid and username:
@@ -259,6 +271,7 @@ def create_issue():
         'id': generate_issue_id(),
         'title': title,
         'content': content,
+        'type': ftype,
         'author': author,
         'author_id': author_id,
         'author_role': author_role,

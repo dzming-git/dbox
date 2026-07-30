@@ -30,6 +30,7 @@ const total = ref(0)
 const openCount = ref(0)
 const closedCount = ref(0)
 const statusFilter = ref<'all' | 'open' | 'closed'>('all')
+const typeFilter = ref<'all' | 'bug' | 'suggestion' | 'other'>('all')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = 20
@@ -40,13 +41,27 @@ const commentText = ref('')
 const newTitle = ref('')
 const newContent = ref('')
 const newContact = ref('')
+const newType = ref<'bug' | 'suggestion' | 'other'>('suggestion')
 const submitting = ref(false)
 const formMsg = ref('')
+
+const typeMeta: Record<'bug' | 'suggestion' | 'other', { label: string; cls: string }> = {
+  bug: { label: '缺陷', cls: 'type-bug' },
+  suggestion: { label: '建议', cls: 'type-suggestion' },
+  other: { label: '其他', cls: 'type-other' },
+}
 
 const tabs = computed(() => [
   { key: 'all', label: '全部', count: total.value },
   { key: 'open', label: '开放', count: openCount.value },
   { key: 'closed', label: '已关闭', count: closedCount.value },
+])
+
+const typeTabs = computed(() => [
+  { key: 'all', label: '全部类型', count: total.value },
+  { key: 'bug', label: '缺陷', count: 0 },
+  { key: 'suggestion', label: '建议', count: 0 },
+  { key: 'other', label: '其他', count: 0 },
 ])
 
 function formatDate(iso?: string): string {
@@ -63,6 +78,7 @@ async function loadIssues(reset = true) {
   errorMsg.value = ''
   const params: IssueListParams = {
     status: statusFilter.value,
+    type: typeFilter.value === 'all' ? undefined : typeFilter.value,
     keyword: keyword.value || undefined,
     page: page.value,
     page_size: pageSize,
@@ -115,17 +131,14 @@ function openNew() {
   newTitle.value = ''
   newContent.value = ''
   newContact.value = ''
+  newType.value = 'suggestion'
   formMsg.value = ''
   view.value = 'new'
 }
 
 async function submitNew() {
-  if (!newContent.value.trim()) {
-    formMsg.value = '请输入内容'
-    return
-  }
-  if (newContent.value.trim().length < 5) {
-    formMsg.value = '内容太短，请详细描述'
+  if (!newTitle.value.trim() && !newContent.value.trim()) {
+    formMsg.value = '标题与内容至少填写一项'
     return
   }
   submitting.value = true
@@ -134,6 +147,7 @@ async function submitNew() {
     const res = await createIssue({
       title: newTitle.value.trim(),
       content: newContent.value.trim(),
+      type: newType.value,
       contact: newContact.value.trim() || undefined,
     })
     if (res.success) {
@@ -245,6 +259,18 @@ watch(
         </div>
       </div>
 
+      <div class="fb-type-bar">
+        <button
+          v-for="t in typeTabs"
+          :key="t.key"
+          class="fb-type-tab"
+          :class="[t.key, { active: typeFilter === t.key }]"
+          @click="typeFilter = t.key as any"
+        >
+          {{ t.label }}
+        </button>
+      </div>
+
       <div v-if="loading" class="fb-loading">加载中...</div>
       <div v-else-if="errorMsg" class="fb-error">{{ errorMsg }}</div>
       <div v-else-if="issues.length === 0" class="fb-empty">暂无反馈</div>
@@ -261,7 +287,10 @@ watch(
             :class="it.status === 'open' ? 'open' : (it.closed_reason === 'resolved' ? 'resolved' : 'dismissed')"
           ></span>
           <div class="fb-item-main">
-            <div class="fb-item-title">{{ it.title }}</div>
+            <div class="fb-item-title">
+              <span class="fb-type-badge" :class="typeMeta[it.type]?.cls">{{ typeMeta[it.type]?.label }}</span>
+              {{ it.title }}
+            </div>
             <div class="fb-item-meta">
               #{{ it.id }} · {{ it.author }} · {{ formatDate(it.created_at) }}
               <span v-if="it.comments.length" class="fb-comment-badge">{{ it.comments.length }} 条回复</span>
@@ -296,6 +325,7 @@ watch(
           </span>
           {{ selected.status === 'open' ? '开放' : (selected.closed_reason === 'resolved' ? '已解决' : '已关闭') }}
         </span>
+        <span class="fb-type-badge" :class="typeMeta[selected.type]?.cls">{{ typeMeta[selected.type]?.label }}</span>
         <span class="fb-detail-meta">由 {{ selected.author }} 创建于 {{ formatDate(selected.created_at) }}</span>
       </div>
 
@@ -356,19 +386,34 @@ watch(
       </button>
 
       <h2 class="fb-new-title">新建反馈</h2>
-      <p class="fb-new-desc">功能建议、Bug 反馈或改进意见，欢迎告诉我们。</p>
+      <p class="fb-new-desc">功能建议、Bug 反馈或其他意见，欢迎告诉我们。</p>
 
       <div class="fb-form-group">
-        <label>标题 <span class="required">*</span></label>
-        <input v-model="newTitle" class="fb-input" type="text" placeholder="一句话概括你的建议" :disabled="submitting" />
+        <label>类型</label>
+        <div class="fb-type-select">
+          <button
+            v-for="(meta, key) in typeMeta"
+            :key="key"
+            type="button"
+            class="fb-type-option"
+            :class="[key, { active: newType === key }]"
+            @click="newType = key as any"
+          >
+            {{ meta.label }}
+          </button>
+        </div>
       </div>
       <div class="fb-form-group">
-        <label>内容 <span class="required">*</span></label>
+        <label>标题</label>
+        <input v-model="newTitle" class="fb-input" type="text" placeholder="一句话概括（选填）" :disabled="submitting" />
+      </div>
+      <div class="fb-form-group">
+        <label>内容</label>
         <textarea
           v-model="newContent"
           class="fb-textarea"
           rows="7"
-          placeholder="请详细描述..."
+          placeholder="请详细描述（选填，与标题至少填一项）"
           :disabled="submitting"
         ></textarea>
         <div class="char-count">{{ newContent.length }}/2000</div>
@@ -723,6 +768,61 @@ watch(
   gap: 12px;
   padding-top: 8px;
 }
+
+/* 类型过滤栏 */
+.fb-type-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.fb-type-tab {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+.fb-type-tab:hover { color: #e6edf3; border-color: #8b949e; }
+.fb-type-tab.active { color: #fff; border-color: transparent; }
+.fb-type-tab.bug.active { background: #f85149; }
+.fb-type-tab.suggestion.active { background: #58a6ff; }
+.fb-type-tab.other.active { background: #8b949e; }
+
+/* 类型徽章 */
+.fb-type-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: middle;
+}
+.fb-type-badge.type-bug { background: rgba(248,81,73,0.15); color: #ff7b72; }
+.fb-type-badge.type-suggestion { background: rgba(88,166,255,0.15); color: #58a6ff; }
+.fb-type-badge.type-other { background: rgba(139,148,158,0.15); color: #8b949e; }
+
+/* 新建：类型选择 */
+.fb-type-select { display: flex; flex-wrap: wrap; gap: 8px; }
+.fb-type-option {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+.fb-type-option:hover { color: #e6edf3; border-color: #8b949e; }
+.fb-type-option.active { color: #fff; border-color: transparent; }
+.fb-type-option.bug.active { background: #f85149; }
+.fb-type-option.suggestion.active { background: #58a6ff; }
+.fb-type-option.other.active { background: #8b949e; }
 
 @media (max-width: 600px) {
   .fb-page { padding: 14px 14px 40px; }
