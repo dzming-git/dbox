@@ -15,9 +15,7 @@ import {
   formatBytes,
   formatUptime,
   getUsageClass,
-  getRoleClass,
-  getPriorityColor,
-  getPriorityLabel
+  getRoleClass
 } from '../utils/adminCommon'
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
@@ -74,14 +72,11 @@ const selectedVideos = ref<string[]>([])
 const editingVideo = ref<any>(null)
 const editingVideoTags = ref<string>('')  // 标签输入（用 "/" 分隔）
 const showVideoEditModal = ref(false)
-const showPriorityModal = ref(false)
-const batchPriorityValue = ref(50)
 // 排序选项（不使用推荐）
 const sortOptions = [
   { value: 'name', label: '视频名' },
   { value: 'created_at', label: '文件时间' },
   { value: 'view_count', label: '播放量' },
-  { value: 'priority', label: '优先级' },
   { value: 'like_count', label: '点赞数' },
   { value: 'download_count', label: '下载数' },
   { value: 'file_size', label: '文件大小' }
@@ -1440,8 +1435,7 @@ const saveVideoEdit = async () => {
     // 先保存基本信息
     const res = await api.post(`/api/videos/${editingVideo.value.hash}/update`, {
       title: editingVideo.value.title,
-      description: editingVideo.value.description,
-      priority: editingVideo.value.priority
+      description: editingVideo.value.description
     }) as any
     
     if (res.success) {
@@ -1464,29 +1458,6 @@ const saveVideoEdit = async () => {
     showToast('保存失败')
   }
 }
-
-// 批量设置优先级
-const batchSetPriority = async () => {
-  if (selectedVideos.value.length === 0) return
-  try {
-    const res = await api.post('/api/admin/videos/batch-update-priority', {
-      hashes: selectedVideos.value,
-      priority: batchPriorityValue.value
-    }) as any
-    if (res.success) {
-      showToast(`已更新 ${res.updated_count} 个视频的优先级`)
-      showPriorityModal.value = false
-      selectedVideos.value = []
-      fetchVideos()
-    }
-  } catch (error) {
-    console.error('批量设置优先级失败:', error)
-    showToast('设置失败')
-  }
-}
-
-// 获取优先级颜色
-
 
 // 删除视频确认对话框
 const showDeleteConfirm = ref(false)
@@ -2103,14 +2074,6 @@ onUnmounted(() => {
             <button class="action-btn" @click="fetchVideos()">搜索</button>
             <!-- 批量操作 -->
             <button
-              class="action-btn"
-              @click="showPriorityModal = true"
-              :disabled="selectedVideos.length === 0"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
-              批量设置优先级 ({{ selectedVideos.length }})
-            </button>
-            <button
               class="action-btn danger"
               @click="openBatchDeleteConfirm"
               :disabled="selectedVideos.length === 0"
@@ -2147,7 +2110,6 @@ onUnmounted(() => {
                   />
                 </th>
                 <th>标题</th>
-                <th class="sortable">优先级</th>
                 <th>大小</th>
                 <th>时长</th>
                 <th>上传时间</th>
@@ -2172,15 +2134,6 @@ onUnmounted(() => {
                   />
                   <span>{{ video.title || '(无标题)' }}</span>
                   <small style="color:#999; font-size:11px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px;" :title="video.local_path">{{ video.local_path }}</small>
-                </td>
-                <td>
-                  <span
-                    class="priority-badge"
-                    :style="{ backgroundColor: getPriorityColor(video.priority || 0) + '20', color: getPriorityColor(video.priority || 0) }"
-                  >
-                    {{ video.priority || 0 }}
-                    <small>({{ getPriorityLabel(video.priority || 0) }})</small>
-                  </span>
                 </td>
                 <td>{{ video.file_size ? formatFileSize(video.file_size) : '-' }}</td>
                 <td>{{ video.duration != null ? video.duration + 's' : '-' }}</td>
@@ -2249,10 +2202,6 @@ onUnmounted(() => {
 
               <!-- 元信息 -->
               <div class="card-meta">
-                <span class="card-priority"
-                  :style="{ backgroundColor: getPriorityColor(video.priority || 0) + '20', color: getPriorityColor(video.priority || 0) }">
-                  P{{ video.priority || 0 }}
-                </span>
                 <span>📦 {{ video.file_size ? formatFileSize(video.file_size) : '-' }}</span>
                 <span>📅 {{ formatDate(video.created_at) }}</span>
               </div>
@@ -2967,36 +2916,10 @@ onUnmounted(() => {
             <textarea v-model="editingVideo.description" rows="4"></textarea>
           </div>
           <div class="form-group">
-            <label>优先级 (0-100)</label>
-            <div class="priority-input-group">
-              <input 
-                v-model.number="editingVideo.priority" 
-                type="number" 
-                min="0" 
-                max="100"
-                class="priority-input"
-              />
-              <input 
-                v-model.number="editingVideo.priority" 
-                type="range" 
-                min="0" 
-                max="100"
-                class="priority-slider"
-              />
-              <span 
-                class="priority-preview" 
-                :style="{ color: getPriorityColor(editingVideo.priority || 0) }"
-              >
-                {{ getPriorityLabel(editingVideo.priority || 0) }}
-              </span>
-            </div>
-            <small class="form-hint">优先级越高，视频在推荐中的排名越靠前</small>
-          </div>
-          <div class="form-group">
             <label>标签（用 "/" 分隔层级）</label>
             <input 
               v-model="editingVideoTags" 
-              type="text" 
+              type="text"
               placeholder="例如: 动物 / 狗 / 哈士奇"
             />
             <small class="form-hint">用 "/" 分隔表示层级，如 "/动物/狗" 是 "/动物" 的子标签</small>
@@ -3038,49 +2961,6 @@ onUnmounted(() => {
         <div class="modal-footer">
           <button class="action-btn" @click="showResourceEditModal = false">取消</button>
           <button class="action-btn primary" @click="saveResourceEdit">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 批量设置优先级弹窗 -->
-    <div v-if="showPriorityModal" class="modal-overlay" @click="showPriorityModal = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>批量设置优先级</h3>
-          <button class="close-btn" @click="showPriorityModal = false">×</button>
-        </div>
-        <div class="modal-body">
-          <p class="modal-info">已选择 {{ selectedVideos.length }} 个视频</p>
-          <div class="form-group">
-            <label>优先级 (0-100)</label>
-            <div class="priority-input-group">
-              <input 
-                v-model.number="batchPriorityValue" 
-                type="number" 
-                min="0" 
-                max="100"
-                class="priority-input"
-              />
-              <input 
-                v-model.number="batchPriorityValue" 
-                type="range" 
-                min="0" 
-                max="100"
-                class="priority-slider"
-              />
-              <span 
-                class="priority-preview" 
-                :style="{ color: getPriorityColor(batchPriorityValue) }"
-              >
-                {{ getPriorityLabel(batchPriorityValue) }}
-              </span>
-            </div>
-            <small class="form-hint">优先级越高，视频在推荐中的排名越靠前</small>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showPriorityModal = false">取消</button>
-          <button class="action-btn primary" @click="batchSetPriority">确认设置</button>
         </div>
       </div>
     </div>
@@ -4668,66 +4548,6 @@ input:checked + .slider:before {
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
 
-/* 优先级样式 */
-.priority-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.priority-badge small {
-  font-size: 11px;
-  opacity: 0.8;
-}
-
-.priority-input-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.priority-input {
-  width: 80px !important;
-  text-align: center;
-  font-weight: 600;
-}
-
-.priority-slider {
-  flex: 1;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #2d2d3f;
-  border-radius: 3px;
-  outline: none;
-}
-
-.priority-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.priority-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-}
-
-.priority-preview {
-  min-width: 50px;
-  text-align: center;
-  font-weight: 600;
-  font-size: 14px;
-}
-
 .form-hint {
   display: block;
   margin-top: 6px;
@@ -4877,15 +4697,6 @@ input:checked + .slider:before {
     display: flex;
     align-items: center;
     gap: 3px;
-  }
-
-  .video-card-mobile .card-priority {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 500;
   }
 
   .video-card-mobile .card-path {

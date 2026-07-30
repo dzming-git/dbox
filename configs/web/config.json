@@ -27,7 +27,6 @@
         ".m4v"
     ],
     "default_tags": [],
-    "default_priority": 0,
     "test": "value",
     "scan_directory": "/path/to/scan",
     "video_formats": [

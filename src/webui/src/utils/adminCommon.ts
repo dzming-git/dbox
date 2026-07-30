@@ -59,19 +59,3 @@ export const formatUptime = (seconds: number): string => {
   if (minutes > 0) parts.push(`${minutes} 分钟`)
   return parts.join(' ') || '不到 1 分钟'
 }
-
-export const getPriorityColor = (priority: number) => {
-  if (priority >= 80) return '#ff4d4f'
-  if (priority >= 60) return '#faad14'
-  if (priority >= 40) return '#1890ff'
-  if (priority >= 20) return '#52c41a'
-  return '#8c8c8c'
-}
-
-export const getPriorityLabel = (priority: number) => {
-  if (priority >= 80) return '极高'
-  if (priority >= 60) return '高'
-  if (priority >= 40) return '中'
-  if (priority >= 20) return '低'
-  return '极低'
-}

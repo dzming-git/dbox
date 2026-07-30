@@ -26,7 +26,7 @@ const canManageVideo = computed(() => {
   return !!uid && video.value?.owner_id === uid
 })
 
-// 视频编辑抽屉（管理员可编辑标题/简介/优先级/资源库/标签）
+// 视频编辑抽屉（管理员可编辑标题/简介/资源库/标签）
 const editDrawerVisible = ref(false)
 const editingItem = ref<any>(null)
 
@@ -777,7 +777,7 @@ onUnmounted(() => {
   document.removeEventListener('click', onDocClickCloseMenu)
 })
 
-// 打开编辑抽屉（管理员可编辑标题/简介/优先级/资源库/标签）
+// 打开编辑抽屉（管理员可编辑标题/简介/资源库/标签）
 const openEditDrawer = () => {
   if (!video.value) return
   editingItem.value = video.value
@@ -1609,7 +1609,6 @@ const handleDelete = async () => {
           <span class="meta-item" data-testid="view-count">{{ video.view_count }} 次观看</span>
           <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
           <span class="meta-item" v-if="video.created_at">{{ new Date(video.created_at).toLocaleDateString() }}</span>
-          <span class="meta-item" v-if="video.priority > 0">优先级: {{ video.priority }}</span>
           <!-- 合集是分类归属，放在信息区而非操作按钮排 -->
           <span
             v-for="col in videoCollections"

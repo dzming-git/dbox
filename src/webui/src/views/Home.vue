@@ -246,7 +246,6 @@ const sortOptions = [
   { value: 'name', label: '视频名' },
   { value: 'created_at', label: '文件时间' },
   { value: 'view_count', label: '播放量' },
-  { value: 'priority', label: '优先级' },
   { value: 'like_count', label: '点赞数' },
   { value: 'download_count', label: '下载数' }
 ]

@@ -1006,7 +1006,7 @@ def get_videos():
         tag_id = request.args.get('tag_id', type=int)
         search = request.args.get('search', '').strip()
         filter_library_id = request.args.get('library_id', type=int)  # 管理员按库筛选
-        sort = request.args.get('sort', 'recommended')  # 排序方式: recommended, name, created_at, view_count, priority, like_count
+        sort = request.args.get('sort', 'recommended')  # 排序方式: recommended, name, created_at, view_count, like_count
         order = request.args.get('order', 'desc')  # 排序方向: asc, desc
         # 默认屏蔽不喜欢的视频（可在设置中关闭）
         exclude_disliked = request.args.get('exclude_disliked', 'true').lower() != 'false'
@@ -1151,9 +1151,6 @@ def get_videos():
         elif sort == 'view_count':
             # 按播放量排序
             videos = query.order_by(Video.view_count.desc() if is_desc else Video.view_count.asc()).offset(offset).limit(limit).all()
-        elif sort == 'priority':
-            # 按优先级排序
-            videos = query.order_by(Video.priority.desc() if is_desc else Video.priority.asc()).offset(offset).limit(limit).all()
         elif sort == 'like_count':
             # 按点赞数排序
             videos = query.order_by(Video.like_count.desc() if is_desc else Video.like_count.asc()).offset(offset).limit(limit).all()
@@ -1165,15 +1162,15 @@ def get_videos():
             # 如果没有指定 tag_id 和 search，则认为是首页推荐，加入随机成分
             if not tag_id and not search and not untagged:
                 # 使用 func.random() 为每个视频赋予随机权重
-                # 排序公式：priority + view_count * 0.1 + random() * 50
+                # 排序公式：view_count * 0.1 + random() * 50
                 # 这样热门视频仍有优势，但随机视频也有机会排在前面
                 videos = query.order_by(
-                    (Video.priority + Video.view_count * 0.1 + func.random() * 50).desc()
+                    (Video.view_count * 0.1 + func.random() * 50).desc()
                 ).offset(offset).limit(limit).all()
             else:
-                # 标签页或搜索结果按原排序规则
+                # 标签页或搜索结果按播放量排序
                 videos = query.order_by(
-                    (Video.priority + Video.view_count).desc()
+                    Video.view_count.desc()
                 ).offset(offset).limit(limit).all()
 
         return jsonify({
@@ -2673,14 +2670,6 @@ def update_video_info(video_hash):
             video.title = data['title'].strip()
         if 'description' in data:
             video.description = data.get('description', '').strip()
-        if 'priority' in data:
-            priority = data['priority']
-            # 验证优先级范围 0-100
-            if not isinstance(priority, (int, float)):
-                return jsonify({'success': False, 'message': '优先级必须是数字'}), 400
-            if priority < 0 or priority > 100:
-                return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
-            video.priority = int(priority)
 
         # 支持修改所属资源库
         if 'library_id' in data:
@@ -2696,46 +2685,6 @@ def update_video_info(video_hash):
         return jsonify({'success': True, 'video': video.to_dict()})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/admin/videos/batch-update-priority', methods=['POST'])
-@admin_required
-def batch_update_priority():
-    """批量设置视频优先级"""
-    try:
-        data = request.get_json()
-        hashes = data.get('hashes', [])
-        priority = data.get('priority')
-        
-        if not hashes:
-            return jsonify({'success': False, 'message': '未选择视频'}), 400
-        
-        # 验证优先级
-        if priority is None:
-            return jsonify({'success': False, 'message': '请提供优先级值'}), 400
-        if not isinstance(priority, (int, float)):
-            return jsonify({'success': False, 'message': '优先级必须是数字'}), 400
-        if priority < 0 or priority > 100:
-            return jsonify({'success': False, 'message': '优先级必须在 0-100 之间'}), 400
-        
-        updated_count = 0
-        for video_hash in hashes:
-            video = Video.query.filter_by(hash=video_hash).first()
-            if video:
-                video.priority = int(priority)
-                updated_count += 1
-        
-        db.session.commit()
-        log.runtime('INFO', f"批量更新优先级: {updated_count}个视频, 优先级: {priority}")
-        return jsonify({
-            'success': True,
-            'message': f'已更新 {updated_count} 个视频的优先级',
-            'updated_count': updated_count
-        })
-    except Exception as e:
-        db.session.rollback()
-        log.debug('ERROR', f"批量更新优先级失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -4424,7 +4373,7 @@ def import_videos():
                     file_size=file_size,
                     is_downloaded=True,
                     local_path=video_path,
-                    priority=app_config.get('default_priority', 0),
+                    priority=0,
                     library_id=library_id,  # 绑定到指定的资源库
                     owner_id=root_id
                 )

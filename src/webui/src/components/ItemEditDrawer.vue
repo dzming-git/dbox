@@ -23,7 +23,6 @@ const isVideo = computed(() => props.type === 'video')
 const form = ref({
   title: '',
   description: '',
-  priority: 0,
   library_id: '' as string,
   tags: [] as string[]
 })
@@ -39,7 +38,6 @@ watch(
       form.value = {
         title: it.title || '',
         description: it.description || '',
-        priority: it.priority ?? 0,
         library_id: it.library_id != null ? String(it.library_id) : '',
         tags: (it.tags || [])
           .map((t: any) => (t.path ? t.path : t.name ? '/' + t.name : ''))
@@ -88,7 +86,6 @@ const save = async () => {
       await videoApi.updateVideo(hash, {
         title: form.value.title.trim(),
         description: form.value.description,
-        priority: Number(form.value.priority) || 0,
         library_id: libId
       })
       const tagRes: any = await videoApi.setVideoTags(hash, form.value.tags)
@@ -105,7 +102,6 @@ const save = async () => {
       ...props.item,
       title: form.value.title.trim(),
       description: form.value.description,
-      priority: Number(form.value.priority) || 0,
       library_id: libId,
       tags: savedTags
     }
@@ -140,11 +136,6 @@ const save = async () => {
           <label v-if="isVideo" class="field">
             <span class="field-label">简介</span>
             <textarea v-model="form.description" class="field-textarea" rows="3" placeholder="简介"></textarea>
-          </label>
-
-          <label v-if="isVideo" class="field">
-            <span class="field-label">优先级（0-100）</span>
-            <input v-model.number="form.priority" class="field-input" type="number" min="0" max="100" />
           </label>
 
           <label class="field">

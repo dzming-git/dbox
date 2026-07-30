@@ -13,7 +13,6 @@ export interface Video {
   like_count: number
   favorite_count?: number
   download_count: number
-  priority: number
   min_role: number
   min_role_name: string
   is_downloaded: boolean
@@ -179,7 +178,6 @@ export interface AppConfig {
   auto_scan_on_startup: boolean
   supported_formats: string[]
   default_tags: string[]
-  default_priority: number
   ports: {
     web: number
     thumbnail: number
