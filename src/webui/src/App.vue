@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
+import { useWatchLaterStore } from './stores/watchLaterStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings } from './utils/settings'
 import { routes } from './router'
@@ -13,6 +14,7 @@ const cachedViews = routes
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const watchLaterStore = useWatchLaterStore()
 
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
@@ -135,6 +137,15 @@ const closeUserDropdown = (event: MouseEvent) => {
             </svg>
             <span>历史</span>
           </RouterLink>
+          <button class="nav-link nav-icon-link watchlater-nav-link" title="稍后再看" @click="watchLaterStore.panelOpen = !watchLaterStore.panelOpen">
+            <span class="watchlater-ico-wrap">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+              </svg>
+              <span v-if="watchLaterStore.count" class="watchlater-badge">{{ watchLaterStore.count }}</span>
+            </span>
+            <span>稍后再看</span>
+          </button>
 
           <!-- 用户头像下拉菜单 -->
           <div class="user-avatar-wrapper">
@@ -330,6 +341,38 @@ body {
 
 .nav-icon-link.router-link-active svg {
   color: #2196F3;
+}
+
+/* 稍后再看（导航栏按钮，区别于 RouterLink） */
+.watchlater-nav-link {
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  color: #ccc;
+}
+.watchlater-nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.watchlater-ico-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.watchlater-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f85149;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
 }
 
 .login-link {
