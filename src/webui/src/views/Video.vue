@@ -3995,7 +3995,7 @@ const handleDelete = async () => {
 
   .rec-thumbnail-wrapper {
     width: 100%;
-    height: 100px;
+    height: auto;
     aspect-ratio: 16 / 9;
   }
 }
@@ -4010,7 +4010,8 @@ const handleDelete = async () => {
   }
 
   .rec-thumbnail-wrapper {
-    height: 140px;
+    height: auto;
+    aspect-ratio: 16 / 9;
   }
 }
 /* 精彩片段标记 */
