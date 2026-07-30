@@ -2,7 +2,7 @@ import api from './index'
 import type { Issue, IssueListResponse } from '../types'
 
 export interface IssueListParams {
-  status?: 'open' | 'closed' | 'all'
+  status?: 'open' | 'pending' | 'closed' | 'all'
   keyword?: string
   page?: number
   page_size?: number
@@ -34,7 +34,7 @@ export async function createIssue(payload: {
 export async function updateIssue(
   id: string,
   payload: {
-    status?: 'open' | 'closed'
+    status?: 'open' | 'pending' | 'closed'
     closed_reason?: 'resolved' | 'dismissed' | null
     title?: string
     content?: string

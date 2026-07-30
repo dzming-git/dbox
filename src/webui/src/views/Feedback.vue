@@ -28,8 +28,9 @@ const errorMsg = ref('')
 const issues = ref<Issue[]>([])
 const total = ref(0)
 const openCount = ref(0)
+const pendingCount = ref(0)
 const closedCount = ref(0)
-const statusFilter = ref<'all' | 'open' | 'closed'>('all')
+const statusFilter = ref<'all' | 'open' | 'pending' | 'closed'>('all')
 const typeFilter = ref<'all' | 'bug' | 'suggestion' | 'other'>('all')
 const keyword = ref('')
 const page = ref(1)
@@ -54,6 +55,7 @@ const typeMeta: Record<'bug' | 'suggestion' | 'other', { label: string; cls: str
 const tabs = computed(() => [
   { key: 'all', label: '全部', count: total.value },
   { key: 'open', label: '开放', count: openCount.value },
+  { key: 'pending', label: '待验证', count: pendingCount.value },
   { key: 'closed', label: '已关闭', count: closedCount.value },
 ])
 
@@ -89,6 +91,7 @@ async function loadIssues(reset = true) {
       issues.value = res.issues
       total.value = res.total
       openCount.value = res.open_count
+      pendingCount.value = res.pending_count
       closedCount.value = res.closed_count
     } else {
       errorMsg.value = '加载失败'
@@ -189,6 +192,19 @@ async function reopenIssue() {
   }
 }
 
+async function markPending() {
+  if (!selected.value) return
+  loading.value = true
+  try {
+    const res = await updateIssue(selected.value.id, { status: 'pending', closed_reason: null })
+    if (res.success) selected.value = res.issue
+  } catch (e) {
+    errorMsg.value = extractMessage(e, '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function submitComment() {
   if (!selected.value) return
   if (!commentText.value.trim()) return
@@ -232,7 +248,7 @@ watch(
           <path d="M12 1C6.48 1 2 5.48 2 11c0 4.84 3.44 8.87 8 9.8V22l2.86-1.43c.43.07.87.13 1.14.13 5.52 0 10-4.48 10-10S17.52 1 12 1zm-1 14h-2v-2h2v2zm0-4h-2V7h2v4zm4 4h-2v-2h2v2zm0-4h-2V7h2v4z"/>
         </svg>
         <span>反馈中心</span>
-        <small v-if="view === 'list'">开放 {{ openCount }} · 已关闭 {{ closedCount }}</small>
+        <small v-if="view === 'list'">开放 {{ openCount }} · 待验证 {{ pendingCount }} · 已关闭 {{ closedCount }}</small>
       </div>
     </header>
 
@@ -284,7 +300,7 @@ watch(
         >
           <span
             class="fb-dot"
-            :class="it.status === 'open' ? 'open' : (it.closed_reason === 'resolved' ? 'resolved' : 'dismissed')"
+            :class="it.status === 'open' ? 'open' : (it.status === 'pending' ? 'pending' : (it.closed_reason === 'resolved' ? 'resolved' : 'dismissed'))"
           ></span>
           <div class="fb-item-main">
             <div class="fb-item-title">
@@ -317,13 +333,14 @@ watch(
       <div class="fb-status-row">
         <span
           class="fb-badge"
-          :class="selected.status === 'open' ? 'open' : (selected.closed_reason === 'resolved' ? 'resolved' : 'dismissed')"
+          :class="selected.status === 'open' ? 'open' : (selected.status === 'pending' ? 'pending' : (selected.closed_reason === 'resolved' ? 'resolved' : 'dismissed'))"
         >
           <span class="fb-badge-ico">
             <svg v-if="selected.status === 'open'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+            <svg v-else-if="selected.status === 'pending'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm1-13h-2v6l5 3 1-1.7-4-2.3z"/></svg>
             <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           </span>
-          {{ selected.status === 'open' ? '开放' : (selected.closed_reason === 'resolved' ? '已解决' : '已关闭') }}
+          {{ selected.status === 'open' ? '开放' : (selected.status === 'pending' ? '待验证' : (selected.closed_reason === 'resolved' ? '已解决' : '已关闭')) }}
         </span>
         <span class="fb-type-badge" :class="typeMeta[selected.type]?.cls">{{ typeMeta[selected.type]?.label }}</span>
         <span class="fb-detail-meta">由 {{ selected.author }} 创建于 {{ formatDate(selected.created_at) }}</span>
@@ -350,11 +367,22 @@ watch(
       <!-- 管理员操作区 -->
       <div v-if="isAdmin" class="fb-admin">
         <div class="fb-admin-actions" v-if="selected.status === 'open'">
+          <button class="fb-btn fb-btn-pending" :disabled="loading" @click="markPending">
+            标记待验证
+          </button>
           <button class="fb-btn fb-btn-resolved" :disabled="loading" @click="closeIssue('resolved')">
             以解决关闭
           </button>
           <button class="fb-btn fb-btn-dismissed" :disabled="loading" @click="closeIssue('dismissed')">
             不处理关闭
+          </button>
+        </div>
+        <div class="fb-admin-actions" v-else-if="selected.status === 'pending'">
+          <button class="fb-btn fb-btn-resolved" :disabled="loading" @click="closeIssue('resolved')">
+            验证通过并关闭
+          </button>
+          <button class="fb-btn fb-btn-reopen" :disabled="loading" @click="reopenIssue">
+            重新打开
           </button>
         </div>
         <div class="fb-admin-actions" v-else>
@@ -554,6 +582,7 @@ watch(
   flex-shrink: 0;
 }
 .fb-dot.open { background: #3fb950; }
+.fb-dot.pending { background: #d29922; }
 .fb-dot.resolved { background: #a371f7; }
 .fb-dot.dismissed { background: #6e7681; }
 .fb-item-main { flex: 1; min-width: 0; }
@@ -622,6 +651,7 @@ watch(
   font-weight: 600;
 }
 .fb-badge.open { background: rgba(63,185,80,0.15); color: #3fb950; }
+.fb-badge.pending { background: rgba(210,153,34,0.15); color: #d29922; }
 .fb-badge.resolved { background: rgba(163,113,247,0.15); color: #a371f7; }
 .fb-badge.dismissed { background: rgba(110,118,129,0.2); color: #8b949e; }
 .fb-badge-ico { display: inline-flex; }
@@ -705,6 +735,8 @@ watch(
 .fb-btn-primary:hover:not(:disabled) { background: #2ea043; }
 .fb-btn-secondary { background: #21262d; color: #e6edf3; border-color: #30363d; }
 .fb-btn-secondary:hover:not(:disabled) { background: #30363d; }
+.fb-btn-pending { background: rgba(210,153,34,0.15); color: #d29922; border-color: rgba(210,153,34,0.4); }
+.fb-btn-pending:hover:not(:disabled) { background: rgba(210,153,34,0.25); }
 .fb-btn-resolved { background: rgba(163,113,247,0.15); color: #a371f7; border-color: rgba(163,113,247,0.4); }
 .fb-btn-resolved:hover:not(:disabled) { background: rgba(163,113,247,0.25); }
 .fb-btn-dismissed { background: rgba(110,118,129,0.15); color: #8b949e; border-color: rgba(110,118,129,0.4); }

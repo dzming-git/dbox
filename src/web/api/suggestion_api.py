@@ -25,6 +25,11 @@ _lock = threading.Lock()
 ISSUES_FILE = os.path.join(get_runtime_dir(), 'data', 'issues.json')
 SUGGESTIONS_FILE = os.path.join(get_runtime_dir(), 'data', 'suggestions.json')
 
+# 状态
+STATUS_OPEN = 'open'              # 开放
+STATUS_PENDING = 'pending'        # 待验证（已修复，等待管理员验证）
+STATUS_CLOSED = 'closed'          # 已关闭
+
 # 关闭原因
 REASON_RESOLVED = 'resolved'      # 以解决
 REASON_DISMISSED = 'dismissed'    # 不处理
@@ -205,7 +210,7 @@ def list_issues():
         page_size = 20
 
     filtered = issues
-    if status in ('open', 'closed'):
+    if status in (STATUS_OPEN, STATUS_CLOSED, STATUS_PENDING):
         filtered = [i for i in filtered if i.get('status') == status]
     if ftype in ('bug', 'suggestion', 'other'):
         filtered = [i for i in filtered if i.get('type', 'suggestion') == ftype]
@@ -226,14 +231,16 @@ def list_issues():
         return d
 
     out = [_with_type(it) for it in page_items]
-    open_count = sum(1 for i in issues if i.get('status') == 'open')
-    closed_count = sum(1 for i in issues if i.get('status') == 'closed')
+    open_count = sum(1 for i in issues if i.get('status') == STATUS_OPEN)
+    pending_count = sum(1 for i in issues if i.get('status') == STATUS_PENDING)
+    closed_count = sum(1 for i in issues if i.get('status') == STATUS_CLOSED)
 
     return jsonify({
         'success': True,
         'issues': out,
         'total': total,
         'open_count': open_count,
+        'pending_count': pending_count,
         'closed_count': closed_count,
         'page': page,
         'page_size': page_size,
@@ -315,10 +322,10 @@ def update_issue(issue_id):
 
         if 'status' in data:
             status = data['status']
-            if status not in ('open', 'closed'):
+            if status not in (STATUS_OPEN, STATUS_PENDING, STATUS_CLOSED):
                 return jsonify({'success': False, 'message': '无效状态', 'code': 400}), 400
             it['status'] = status
-            if status == 'closed':
+            if status == STATUS_CLOSED:
                 reason = data.get('closed_reason')
                 if reason not in (REASON_RESOLVED, REASON_DISMISSED, None):
                     reason = REASON_DISMISSED
