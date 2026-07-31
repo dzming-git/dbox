@@ -583,6 +583,7 @@ const onListImgError = (e: Event) => {
         帖子
       </button>
     </div>
+    </div>
 
     <!-- 稍后再看列表面板（入口统一使用顶部全局导航栏的「稍后再看」按钮） -->
     <transition name="wl-fade">
