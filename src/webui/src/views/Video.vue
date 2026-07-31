@@ -13,7 +13,6 @@ const route = useRoute()
 const router = useRouter()
 const videoStore = useVideoStore()
 const userStore = useUserStore()
-const watchLaterStore = useWatchLaterStore()
 
 // 检查当前用户是否为管理员（使用 userStore 的统一判断）
 const isAdmin = computed(() => userStore.isAdmin)
