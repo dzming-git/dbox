@@ -337,9 +337,13 @@ def ensure_mode_enrichment(ri, mode):
             db.session.add(v)
     elif mode == ResourceMode.GALLERY:
         if not Gallery.query.filter_by(resource_index_id=ri.id).first():
+            gh = ri.hash
+            # resource_index 未带 hash 时，绝不能回退成文件夹路径（路径含反斜杠会破坏路由且无法删除）
+            if not gh or len(gh) != 64 or not all(ch in '0123456789abcdefABCDEF' for ch in gh):
+                gh = Gallery.generate_hash_from_folder(ri.location)
             c = Gallery(resource_index_id=ri.id, folder_path=ri.location,
                        library_id=ri.library_id, title=ri._basename() or '未命名图集',
-                       hash=ri.hash or ri.location or f'ri-{ri.id}')
+                       hash=gh or f'ri-{ri.id}')
             db.session.add(c)
     elif mode == ResourceMode.TEXT:
         if not Text.query.filter_by(resource_index_id=ri.id).first():
@@ -1308,6 +1312,23 @@ class Gallery(db.Model):
             return hashlib.sha256(folder_path.encode('utf-8')).hexdigest()
         return h.hexdigest()
 
+    @staticmethod
+    def generate_hash_from_folder(folder_path):
+        """扫描文件夹内图片文件，计算内容指纹（供 resource_index 缺失 hash 时兜底，
+        绝不返回路径本身，避免产生含反斜杠的非法 hash）。文件夹不存在时返回 None。"""
+        import os
+        import glob
+        if not folder_path or not os.path.isdir(folder_path):
+            return None
+        exts = ('*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp', '*.bmp')
+        pages = []
+        for ext in exts:
+            pages.extend(glob.glob(os.path.join(folder_path, ext)))
+            pages.extend(glob.glob(os.path.join(folder_path, ext.upper())))
+        if not pages:
+            return hashlib.sha256(folder_path.encode('utf-8')).hexdigest()
+        return Gallery.generate_hash(folder_path, pages)
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -1884,6 +1905,70 @@ def _migrate_gallery_progress_col():
             print(f'gallery_progress 列迁移跳过: {e}')
 
 
+def _is_valid_hash(h):
+    return bool(h) and len(h) == 64 and all(ch in '0123456789abcdefABCDEF' for ch in h)
+
+
+def _migrate_gallery_bad_hashes():
+    """修复历史图集的非法 hash。
+
+    早期 ensure_mode_enrichment 在 resource_index 缺失 hash 时把 hash 回退成了
+    文件夹路径（含反斜杠），导致：
+      1) 前端路由 /gallery/<hash> 携带反斜杠无法匹配，打开即 404；
+      2) 删除接口同样 404，图集删不掉。
+
+    本函数对 hash 非标准 sha256 的图集：能读到原文件夹则按内容重算 hash 并同步
+    更新 resource_index.hash；文件夹已丢失则直接删除该图集（含 membership）。
+    """
+    try:
+        bad = Gallery.query.filter(
+            db.or_(
+                Gallery.hash.is_(None),
+                db.func.length(Gallery.hash) != 64,
+            )
+        ).all()
+        # 也兜底：长度 64 但含非 hex 字符（极少见）
+        existing = {g.hash for g in Gallery.query.all() if _is_valid_hash(g.hash)}
+        fixed = removed = 0
+        for g in bad:
+            if _is_valid_hash(g.hash):
+                continue
+            ri = g.resource_index
+            folder = ri.location if ri else None
+            new_hash = Gallery.generate_hash_from_folder(folder) if folder else None
+            if not new_hash or new_hash in existing:
+                # 无法重算或哈希冲突：删除该图集（连同 membership）
+                try:
+                    from sqlalchemy import text as _t
+                    db.session.execute(_t(
+                        "DELETE FROM resource_memberships WHERE resource_index_id=:rid"
+                    ), {'rid': ri.id}) if ri else None
+                    if ri:
+                        db.session.delete(ri)
+                    db.session.delete(g)
+                    db.session.commit()
+                    removed += 1
+                    continue
+                except Exception:
+                    db.session.rollback()
+            # 更新 hash
+            g.hash = new_hash
+            if ri and not _is_valid_hash(ri.hash):
+                ri.hash = new_hash
+            existing.add(new_hash)
+            db.session.commit()
+            fixed += 1
+        if fixed or removed:
+            print(f'[MIGRATE] 图集非法 hash 修复: 重算 {fixed} 条, 删除 {removed} 条')
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'图集非法 hash 迁移跳过: {e}')
+        except Exception:
+            print(f'图集非法 hash 迁移跳过: {e}')
+
+
 def migrate_resource_index():
     """[资源索引表] 将 videos.local_path / galleries.folder_path 的历史数据回填到 resource_index，
     并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
@@ -1900,6 +1985,8 @@ def migrate_resource_index():
     _migrate_gallery_interactions_pk()
     # 0.07) 收敛 gallery_progress 的 comic_id 遗留列 -> gallery_id（NOT NULL 约束导致写入 500）
     _migrate_gallery_progress_col()
+    # 0.08) 修复历史图集的非法 hash（hash 被存成文件夹路径，导致路由 404 且无法删除）
+    _migrate_gallery_bad_hashes()
     # 0.1) 帖子引用新增 display_mode 列
     _migrate_post_ref_display_mode()
     try:
