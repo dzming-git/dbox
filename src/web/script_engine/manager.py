@@ -567,14 +567,16 @@ class ScriptJobManager:
         if post_groups:
             try:
                 with self.app.app_context():
-                    from core.models import create_post
+                    from core.models import upsert_post_by_group
                     for gk, g in post_groups.items():
                         if g['ids']:
-                            d = create_post(g.get('title') or '',
-                                            g.get('content'), g['ids'], user_id=owner_id,
-                                            author_name=g.get('author_name'),
-                                            author_url=g.get('author_url'),
-                                            source_url=g.get('source_url'))
+                            gk_clean = gk if gk and gk != '_default_' else None
+                            d = upsert_post_by_group(gk_clean,
+                                                     g.get('title') or '',
+                                                     g.get('content'), g['ids'], user_id=owner_id,
+                                                     author_name=g.get('author_name'),
+                                                     author_url=g.get('author_url'),
+                                                     source_url=g.get('source_url'))
                             self._append_log(job_id, 'info',
                                              f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
             except Exception as e:

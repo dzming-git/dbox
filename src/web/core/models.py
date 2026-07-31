@@ -394,12 +394,13 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
 
 
 def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None,
-                author_name=None, author_url=None, source_url=None):
+                author_name=None, author_url=None, source_url=None, group_key=None):
     """由一组资源索引创建一条帖子（组合模式）。
 
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
     display_modes: 可选 {resource_index_id: 'link'|'embed'}，缺省按 'embed' 处理。
     author_name/author_url/source_url: 来源信息（X 下载器回填），前端展示为可点击链接。
+    group_key: 下载来源分组键（如 X 的 tweet_id），用于重复下载时定位并更新同一条帖子。
     """
     # 帖子标题可选：用户不填则存空，前端展示时根本不渲染标题区域
     d = Post(
@@ -409,6 +410,7 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
         author_name=author_name,
         author_url=author_url,
         source_url=source_url,
+        group_key=group_key,
     )
     db.session.add(d)
     db.session.flush()
@@ -421,6 +423,40 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
         db.session.add(ref)
     db.session.commit()
     return d
+
+
+def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=None,
+                         display_modes=None, author_name=None, author_url=None,
+                         source_url=None):
+    """按 group_key 查重：已存在同组帖子则更新（重建引用 + 同步来源信息），否则新建。
+
+    重复下载同一来源（如同一推文）时避免产生多条重复帖子。
+    """
+    existing = None
+    if group_key:
+        existing = Post.query.filter_by(group_key=group_key).first()
+    if existing:
+        existing.title = title or None
+        existing.content = content
+        existing.owner_id = user_id
+        existing.author_name = author_name
+        existing.author_url = author_url
+        existing.source_url = source_url
+        # 重建引用（顺序编排）
+        PostRef.query.filter_by(post_id=existing.id).delete()
+        db.session.flush()
+        for i, rid in enumerate(resource_index_ids):
+            ri = ResourceIndex.query.get(rid)
+            if not ri:
+                continue
+            mode = (display_modes or {}).get(rid, 'embed')
+            ref = PostRef(post_id=existing.id, resource_index_id=rid, position=i, display_mode=mode)
+            db.session.add(ref)
+        db.session.commit()
+        return existing
+    return create_post(title, content, resource_index_ids, user_id=user_id,
+                       display_modes=display_modes, author_name=author_name,
+                       author_url=author_url, source_url=source_url, group_key=group_key)
 
 
 class Video(db.Model):
@@ -1545,6 +1581,9 @@ class Post(db.Model):
     author_url = db.Column(db.String(1000), nullable=True)
     source_url = db.Column(db.String(1000), nullable=True)
 
+    # 下载来源分组键（如 X 的 tweet_id），用于重复下载时定位并更新同一条帖子
+    group_key = db.Column(db.String(200), nullable=True, index=True)
+
     refs = db.relationship('PostRef', back_populates='post',
                             cascade='all, delete-orphan', order_by='PostRef.position')
 
@@ -1626,6 +1665,7 @@ class Post(db.Model):
         d['authorName'] = self.author_name
         d['authorUrl'] = self.author_url
         d['sourceUrl'] = self.source_url
+        d['groupKey'] = self.group_key
         return d
 
     @staticmethod
@@ -2309,6 +2349,21 @@ def migrate_post_source_columns():
             conn.commit()
     except Exception as e:
         print(f'[WARN] post source 列迁移跳过: {e}')
+
+
+def migrate_post_group_key():
+    """为 posts 表补充 group_key 列（兼容历史库），用于重复下载时定位并更新同一条帖子。幂等。"""
+    try:
+        with db.engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(posts)")).fetchall()]
+            if 'group_key' not in cols:
+                conn.execute(db.text("ALTER TABLE posts ADD COLUMN group_key VARCHAR(200)"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_posts_group_key ON posts (group_key)"))
+                conn.commit()
+                print('[MIGRATE] posts.group_key 已新增')
+    except Exception as e:
+        print(f'[WARN] post group_key 列迁移跳过: {e}')
 
 
 
