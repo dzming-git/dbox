@@ -1822,6 +1822,68 @@ def _migrate_gallery_interactions_pk():
             print(f'gallery_interactions 主键迁移跳过: {e}')
 
 
+def _migrate_gallery_progress_col():
+    """修复 gallery_progress 表的 comic_id 遗留列。
+
+    历史表 comic_progress 经 RENAME 而来，原 schema 为 (id, comic_id NOT NULL,
+    user_session, page, progress, updated_at)，迁移时仅 ADD 了可为空的 gallery_id
+    并拷贝数据，但保留了 NOT NULL 的 comic_id。模型 GalleryProgress 只写 gallery_id，
+    插入新行时 comic_id 为 NULL 触发 NOT NULL 约束，接口返回 500。
+
+    此处幂等重建表：将 comic_id 数据并入 gallery_id，并把列收敛为模型期望的
+    (id PK 自增, gallery_id NOT NULL, user_session NOT NULL, page, progress,
+    in_continue NOT NULL DEFAULT 0, updated_at)，删除遗留的 comic_id。
+    """
+    try:
+        row = db.session.execute(db.text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gallery_progress'"
+        )).fetchone()
+        if not row:
+            return
+        cols = [r[1] for r in db.session.execute(
+            db.text("PRAGMA table_info(gallery_progress)")).fetchall()]
+        # 若已无 comic_id 列且 gallery_id 存在，则无需处理
+        if 'comic_id' not in cols and 'gallery_id' in cols:
+            return
+        # 1) 把 comic_id 数据补进 gallery_id（仅当 gallery_id 缺失时）
+        if 'comic_id' in cols and 'gallery_id' in cols:
+            db.session.execute(db.text(
+                "UPDATE gallery_progress SET gallery_id = comic_id WHERE gallery_id IS NULL"))
+            db.session.commit()
+        # 2) 重建表，去掉 comic_id，保证 gallery_id NOT NULL
+        db.session.execute(db.text(
+            "CREATE TABLE gallery_progress_new ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " gallery_id INTEGER NOT NULL,"
+            " user_session VARCHAR(100) NOT NULL,"
+            " page INTEGER,"
+            " progress FLOAT,"
+            " in_continue BOOLEAN NOT NULL DEFAULT 0,"
+            " updated_at DATETIME,"
+            " CONSTRAINT _gallery_progress_uc UNIQUE (gallery_id, user_session)"
+            ")"))
+        db.session.execute(db.text(
+            "INSERT INTO gallery_progress_new "
+            "(id, gallery_id, user_session, page, progress, in_continue, updated_at) "
+            "SELECT id, COALESCE(gallery_id, comic_id), user_session, page, progress, "
+            "COALESCE(in_continue, 0), updated_at "
+            "FROM gallery_progress"))
+        db.session.execute(db.text("DROP TABLE gallery_progress"))
+        db.session.execute(db.text("ALTER TABLE gallery_progress_new RENAME TO gallery_progress"))
+        db.session.execute(db.text(
+            "CREATE INDEX IF NOT EXISTS ix_gallery_progress_gallery_id "
+            "ON gallery_progress(gallery_id)"))
+        db.session.commit()
+        print('[MIGRATE] gallery_progress 已收敛 comic_id -> gallery_id')
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'gallery_progress 列迁移跳过: {e}')
+        except Exception:
+            print(f'gallery_progress 列迁移跳过: {e}')
+
+
 def migrate_resource_index():
     """[资源索引表] 将 videos.local_path / galleries.folder_path 的历史数据回填到 resource_index，
     并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
@@ -1836,6 +1898,8 @@ def migrate_resource_index():
     _migrate_comic_tables_to_galleries()
     # 0.06) 修复 gallery_interactions 的 id 主键（历史 comic 表无自增主键，导致点赞切换失败）
     _migrate_gallery_interactions_pk()
+    # 0.07) 收敛 gallery_progress 的 comic_id 遗留列 -> gallery_id（NOT NULL 约束导致写入 500）
+    _migrate_gallery_progress_col()
     # 0.1) 帖子引用新增 display_mode 列
     _migrate_post_ref_display_mode()
     try:
