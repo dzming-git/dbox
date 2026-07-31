@@ -1767,6 +1767,61 @@ def _migrate_comic_tables_to_galleries():
             print(f'图集->图集 表迁移跳过: {e}')
 
 
+def _migrate_gallery_interactions_pk():
+    """修复 gallery_interactions 表的 id 主键。
+
+    历史表 comic_interactions 经 RENAME 而来，原始 schema 的 id 为 INT（无 PRIMARY KEY /
+    自增），导致：1) 新插入行的 id 为 NULL；2) SQLAlchemy 无法加载 NULL 主键行（.first()/
+    .all() 返回 None）；3) 切换点赞时误判「不存在」又尝试 INSERT，触发
+    (gallery_id, user_session, interaction_type) 唯一约束冲突，接口返回「操作失败」。
+
+    此处幂等重建表：回填 NULL id 为唯一值，并将 id 改为 INTEGER PRIMARY KEY AUTOINCREMENT。
+    """
+    try:
+        row = db.session.execute(db.text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gallery_interactions'"
+        )).fetchone()
+        if not row:
+            return
+        sql_def = (row[0] or '').upper()
+        if 'PRIMARY KEY' in sql_def:
+            return  # 已是正确的自增主键，无需处理
+        # 1) 为 NULL id 行分配唯一值（基于 rowid，必然唯一且不与小 id 冲突）
+        db.session.execute(db.text(
+            "UPDATE gallery_interactions SET id = 900000 + rowid WHERE id IS NULL"))
+        db.session.commit()
+        # 2) 重建为带自增主键的表，保留数据与唯一约束
+        db.session.execute(db.text(
+            "CREATE TABLE gallery_interactions_new ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " gallery_id INTEGER NOT NULL,"
+            " user_session VARCHAR(100) NOT NULL,"
+            " interaction_type VARCHAR(20) NOT NULL,"
+            " interaction_score REAL DEFAULT 0.0,"
+            " created_at DATETIME,"
+            " CONSTRAINT _gallery_interaction_uc UNIQUE (gallery_id, user_session, interaction_type)"
+            ")"))
+        db.session.execute(db.text(
+            "INSERT INTO gallery_interactions_new "
+            "(id, gallery_id, user_session, interaction_type, interaction_score, created_at) "
+            "SELECT id, gallery_id, user_session, interaction_type, interaction_score, created_at "
+            "FROM gallery_interactions"))
+        db.session.execute(db.text("DROP TABLE gallery_interactions"))
+        db.session.execute(db.text("ALTER TABLE gallery_interactions_new RENAME TO gallery_interactions"))
+        db.session.execute(db.text(
+            "CREATE INDEX IF NOT EXISTS ix_gallery_interactions_gallery_id "
+            "ON gallery_interactions(gallery_id)"))
+        db.session.commit()
+        print('[MIGRATE] gallery_interactions 主键已修复（id 改为自增主键）')
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'gallery_interactions 主键迁移跳过: {e}')
+        except Exception:
+            print(f'gallery_interactions 主键迁移跳过: {e}')
+
+
 def migrate_resource_index():
     """[资源索引表] 将 videos.local_path / galleries.folder_path 的历史数据回填到 resource_index，
     并为实体设置 resource_index_id，使「实体」与「磁盘位置」解耦。
@@ -1779,6 +1834,8 @@ def migrate_resource_index():
     _migrate_dynamic_tables_to_posts()
     # 0.05) 历史表 comics/* 重命名为 galleries/*（漫画 -> 图集）
     _migrate_comic_tables_to_galleries()
+    # 0.06) 修复 gallery_interactions 的 id 主键（历史 comic 表无自增主键，导致点赞切换失败）
+    _migrate_gallery_interactions_pk()
     # 0.1) 帖子引用新增 display_mode 列
     _migrate_post_ref_display_mode()
     try:

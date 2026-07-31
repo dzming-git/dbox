@@ -8,7 +8,7 @@ import CollectionPanel from '../components/CollectionPanel.vue'
 import { useToast } from '../composables/useToast'
 import type { Gallery } from '../types'
 
-const { showToast } = useToast()
+const { toastMessage, showToastFlag, showToast } = useToast()
 
 const route = useRoute()
 const router = useRouter()
@@ -722,6 +722,11 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     </div>
   </div>
 
+  <!-- Toast 提示 -->
+  <div v-if="showToastFlag" class="toast" data-testid="gallery-toast">
+    {{ toastMessage }}
+  </div>
+
   <div class="reader-loading" v-else-if="loading">
     <div class="spinner"></div><p>加载中...</p>
   </div>
@@ -732,6 +737,22 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 </template>
 
 <style scoped>
+/* Toast 提示 */
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 9999;
+  pointer-events: none;
+  max-width: 80vw;
+  text-align: center;
+}
 .reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: #0e0e0e; }
 .reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: visible; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
 .reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; }

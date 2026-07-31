@@ -15,6 +15,7 @@ from flask import Blueprint, request, jsonify, session, send_file, abort, curren
 from urllib.parse import quote, unquote
 from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from core.models import (
@@ -344,8 +345,10 @@ def gallery_interact(gallery_hash, itype):
     try:
         c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
         key = current_interaction_key()
-        inter = GalleryInteraction.query.filter_by(
-            gallery_id=c.id, user_session=key, interaction_type=itype).first()
+        # 关闭自动 flush，避免存在性查询触发未决 INSERT 造成唯一约束误报
+        with db.session.no_autoflush:
+            inter = GalleryInteraction.query.filter_by(
+                gallery_id=c.id, user_session=key, interaction_type=itype).first()
         if inter:
             db.session.delete(inter)
             active = False
@@ -360,6 +363,22 @@ def gallery_interact(gallery_hash, itype):
         elif itype == 'favorite':
             c.favorite_count = GalleryInteraction.query.filter_by(
                 gallery_id=c.id, interaction_type='favorite').count()
+        db.session.commit()
+        return jsonify({'success': True, 'active': active,
+                        'like_count': c.like_count, 'favorite_count': c.favorite_count})
+    except IntegrityError:
+        # 并发或历史脏数据导致唯一约束冲突：已存在则视为「取消」（toggle off）
+        db.session.rollback()
+        c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
+        key = current_interaction_key()
+        with db.session.no_autoflush:
+            existing = GalleryInteraction.query.filter_by(
+                gallery_id=c.id, user_session=key, interaction_type=itype).first()
+        if existing:
+            db.session.delete(existing)
+            active = False
+        else:
+            active = True
         db.session.commit()
         return jsonify({'success': True, 'active': active,
                         'like_count': c.like_count, 'favorite_count': c.favorite_count})
