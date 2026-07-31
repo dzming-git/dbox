@@ -251,14 +251,15 @@ const formatDate = (s?: string) => {
     </div>
 
     <div v-else class="posts-list">
-      <div v-for="d in posts" :key="d.id" class="post-card">
+      <div v-for="d in posts" :key="d.id" class="post-card" @click="openPost(d)">
         <div class="post-head">
-          <div class="post-head-main" @click="openPost(d)">
+          <div class="post-head-main">
             <h3 v-if="d.title" class="post-title">{{ d.title }}</h3>
+            <h3 v-else class="post-title post-title--empty">无标题帖子</h3>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
-          <div class="post-ops">
-            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || ''" />
+          <div class="post-ops" @click.stop>
+            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '无标题帖子'" />
           </div>
         </div>
 
@@ -279,6 +280,9 @@ const formatDate = (s?: string) => {
           </div>
         </div>
         <p v-if="!d.content && (!d.refs || !d.refs.length)" class="no-refs">（暂无内容）</p>
+        <div class="post-card-foot">
+          <span class="open-hint">查看详情 ›</span>
+        </div>
       </div>
     </div>
 
@@ -367,13 +371,18 @@ const formatDate = (s?: string) => {
 .empty-state { color: #666; text-align: center; padding: 60px 0; }
 
 .posts-list { display: flex; flex-direction: column; gap: 20px; }
-.post-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; }
+.post-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+.post-card:hover { border-color: #2196F3; transform: translateY(-2px); }
 .post-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .post-head-main { cursor: pointer; display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
-.post-head-main:hover .post-title { color: #64b5f6; }
+.post-card:hover .post-title { color: #64b5f6; }
 .post-title { font-size: 17px; font-weight: 600; color: #fff; margin: 0; }
+.post-title--empty { color: #999; font-weight: 500; }
 .post-date { font-size: 12px; color: #777; }
 .post-ops { display: flex; gap: 8px; flex-shrink: 0; }
+.post-card-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+.open-hint { font-size: 13px; color: #2196F3; opacity: 0; transition: opacity 0.15s; }
+.post-card:hover .open-hint { opacity: 1; }
 .op-btn { padding: 5px 12px; border: 1px solid #3a3a3a; background: #252525; color: #ccc; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .op-btn:hover { color: #fff; }
 .op-btn.danger:hover { color: #ff6b6b; border-color: #ff6b6b; }
