@@ -299,6 +299,13 @@ const interact = async (type: 'like' | 'favorite' | 'dislike') => {
       like_count: type === 'like' ? res.like_count : gallery.value.like_count,
       favorite_count: type === 'favorite' ? res.favorite_count : gallery.value.favorite_count,
     }
+    const verb =
+      type === 'like' ? (res.active ? '已点赞' : '已取消点赞')
+      : type === 'favorite' ? (res.active ? '已收藏' : '已取消收藏')
+      : (res.active ? '已点踩' : '已取消点踩')
+    showToast(verb)
+  } else {
+    showToast('操作失败，请重试')
   }
 }
 
@@ -396,10 +403,14 @@ const handleDelete = async () => {
     const res: any = await api.galleryApi.deleteGallery(gallery.value.hash, deleteFileOption.value)
     if (res?.data?.success || res?.success) {
       showDeleteConfirm.value = false
+      showToast('已删除图集')
       router.push({ name: 'Gallerys' })
+    } else {
+      showToast('删除失败：' + (res?.message || res?.data?.message || '未知错误'))
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error('deleteGallery failed', e)
+    showToast('删除失败：' + (e?.message || e))
   }
 }
 
