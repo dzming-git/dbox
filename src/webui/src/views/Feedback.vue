@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import {
@@ -130,6 +130,22 @@ function backToList() {
   router.push({ path: '/feedback' })
 }
 
+// 切换状态标签：点「全部」时一并重置类型与关键词筛选，确保真正显示全部
+function changeStatusFilter(key: 'all' | 'open' | 'pending' | 'closed') {
+  statusFilter.value = key
+  if (key === 'all') {
+    typeFilter.value = 'all'
+    keyword.value = ''
+  }
+  loadIssues(true)
+}
+
+// 切换类型筛选：点「全部类型」时一并清空关键词，避免残留过滤
+function changeTypeFilter(key: 'all' | 'bug' | 'suggestion' | 'other') {
+  typeFilter.value = key
+  loadIssues(true)
+}
+
 function openNew() {
   newTitle.value = ''
   newContent.value = ''
@@ -155,7 +171,7 @@ async function submitNew() {
     })
     if (res.success) {
       view.value = 'list'
-      await loadIssues(true)
+      changeStatusFilter('all')
     } else {
       formMsg.value = '提交失败'
     }
@@ -222,7 +238,15 @@ async function submitComment() {
   }
 }
 
-watch([statusFilter, keyword], () => loadIssues(true))
+// 关键词输入防抖触发加载（状态/类型筛选改用显式处理函数，确保一致重置）
+let keywordTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (keywordTimer) clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => loadIssues(true), 300)
+})
+onBeforeUnmount(() => {
+  if (keywordTimer) clearTimeout(keywordTimer)
+})
 
 // 根据路由参数驱动详情视图（支持独立 URL 与浏览器前进/后退）
 watch(
@@ -261,7 +285,7 @@ watch(
             :key="t.key"
             class="fb-tab"
             :class="{ active: statusFilter === t.key }"
-            @click="statusFilter = t.key as any"
+            @click="changeStatusFilter(t.key as any)"
           >
             {{ t.label }} <span class="fb-tab-count">{{ t.count }}</span>
           </button>
@@ -276,15 +300,15 @@ watch(
       </div>
 
       <div class="fb-type-bar">
-        <button
-          v-for="t in typeTabs"
-          :key="t.key"
-          class="fb-type-tab"
-          :class="[t.key, { active: typeFilter === t.key }]"
-          @click="typeFilter = t.key as any"
-        >
-          {{ t.label }}
-        </button>
+          <button
+            v-for="t in typeTabs"
+            :key="t.key"
+            class="fb-type-tab"
+            :class="[t.key, { active: typeFilter === t.key }]"
+            @click="changeTypeFilter(t.key as any)"
+          >
+            {{ t.label }}
+          </button>
       </div>
 
       <div v-if="loading" class="fb-loading">加载中...</div>

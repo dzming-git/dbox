@@ -225,11 +225,13 @@ export interface IssueComment {
   created_at: string
 }
 
+export type IssueType = 'bug' | 'suggestion' | 'other'
+
 export interface Issue {
   id: string                                   // yyyymmdd + 4 位流水号，如 202607250004
   title: string
   content: string
-  type: 'bug' | 'suggestion' | 'other'         // 问题类型：缺陷 / 建议 / 其他
+  type: IssueType                              // 问题类型：缺陷 / 建议 / 其他
   author: string
   author_id: number | null
   author_role: number

@@ -3,6 +3,7 @@ import type { Issue, IssueListResponse } from '../types'
 
 export interface IssueListParams {
   status?: 'open' | 'pending' | 'closed' | 'all'
+  type?: IssueType | 'all'
   keyword?: string
   page?: number
   page_size?: number
@@ -26,6 +27,7 @@ export async function getIssue(id: string): Promise<{ success: boolean; issue: I
 export async function createIssue(payload: {
   title: string
   content: string
+  type?: IssueType
   contact?: string
 }): Promise<{ success: boolean; id: string; issue: Issue }> {
   return await api.post('/api/suggestion', payload)
