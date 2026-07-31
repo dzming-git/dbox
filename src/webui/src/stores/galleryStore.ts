@@ -142,6 +142,15 @@ export const useGalleryStore = defineStore('gallery', () => {
     await fetchGallerysByOffset(offset)
   }
 
+  // 删除图集后从缓存列表移除，避免返回列表页时仍显示已删除项（无需手动刷新）
+  const removeGallery = (hash: string) => {
+    const idx = galleries.value.findIndex(c => c.hash === hash)
+    if (idx !== -1) {
+      galleries.value.splice(idx, 1)
+      if (pagination.value.total > 0) pagination.value.total -= 1
+    }
+  }
+
   const interact = async (hash: string, type: 'like' | 'favorite' | 'dislike') => {
     try {
       const res: any = await galleryApi.interact(hash, type)
@@ -195,6 +204,7 @@ export const useGalleryStore = defineStore('gallery', () => {
     fetchGallerys, fetchGallerysByOffset, searchGallerys, clearSearch,
     filterByLibrary, filterByTag, setSortBy, setSortOrder, setViewMode,
     interact, saveProgress, fetchUserLibraries, scanLibrary, scanStatus,
+    removeGallery,
     toQuery, initFromQuery
   }
 })

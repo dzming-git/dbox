@@ -422,6 +422,8 @@ const handleDelete = async () => {
     if (res?.data?.success || res?.success) {
       showDeleteConfirm.value = false
       showToast('已删除图集')
+      // 立即从缓存列表移除，避免返回列表页时仍显示已删除项
+      galleryStore.removeGallery(gallery.value.hash)
       router.push({ name: 'Gallerys' })
     } else {
       showToast('删除失败：' + (res?.message || res?.data?.message || '未知错误'))
