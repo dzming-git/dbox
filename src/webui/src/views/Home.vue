@@ -583,17 +583,8 @@ const onListImgError = (e: Event) => {
         帖子
       </button>
     </div>
-    <!-- 稍后再看入口（右上角） -->
-    <button class="watchlater-top-btn" @click="watchLaterStore.panelOpen = !watchLaterStore.panelOpen" title="稍后再看">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
-      </svg>
-      <span>稍后再看</span>
-      <span class="wl-badge" v-if="watchLaterCount">{{ watchLaterCount }}</span>
-    </button>
-    </div>
 
-    <!-- 稍后再看列表面板 -->
+    <!-- 稍后再看列表面板（入口统一使用顶部全局导航栏的「稍后再看」按钮） -->
     <transition name="wl-fade">
       <div class="watchlater-panel" v-if="watchLaterStore.panelOpen">
         <div class="wl-panel-head">
@@ -1018,21 +1009,6 @@ const onListImgError = (e: Event) => {
 }
 .topbar .media-tabs { margin-bottom: 0; }
 
-.watchlater-top-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 16px;
-  background: #252525;
-  border: 1px solid #333;
-  color: #ddd;
-  border-radius: 10px;
-  font-size: 15px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
-}
-.watchlater-top-btn:hover { color: #fff; background: #2f2f2f; }
 .wl-badge {
   min-width: 18px;
   height: 18px;
