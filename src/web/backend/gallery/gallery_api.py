@@ -24,6 +24,8 @@ from core.models import (
     GalleryTag, GalleryPlaylist, GalleryPlaylistItem, Tag,
 )
 from backend.trash import move_to_trash, purge_trash
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 gallery_bp = Blueprint('gallery', __name__, url_prefix='')
 
@@ -886,8 +888,14 @@ def delete_gallery(gallery_hash):
             move_to_trash(c, 'gallery')
             log.maintenance('INFO', f"图集移入回收站: {c.title} (hash: {gallery_hash})")
             return jsonify({'success': True, 'message': '已移入回收站'})
+    except HTTPException:
+        raise
     except Exception as e:
         db.session.rollback()
+        try:
+            current_app.logger.exception(f"删除图集失败 hash={gallery_hash}")
+        except Exception:
+            pass
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
