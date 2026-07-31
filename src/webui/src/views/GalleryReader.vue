@@ -40,6 +40,24 @@ const withToken = (url: string) => {
   return userStore.token ? `${url}${sep}token=${userStore.token}` : url
 }
 
+// 内联占位图（data URI），避免失败图片反复请求不存在的 /placeholder.jpg 造成高频请求
+const PLACEHOLDER =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'>" +
+    "<rect width='100%' height='100%' fill='#2a2a2a'/>" +
+    "<text x='50%' y='50%' fill='#666' font-size='10' text-anchor='middle' dominant-baseline='middle'>图</text>" +
+    '</svg>'
+  )
+
+// 图片加载失败时降级到占位图；用 data-fallback 标记防止 error 事件死循环
+const onImgError = (e: any) => {
+  const el = e.target
+  if (!el || el.dataset.fallback === '1') return
+  el.dataset.fallback = '1'
+  el.src = PLACEHOLDER
+}
+
 const scrollContainer = ref<HTMLElement | null>(null)
 
 // 续读滚动定位相关
@@ -655,7 +673,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         :class="{ active: p.index === currentPage }"
         @click="goToPage(p.index)"
       >
-        <img :src="withToken(p.url)" loading="lazy" @error="(e:any)=>e.target.style.opacity=0.2" />
+        <img :src="withToken(p.url)" loading="lazy" @error="onImgError" />
         <span class="thumb-idx">{{ p.index }}</span>
       </div>
     </div>
@@ -670,7 +688,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
           :style="imgStyle"
           :src="withToken(currentImage)"
           @load="updateProgress"
-          @error="(e:any)=>e.target.src='/placeholder.jpg'"
+          @error="onImgError"
         />
         <div class="page-nav prev" @click.stop="prev" v-if="currentPage>1">‹</div>
         <div class="page-nav next" @click.stop="next" v-if="currentPage<total">›</div>
@@ -692,7 +710,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
           :src="withToken(p.url)"
           :loading="p.index <= resumePrefix ? 'eager' : 'lazy'"
           @load="onImgLoad(p.index)"
-          @error="(e:any)=>e.target.src='/placeholder.jpg'"
+          @error="onImgError"
         />
       </div>
     </div>
