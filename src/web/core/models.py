@@ -723,6 +723,39 @@ class UserInteraction(db.Model):
         return f'<UserInteraction {self.user_session} - {self.interaction_type}>'
 
 
+class WatchLater(db.Model):
+    """稍后再看：用户稍后观看/阅读的条目（视频/图集/帖子/文本）。
+
+    身份键 user_key 采用与交互记录一致的策略：登录用户为 u{user_id}（跨设备一致），
+    未登录游客为随机会话（仅当前设备/浏览器有效）。列表以 user_key 为唯一归属维度。
+    """
+    __tablename__ = 'watch_later'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_key = db.Column(db.String(100), nullable=False, index=True)
+    item_type = db.Column(db.String(20), nullable=False)  # video/gallery/post/text
+    item_id = db.Column(db.String(255), nullable=False)    # 视频/图集用 hash，帖子/文本用 id
+    title = db.Column(db.String(500))
+    thumbnail = db.Column(db.String(1000))
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_key', 'item_type', 'item_id', name='_watch_later_uc'),
+    )
+
+    def to_dict(self):
+        return {
+            'type': self.item_type,
+            'id': self.item_id,
+            'title': self.title,
+            'thumbnail': self.thumbnail,
+            'addedAt': self.added_at.isoformat() if self.added_at else None,
+        }
+
+    def __repr__(self):
+        return f'<WatchLater {self.user_key} {self.item_type}:{self.item_id}>'
+
+
 class VideoMarker(db.Model):
     """用户标记的精彩片段时间戳（按个人会话区分，不覆盖文件名/标题）。"""
     __tablename__ = 'video_markers'

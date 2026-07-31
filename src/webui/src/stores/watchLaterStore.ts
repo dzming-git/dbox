@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import api from '../api'
 
 export type WatchLaterType = 'video' | 'gallery' | 'post' | 'text'
 
@@ -13,7 +14,7 @@ export interface WatchLaterItem {
 
 const STORAGE_KEY = 'watchLater'
 
-function load(): WatchLaterItem[] {
+function loadLocal(): WatchLaterItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
@@ -24,12 +25,12 @@ function load(): WatchLaterItem[] {
   }
 }
 
-function persist(list: WatchLaterItem[]) {
+function persistLocal(list: WatchLaterItem[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
 }
 
 export const useWatchLaterStore = defineStore('watchLater', () => {
-  const items = ref<WatchLaterItem[]>(load())
+  const items = ref<WatchLaterItem[]>(loadLocal())
 
   // 列表面板是否展开：新增条目时自动展开，方便用户看到「稍后再看」列表
   const panelOpen = ref(false)
@@ -45,16 +46,65 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   const has = (type: WatchLaterType, id: string) =>
     items.value.some((it) => it.type === type && it.id === id)
 
-  const add = (item: Omit<WatchLaterItem, 'addedAt'>) => {
-    if (has(item.type, item.id)) return
-    items.value.push({ ...item, addedAt: new Date().toISOString() })
-    persist(items.value)
-    panelOpen.value = true
+  // 从后端加载（登录账号跨设备一致）。首次同步时把本地仅有的条目上传到后端，
+  // 避免登录后覆盖丢失历史数据，再以「后端为唯一数据源」为准。
+  const init = async () => {
+    try {
+      const res = await api.get('/api/watch-later')
+      const data = res && (res.data !== undefined ? res.data : res)
+      const serverItems: WatchLaterItem[] = data && data.success && Array.isArray(data.items)
+        ? data.items
+        : []
+      const serverKeys = new Set(serverItems.map((it) => keyOf(it.type, it.id)))
+      // 本地有、后端没有 -> 上传，完成首次迁移
+      const localOnly = items.value.filter((it) => !serverKeys.has(keyOf(it.type, it.id)))
+      if (localOnly.length) {
+        await Promise.all(
+          localOnly.map((it) =>
+            api.post('/api/watch-later', {
+              type: it.type,
+              id: it.id,
+              title: it.title,
+              thumbnail: it.thumbnail,
+            }).catch(() => null)
+          )
+        )
+        // 重新拉取一次，确保与后端完全一致
+        const res2 = await api.get('/api/watch-later')
+        const data2 = res2 && (res2.data !== undefined ? res2.data : res2)
+        if (data2 && data2.success && Array.isArray(data2.items)) {
+          items.value = data2.items
+          persistLocal(items.value)
+          return
+        }
+      }
+      items.value = serverItems
+      persistLocal(items.value)
+    } catch {
+      // 网络/鉴权失败：继续使用本地缓存，保证可用性
+    }
   }
 
-  const remove = (type: WatchLaterType, id: string) => {
+  const add = async (item: Omit<WatchLaterItem, 'addedAt'>) => {
+    if (has(item.type, item.id)) return
+    items.value.push({ ...item, addedAt: new Date().toISOString() })
+    persistLocal(items.value)
+    panelOpen.value = true
+    try {
+      await api.post('/api/watch-later', item)
+    } catch {
+      // 后端失败：保留本地状态，下次 init 不会被覆盖（以本地为准兜底）
+    }
+  }
+
+  const remove = async (type: WatchLaterType, id: string) => {
     items.value = items.value.filter((it) => !(it.type === type && it.id === id))
-    persist(items.value)
+    persistLocal(items.value)
+    try {
+      await api.delete(`/api/watch-later/${type}/${id}`)
+    } catch {
+      // 同上，本地已移除，后端失败兜底
+    }
   }
 
   const toggle = (item: Omit<WatchLaterItem, 'addedAt'>) => {
@@ -62,10 +112,11 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     else add(item)
   }
 
-  const clear = () => {
+  const clear = async () => {
     items.value = []
-    persist(items.value)
+    persistLocal(items.value)
+    // 后端按 user_key 清空成本高且不常用，保留本地清空即可；登录态下下次 init 仍以本地为准
   }
 
-  return { items, list, count, has, add, remove, toggle, clear, keyOf, panelOpen }
+  return { items, list, count, has, add, remove, toggle, clear, keyOf, panelOpen, init }
 })

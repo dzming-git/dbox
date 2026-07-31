@@ -40,6 +40,8 @@ onMounted(() => {
   document.addEventListener('click', closeUserDropdown)
   updateNavHeight()
   window.addEventListener('resize', updateNavHeight)
+  // 拉取「稍后再看」后端列表（登录账号跨设备一致，未登录则回落到本地缓存）
+  watchLaterStore.init()
   // 已登录则拉取后端分层设置（用户层 + 全局层），供默认排序等生效
   if (userStore.isLoggedIn) {
     fetchServerSettings()
@@ -65,6 +67,7 @@ watch(
   (logged) => {
     if (logged) {
       fetchServerSettings()
+      watchLaterStore.init()
     } else {
       clearServerSettings()
     }

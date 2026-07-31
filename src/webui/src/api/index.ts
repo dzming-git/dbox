@@ -517,4 +517,11 @@ export const textApi = {
   remove: (id: number) => api.delete(`/api/texts/${id}`),
 }
 
+export const watchLaterApi = {
+  list: () => api.get('/api/watch-later'),
+  add: (item: { type: string; id: string; title?: string; thumbnail?: string }) =>
+    api.post('/api/watch-later', item),
+  remove: (type: string, id: string) => api.delete(`/api/watch-later/${type}/${id}`),
+}
+
 export default api

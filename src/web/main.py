@@ -233,7 +233,7 @@ except Exception as e:
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
 
 # 导入核心模块
-from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting
+from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreference, User, UserSession, UserRole, ROLE_NAMES, AppSetting, WatchLater
 from core.models import FavoriteCollection, CollectionVideo, Gallery
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
@@ -1386,6 +1386,58 @@ def get_disliked():
         return jsonify({'success': True, 'videos': videos, 'total': len(videos)})
     except Exception as e:
         log.debug('ERROR', f"获取不喜欢列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/watch-later', methods=['GET'])
+def get_watch_later():
+    """获取当前用户的「稍后再看」列表（后端为唯一数据源，登录账号跨设备一致）。"""
+    try:
+        key = current_interaction_key()
+        rows = WatchLater.query.filter_by(user_key=key).order_by(WatchLater.added_at.desc()).all()
+        items = [r.to_dict() for r in rows]
+        return jsonify({'success': True, 'items': items, 'total': len(items)})
+    except Exception as e:
+        log.debug('ERROR', f"获取稍后再看列表失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/watch-later', methods=['POST'])
+def add_watch_later():
+    """添加条目到「稍后再看」。"""
+    try:
+        key = current_interaction_key()
+        data = request.get_json(force=True, silent=True) or {}
+        item_type = data.get('type')
+        item_id = data.get('id')
+        if not item_type or not item_id:
+            return jsonify({'success': False, 'message': '缺少 type 或 id'}), 400
+        exists = WatchLater.query.filter_by(user_key=key, item_type=item_type, item_id=item_id).first()
+        if not exists:
+            wl = WatchLater(
+                user_key=key, item_type=item_type, item_id=str(item_id),
+                title=data.get('title'), thumbnail=data.get('thumbnail'),
+            )
+            db.session.add(wl)
+            db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"添加稍后再看失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/watch-later/<item_type>/<item_id>', methods=['DELETE'])
+def remove_watch_later(item_type, item_id):
+    """从「稍后再看」移除某条目。"""
+    try:
+        key = current_interaction_key()
+        WatchLater.query.filter_by(user_key=key, item_type=item_type, item_id=item_id).delete()
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"删除稍后再看失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
