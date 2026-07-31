@@ -2301,7 +2301,8 @@ onUnmounted(() => {
         </label>
 
         <div v-if="resourceLoading" class="loading">加载中...</div>
-        <table v-else class="data-table">
+        <div v-else class="resource-table-wrap">
+        <table class="data-table">
           <thead>
             <tr>
               <th>类型</th>
@@ -2361,6 +2362,7 @@ onUnmounted(() => {
             <tr v-if="resources.length === 0"><td :colspan="resourceColspan" class="empty">暂无资源</td></tr>
           </tbody>
         </table>
+        </div>
 
         <div v-if="resourceTotal > RESOURCE_PAGE_SIZE" class="pagination">
           <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage--; fetchResources(false)">上一页</button>
@@ -3957,6 +3959,13 @@ onUnmounted(() => {
   width: 100%;
   min-width: 600px;  /* 确保小屏幕下表格不会被压缩 */
   border-collapse: collapse;
+}
+
+/* 资源表格移动端横向滚动容器，避免列被挤乱、操作按钮被遮挡 */
+.resource-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 资源管理标签页 */
