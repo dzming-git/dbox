@@ -424,7 +424,8 @@ const handleDelete = async () => {
       showToast('已删除图集')
       // 立即从缓存列表移除，避免返回列表页时仍显示已删除项
       galleryStore.removeGallery(gallery.value.hash)
-      router.push({ name: 'Gallerys' })
+      // 返回首页的图集模式页（Home?mode=gallery），保留资源模式/排序等菜单栏
+      router.push({ name: 'Home', query: { mode: 'gallery' } })
     } else {
       showToast('删除失败：' + (res?.message || res?.data?.message || '未知错误'))
     }
