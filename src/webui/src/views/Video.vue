@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { tagApi, videoApi, collectionSetApi, resourceApi } from '../api'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
@@ -210,9 +209,6 @@ watch(videoHash, async () => {
   await loadVideo()
 })
 
-// 稍后看状态（统一基于 watchLaterStore，跨四种资源类型）
-const isWatchLater = computed(() => !!video.value && watchLaterStore.has('video', video.value.hash))
-
 // 从后端加载用户交互状态（登录用户绑定账号，跨设备一致，以后端为准）
 const loadUserInteractions = () => {
   if (!video.value) return
@@ -397,19 +393,6 @@ const handleDislike = async () => {
   saveDislikeStatus()
   // 显示提示
   const message = isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽'
-  showToast(message)
-}
-
-const handleWatchLater = async () => {
-  if (!video.value) return
-  watchLaterStore.toggle({
-    type: 'video',
-    id: video.value.hash,
-    title: video.value.title,
-    thumbnail: video.value.thumbnail,
-  })
-  // 显示提示
-  const message = watchLaterStore.has('video', video.value.hash) ? '已添加到稍后看' : '已从稍后看移除'
   showToast(message)
 }
 
@@ -1727,26 +1710,6 @@ const handleDelete = async () => {
                   </svg>
                 </div>
                 <span class="btn-label">{{ video.favorite_count || 0 }}</span>
-              </button>
-
-              <!-- 稍后看 -->
-              <button
-                class="interact-btn watchlater-btn"
-                :class="{ active: isWatchLater }"
-                @click="handleWatchLater"
-                data-testid="watchlater-button"
-              >
-                <div class="btn-icon">
-                  <svg v-if="!isWatchLater" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <polyline points="12 6 12 12 16 14"/>
-                  </svg>
-                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10"/>
-                    <polyline points="12 6 12 12 16 14" stroke="currentColor" fill="none" stroke-width="2"/>
-                  </svg>
-                </div>
-                <span class="btn-label">稍后看</span>
               </button>
 
               <!-- 继续观看（用户主动加入，不自动按打开行为加入） -->

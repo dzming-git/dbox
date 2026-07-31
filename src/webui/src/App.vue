@@ -594,7 +594,11 @@ body.reader-active .main-content {
   .nav-icon-link span {
     display: none;
   }
-  
+  /* 稍后再看图标需保留，避免被上面的规则连带隐藏 */
+  .watchlater-ico-wrap {
+    display: inline-flex !important;
+  }
+
   .nav-icon-link {
     padding: 8px;
   }
