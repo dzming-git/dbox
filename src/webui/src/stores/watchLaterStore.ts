@@ -32,9 +32,6 @@ function persistLocal(list: WatchLaterItem[]) {
 export const useWatchLaterStore = defineStore('watchLater', () => {
   const items = ref<WatchLaterItem[]>(loadLocal())
 
-  // 列表面板是否展开：新增条目时自动展开，方便用户看到「稍后再看」列表
-  const panelOpen = ref(false)
-
   const list = computed(() =>
     [...items.value].sort((a, b) => (a.addedAt < b.addedAt ? 1 : -1))
   )
@@ -51,29 +48,28 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   const init = async () => {
     try {
       const res = await api.get('/api/watch-later')
-      const data = res && (res.data !== undefined ? res.data : res)
-      const serverItems: WatchLaterItem[] = data && data.success && Array.isArray(data.items)
-        ? data.items
-        : []
+      const serverItems: WatchLaterItem[] =
+        res && res.success && Array.isArray(res.items) ? res.items : []
       const serverKeys = new Set(serverItems.map((it) => keyOf(it.type, it.id)))
       // 本地有、后端没有 -> 上传，完成首次迁移
       const localOnly = items.value.filter((it) => !serverKeys.has(keyOf(it.type, it.id)))
       if (localOnly.length) {
         await Promise.all(
           localOnly.map((it) =>
-            api.post('/api/watch-later', {
-              type: it.type,
-              id: it.id,
-              title: it.title,
-              thumbnail: it.thumbnail,
-            }).catch(() => null)
+            api
+              .post('/api/watch-later', {
+                type: it.type,
+                id: it.id,
+                title: it.title,
+                thumbnail: it.thumbnail,
+              })
+              .catch(() => null)
           )
         )
         // 重新拉取一次，确保与后端完全一致
         const res2 = await api.get('/api/watch-later')
-        const data2 = res2 && (res2.data !== undefined ? res2.data : res2)
-        if (data2 && data2.success && Array.isArray(data2.items)) {
-          items.value = data2.items
+        if (res2 && res2.success && Array.isArray(res2.items)) {
+          items.value = res2.items
           persistLocal(items.value)
           return
         }
@@ -89,7 +85,6 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     if (has(item.type, item.id)) return
     items.value.push({ ...item, addedAt: new Date().toISOString() })
     persistLocal(items.value)
-    panelOpen.value = true
     try {
       await api.post('/api/watch-later', item)
     } catch {
@@ -115,8 +110,12 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   const clear = async () => {
     items.value = []
     persistLocal(items.value)
-    // 后端按 user_key 清空成本高且不常用，保留本地清空即可；登录态下下次 init 仍以本地为准
+    try {
+      await api.delete('/api/watch-later')
+    } catch {
+      // 后端失败：本地已清空，下次 init 以本地为准兜底
+    }
   }
 
-  return { items, list, count, has, add, remove, toggle, clear, keyOf, panelOpen, init }
+  return { items, list, count, has, add, remove, toggle, clear, keyOf, init }
 })

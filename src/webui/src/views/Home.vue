@@ -12,29 +12,13 @@ import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
-import { useWatchLaterStore, type WatchLaterItem, type WatchLaterType } from '../stores/watchLaterStore'
+import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { withThumbToken } from '../utils/media'
 import type { Video, Tag } from '../types'
 
 const router = useRouter()
 const route = useRoute()
 const watchLaterStore = useWatchLaterStore()
-
-// 稍后再看面板
-const watchLaterList = computed(() => watchLaterStore.list)
-const watchLaterCount = computed(() => watchLaterStore.count)
-const TYPE_PATH: Record<WatchLaterType, string> = {
-  video: '/video/',
-  gallery: '/gallery/',
-  post: '/post/',
-  text: '/text/',
-}
-const typeLabel = (t: WatchLaterType) =>
-  ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
-const openWatchLater = (it: WatchLaterItem) => {
-  watchLaterStore.panelOpen = false
-  router.push(TYPE_PATH[it.type] + it.id)
-}
 
 // 首页媒体类型切换：视频 / 图集 对等展示，模式写入 URL（?mode=video|gallery）
 const mediaTab = ref<'video' | 'gallery' | 'mixed' | 'text'>(route.query.mode === 'gallery' ? 'gallery' : (route.query.mode === 'mixed' ? 'mixed' : (route.query.mode === 'text' ? 'text' : 'video')))
@@ -585,38 +569,6 @@ const onListImgError = (e: Event) => {
     </div>
     </div>
 
-    <!-- 稍后再看列表面板（入口统一使用顶部全局导航栏的「稍后再看」按钮） -->
-    <transition name="wl-fade">
-      <div class="watchlater-panel" v-if="watchLaterStore.panelOpen">
-        <div class="wl-panel-head">
-          <span class="wl-panel-title">稍后再看（{{ watchLaterCount }}）</span>
-          <div class="wl-panel-actions">
-            <button class="wl-clear" v-if="watchLaterCount" @click="watchLaterStore.clear()">清空</button>
-            <button class="wl-close" @click="watchLaterStore.panelOpen = false">收起</button>
-          </div>
-        </div>
-        <div class="wl-panel-body" v-if="watchLaterList.length">
-          <div
-            v-for="it in watchLaterList"
-            :key="it.type + ':' + it.id"
-            class="wl-item"
-            @click="openWatchLater(it)"
-          >
-            <img v-if="it.thumbnail" :src="it.thumbnail" class="wl-item-thumb" alt="" />
-            <div v-else class="wl-item-thumb wl-item-thumb--ph">{{ typeLabel(it.type) }}</div>
-            <div class="wl-item-info">
-              <div class="wl-item-title">{{ it.title }}</div>
-              <div class="wl-item-type">{{ typeLabel(it.type) }}</div>
-            </div>
-            <button class="wl-item-remove" @click.stop="watchLaterStore.remove(it.type, it.id)" title="移除">×</button>
-          </div>
-        </div>
-        <div class="wl-panel-empty" v-else>
-          暂无稍后再看内容。在视频、图集、帖子或文本上点「稍后再看」即可加入。
-        </div>
-      </div>
-    </transition>
-
     <!-- 操作栏 - 移到顶部 -->
     <div class="action-bar" v-if="mediaTab === 'video'">
       <div class="sort-box">
@@ -1023,74 +975,6 @@ const onListImgError = (e: Event) => {
   align-items: center;
   justify-content: center;
 }
-
-/* 稍后再看列表面板 */
-.watchlater-panel {
-  position: absolute;
-  right: 20px;
-  top: 70px;
-  width: 360px;
-  max-height: 70vh;
-  overflow: hidden;
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.5);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-}
-.wl-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid #333;
-}
-.wl-panel-title { font-size: 15px; font-weight: 600; color: #fff; }
-.wl-panel-actions { display: flex; gap: 10px; }
-.wl-clear { background: transparent; border: none; color: #ff6b6b; cursor: pointer; font-size: 13px; }
-.wl-close { background: transparent; border: none; color: #aaa; cursor: pointer; font-size: 13px; }
-.wl-close:hover, .wl-clear:hover { color: #fff; }
-.wl-panel-body { overflow-y: auto; padding: 8px; }
-.wl-panel-empty { padding: 28px 20px; color: #888; font-size: 14px; text-align: center; line-height: 1.6; }
-.wl-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.wl-item:hover { background: #2a2a2a; }
-.wl-item-thumb {
-  width: 56px; height: 42px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: #333;
-  flex-shrink: 0;
-}
-.wl-item-thumb--ph {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: #999; background: #333;
-}
-.wl-item-info { flex: 1; min-width: 0; }
-.wl-item-title {
-  font-size: 14px; color: #eee;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.wl-item-type { font-size: 12px; color: #888; margin-top: 2px; }
-.wl-item-remove {
-  width: 26px; height: 26px;
-  border: none; border-radius: 50%;
-  background: #333; color: #bbb;
-  cursor: pointer; font-size: 16px; line-height: 1;
-  flex-shrink: 0;
-}
-.wl-item-remove:hover { background: #ff6b6b; color: #fff; }
-.wl-fade-enter-active, .wl-fade-leave-active { transition: opacity 0.2s, transform 0.2s; }
-.wl-fade-enter-from, .wl-fade-leave-to { opacity: 0; transform: translateY(-8px); }
 
 /* 标签区域 */
 .tags-section {

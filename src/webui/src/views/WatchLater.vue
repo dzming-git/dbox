@@ -1,0 +1,217 @@
+<script setup lang="ts">
+import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useWatchLaterStore, type WatchLaterItem, type WatchLaterType } from '../stores/watchLaterStore'
+import { withThumbToken } from '../utils/media'
+
+const router = useRouter()
+const store = useWatchLaterStore()
+
+const list = computed(() => store.list)
+const count = computed(() => store.count)
+
+const TYPE_PATH: Record<WatchLaterType, string> = {
+  video: '/video/',
+  gallery: '/gallery/',
+  post: '/post/',
+  text: '/text/'
+}
+
+const typeLabel = (t: WatchLaterType) =>
+  ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
+
+const thumb = (it: WatchLaterItem) => (it.thumbnail ? withThumbToken(it.thumbnail) : '')
+
+const open = (it: WatchLaterItem) => {
+  router.push(TYPE_PATH[it.type] + it.id)
+}
+
+const remove = (it: WatchLaterItem) => {
+  store.remove(it.type, it.id)
+}
+
+const clearAll = () => {
+  if (!count.value) return
+  if (!confirm('确定要清空「稍后再看」列表吗？')) return
+  store.clear()
+}
+
+onMounted(() => {
+  store.init()
+})
+</script>
+
+<template>
+  <div class="wl-page">
+    <div class="wl-header">
+      <div class="wl-title">
+        <h1>稍后再看</h1>
+        <span class="wl-count">共 {{ count }} 项</span>
+      </div>
+      <button v-if="count" class="wl-clear-btn" @click="clearAll">清空</button>
+    </div>
+
+    <div v-if="!count" class="wl-empty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.35">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+      </svg>
+      <p>暂无「稍后再看」内容。</p>
+      <p class="wl-empty-hint">在视频、图集、帖子或文本上点「稍后再看」即可加入。</p>
+    </div>
+
+    <div v-else class="wl-grid">
+      <div
+        v-for="it in list"
+        :key="it.type + ':' + it.id"
+        class="wl-card"
+        @click="open(it)"
+      >
+        <div class="wl-card-thumb">
+          <img v-if="thumb(it)" :src="thumb(it)" :alt="it.title" />
+          <div v-else class="wl-card-ph">{{ typeLabel(it.type) }}</div>
+          <span class="wl-card-type">{{ typeLabel(it.type) }}</span>
+          <button
+            class="wl-card-remove"
+            title="移除"
+            @click.stop="remove(it)"
+          >×</button>
+        </div>
+        <div class="wl-card-title" :title="it.title">{{ it.title }}</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.wl-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+  color: #eee;
+}
+.wl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.wl-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.wl-title h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
+.wl-count {
+  font-size: 13px;
+  color: #888;
+}
+.wl-clear-btn {
+  background: transparent;
+  border: 1px solid #444;
+  color: #ff6b6b;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.wl-clear-btn:hover {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+.wl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  color: #888;
+  text-align: center;
+}
+.wl-empty p { margin: 6px 0 0; font-size: 15px; }
+.wl-empty-hint { font-size: 13px !important; color: #666 !important; }
+
+.wl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+.wl-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.wl-card:hover {
+  transform: translateY(-3px);
+  border-color: #4a4a4a;
+}
+.wl-card-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #222;
+  overflow: hidden;
+}
+.wl-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.wl-card-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #999;
+  background: #2a2a2a;
+}
+.wl-card-type {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.wl-card-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ddd;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.wl-card-remove:hover {
+  background: #ff6b6b;
+  color: #fff;
+}
+.wl-card-title {
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #eee;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>

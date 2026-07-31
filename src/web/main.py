@@ -1441,6 +1441,20 @@ def remove_watch_later(item_type, item_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@app.route('/api/watch-later', methods=['DELETE'])
+def clear_watch_later():
+    """清空当前用户「稍后再看」列表。"""
+    try:
+        key = current_interaction_key()
+        WatchLater.query.filter_by(user_key=key).delete()
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"清空稍后再看失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 def _ensure_interaction(video, user_session, itype, score):
     """确保存在某条交互记录（用于批量添加，幂等）"""
     interaction = UserInteraction.query.filter_by(

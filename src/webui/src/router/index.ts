@@ -105,6 +105,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '观看历史', requiresAuth: true }
   },
   {
+    path: '/watch-later',
+    name: 'WatchLater',
+    component: () => import('../views/WatchLater.vue'),
+    meta: { title: '稍后再看', requiresAuth: true }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/Settings.vue'),
