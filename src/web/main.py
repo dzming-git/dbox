@@ -237,7 +237,7 @@ from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreferenc
 from core.models import FavoriteCollection, CollectionVideo, Gallery
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index, migrate_post_title_nullable
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index, migrate_post_title_nullable, migrate_post_source_columns
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -320,6 +320,7 @@ with app.app_context():
     migrate_owner_columns()
     migrate_tag_qualifiers()
     migrate_post_title_nullable()
+    migrate_post_source_columns()
     init_root_user()
     print("[DEBUG] Database initialized")
 
@@ -5989,7 +5990,10 @@ def create_post():
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
     d = Post(title=data.get('title', ''), content=data.get('content', ''),
-                owner_id=user.id, library_id=data.get('library_id'))
+                owner_id=user.id, library_id=data.get('library_id'),
+                author_name=data.get('author_name'),
+                author_url=data.get('author_url'),
+                source_url=data.get('source_url'))
     for ref in _build_post_refs(data.get('content', ''), data.get('refs')):
         d.refs.append(ref)
     db.session.add(d)

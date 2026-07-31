@@ -393,14 +393,23 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
     return ri
 
 
-def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None):
+def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None,
+                author_name=None, author_url=None, source_url=None):
     """由一组资源索引创建一条帖子（组合模式）。
 
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
     display_modes: 可选 {resource_index_id: 'link'|'embed'}，缺省按 'embed' 处理。
+    author_name/author_url/source_url: 来源信息（X 下载器回填），前端展示为可点击链接。
     """
     # 帖子标题可选：用户不填则存空，前端展示时根本不渲染标题区域
-    d = Post(title=title or None, content=content, owner_id=user_id)
+    d = Post(
+        title=title or None,
+        content=content,
+        owner_id=user_id,
+        author_name=author_name,
+        author_url=author_url,
+        source_url=source_url,
+    )
     db.session.add(d)
     db.session.flush()
     for i, rid in enumerate(resource_index_ids):
@@ -1531,6 +1540,11 @@ class Post(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # 来源信息：X 下载器会回填作者与原始推文地址，前端展示为可点击链接
+    author_name = db.Column(db.String(200), nullable=True)
+    author_url = db.Column(db.String(1000), nullable=True)
+    source_url = db.Column(db.String(1000), nullable=True)
+
     refs = db.relationship('PostRef', back_populates='post',
                             cascade='all, delete-orphan', order_by='PostRef.position')
 
@@ -1609,6 +1623,9 @@ class Post(db.Model):
         else:
             d['refs'] = [r.to_dict() for r in self.refs]
         d['cover_url'] = self.cover_url
+        d['authorName'] = self.author_name
+        d['authorUrl'] = self.author_url
+        d['sourceUrl'] = self.source_url
         return d
 
     @staticmethod
@@ -2273,6 +2290,25 @@ def migrate_post_title_nullable():
             print('[MIGRATE] posts.title 已改为可空')
     except Exception as e:
         print(f'[WARN] post title 可空迁移跳过: {e}')
+
+
+def migrate_post_source_columns():
+    """为 posts 表补充来源字段：author_name / author_url / source_url（兼容历史库）。
+
+    供 X 下载器回填作者与原始推文地址，前端展示为可点击超链接。幂等。
+    """
+    try:
+        with db.engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(posts)")).fetchall()]
+            for col in ('author_name', 'author_url', 'source_url'):
+                if col not in cols:
+                    conn.execute(db.text(
+                        f"ALTER TABLE posts ADD COLUMN {col} VARCHAR(1000)"))
+                    print(f'[MIGRATE] posts.{col} 已新增')
+            conn.commit()
+    except Exception as e:
+        print(f'[WARN] post source 列迁移跳过: {e}')
 
 
 

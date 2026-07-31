@@ -230,6 +230,13 @@ const removePost = async () => {
       <h1 v-if="post.title" class="detail-title">{{ post.title }}</h1>
       <div class="detail-meta">发布于 {{ formatDate(post.created_at) }} · 更新于 {{ formatDate(post.updated_at) }}</div>
 
+      <div class="detail-source" v-if="post.authorName || post.sourceUrl">
+        <span class="src-label">来源：</span>
+        <a v-if="post.authorName" class="src-author" :href="post.authorUrl" target="_blank" rel="noopener">{{ post.authorName }}</a>
+        <span v-if="post.authorName && post.sourceUrl" class="src-sep">·</span>
+        <a v-if="post.sourceUrl" class="src-link" :href="post.sourceUrl" target="_blank" rel="noopener">查看原帖</a>
+      </div>
+
       <div v-if="post.content" class="detail-content">
         <template v-for="(seg, i) in renderSegments(post.content, post.refs)" :key="i">
           <template v-if="seg.type === 'text'">{{ seg.text }}</template>
@@ -334,6 +341,13 @@ const removePost = async () => {
 .detail-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px; padding: 24px; }
 .detail-title { font-size: 24px; font-weight: 700; color: #fff; margin: 0 0 8px; }
 .detail-meta { color: #888; font-size: 13px; margin-bottom: 16px; }
+.detail-source { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; color: #999; }
+.src-label { color: #888; }
+.src-author { color: #64b5f6; text-decoration: none; font-weight: 600; }
+.src-author:hover { color: #90caf9; text-decoration: underline; }
+.src-sep { color: #555; }
+.src-link { color: #64b5f6; text-decoration: none; }
+.src-link:hover { color: #90caf9; text-decoration: underline; }
 .detail-content { color: #ddd; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
 .detail-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 16px; }
 .ref-block { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }

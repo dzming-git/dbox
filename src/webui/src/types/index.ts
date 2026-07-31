@@ -328,6 +328,9 @@ export interface Post {
   in_trash: boolean
   created_at?: string
   updated_at?: string
+  authorName?: string | null
+  authorUrl?: string | null
+  sourceUrl?: string | null
   refs: PostRef[]
 }
 

@@ -550,7 +550,8 @@ def get_guest_token(opener, cookie_header):
 def extract_from_api(tweet_id, cookie_header, opener):
     """调用 GraphQL TweetDetail 接口（结构化数据，登录墙/SPA 推文唯一可靠来源）。
 
-    返回 (media_list, full_text)。
+    返回 (media_list, full_text, author)，author 为
+    {'name': 显示名, 'screen_name': 用户名, 'url': 作者主页} 或 None。
 
     关键：带登录 Cookie 时 GraphQL 无需 guest_token 即可访问，故跳过访客接口
     （guest/activate 在部分代理下会握手超时，阻塞整个流程）。仅当响应中找不到
@@ -568,7 +569,7 @@ def extract_from_api(tweet_id, cookie_header, opener):
             if new_qid:
                 qid = new_qid
                 continue
-            return [], ''
+            return [], '', None
         except urllib.error.HTTPError as e:
             # 401/403 可能是登录态失效，补取 guest_token 以游客态重试
             if e.code in (401, 403) and gt is None:
@@ -576,12 +577,12 @@ def extract_from_api(tweet_id, cookie_header, opener):
                 if gt:
                     continue
             log(f'GraphQL 接口解析失败（HTTP {e.code}）: {e}', level='warn')
-            return [], ''
+            return [], '', None
         except Exception as e:
             log(f'GraphQL 接口解析失败: {e}', level='warn')
-            return [], ''
+            return [], '', None
         if not isinstance(data, dict):
-            return [], ''
+            return [], '', None
         # 优先精确匹配目标推文；匹配不到再取任意推文节点
         tweet = _find_tweet_node(data, tweet_id) or _find_tweet_node(data)
         if tweet:
@@ -591,14 +592,25 @@ def extract_from_api(tweet_id, cookie_header, opener):
             gt = get_guest_token(opener, '')
             if gt:
                 continue
-            return [], ''
+            return [], '', None
         return [], ''
     if not tweet:
-        return [], ''
+        return [], '', None
     leg = tweet.get('legacy', {})
     text = (leg.get('full_text') or '').strip()
     # 去掉末尾的 t.co 短链占位（X 在 extended 模式会把链接放到 entities 里）
     text = re.sub(r'https://t\.co/\w+', '', text).strip()
+    # 提取作者信息（显示名 + 用户名 + 主页），供前端展示为超链接
+    author = None
+    user_result = (((tweet.get('core') or {}).get('user_results') or {}).get('result') or {})
+    uleg = user_result.get('legacy') or {}
+    screen_name = uleg.get('screen_name')
+    if screen_name:
+        author = {
+            'name': uleg.get('name') or screen_name,
+            'screen_name': screen_name,
+            'url': 'https://x.com/' + screen_name,
+        }
     media = []
     entities = leg.get('extended_entities') or leg.get('entities') or {}
     for ent in entities.get('media', []):
@@ -623,8 +635,8 @@ def extract_from_api(tweet_id, cookie_header, opener):
                           'url': ent.get('media_url') or ent.get('media_url_https') or '',
                           'media_id': ent.get('id_str') or ent.get('id') or '',
                           'thumbnail': ent.get('media_url_https') or '',
-                          'label': '文档'})
-    return media, text
+                              'label': '文档'})
+    return media, text, author
 
 
 # ---------------------------------------------------------------------------
@@ -780,7 +792,7 @@ def extract_tweet_text_from_html(html, tweet_id=''):
 
 
 def extract_media(url, cookie_header, proxy_cfg):
-    """解析推文，返回 (媒体列表, 推文文字)。
+    """解析推文，返回 (媒体列表, 推文文字, 作者信息)。
 
     策略（公开推文最稳路径优先）：
       1) 无 Cookie 游客页——公开内容无需登录即可解析；
@@ -789,6 +801,7 @@ def extract_media(url, cookie_header, proxy_cfg):
     说明：视频清晰度与是否登录无关——m3u8 主列表含全部分辨率，下载时取最高。
     """
     opener = make_opener(proxy_cfg)
+    author = None
     tweet_id = (re.search(r'/status/(\d+)', url) or [None, 'x'])[1]
 
     def _norm_url(u):
@@ -840,12 +853,13 @@ def extract_media(url, cookie_header, proxy_cfg):
     if tweet_id != 'x' and (cookie_header or not media):
         log('尝试 GraphQL 接口方式解析媒体（含视频）…')
         try:
-            api_media, api_text = extract_from_api(tweet_id, cookie_header, opener)
+            api_media, api_text, api_author = extract_from_api(tweet_id, cookie_header, opener)
             _add(api_media)
             text = text or api_text
+            author = author or api_author
         except Exception as e:
             log(f'GraphQL 接口解析失败: {e}', level='warn')
-    return media, text
+    return media, text, author
 
 
 # ---------------- 下载 ----------------
@@ -1135,7 +1149,7 @@ def main():
             media = simulate_media()
             tweet_text = '这是演示推文的文字内容（演示模式）。'
         else:
-            media, tweet_text = extract_media(url, cookie_header, proxy_cfg)
+            media, tweet_text, tweet_author = extract_media(url, cookie_header, proxy_cfg)
     except Exception as e:
         error(str(e))
         sys.exit(1)
@@ -1216,7 +1230,10 @@ def main():
                 downloaded.append({'path': path, 'type': 'document',
                                    'target_modes': ['post'], 'group': group,
                                    'content': post_content, 'post_title': post_title,
-                                   'source_url': url, 'caption': item.get('label') or '文档'})
+                                   'source_url': url,
+                                   'author_name': (tweet_author or {}).get('name') if tweet_author else None,
+                                   'author_url': (tweet_author or {}).get('url') if tweet_author else None,
+                                   'caption': item.get('label') or '文档'})
                 log(f'已下载文档: {os.path.basename(path)}（仅帖子）')
             else:
                 if simulate:
@@ -1230,7 +1247,10 @@ def main():
                                    'target_modes': modes, 'group': group,
                                    'hidden': hidden,
                                    'content': post_content, 'post_title': post_title,
-                                   'source_url': url, 'caption': item.get('label')})
+                                   'source_url': url,
+                                   'author_name': (tweet_author or {}).get('name') if tweet_author else None,
+                                   'author_url': (tweet_author or {}).get('url') if tweet_author else None,
+                                   'caption': item.get('label')})
                 log(f'已下载视频: {os.path.basename(path)}'
                     + ('（已隐藏，仅帖子可见）' if hidden else '（已进视频库）'))
             progress(pct, f'下载进度 {idx}/{total}')
@@ -1266,7 +1286,10 @@ def main():
                                'target_modes': modes, 'group': group,
                                'hidden': hidden,
                                'content': post_content, 'post_title': post_title,
-                               'source_url': url, 'caption': f'图片（{len(kept)}）'})
+                               'source_url': url,
+                               'author_name': (tweet_author or {}).get('name') if tweet_author else None,
+                               'author_url': (tweet_author or {}).get('url') if tweet_author else None,
+                               'caption': f'图片（{len(kept)}）'})
             log(f'已聚合 {len(kept)} 张图片为图集'
                 + ('（已隐藏，仅帖子可见）' if hidden else '（已进图集库）'))
 

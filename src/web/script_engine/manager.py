@@ -548,10 +548,20 @@ class ScriptJobManager:
                 if rid:
                     gk = group or '_default_'
                     g = post_groups.setdefault(gk, {'title': f.get('post_title'),
-                                                   'content': f.get('content'), 'ids': []})
+                                                   'content': f.get('content'), 'ids': [],
+                                                   'author_name': f.get('author_name'),
+                                                   'author_url': f.get('author_url'),
+                                                   'source_url': f.get('source_url')})
                     # 若组内尚未记录正文，用首个带 content 的文件填充
                     if not g.get('content') and f.get('content'):
                         g['content'] = f.get('content')
+                    # 作者/源地址同组共享：取首个非空值
+                    if not g.get('author_name') and f.get('author_name'):
+                        g['author_name'] = f.get('author_name')
+                    if not g.get('author_url') and f.get('author_url'):
+                        g['author_url'] = f.get('author_url')
+                    if not g.get('source_url') and f.get('source_url'):
+                        g['source_url'] = f.get('source_url')
                     post_groups[gk]['ids'].append(rid)
         # 聚合帖子：同组资源合成一条帖子（例：图文+视频一体的下载）
         if post_groups:
@@ -561,7 +571,10 @@ class ScriptJobManager:
                     for gk, g in post_groups.items():
                         if g['ids']:
                             d = create_post(g.get('title') or '',
-                                            g.get('content'), g['ids'], user_id=owner_id)
+                                            g.get('content'), g['ids'], user_id=owner_id,
+                                            author_name=g.get('author_name'),
+                                            author_url=g.get('author_url'),
+                                            source_url=g.get('source_url'))
                             self._append_log(job_id, 'info',
                                              f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
             except Exception as e:
