@@ -255,11 +255,10 @@ const formatDate = (s?: string) => {
         <div class="post-head">
           <div class="post-head-main">
             <h3 v-if="d.title" class="post-title">{{ d.title }}</h3>
-            <h3 v-else class="post-title post-title--empty">无标题帖子</h3>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
           <div class="post-ops" @click.stop>
-            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '无标题帖子'" />
+            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '帖子'" />
           </div>
         </div>
 
