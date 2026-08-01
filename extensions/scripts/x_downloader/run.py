@@ -602,8 +602,12 @@ def extract_from_api(tweet_id, cookie_header, opener):
     text = re.sub(r'https://t\.co/\w+', '', text).strip()
     # 提取作者信息（显示名 + 用户名 + 主页），供前端展示为超链接
     author = None
+    # 作者信息可能位于多个位置，逐一尝试
     user_result = (((tweet.get('core') or {}).get('user_results') or {}).get('result') or {})
     uleg = user_result.get('legacy') or {}
+    # 兜底：部分响应里用户名直接在 legacy.user 或 user_results.legacy
+    if not uleg:
+        uleg = (tweet.get('legacy') or {}).get('user') or {}
     screen_name = uleg.get('screen_name')
     if screen_name:
         author = {
@@ -791,6 +795,44 @@ def extract_tweet_text_from_html(html, tweet_id=''):
     return ''
 
 
+def extract_author_from_html(html):
+    """从游客页 HTML 尽力提取作者信息（X 游客态 GraphQL 常被限流，故从 og 标签兜底）。
+
+    常见结构：
+      - og:description 形如 "显示名 (@username): 正文 …"
+      - og:title 形如 "显示名 (@username) / X"
+    返回 {'name':..,'screen_name':..,'url':..} 或 None
+    """
+    if not html:
+        return None
+    name = None
+    screen = None
+    # og:title: "显示名 (@username) / X"
+    m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+                  html, re.IGNORECASE)
+    if m:
+        title = m.group(1).strip()
+        title = re.sub(r'\s*/\s*X\s*$', '', title)
+        mm = re.match(r'^(.*?)\s*\(@(\w+)\)\s*$', title)
+        if mm:
+            name = mm.group(1).strip()
+            screen = mm.group(2).strip()
+    # og:description: "显示名 (@username): 正文"
+    if not screen:
+        m = re.search(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']',
+                      html, re.IGNORECASE)
+        if m:
+            dm = re.match(r'^(.*?)\s*\(@(\w+)\)\s*:\s*', m.group(1))
+            if dm:
+                if not name:
+                    name = dm.group(1).strip()
+                screen = dm.group(2).strip()
+    # 仅当解析到 @用户名 时才采用，避免把页面类型（如 "Post"）误当作者
+    if screen:
+        return {'name': name or screen, 'screen_name': screen, 'url': 'https://x.com/' + screen}
+    return None
+
+
 def extract_media(url, cookie_header, proxy_cfg):
     """解析推文，返回 (媒体列表, 推文文字, 作者信息)。
 
@@ -834,7 +876,12 @@ def extract_media(url, cookie_header, proxy_cfg):
         log(f'页面抓取失败: {e}', level='warn')
     if html:
         _add(extract_from_html(html, '', tweet_id))
-        text = text or extract_tweet_text_from_html(html, tweet_id)
+        html_text = extract_tweet_text_from_html(html, tweet_id)
+        # 仅当 HTML 文本看起来像真实正文（非占位/异常）时才作为候选
+        if html_text and html_text.lower() not in ('post', 'repost', 'quote'):
+            text = text or html_text
+        # 游客态 GraphQL 常被限流，从 og 标签兜底提取作者
+        author = author or extract_author_from_html(html)
 
     # 2) 带 Cookie 登录态再抓一次（可能拿到更完整内容）
     if cookie_header:
@@ -842,7 +889,9 @@ def extract_media(url, cookie_header, proxy_cfg):
             html2 = fetch_text(url, opener, build_headers(cookie_header, with_bearer=False), timeout=45)
             if html2:
                 _add(extract_from_html(html2, cookie_header, tweet_id))
-                text = text or extract_tweet_text_from_html(html2, tweet_id)
+                html_text2 = extract_tweet_text_from_html(html2, tweet_id)
+                if html_text2 and html_text2.lower() not in ('post', 'repost', 'quote'):
+                    text = text or html_text2
         except Exception as e:
             log(f'带 Cookie 抓取失败: {e}', level='warn')
 
@@ -855,7 +904,8 @@ def extract_media(url, cookie_header, proxy_cfg):
         try:
             api_media, api_text, api_author = extract_from_api(tweet_id, cookie_header, opener)
             _add(api_media)
-            text = text or api_text
+            # GraphQL 的 full_text 是权威正文，优先于 HTML 兜底
+            text = api_text or text
             author = author or api_author
         except Exception as e:
             log(f'GraphQL 接口解析失败: {e}', level='warn')
