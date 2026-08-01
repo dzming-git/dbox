@@ -3969,30 +3969,51 @@ onUnmounted(() => {
 /* 移动端（≤768px）：资源表格改为纵向卡片布局，取消横向滚动，列对齐 */
 @media (max-width: 768px) {
   .resource-table-wrap {
-    overflow-x: visible;
+    overflow-x: hidden;
+    max-width: 100%;
+    width: 100%;
   }
   .resource-table-wrap .data-table {
     min-width: unset;
-    display: block;
+    display: block !important;
+    width: 100% !important;
+    table-layout: fixed;
+  }
+  .resource-table-wrap .data-table tbody,
+  .resource-table-wrap .data-table tbody tr.res-row {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100%;
   }
   .resource-table-wrap .res-thead {
-    display: none;
+    display: none !important;
   }
   .resource-table-wrap .res-row {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 8px 12px;
+    display: block !important;
     padding: 14px 16px;
     margin-bottom: 10px;
     border-radius: 10px;
     background: #1a1a24;
     border: 1px solid #2a2a38;
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
   }
+  /* 每个 td 用 grid：固定标签列 + 弹性内容列，min-width:0 防止内容撑开 */
   .resource-table-wrap .res-row td {
-    display: contents;
-    padding: 2px 0;
+    display: grid !important;
+    grid-template-columns: 56px minmax(0, 1fr) !important;
+    align-items: baseline;
+    column-gap: 8px;
+    padding: 4px 0;
     border-bottom: none;
     text-align: left;
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .resource-table-wrap .res-row td::before {
     content: attr(data-label);
@@ -4000,24 +4021,52 @@ onUnmounted(() => {
     color: #8b949e;
     font-size: 12px;
     white-space: nowrap;
-    min-width: 60px;
+    text-align: right;
+    overflow: hidden;
   }
-  /* 标题列：缩略图+标题+隐藏标记，占满整行 */
+  /* 内容子元素：弹性收缩 + 截断，防止长文本撑开 grid */
+  .resource-table-wrap .res-row td > *:not(.res-thumb):not(.res-thumb-placeholder) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 标题列：缩略图+标题+隐藏标记，占满整行，不显示标签 */
   .resource-table-wrap .res-row td[data-label="标题"] {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
     display: flex;
     align-items: center;
     gap: 10px;
+    padding-bottom: 8px;
+    overflow: hidden;
   }
   .resource-table-wrap .res-row td[data-label="标题"]::before {
     content: none;
   }
-  /* 操作按钮：整行显示，靠右 */
+  .resource-table-wrap .res-row td[data-label="标题"] .res-thumb,
+  .resource-table-wrap .res-row td[data-label="标题"] .res-thumb-placeholder {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .resource-table-wrap .res-row td[data-label="标题"] > span:not(.res-thumb-placeholder):not(.res-thumb) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 操作按钮：整行显示，靠右，不显示标签 */
   .resource-table-wrap .res-row td[data-label="操作"] {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
     display: flex;
     justify-content: flex-end;
     gap: 4px;
+    padding-top: 8px;
+    overflow: visible;
   }
   .resource-table-wrap .res-row td[data-label="操作"]::before {
     content: none;
