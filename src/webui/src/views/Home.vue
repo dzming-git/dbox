@@ -77,6 +77,7 @@ const fetchUntaggedCount = async () => {
 }
 const selectedLibraryId = computed(() => videoStore.selectedLibraryId)
 const libraries = computed(() => videoStore.libraries)
+const noLibraries = computed(() => !loading.value && libraries.value.length === 0)
 
 // 标签区域折叠状态
 const showTagsSection = ref(false)
@@ -521,6 +522,47 @@ const onListImgError = (e: Event) => {
 
 <template>
   <div class="home-container">
+    <!-- 首屏引导：尚无资源库时引导用户添加/上传/扫描 -->
+    <div class="onboarding-banner" v-if="noLibraries">
+      <div class="ob-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M3 7l9-4 9 4-9 4-9-4z"/>
+          <path d="M3 12l9 4 9-4M3 17l9 4 9-4"/>
+        </svg>
+      </div>
+      <div class="ob-body">
+        <div class="ob-title">欢迎使用，先添加你的媒体库</div>
+        <div class="ob-desc">当前还没有可用的资源库，按以下步骤即可开始观看：</div>
+        <div class="ob-steps">
+          <div class="ob-step">
+            <span class="ob-num">1</span>
+            <div>
+              <div class="ob-step-title">添加资源库</div>
+              <div class="ob-step-desc">在「资源库」页面关联本地文件夹</div>
+            </div>
+          </div>
+          <div class="ob-step">
+            <span class="ob-num">2</span>
+            <div>
+              <div class="ob-step-title">上传内容</div>
+              <div class="ob-step-desc">单文件或分片上传视频 / 图集</div>
+            </div>
+          </div>
+          <div class="ob-step">
+            <span class="ob-num">3</span>
+            <div>
+              <div class="ob-step-title">自动扫描</div>
+              <div class="ob-step-desc">监控文件夹，新增文件自动入库</div>
+            </div>
+          </div>
+        </div>
+        <div class="ob-actions">
+          <router-link class="ob-btn ob-primary" to="/libraries">添加资源库</router-link>
+          <router-link class="ob-btn" to="/upload">去上传</router-link>
+        </div>
+      </div>
+    </div>
+
     <!-- 顶部栏：媒体类型切换 + 稍后再看 -->
     <div class="topbar">
     <div class="media-tabs">
@@ -913,6 +955,123 @@ const onListImgError = (e: Event) => {
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* 首屏引导 */
+.onboarding-banner {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  background: linear-gradient(135deg, #23252b, #1c1d22);
+  border: 1px solid #333;
+  border-radius: 14px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.ob-icon {
+  flex: 0 0 auto;
+  color: #ff4d6d;
+  background: rgba(255, 77, 109, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.ob-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.ob-desc {
+  color: #aaa;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.ob-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.ob-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+
+.ob-num {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ff4d6d;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ob-step-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ob-step-desc {
+  color: #999;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.ob-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.ob-btn {
+  display: inline-block;
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-decoration: none;
+  background: #2c2c2c;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  transition: background 0.2s;
+}
+
+.ob-btn:hover {
+  background: #383838;
+}
+
+.ob-primary {
+  background: #ff4d6d;
+  color: #fff;
+  border-color: #ff4d6d;
+}
+
+.ob-primary:hover {
+  background: #ff3a5c;
+}
+
+@media (max-width: 768px) {
+  .onboarding-banner {
+    flex-direction: column;
+  }
+  .ob-actions {
+    flex-direction: column;
+  }
+  .ob-btn {
+    text-align: center;
+  }
 }
 
 /* 首页媒体类型切换：视频 / 图集 对等 */
