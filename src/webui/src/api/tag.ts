@@ -20,6 +20,18 @@ export const tagApi = {
   deleteTag: (id: number) =>
     api.delete(`/api/tags/${id}`),
 
+  // 批量删除标签
+  batchDeleteTags: (ids: number[]) =>
+    api.post('/api/tags/batch-delete', { ids }),
+
+  // 批量移动标签到指定父级（parentId 为 null 表示顶级）
+  batchMoveTags: (ids: number[], parentId: number | null) =>
+    api.post('/api/tags/batch-move', { ids, parent_id: parentId }),
+
+  // 合并标签：将 sourceIds 合并进 targetId
+  mergeTags: (sourceIds: number[], targetId: number) =>
+    api.post('/api/tags/merge', { source_ids: sourceIds, target_id: targetId }),
+
   // 搜索标签 - 用于智能提示
   searchTags: (keyword: string, libraryId?: number) =>
     api.get('/api/tags/search', { params: { q: keyword, library_id: libraryId } })

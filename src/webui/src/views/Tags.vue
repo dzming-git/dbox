@@ -3,6 +3,7 @@ defineOptions({ name: 'Tags' })
 import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useTagStore } from '../stores/tagStore'
+import { tagApi } from '../api/tag'
 import type { Tag } from '../types'
 
 const userStore = useUserStore()
@@ -201,6 +202,16 @@ const submitDialog = async () => {
     dialogError.value = '标签名不能为空'
     return
   }
+  // 层级限制：父级深度 + 1 不能超过最大层级
+  let parentDepth = 0
+  if (dialogParentId.value) {
+    const parent = allTagsList.value.find(t => t.id === dialogParentId.value)
+    if (parent) parentDepth = tagDepth(parent)
+  }
+  if (parentDepth + 1 > MAX_TAG_DEPTH) {
+    dialogError.value = `超过最大层级限制（${MAX_TAG_DEPTH} 层）`
+    return
+  }
   try {
     if (dialogMode.value === 'create') {
       await tagApi.createTag(name, dialogCategory.value.trim() || '类型', dialogParentId.value || undefined, dialogQualifiers.value.trim() || undefined)
@@ -239,6 +250,120 @@ const doDeleteTag = async () => {
     pendingDelete.value = null
   }
 }
+
+// ============ 层级限制 ============
+const MAX_TAG_DEPTH = 8
+// 计算某标签当前深度（顶级为 1）
+const tagDepth = (tag: Tag): number => {
+  let d = 1
+  let cur: Tag | undefined = tag
+  const byId = new Map(allTagsList.value.map(t => [t.id, t]))
+  while (cur && cur.parent_id) {
+    const p = byId.get(cur.parent_id)
+    if (!p) break
+    d++
+    cur = p
+  }
+  return d
+}
+
+// ============ 批量操作 ============
+const batchMode = ref(false)
+const selectedIds = ref<number[]>([])
+const allTagIds = computed(() => allTagsList.value.map(t => t.id))
+const selectedCount = computed(() => selectedIds.value.length)
+
+const toggleBatchMode = () => {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) selectedIds.value = []
+}
+const isSelected = (id: number) => selectedIds.value.includes(id)
+const toggleSelect = (id: number) => {
+  if (isSelected(id)) selectedIds.value = selectedIds.value.filter(x => x !== id)
+  else selectedIds.value = [...selectedIds.value, id]
+}
+const toggleSelectAll = () => {
+  if (selectedIds.value.length === allTagIds.value.length) selectedIds.value = []
+  else selectedIds.value = [...allTagIds.value]
+}
+
+// 批量移动
+const showBatchMoveDialog = ref(false)
+const batchMoveParentId = ref<number | null>(null)
+const batchMoveError = ref('')
+
+const openBatchMove = () => {
+  if (selectedCount.value === 0) return
+  batchMoveParentId.value = null
+  batchMoveError.value = ''
+  showBatchMoveDialog.value = true
+}
+const confirmBatchMove = async () => {
+  try {
+    // 校验目标不能是选中项的子孙（避免环）
+    if (batchMoveParentId.value) {
+      const parent = allTagsList.value.find(t => t.id === batchMoveParentId.value)
+      if (parent && tagDepth(parent) + 1 > MAX_TAG_DEPTH) {
+        batchMoveError.value = `超过最大层级限制（${MAX_TAG_DEPTH} 层）`
+        return
+      }
+    }
+    await tagApi.batchMoveTags(selectedIds.value, batchMoveParentId.value)
+    showToast(`已移动 ${selectedCount.value} 个标签`)
+    showBatchMoveDialog.value = false
+    selectedIds.value = []
+    await fetchAllTags()
+  } catch (e: any) {
+    batchMoveError.value = e?.response?.data?.message || '批量移动失败'
+  }
+}
+
+// 批量删除
+const batchDelete = async () => {
+  if (selectedCount.value === 0) return
+  if (!window.confirm(`确认删除选中的 ${selectedCount.value} 个标签？子标签将提升为顶级。`)) return
+  try {
+    await tagApi.batchDeleteTags(selectedIds.value)
+    showToast(`已删除 ${selectedCount.value} 个标签`)
+    selectedIds.value = []
+    await fetchAllTags()
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || '批量删除失败')
+  }
+}
+
+// ============ 标签合并 ============
+const showMergeDialog = ref(false)
+const mergeTargetId = ref<number | null>(null)
+const mergeError = ref('')
+
+const openMerge = () => {
+  if (selectedCount.value < 1) return
+  mergeTargetId.value = null
+  mergeError.value = ''
+  showMergeDialog.value = true
+}
+const confirmMerge = async () => {
+  if (!mergeTargetId.value) {
+    mergeError.value = '请选择目标标签'
+    return
+  }
+  if (selectedIds.value.includes(mergeTargetId.value)) {
+    mergeError.value = '目标标签不能是已选源标签之一'
+    return
+  }
+  try {
+    const res = await tagApi.mergeTags(selectedIds.value, mergeTargetId.value)
+    showToast(`已合并 ${selectedCount.value} 个标签`)
+    showMergeDialog.value = false
+    selectedIds.value = []
+    await fetchAllTags()
+  } catch (e: any) {
+    mergeError.value = e?.response?.data?.message || '合并失败'
+  }
+}
+
+// 提交时校验层级限制（已合并进 submitDialog，此处无需额外函数）
 </script>
 
 <template>
@@ -248,13 +373,31 @@ const doDeleteTag = async () => {
         <h1 class="page-title">标签</h1>
         <p class="page-desc">点击标签可查看对应的内容（视频或图集共用同一套标签）</p>
       </div>
-      <button v-if="isAdmin" class="create-btn" @click="openCreateDialog">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        新建标签
-      </button>
+      <div class="header-actions" v-if="isAdmin">
+        <button class="batch-toggle-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
+          {{ batchMode ? '退出批量' : '批量管理' }}
+        </button>
+        <button class="create-btn" @click="openCreateDialog">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          新建标签
+        </button>
+      </div>
+    </div>
+
+    <!-- 批量操作栏 -->
+    <div v-if="batchMode && isAdmin" class="batch-bar">
+      <label class="batch-select-all">
+        <input type="checkbox" :checked="selectedIds.length === allTagIds.length" @change="toggleSelectAll" />
+        <span>全选（{{ selectedCount }}/{{ allTagIds.length }}）</span>
+      </label>
+      <div class="batch-actions">
+        <button class="batch-btn move" @click="openBatchMove" :disabled="selectedCount === 0">批量移动父级</button>
+        <button class="batch-btn merge" @click="openMerge" :disabled="selectedCount === 0">合并到</button>
+        <button class="batch-btn danger" @click="batchDelete" :disabled="selectedCount === 0">批量删除</button>
+      </div>
     </div>
 
     <!-- 搜索 -->
@@ -287,6 +430,15 @@ const doDeleteTag = async () => {
           :class="{ 'level-0': item.level === 0, 'level-1': item.level === 1, 'level-2': item.level === 2, 'level-3': item.level >= 3 }"
           :style="{ '--level': item.level }"
         >
+          <!-- 批量选择复选框 -->
+          <label v-if="batchMode && isAdmin" class="batch-check">
+            <input
+              type="checkbox"
+              :checked="isSelected(item.tag.id)"
+              @change="toggleSelect(item.tag.id)"
+            />
+          </label>
+
           <!-- 缩进占位 -->
           <div class="indent" :style="{ width: item.level * 24 + 'px' }"></div>
           
@@ -427,6 +579,56 @@ const doDeleteTag = async () => {
       <div class="dialog-actions">
         <button class="btn-secondary" @click="cancelDelete">取消</button>
         <button class="btn-danger" @click="doDeleteTag">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量移动父级对话框 -->
+  <div v-if="showBatchMoveDialog" class="dialog-overlay" @click.self="showBatchMoveDialog = false">
+    <div class="dialog">
+      <h3>批量移动父级</h3>
+      <p class="warning-text">将选中的 {{ selectedCount }} 个标签移动到以下父级：</p>
+      <div class="form-group">
+        <label>目标父标签</label>
+        <select v-model="batchMoveParentId" class="parent-select">
+          <option :value="null">顶级标签</option>
+          <option
+            v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
+            :key="t.id"
+            :value="t.id"
+          >{{ t.path || t.name }}</option>
+        </select>
+      </div>
+      <p v-if="batchMoveError" class="error-text">{{ batchMoveError }}</p>
+      <div class="dialog-actions">
+        <button class="btn-secondary" @click="showBatchMoveDialog = false">取消</button>
+        <button class="btn-primary" @click="confirmBatchMove">确定移动</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 合并对话框 -->
+  <div v-if="showMergeDialog" class="dialog-overlay" @click.self="showMergeDialog = false">
+    <div class="dialog">
+      <h3>合并标签</h3>
+      <p class="warning-text">
+        将选中的 {{ selectedCount }} 个标签合并到目标标签，源标签的视频关联将转移并删除源标签。
+      </p>
+      <div class="form-group">
+        <label>目标标签</label>
+        <select v-model="mergeTargetId" class="parent-select">
+          <option :value="null">请选择目标标签</option>
+          <option
+            v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
+            :key="t.id"
+            :value="t.id"
+          >{{ t.path || t.name }}</option>
+        </select>
+      </div>
+      <p v-if="mergeError" class="error-text">{{ mergeError }}</p>
+      <div class="dialog-actions">
+        <button class="btn-secondary" @click="showMergeDialog = false">取消</button>
+        <button class="btn-primary" @click="confirmMerge">确定合并</button>
       </div>
     </div>
   </div>
@@ -957,5 +1159,118 @@ const doDeleteTag = async () => {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.12);
   color: #cbd5e1;
+}
+
+/* 批量管理 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-toggle-btn {
+  padding: 12px 20px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.batch-toggle-btn:hover {
+  background: #3a3a3a;
+}
+
+.batch-toggle-btn.active {
+  background: #1976D2;
+  border-color: #1976D2;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #1e1e2a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.batch-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #ddd;
+  cursor: pointer;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-btn {
+  padding: 9px 16px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #2a2a38;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.batch-btn:hover:not(:disabled) {
+  background: #34344a;
+}
+
+.batch-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.batch-btn.move {
+  border-color: #1976D2;
+}
+
+.batch-btn.merge {
+  border-color: #4CAF50;
+}
+
+.batch-btn.danger {
+  border-color: #f44336;
+}
+
+.batch-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.batch-check input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .batch-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 </style>
