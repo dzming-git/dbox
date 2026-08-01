@@ -442,6 +442,12 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
         existing.author_name = author_name
         existing.author_url = author_url
         existing.source_url = source_url
+        # 重复下载（同来源）视为「重新生成帖子」，应从回收站恢复，
+        # 否则用户删除过一次后，后续重复下载只会更新同 group_key 帖子、
+        # in_trash 保持 True，导致帖子流永远看不到该帖子。
+        if existing.in_trash:
+            existing.in_trash = False
+            existing.trashed_at = None
         # 重建引用（顺序编排）
         PostRef.query.filter_by(post_id=existing.id).delete()
         db.session.flush()
