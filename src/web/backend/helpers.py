@@ -5,7 +5,7 @@
 
 本模块只依赖 core.models / resource.models（可选）/ liblog，不依赖 main。
 """
-from flask import request, jsonify
+from flask import request, jsonify, Response
 
 from core.models import (
     db, Video, Tag, VideoTag, UserInteraction, UserPreference,
@@ -16,14 +16,22 @@ from liblog import get_service_logger
 log = get_service_logger('dplayer-web')
 
 
+def _json_response(payload):
+    """构造 JSON 响应（不依赖应用上下文，便于在任意位置调用）。"""
+    return Response(
+        __import__('json').dumps(payload, ensure_ascii=False),
+        mimetype='application/json',
+    )
+
+
 def success_response(data=None, message='', code=0):
     """统一成功响应：{success, data, code, message}。"""
-    return jsonify({'success': True, 'code': code, 'message': message, 'data': data})
+    return _json_response({'success': True, 'code': code, 'message': message, 'data': data})
 
 
 def error_response(message='', code=1, data=None):
     """统一错误响应：{success, data, code, message}。"""
-    return jsonify({'success': False, 'code': code, 'message': message, 'data': data})
+    return _json_response({'success': False, 'code': code, 'message': message, 'data': data})
 
 
 def _do_update_tag(tag_id):

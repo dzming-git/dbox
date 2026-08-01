@@ -58,60 +58,8 @@ import random
 import re
 from functools import wraps
 
-# 导入总线客户端（封面生成器）
-try:
-    sys.path.insert(0, os.path.join(_SRC_DIR, 'servicebus'))
-    from servicebus import BusClient
-    # 连接总线调用 thumbnaild
-    thumbnail_bus = BusClient(
-        'web-client',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-    # 连接总线调用 servicemgr
-    svc_mgr_bus = BusClient(
-        'web-svc-mgr',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-    # 连接总线调用 historyd (播放历史服务)
-    history_bus = BusClient(
-        'web-history',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-    # 连接总线调用 collectiond (收藏夹服务)
-    collection_bus = BusClient(
-        'web-collection',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-    # 连接总线调用 searchd (搜索服务)
-    search_bus = BusClient(
-        'web-search',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-    # 连接总线调用 resourced (资源管理服务)
-    resource_bus = BusClient(
-        'web-resource',
-        host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
-    )
-except Exception as e:
-    thumbnail_bus = None
-    svc_mgr_bus = None
-    history_bus = None
-    collection_bus = None
-    search_bus = None
-    resource_bus = None
-    log.maintenance('WARN', f'总线客户端初始化失败: {e}')
+# 总线客户端初始化收敛至 backend.service_buses（组合根保持轻量）
+from backend.service_buses import init_service_buses
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
@@ -255,12 +203,9 @@ from backend.thumbnail_helpers import (
 # 运行时单例统一注入到 backend.runtime，彻底消除 helper 对 main 的依赖
 from backend.runtime import runtime as _runtime
 app_config = load_config()
-_runtime.init(
-    db=db, app=app, app_config=app_config,
-    thumbnail_bus=thumbnail_bus, resource_bus=resource_bus,
-    svc_mgr_bus=svc_mgr_bus, history_bus=history_bus,
-    collection_bus=collection_bus, search_bus=search_bus,
-)
+_runtime.init(db=db, app=app, app_config=app_config)
+# 总线客户端创建并注入 runtime（收敛至 backend.service_buses）
+init_service_buses(_SRC_DIR)
 
 
 
