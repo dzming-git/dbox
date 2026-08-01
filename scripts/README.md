@@ -56,7 +56,7 @@ python scripts/service_manager.py restart-all       # 重启所有服务
 ## 三、运维 / 工具脚本
 
 ### `dev_sync.py` — 开发同步工具（源码 → 运行目录）
-被后台「同步」接口（`src/web/api/system_api.py`）调用。支持单向全量同步与持续监控。
+被后台「同步」接口（`src/web/backend/api/system_info_api.py`）调用。支持单向全量同步与持续监控。
 ```bash
 python scripts/dev_sync.py            # 执行一次全量同步
 python scripts/dev_sync.py --watch    # 持续监控模式

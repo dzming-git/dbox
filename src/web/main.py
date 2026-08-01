@@ -132,10 +132,6 @@ try:
 except Exception:
     _HAS_RESOURCE_DB = False
 
-# 导入API蓝图初始化函数（蓝图注册收敛至 backend.blueprints，见下方 register_core_blueprints）
-from api.history_api import init_history_api
-from api.collection_api import init_collection_api
-from api.search_api import init_search_api
 from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_trash_list, get_trash_obj
 
 # ============ 配置 ============
@@ -226,9 +222,6 @@ from backend.audit import auto_audit_hook, log_operation
 app.after_request(auto_audit_hook)
 
 # ============ 初始化 API 总线客户端 ============
-init_history_api(history_bus)
-init_collection_api(collection_bus)
-init_search_api(search_bus)
 log.maintenance('INFO', 'Service bus clients initialized for APIs')
 
 # ============ 认证装饰器 ============

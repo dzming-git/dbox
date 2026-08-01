@@ -16,6 +16,16 @@ from liblog import get_service_logger
 log = get_service_logger('dplayer-web')
 
 
+def success_response(data=None, message='', code=0):
+    """统一成功响应：{success, data, code, message}。"""
+    return jsonify({'success': True, 'code': code, 'message': message, 'data': data})
+
+
+def error_response(message='', code=1, data=None):
+    """统一错误响应：{success, data, code, message}。"""
+    return jsonify({'success': False, 'code': code, 'message': message, 'data': data})
+
+
 def _do_update_tag(tag_id):
     """更新标签的实际逻辑"""
     try:

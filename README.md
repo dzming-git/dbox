@@ -209,7 +209,7 @@ extensions/scripts/demo_download/
 
 ## API 概览
 
-后端为纯 API 服务，主要蓝图（`src/web/api/`）：
+后端为纯 API 服务，主要蓝图（`src/web/backend/api/`）：
 
 | 模块 | 路径前缀 | 说明 |
 |------|----------|------|

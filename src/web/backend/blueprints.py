@@ -1,48 +1,31 @@
-# -*- coding: utf-8 -*-
-"""蓝图注册集中管理。
+"""蓝图集中注册。
 
-将 main.py 中分散的 ``app.register_blueprint(...)`` 调用收敛到本模块，
-使 main.py 入口保持清爽。注册顺序与时机与原实现一致：
-
-* ``register_core_blueprints`` 注册在 main 完整初始化后即可加载的蓝图
-  （这些模块的 import 不触发循环依赖，可在 main 顶部直接导入）。
-* ``register_domain_blueprints`` 注册从 main 拆分出的领域蓝图，保持
-  **延迟局部导入**（函数内 import），避免在 main 导入期产生循环依赖。
+统一收敛所有 Flask 蓝图，避免 main.py 散落大量 import 与注册代码。
+原 src/web/api/* 下的遗留蓝图已全部迁移到 backend/api 体系并删除，
+此处只负责 backend/api 与 backend.gallery 下的蓝图。
 """
 from flask import Flask
 
 
 def register_core_blueprints(app: Flask) -> None:
-    """注册核心蓝图（main 顶部已可安全导入的部分）。"""
-    from api.auth_api import auth_bp
-    from api.playlist_api import playlist_bp
-    from api.system_api import system_bp
-    from api.history_api import history_bp
-    from api.collection_api import collection_bp
-    from api.collection_set_api import collection_set_api  # 独立合集模块（视频+图集）
-    from api.search_api import search_bp
-    from api.suggestion_api import suggestion_bp
-    from backend.api.shared_watch_api import shared_watch_bp
+    """注册核心蓝图（导入顺序与原 main.py 保持一致，避免循环依赖）。"""
     from backend.api.auth_api_v2 import auth_v2_bp  # v2版本JWT认证API
-    from backend.gallery.gallery_api import gallery_bp  # 图集模式 API
-    from backend.api.markers_api import markers_bp  # 精彩片段标记 API
+    from backend.api.shared_watch_api import shared_watch_bp
+    from backend.gallery.gallery_api import gallery_bp
+    from backend.api.markers_api import markers_bp
+    from backend.api.system_info_api import system_info_bp
+    from backend.api.suggestion_api import suggestion_bp
 
-    app.register_blueprint(auth_bp)
     app.register_blueprint(auth_v2_bp)
-    app.register_blueprint(playlist_bp)
-    app.register_blueprint(system_bp)
-    app.register_blueprint(history_bp)  # 播放历史API
-    app.register_blueprint(collection_bp)  # 收藏夹API
-    app.register_blueprint(collection_set_api)  # 独立合集模块（视频+图集）
-    app.register_blueprint(search_bp)  # 搜索API
-    app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反馈API / Issue
-    app.register_blueprint(shared_watch_bp)  # 共享观看API
-    app.register_blueprint(gallery_bp)  # 图集模式 API
-    app.register_blueprint(markers_bp)  # 精彩片段标记 API
+    app.register_blueprint(shared_watch_bp)
+    app.register_blueprint(gallery_bp)
+    app.register_blueprint(markers_bp)
+    app.register_blueprint(system_info_bp)
+    app.register_blueprint(suggestion_bp)
 
 
 def register_domain_blueprints(app: Flask) -> None:
-    """注册领域蓝图（延迟导入，避免 main 导入期循环依赖）。"""
+    """注册领域蓝图（延迟导入，避免与核心蓝图循环依赖）。"""
     from backend.api.video_api import bp as video_api_bp
     from backend.api.tag_api import bp as tag_api_bp
     from backend.api.collection_api import bp as collection_api_bp

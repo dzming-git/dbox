@@ -1,12 +1,13 @@
-"""
-意见建议 / Issue 模块（参考 GitHub Issue 风格）
+"""意见建议 / Issue 模块（参考 GitHub Issue 风格）。
 
-- Issue 唯一 id 格式：yyyymmdd + 4 位流水号，例如 202607250004
-- 数据存储于 {runtime_dir}/data/issues.json（JSON 文件，单文件，线程安全写入）
-- 数据迁移：首次访问时若 issues.json 不存在但旧的 suggestions.json 存在，
-  自动将旧数据迁移为新的 Issue 结构（保留原文件作为备份，幂等）
-- 权限：列表/详情对所有人公开（参考 GitHub 公开 issue）；提交允许游客；
-  关闭/重新打开/评论仅管理员（role >= UserRole.ADMIN）
+原 src/web/api/suggestion_api.py 迁移而来，统一到 backend/api 体系：
+- 鉴权改用 backend.access.resolve_identity（cookie + JWT Bearer 双通道）
+- get_runtime_dir 复用 backend.api.system_info_api
+- 其余逻辑（id 生成、迁移、分页、评论）与前端契约保持一致，未做破坏性改动。
+
+Issue 唯一 id 格式：yyyymmdd + 4 位流水号。
+数据存储于 {runtime_dir}/data/issues.json（单文件、线程安全写入）。
+权限：列表/详情公开；提交允许游客；关闭/重开/评论仅管理员。
 """
 import os
 import json
@@ -16,9 +17,10 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 
 from core.models import UserRole
-from api.system_api import get_runtime_dir
+from backend.access import resolve_identity
+from backend.api.system_info_api import get_runtime_dir
 
-suggestion_bp = Blueprint('suggestion', __name__)
+suggestion_bp = Blueprint('suggestion_api', __name__)
 
 _lock = threading.Lock()
 
@@ -68,7 +70,7 @@ def make_title(content, max_len=40):
 
 
 def generate_issue_id(date=None):
-    """生成 yyyymmdd + 4 位流水号，按当天最大序号 +1"""
+    """生成 yyyymmdd + 4 位流水号，按当天最大序号 +1。"""
     date = date or datetime.now()
     date_str = date.strftime('%Y%m%d')
     max_seq = 0
@@ -85,7 +87,7 @@ def generate_issue_id(date=None):
 
 
 def migrate_if_needed():
-    """自动迁移旧 suggestions.json -> issues.json（幂等）"""
+    """自动迁移旧 suggestions.json -> issues.json（幂等）。"""
     if os.path.exists(ISSUES_FILE):
         return
     if not os.path.exists(SUGGESTIONS_FILE):
@@ -142,10 +144,8 @@ def migrate_if_needed():
     save_issues(issues)
 
 
-from backend.access import resolve_identity
-
 def _auth():
-    """返回 (user_id, role, username)，未登录返回 (None, 0, None)"""
+    """返回 (user_id, role, username)，未登录返回 (None, 0, None)。"""
     try:
         from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
         uid, role = resolve_identity()
@@ -192,7 +192,7 @@ def _strip_contact(issue, admin):
     return d
 
 
-@suggestion_bp.route('', methods=['GET'])
+@suggestion_bp.route('/api/suggestion', methods=['GET'])
 def list_issues():
     migrate_if_needed()
     issues = load_issues()
@@ -225,7 +225,6 @@ def list_issues():
     start = (page - 1) * page_size
     page_items = filtered[start:start + page_size]
 
-    # 兼容旧数据：未带 type 字段时默认按 suggestion 处理
     def _with_type(it):
         d = _strip_contact(it, admin)
         d['type'] = it.get('type', 'suggestion')
@@ -248,7 +247,7 @@ def list_issues():
     })
 
 
-@suggestion_bp.route('', methods=['POST'])
+@suggestion_bp.route('/api/suggestion', methods=['POST'])
 def create_issue():
     migrate_if_needed()
     data = request.get_json(force=True, silent=True) or {}
@@ -259,7 +258,6 @@ def create_issue():
     if ftype not in ('bug', 'suggestion', 'other'):
         ftype = 'suggestion'
 
-    # 内容非必填、不要求字数；标题缺省时由内容生成
     if not title and content:
         title = make_title(content)
     if not title:
@@ -299,7 +297,7 @@ def create_issue():
     return jsonify({'success': True, 'id': issue['id'], 'issue': issue})
 
 
-@suggestion_bp.route('/<issue_id>', methods=['GET'])
+@suggestion_bp.route('/api/suggestion/<issue_id>', methods=['GET'])
 def get_issue(issue_id):
     migrate_if_needed()
     admin = _is_admin()
@@ -309,7 +307,7 @@ def get_issue(issue_id):
     return jsonify({'success': True, 'issue': _strip_contact(it, admin)})
 
 
-@suggestion_bp.route('/<issue_id>', methods=['PUT'])
+@suggestion_bp.route('/api/suggestion/<issue_id>', methods=['PUT'])
 def update_issue(issue_id):
     if not _is_admin():
         return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
@@ -346,7 +344,7 @@ def update_issue(issue_id):
     return jsonify({'success': True, 'issue': it})
 
 
-@suggestion_bp.route('/<issue_id>/comment', methods=['POST'])
+@suggestion_bp.route('/api/suggestion/<issue_id>/comment', methods=['POST'])
 def comment_issue(issue_id):
     if not _is_admin():
         return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403

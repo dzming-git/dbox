@@ -20,8 +20,9 @@ class TestAppImport(unittest.TestCase):
     def test_main_imports_and_registers_blueprints(self):
         import main
         rules = list(main.app.url_map.iter_rules())
-        # 历史基线约 242 条路由；这里仅设合理下限，允许未来合理增减
-        self.assertGreaterEqual(len(rules), 200,
+        # 历史基线约 242 条路由；统一 backend/api 体系、删除遗留 src/web/api 死代码后
+        # 收敛至约 182 条。此处设合理下限，允许未来合理增减。
+        self.assertGreaterEqual(len(rules), 170,
                                 '路由数量异常偏低，可能蓝图注册遗漏或导入崩溃')
         # 确认核心蓝图已注册（端点名前缀）
         endpoints = {getattr(r, 'endpoint', None) for r in rules}
@@ -29,6 +30,31 @@ class TestAppImport(unittest.TestCase):
                         'video_api 蓝图未注册')
         self.assertTrue(any(str(e).startswith('tag_api') for e in endpoints),
                         'tag_api 蓝图未注册')
+
+    def test_legacy_api_module_not_imported(self):
+        """遗留的 src/web/api 包应已删除并迁移到 backend/api，不得再被引用。"""
+        import main  # noqa: F401 确保 main 已加载
+        self.assertNotIn('api.system_api', sys.modules,
+                         '遗留模块 api.system_api 仍被导入，未完全迁移')
+        self.assertNotIn('api.suggestion_api', sys.modules,
+                         '遗留模块 api.suggestion_api 仍被导入，未完全迁移')
+
+    def test_migrated_endpoints_present(self):
+        """迁移后的系统信息与建议接口端点必须存在。"""
+        import main
+        paths = {r.rule for r in main.app.url_map.iter_rules()}
+        required = [
+            '/api/system/info',
+            '/api/system/stats',
+            '/api/system/paths',
+            '/api/system/sync-status',
+            '/api/system/metrics',
+            '/api/suggestion',
+            '/api/suggestion/<issue_id>',
+            '/api/suggestion/<issue_id>/comment',
+        ]
+        for p in required:
+            self.assertIn(p, paths, f'迁移后缺失端点: {p}')
 
 
 if __name__ == '__main__':
