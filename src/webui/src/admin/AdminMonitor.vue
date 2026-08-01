@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import api from '../api'
+import { api } from '../api'
 import { formatBytes, getUsageClass, formatUptime } from '../utils/adminCommon'
 
 const monitorMetrics = ref<any>(null)

@@ -1,4 +1,4 @@
-import api from './index'
+import { api } from './index'
 import type { Issue, IssueListResponse } from '../types'
 
 export interface IssueListParams {

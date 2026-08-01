@@ -3,7 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import api from '../api'
+import { api } from '../api'
 
 const router = useRouter()
 const videoStore = useVideoStore()
