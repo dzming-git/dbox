@@ -35,9 +35,6 @@ for _p in [_THIS_DIR, _SRC_DIR, os.path.join(_CONFIGS_DIR, 'services'), _DATA_DI
 from launcher_guard import check_service_launch
 check_service_launch('DPlayer Web Service', 'src/web/main.py')
 
-print(f"[DEBUG] web.py loading from: {os.path.abspath(__file__)}")
-print(f"[DEBUG] PROJECT_ROOT: {PROJECT_ROOT}")
-
 from flask import Flask, jsonify, request, send_file, abort, Response, g, session, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
