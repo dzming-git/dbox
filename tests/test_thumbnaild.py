@@ -16,6 +16,7 @@ import sys
 import os
 import time
 import threading
+import socket
 
 _SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src')
 if _SRC not in sys.path:
@@ -26,13 +27,30 @@ from servicebus.thumbnail_adapter import BusThumbnailAdapter
 from thumbnail.task_manager import TaskManager, task_worker
 
 
+def _free_ports(n=2):
+    """分配 n 个空闲 TCP 端口，避免与正在运行的总线服务（默认 15555/15556）冲突。"""
+    socks = []
+    ports = []
+    try:
+        for _ in range(n):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(('127.0.0.1', 0))
+            socks.append(s)
+            ports.append(s.getsockname()[1])
+        return ports
+    finally:
+        for s in socks:
+            s.close()
+
+
 def test_thumbnaild_lifecycle():
     """测试 thumbnaild 的完整生命周期"""
     print("\n[Test] thumbnaild 完整生命周期测试")
     print("-" * 50)
 
-    # 1. 启动 busbroker
-    router = BusRouter(rpc_port=15555, pub_port=15556)
+    # 1. 启动 busbroker（使用空闲端口，避免与运行中的总线服务冲突）
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
     print("  [1] busbroker 已启动")
@@ -46,8 +64,8 @@ def test_thumbnaild_lifecycle():
 
     adapter = BusThumbnailAdapter(
         task_manager=task_manager,
-        rpc_port=15555,
-        pub_port=15556
+        rpc_port=rpc_port,
+        pub_port=pub_port
     )
     adapter.start()
     time.sleep(0.5)
@@ -57,8 +75,8 @@ def test_thumbnaild_lifecycle():
     client = BusClient(
         'test-web',
         host='127.0.0.1',
-        rpc_port=15555,
-        pub_port=15556
+        rpc_port=rpc_port,
+        pub_port=pub_port
     )
 
     # 验证：服务发现
@@ -90,7 +108,8 @@ def test_generate_no_file():
     print("\n[Test] 请求生成（文件不存在）测试")
     print("-" * 50)
 
-    router = BusRouter(rpc_port=15556, pub_port=15557)
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
 
@@ -99,12 +118,12 @@ def test_generate_no_file():
         t = threading.Thread(target=task_worker, args=(task_manager,), daemon=True)
         t.start()
 
-    adapter = BusThumbnailAdapter(task_manager=task_manager, rpc_port=15556, pub_port=15557)
+    adapter = BusThumbnailAdapter(task_manager=task_manager, rpc_port=rpc_port, pub_port=pub_port)
     adapter.start()
     time.sleep(0.5)
 
     client = BusClient('test-web', host='127.0.0.1',
-                       rpc_port=15556, pub_port=15557)
+                       rpc_port=rpc_port, pub_port=pub_port)
 
     result = client.call_method('com.dplayer.thumbnaild', 'com.dplayer.Thumbnaild', 'Generate', {
         'video_path': 'C:/not_exist.mp4',

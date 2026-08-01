@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import threading
+import socket
 
 # 确保 src/ 在 path 中
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,22 @@ if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
 from servicebus import BusRouter, BaseDBusService, BusClient, BusMessage, MessageType
+
+
+def _free_ports(n=2):
+    """分配 n 个空闲 TCP 端口，避免与正在运行的总线服务（默认 15555/15556）冲突。"""
+    socks = []
+    ports = []
+    try:
+        for _ in range(n):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(('127.0.0.1', 0))
+            socks.append(s)
+            ports.append(s.getsockname()[1])
+        return ports
+    finally:
+        for s in socks:
+            s.close()
 
 
 # ============ 测试用模拟服务 ============
@@ -150,7 +167,6 @@ def test_protocol():
     print(f"  信号消息: OK")
 
     print("  [OK] 协议测试通过")
-    return True
 
 
 def test_method_call():
@@ -158,22 +174,23 @@ def test_method_call():
     print("\n[测试2] 方法调用 (bmcweb → phosphor-thumbnail)")
     print("-" * 40)
 
-    # 启动路由器
-    router = BusRouter(rpc_port=15555, pub_port=15556)
+    # 启动路由器（使用空闲端口，避免与运行中的总线服务冲突）
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
 
     try:
         # 启动模拟 thumbnail 服务
         thumbnail_svc = MockThumbnailService(
-            host='127.0.0.1', rpc_port=15555, pub_port=15556)
+            host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
         thumbnail_svc.start()
         time.sleep(0.5)
 
         try:
             # Web 服务作为客户端调用 thumbnail 服务
             web_svc = MockWebService(
-                host='127.0.0.1', rpc_port=15555, pub_port=15556)
+                host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
             web_svc.start()
             time.sleep(0.3)
 
@@ -221,7 +238,6 @@ def test_method_call():
                 print(f"  状态查询: {result}")
 
                 print("  [OK] 方法调用测试通过")
-                return True
             finally:
                 web_svc.stop()
         finally:
@@ -235,22 +251,23 @@ def test_signal_broadcast():
     print("\n[测试3] 信号广播 (phosphor-thumbnail → subscribers)")
     print("-" * 40)
 
-    # 启动路由器
-    router = BusRouter(rpc_port=15557, pub_port=15558)
+    # 启动路由器（使用空闲端口）
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
 
     try:
         # 启动接收方（web 服务）
         web_svc = MockWebService(
-            host='127.0.0.1', rpc_port=15557, pub_port=15558)
+            host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
         web_svc.start()
         time.sleep(0.3)
 
         try:
             # 启动发送方（thumbnail 服务）
             thumbnail_svc = MockThumbnailService(
-                host='127.0.0.1', rpc_port=15557, pub_port=15558)
+                host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
             thumbnail_svc.start()
             time.sleep(0.3)
 
@@ -278,7 +295,6 @@ def test_signal_broadcast():
                     print("  [WARN] 未收到信号（信号在独立进程中广播，跨进程需要订阅 PUB 地址）")
 
                 print("  [OK] 信号广播测试通过（信号机制已验证）")
-                return True
             finally:
                 thumbnail_svc.stop()
         finally:
@@ -292,18 +308,19 @@ def test_service_registration():
     print("\n[测试4] 服务注册和发现")
     print("-" * 40)
 
-    router = BusRouter(rpc_port=15559, pub_port=15560)
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
 
     try:
         svc1 = MockThumbnailService(
-            host='127.0.0.1', rpc_port=15559, pub_port=15560)
+            host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
         svc1.start()
         time.sleep(0.5)
 
         svc2 = MockWebService(
-            host='127.0.0.1', rpc_port=15559, pub_port=15560)
+            host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
         svc2.start()
         time.sleep(0.5)
 
@@ -327,7 +344,6 @@ def test_service_registration():
                 print(f"  预期的错误: {e}")
 
             print("  [OK] 服务注册测试通过")
-            return True
         finally:
             svc2.stop()
             svc1.stop()
@@ -347,19 +363,20 @@ def test_error_handling():
         def on_method_test(self, params):
             raise ValueError("模拟的业务错误")
 
-    router = BusRouter(rpc_port=15561, pub_port=15562)
+    rpc_port, pub_port = _free_ports(2)
+    router = BusRouter(rpc_port=rpc_port, pub_port=pub_port)
     router.start()
     time.sleep(0.5)
 
     try:
         broken = BrokenService(
-            host='127.0.0.1', rpc_port=15561, pub_port=15562)
+            host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
         broken.start()
         time.sleep(0.5)
 
         try:
             client = MockWebService(
-                host='127.0.0.1', rpc_port=15561, pub_port=15562)
+                host='127.0.0.1', rpc_port=rpc_port, pub_port=pub_port)
             client.start()
             time.sleep(0.3)
 
@@ -371,7 +388,6 @@ def test_error_handling():
                 assert '模拟的业务错误' in str(e)
                 print(f"  收到错误: {e}")
                 print("  [OK] 错误处理测试通过")
-                return True
             finally:
                 client.stop()
         finally:
