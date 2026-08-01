@@ -440,36 +440,6 @@ def _resolve_dplayer_library_id_by_folder(folder_id):
         return None
 
 
-def _is_library_admin(user_id, library_id):
-    """用户是否为该资源库的 'admin'（资源管理员），含用户组授权。"""
-    if LibraryPermission.query.filter_by(user_id=user_id, library_id=library_id, role='admin').first():
-        return True
-    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
-    if member_groups:
-        if LibraryPermission.query.filter(
-            LibraryPermission.group_id.in_(member_groups),
-            LibraryPermission.library_id == library_id,
-            LibraryPermission.role == 'admin'
-        ).first():
-            return True
-    return False
-
-
-def _user_library_admin_ids(user_id):
-    """返回用户可作为 'admin' 管理的 dplayer 资源库 id 集合（含用户组授权）。"""
-    ids = set()
-    for p in LibraryPermission.query.filter_by(user_id=user_id, role='admin').all():
-        ids.add(p.library_id)
-    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
-    if member_groups:
-        for p in LibraryPermission.query.filter(
-            LibraryPermission.group_id.in_(member_groups),
-            LibraryPermission.role == 'admin'
-        ).all():
-            ids.add(p.library_id)
-    return ids
-
-
 def library_admin_required(param='library_id'):
     """要求：登录用户 且 (全局管理员) 或 (该资源库的 'admin' 权限持有者)。
 
@@ -640,6 +610,8 @@ from backend.access import (
     resolve_user,
     _post_library_ids,
     _user_can_read_post,
+    _is_library_admin,
+    _user_library_admin_ids,
 )
 
 def record_interaction(video_id, user_session, interaction_type, score=1.0):

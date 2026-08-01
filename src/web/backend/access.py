@@ -178,3 +178,33 @@ def resolve_user():
         if u:
             return u
     return AuthService.get_current_user()
+
+
+def _is_library_admin(user_id, library_id):
+    """用户是否为该资源库的 'admin'（资源管理员），含用户组授权。"""
+    if LibraryPermission.query.filter_by(user_id=user_id, library_id=library_id, role='admin').first():
+        return True
+    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+    if member_groups:
+        if LibraryPermission.query.filter(
+            LibraryPermission.group_id.in_(member_groups),
+            LibraryPermission.library_id == library_id,
+            LibraryPermission.role == 'admin'
+        ).first():
+            return True
+    return False
+
+
+def _user_library_admin_ids(user_id):
+    """返回用户可作为 'admin' 管理的 dplayer 资源库 id 集合（含用户组授权）。"""
+    ids = set()
+    for p in LibraryPermission.query.filter_by(user_id=user_id, role='admin').all():
+        ids.add(p.library_id)
+    member_groups = [m.group_id for m in LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+    if member_groups:
+        for p in LibraryPermission.query.filter(
+            LibraryPermission.group_id.in_(member_groups),
+            LibraryPermission.role == 'admin'
+        ).all():
+            ids.add(p.library_id)
+    return ids
