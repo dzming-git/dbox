@@ -1,0 +1,429 @@
+# -*- coding: utf-8 -*-
+"""系统 / 服务管理 / 关机控制 辅助函数。
+
+从 main.py 下沉而来，供 system_api 蓝图直接 import，消除
+「蓝图函数体内 import main」的反模式。
+
+需要运行时单例（app / app_config / buses）的地方，统一通过
+模块级 `import main as runtime` 受控获取，仅一次，非函数级延迟导入。
+"""
+import os
+import json
+import time
+import threading as _shutdown_threading
+import urllib.request
+import subprocess
+
+from liblog import get_service_logger
+
+log = get_service_logger('dplayer-web')
+
+
+# ============ 分层设置（用户 / 全局 / 浏览器） ============
+# 合并优先级（高 -> 低）：browser > user > global > defaults
+SETTINGS_DEFAULTS = {
+    'autoplay': False,
+    'defaultQuality': 'auto',
+    'volume': 80,
+    'loop': False,
+    'playbackRate': 1.0,
+    'subtitleFontSize': 24,
+    'subtitleColor': '#ffffff',
+    'danmakuOpacity': 1.0,
+    'danmakuSpeed': 1.0,
+    'danmakuFont': 24,
+    'danmakuColor': '#ffffff',
+    'danmakuArea': 1.0,
+}
+
+
+def _apply_setting(scope, key, value):
+    import main as runtime
+    """将设置应用到对应范围（global/user/browser）。
+
+    - global: 写入 AppSetting（全用户共享）
+    - user:   写入当前登录用户的 UserPreference（key 前缀 'setting.'）
+    - browser: 由前端 localStorage 维护，后端仅透传默认值，此处不落库
+    """
+    from core.models import AppSetting
+    if scope == 'global':
+        rec = AppSetting.query.filter_by(key=key).first()
+        if not rec:
+            rec = AppSetting(key=key, value=json.dumps(value, ensure_ascii=False))
+            runtime.db.session.add(rec)
+        else:
+            rec.value = json.dumps(value, ensure_ascii=False)
+        runtime.db.session.commit()
+    elif scope == 'user':
+        from flask import g
+        from core.models import UserPreference
+        uid = getattr(g, 'user_id', None)
+        if not uid:
+            return False
+        pref_key = f'setting.{key}'
+        pref = UserPreference.query.filter_by(user_id=uid, pref_key=pref_key).first()
+        if not pref:
+            pref = UserPreference(user_id=uid, pref_key=pref_key,
+                                  pref_value=json.dumps(value, ensure_ascii=False))
+            runtime.db.session.add(pref)
+        else:
+            pref.pref_value = json.dumps(value, ensure_ascii=False)
+        runtime.db.session.commit()
+    # browser 范围不落库，由前端负责
+    return True
+
+
+# ============ 配置管理 ============
+def load_config():
+    default = {
+        "scan_directories": [{"path": "M:/<媒体库>", "recursive": True, "enabled": True}],
+        "auto_scan_on_startup": True,
+        "supported_formats": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"],
+        "default_tags": [],
+        "default_priority": 0,
+        "ports": {"web": 8080, "thumbnail": "bus://127.0.0.1:15555"}
+    }
+    from backend.paths import CONFIG_FILE
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return {**default, **json.load(f)}
+        except Exception:
+            pass
+    return default
+
+
+def save_config(cfg):
+    from backend.paths import CONFIG_FILE
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        log.debug('ERROR', f'保存配置失败: {e}')
+        return False
+
+
+# 全局配置（模块级单例，运行时由 main 重新加载）
+app_config = load_config()
+
+
+# ============ 日志查看 ============
+def parse_log_line(line: str, log_type: str) -> dict | None:
+    """解析单行日志。
+
+    格式:
+    - maintenance/runtime/debug: [时间] | [等级] | [服务] | [内容]
+    - operation: [时间] | [IP] | [服务] | [内容]
+    """
+    import re
+
+    match = re.match(r'^\[([^\]]+)\]\s*\|\s*\[([^\]]+)\]\s*\|\s*\[([^\]]+)\]\s*\|\s*\[(.+)\]$', line)
+    if not match:
+        return None
+
+    timestamp = match.group(1).strip()
+    field2 = match.group(2).strip()
+    service = match.group(3).strip()
+    content = match.group(4).strip()
+
+    result = {
+        'timestamp': timestamp,
+        'level': field2 if log_type != 'operation' else '',
+        'source': field2 if log_type == 'operation' else '',
+        'service': service,
+        'content': content,
+        'type': log_type,
+        'user': ''
+    }
+
+    if log_type == 'operation':
+        user_match = re.search(r'(?:用户|user)=([^|]+)', content)
+        if user_match:
+            result['user'] = user_match.group(1).strip()
+
+    return result
+
+
+# ============ 电脑关机控制（系统级，仅管理员） ============
+_SHUTDOWN_CANCEL = {'after_tasks': False}
+_SHUTDOWN_LOCK = _shutdown_threading.Lock()
+
+
+def _count_active_tasks():
+    """统计当前活跃任务数：转码/缩略图(ffmpeg) 进程 + 下载器活跃任务(best-effort)。"""
+    count = 0
+    try:
+        import psutil
+        for p in psutil.process_iter(['name', 'cmdline']):
+            try:
+                info = p.info
+                name = (info.get('name') or '').lower()
+                cmd = ' '.join(info.get('cmdline') or []).lower()
+                if 'ffmpeg' in name or 'ffmpeg' in cmd:
+                    if any(k in cmd for k in ('thumb', 'transcode', 'encode', 'scale', 'thumbnail')):
+                        count += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8092/api/tasks/active', timeout=1.5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    count += int(data.get('count', 0) or 0)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return count
+
+
+def _do_windows_shutdown(seconds=0):
+    subprocess.run(f'shutdown /s /t {max(0, int(seconds))} /f', shell=True)
+
+
+# ============ 服务管理 ============
+# 服务元信息映射（nssm service name -> 服务描述）
+_SERVICE_META = {
+    'dplayer-web': {
+        'display_name': 'DPlayer Web服务',
+        'description': 'Web API 服务 - 视频管理、用户认证等',
+        'health_url': None,
+        'port': 8080,
+    },
+    'dplayer-bus': {
+        'display_name': 'DPlayer 服务总线',
+        'description': '服务总线代理，所有内部服务通信中枢',
+        'health_url': None,
+        'port': None,
+    },
+    'dplayer-servicemgr': {
+        'display_name': 'DPlayer 服务管理',
+        'description': '服务管理守护进程，定期扫描 dplayer-* 服务状态',
+        'health_url': None,
+        'port': None,
+    },
+    'dplayer-thumbnail': {
+        'display_name': 'DPlayer 缩略图服务',
+        'description': '视频缩略图生成微服务（通过服务总线）',
+        'health_url': None,
+        'port': None,
+    },
+    'dplayer-webui': {
+        'display_name': 'DPlayer WebUI服务',
+        'description': 'Vue3 前端界面',
+        'health_url': 'http://localhost:5173',
+        'port': 5173,
+        'health_check_json': False,
+    },
+    'dplayer-downloader': {
+        'display_name': 'DPlayer 资源下载器',
+        'description': '独立进程：外部脚本 / 下载器服务（与主服务解耦，崩溃不影响主服务）',
+        'health_url': 'http://127.0.0.1:8092/api/health',
+        'port': 8092,
+    },
+}
+
+# Windows 服务状态码映射
+_WIN32_SVC_STATUS = {
+    1: 'STOPPED',
+    2: 'START_PENDING',
+    3: 'STOP_PENDING',
+    4: 'RUNNING',
+    5: 'CONTINUE_PENDING',
+    6: 'PAUSE_PENDING',
+    7: 'PAUSED',
+}
+
+# 控制服务操作的锁（防止并发操作同一服务）
+_svc_control_locks = {}
+
+
+def _open_scm():
+    """打开服务控制管理器 (SCM)"""
+    import win32service
+    return win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ALL_ACCESS)
+
+
+def _scan_services() -> list:
+    """扫描 dplayer- 前缀的 Windows 服务。"""
+    try:
+        import win32service
+
+        scm = _open_scm()
+        try:
+            services = win32service.EnumServicesStatus(
+                scm, win32service.SERVICE_WIN32, win32service.SERVICE_STATE_ALL
+            )
+            return [s[0] for s in services if s[0].startswith('dplayer-')]
+        finally:
+            win32service.CloseServiceHandle(scm)
+    except Exception as e:
+        log.debug('DEBUG', f'[服务管理] win32service 扫描失败: {type(e).__name__}: {e}')
+
+    try:
+        result = subprocess.run(
+            'sc query type= service state= all',
+            capture_output=True, text=True, timeout=30, shell=True
+        )
+        if result.returncode == 0:
+            dplayer_svcs = []
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith('SERVICE_NAME:'):
+                    svc_name = line.split(':', 1)[1].strip()
+                    if svc_name.startswith('dplayer-'):
+                        dplayer_svcs.append(svc_name)
+            if dplayer_svcs:
+                return dplayer_svcs
+    except Exception as e2:
+        log.debug('DEBUG', f'[服务管理] sc query fallback 也失败: {type(e2).__name__}: {e2}')
+
+    known_services = [
+        'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
+        'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
+        'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
+        'dplayer-downloader',
+    ]
+    verified = []
+    try:
+        import win32service
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        for svc_name in known_services:
+            try:
+                hs = win32service.OpenService(scm, svc_name, win32service.SERVICE_QUERY_STATUS)
+                win32service.CloseServiceHandle(hs)
+                verified.append(svc_name)
+            except Exception:
+                pass
+        win32service.CloseServiceHandle(scm)
+    except Exception:
+        pass
+
+    merged = list(verified)
+    for name in _SERVICE_META.keys():
+        if name not in merged:
+            merged.append(name)
+
+    if merged:
+        log.debug('DEBUG', f'[服务管理] 探测/合并找到 {len(merged)} 个服务: {merged}')
+        return merged
+
+    log.debug('DEBUG', '[服务管理] 扫描服务失败: 所有方法均无法获取服务列表')
+    return []
+
+
+def _get_service_status(service_name: str) -> dict:
+    info = {'status': 'unknown', 'pid': None, 'memory_mb': None, 'cpu_percent': None}
+
+    try:
+        import win32service
+
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        svc = win32service.OpenService(scm, service_name, win32service.SERVICE_QUERY_STATUS)
+        status_info = win32service.QueryServiceStatus(svc)
+        win32service.CloseServiceHandle(svc)
+        win32service.CloseServiceHandle(scm)
+
+        state_code = status_info[1]
+        info['status'] = _WIN32_SVC_STATUS.get(state_code, f'UNKNOWN({state_code})')
+    except Exception as e:
+        log.debug('DEBUG', f'[服务管理] 获取服务状态异常 {service_name}: {type(e).__name__}: {e}')
+        info['status'] = 'unknown'
+        return info
+
+    if info['status'] not in ('RUNNING', 'PAUSED'):
+        return info
+
+    try:
+        import psutil
+
+        meta = _SERVICE_META.get(service_name, {})
+        port = meta.get('port')
+        if port:
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.laddr and conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                    info['pid'] = conn.pid
+                    break
+
+        if not info['pid']:
+            app_name = 'python.exe'
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'] and proc.info['name'].lower() == app_name.lower():
+                        cmdline = proc.info.get('cmdline') or []
+                        cmdline_str = ' '.join(cmdline).lower()
+                        if 'dplayer' in cmdline_str and service_name.replace('dplayer-', '') in cmdline_str:
+                            info['pid'] = proc.info['pid']
+                            break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+        if info['pid']:
+            try:
+                proc = psutil.Process(info['pid'])
+                mem_info = proc.memory_info()
+                info['memory_mb'] = round(mem_info.rss / (1024 * 1024), 1)
+                try:
+                    info['cpu_percent'] = proc.cpu_percent(interval=None)
+                except Exception:
+                    info['cpu_percent'] = None
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                info['pid'] = None
+    except ImportError:
+        pass
+
+    return info
+
+
+def _check_service_health(service_name: str) -> dict:
+    meta = _SERVICE_META.get(service_name, {})
+    health_url = meta.get('health_url')
+
+    result = {'status': 'unknown', 'latency_ms': None, 'detail': ''}
+
+    if not health_url:
+        result['status'] = 'healthy'
+        result['detail'] = '自身服务'
+        return result
+
+    try:
+        import requests
+        start = time.time()
+        resp = requests.get(health_url, timeout=1.5)
+        latency = (time.time() - start) * 1000
+
+        result['latency_ms'] = round(latency, 1)
+
+        if resp.status_code == 200:
+            if meta.get('health_check_json', True):
+                try:
+                    data = resp.json()
+                    if data.get('status') == 'healthy':
+                        result['status'] = 'healthy'
+                        result['detail'] = '正常'
+                    else:
+                        result['status'] = 'unhealthy'
+                        result['detail'] = f"状态异常: {data.get('status', 'unknown')}"
+                except (ValueError, KeyError):
+                    result['status'] = 'unhealthy'
+                    result['detail'] = '响应格式异常'
+            else:
+                result['status'] = 'healthy'
+                result['detail'] = '正常'
+        else:
+            result['status'] = 'unhealthy'
+            result['detail'] = f"HTTP {resp.status_code}"
+    except requests.exceptions.Timeout:
+        result['status'] = 'unhealthy'
+        result['detail'] = '超时（>1.5s）'
+    except requests.exceptions.ConnectionError:
+        result['status'] = 'unhealthy'
+        result['detail'] = '连接失败'
+    except Exception as e:
+        result['status'] = 'unknown'
+        result['detail'] = str(e)[:100]
+
+    return result

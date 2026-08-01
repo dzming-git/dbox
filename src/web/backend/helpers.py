@@ -1,0 +1,252 @@
+# -*- coding: utf-8 -*-
+"""跨蓝图共享的纯业务辅助函数。
+
+从 main.py 下沉而来，统一收敛到本模块，供所有蓝图直接 import，
+消除「蓝图函数体内 import main」的反模式与循环依赖。
+
+本模块只依赖 core.models / resource.models（可选）/ liblog，不依赖 main。
+"""
+from flask import request, jsonify
+
+from core.models import (
+    db, Video, Tag, VideoTag, UserInteraction, UserPreference,
+    ResourceIndex, Gallery, PostRef, ResourceLibrary,
+)
+from liblog import get_service_logger
+
+log = get_service_logger('dplayer-web')
+
+
+def _do_update_tag(tag_id):
+    """更新标签的实际逻辑"""
+    try:
+        tag = Tag.query.get_or_404(tag_id)
+        data = request.get_json()
+
+        name = data.get('name', '').strip()
+        if name:
+            if len(name) < 2 or len(name) > 20:
+                return jsonify({'success': False, 'message': '标签名长度需在2-20字符之间'}), 400
+
+            existing = Tag.query.filter_by(name=name).first()
+            if existing and existing.id != tag_id:
+                return jsonify({'success': False, 'message': '标签名已存在'}), 400
+
+            tag.name = name
+
+        if 'category' in data:
+            tag.category = data['category'].strip() or '类型'
+
+        if 'qualifiers' in data:
+            tag.set_qualifiers(data['qualifiers'])
+
+        if 'parent_id' in data:
+            new_parent_id = data['parent_id']
+            if new_parent_id:
+                parent_tag = Tag.query.get(new_parent_id)
+                if not parent_tag:
+                    return jsonify({'success': False, 'message': '父标签不存在'}), 400
+                child_ids = tag.get_all_child_ids()
+                if new_parent_id in child_ids:
+                    return jsonify({'success': False, 'message': '不能设置自己的子标签为父标签'}), 400
+            tag.parent_id = new_parent_id
+
+        db.session.commit()
+        log.maintenance('INFO', f"更新标签: {tag.name} (ID: {tag_id})")
+        return jsonify({'success': True, 'tag': tag.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        log.debug('ERROR', f"更新标签失败: {tag_id}, {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# 资源库 ID 映射（dplayer.db <-> resource.db）
+# ---------------------------------------------------------------------------
+try:
+    from resource.models import ResourceLibraryDB, ResourceFolderDB
+    _HAS_RESOURCE_DB = True
+except Exception:
+    _HAS_RESOURCE_DB = False
+
+
+def _resolve_resource_library_id(dplayer_library_id: int) -> int:
+    """将 dplayer.db 的资源库 ID 映射为 resource.db 的资源库 ID（按名称匹配）。"""
+    if not _HAS_RESOURCE_DB:
+        return dplayer_library_id
+
+    library = ResourceLibrary.query.get(dplayer_library_id)
+    if not library:
+        return dplayer_library_id
+
+    all_resources = ResourceLibraryDB.get_all()
+    for res_lib in all_resources:
+        if res_lib.name == library.name:
+            return res_lib.id
+    return dplayer_library_id
+
+
+def _resolve_dplayer_library_id_by_folder(folder_id):
+    """folder_id 为 resourced 的文件夹 id，反查对应的 dplayer 资源库 id。"""
+    if not _HAS_RESOURCE_DB:
+        return None
+    try:
+        folder = ResourceFolderDB.get_by_id(folder_id)
+        if not folder:
+            return None
+        rl = ResourceLibraryDB.get_by_id(folder.library_id)
+        if not rl:
+            return None
+        lib = ResourceLibrary.query.filter_by(name=rl.name).first()
+        return lib.id if lib else None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 用户交互（点赞/踩/收藏偏好）
+# ---------------------------------------------------------------------------
+def record_interaction(video_id, user_session, interaction_type, score=1.0):
+    try:
+        interaction = UserInteraction(
+            video_id=video_id,
+            user_session=user_session,
+            interaction_type=interaction_type,
+            interaction_score=score,
+        )
+        db.session.add(interaction)
+
+        video_tags = VideoTag.query.filter_by(video_id=video_id).all()
+        for vt in video_tags:
+            pref = UserPreference.query.filter_by(
+                user_session=user_session, tag_id=vt.tag_id
+            ).first()
+            if pref:
+                pref.preference_score += score * 0.1
+                pref.interaction_count += 1
+            else:
+                pref = UserPreference(
+                    user_session=user_session,
+                    tag_id=vt.tag_id,
+                    preference_score=1.0 + score * 0.1,
+                    interaction_count=1,
+                )
+                db.session.add(pref)
+        db.session.commit()
+    except Exception as e:
+        log.debug('ERROR', f'记录交互失败: {e}')
+        db.session.rollback()
+
+
+def _ensure_interaction(video, user_session, itype, score):
+    """确保存在某条交互记录（用于批量添加，幂等）。"""
+    interaction = UserInteraction.query.filter_by(
+        video_id=video.id, user_session=user_session, interaction_type=itype
+    ).first()
+    if not interaction:
+        interaction = UserInteraction(
+            video_id=video.id, user_session=user_session,
+            interaction_type=itype, interaction_score=score,
+        )
+        db.session.add(interaction)
+        db.session.flush()
+    return interaction
+
+
+# ---------------------------------------------------------------------------
+# 标签树 / 层级标签
+# ---------------------------------------------------------------------------
+def _build_tag_tree(tags):
+    """将扁平标签列表转换为树形结构。"""
+    tag_map = {tag['id']: {**tag, 'children': []} for tag in tags}
+    tree = []
+    for tag in tags:
+        tag_node = tag_map[tag['id']]
+        if tag['parent_id'] is None or tag['parent_id'] not in tag_map:
+            tree.append(tag_node)
+        else:
+            tag_map[tag['parent_id']]['children'].append(tag_node)
+    return tree
+
+
+def get_or_create_tag_by_path(tag_path: str, library_id=None, category='类型'):
+    """根据路径获取或创建标签（支持层级），如 "/动物/狗/哈士奇"。"""
+    tag_path = tag_path.strip()
+    if not tag_path.startswith('/'):
+        tag_path = '/' + tag_path
+
+    parts = [p for p in tag_path.split('/') if p]
+    if not parts:
+        return None
+
+    parent_id = None
+    current_path = ''
+
+    for i, part in enumerate(parts):
+        current_path = '/' + part if i == 0 else current_path + '/' + part
+        existing_tag = Tag.query.filter(Tag.path == current_path).order_by(Tag.id.asc()).first()
+        if existing_tag:
+            parent_id = existing_tag.id
+        else:
+            new_tag = Tag(
+                name=part,
+                path=current_path,
+                category=category,
+                parent_id=parent_id,
+                library_id=library_id,
+            )
+            db.session.add(new_tag)
+            db.session.flush()
+            parent_id = new_tag.id
+
+    return Tag.query.filter(Tag.path == current_path).order_by(Tag.id.asc()).first()
+
+
+# ---------------------------------------------------------------------------
+# 帖子引用解析
+# ---------------------------------------------------------------------------
+def _resolve_post_refs(refs):
+    """将请求体中的引用解析为 (ResourceIndex, note) 列表。"""
+    result = []
+    if not refs:
+        return result
+    for r in refs:
+        if not isinstance(r, dict):
+            continue
+        ri_id = r.get('resource_index_id')
+        if not ri_id:
+            typ = (r.get('type') or r.get('kind') or '').lower()
+            eid = r.get('id')
+            if typ in ('video', 'video_file') and eid:
+                v = Video.query.get(eid)
+                if v and v.resource_index_id:
+                    ri_id = v.resource_index_id
+            elif typ in ('gallery', 'gallery_folder', 'image_set') and eid:
+                c = Gallery.query.get(eid)
+                if c and c.resource_index_id:
+                    ri_id = c.resource_index_id
+        if ri_id:
+            ri = ResourceIndex.query.get(ri_id)
+            if ri:
+                result.append((ri, r.get('note', '') or ''))
+    return result
+
+
+def _build_post_refs(content, refs_param):
+    """由帖子正文的内联标记构建 PostRef 列表（含 display_mode）。"""
+    from core.models import parse_post_content_tokens
+    tokens = parse_post_content_tokens(content or '')
+    built = []
+    if tokens:
+        for pos, t in enumerate(tokens):
+            ri = ResourceIndex.query.get(t['resource_index_id'])
+            if ri:
+                built.append(PostRef(
+                    resource_index_id=ri.id, position=pos,
+                    note='', display_mode=t['display_mode']))
+        return built
+    for pos, (ri, note) in enumerate(_resolve_post_refs(refs_param)):
+        built.append(PostRef(
+            resource_index_id=ri.id, position=pos,
+            note=note, display_mode='embed'))
+    return built

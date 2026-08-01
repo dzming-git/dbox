@@ -1,86 +1,108 @@
 """Auto-split blueprint: system_api (moved from main.py)."""
+import threading
+from backend.system_helpers import SETTINGS_DEFAULTS
+from backend.system_helpers import _do_windows_shutdown
+import time
+from core.models import Tag
+from backend.audit import log_operation
+from backend.system_helpers import parse_log_line
+from core.models import User
+from backend.system_helpers import _SERVICE_META
+from backend.system_helpers import _svc_control_locks
+from backend.system_helpers import _count_active_tasks
+from backend.system_helpers import _SHUTDOWN_LOCK
+from backend.system_helpers import _SHUTDOWN_CANCEL
+from backend.system_helpers import _shutdown_threading
+from core.models import db
+from backend.system_helpers import save_config
+import os
+from core.models import UserRole
+from core.models import Video
+from core.models import AppSetting
+from datetime import datetime, timedelta
+from backend.system_helpers import app_config
+from backend.access import get_allowed_library_ids
+from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
+from liblog import get_service_logger
+log = get_service_logger('dplayer-web')
 
 bp = Blueprint('system_api', __name__)
 
 @bp.route('/api/system/shutdown', methods=['POST'])
 @admin_required
 def system_shutdown():
-    import main
-    data = main.request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
     action = data.get('action', 'immediate')
     try:
         if action == 'scheduled':
             minutes = int(data.get('minutes', 0))
             if minutes <= 0:
-                return main.jsonify({'success': False, 'message': '定时关机分钟数必须大于 0'}), 400
-            main._do_windows_shutdown(seconds=minutes * 60)
-            return main.jsonify({'success': True, 'message': f'已安排 {minutes} 分钟后关机'})
+                return jsonify({'success': False, 'message': '定时关机分钟数必须大于 0'}), 400
+            _do_windows_shutdown(seconds=minutes * 60)
+            return jsonify({'success': True, 'message': f'已安排 {minutes} 分钟后关机'})
         elif action == 'after_tasks':
-            with main._SHUTDOWN_LOCK:
-                main._SHUTDOWN_CANCEL['after_tasks'] = False
+            with _SHUTDOWN_LOCK:
+                _SHUTDOWN_CANCEL['after_tasks'] = False
 
             def _wait():
                 import time
                 while True:
-                    with main._SHUTDOWN_LOCK:
-                        if main._SHUTDOWN_CANCEL['after_tasks']:
+                    with _SHUTDOWN_LOCK:
+                        if _SHUTDOWN_CANCEL['after_tasks']:
                             return
-                    if main._count_active_tasks() == 0:
-                        main._do_windows_shutdown(seconds=30)
+                    if _count_active_tasks() == 0:
+                        _do_windows_shutdown(seconds=30)
                         return
-                    main.time.sleep(15)
+                    time.sleep(15)
 
-            _t = main._shutdown_threading.Thread(target=_wait, daemon=True)
+            _t = _shutdown_threading.Thread(target=_wait, daemon=True)
             _t.start()
-            return main.jsonify({'success': True, 'message': '将在所有任务结束后关机（空闲后约 30 秒执行）'})
+            return jsonify({'success': True, 'message': '将在所有任务结束后关机（空闲后约 30 秒执行）'})
         else:  # immediate
-            main._do_windows_shutdown(seconds=0)
-            return main.jsonify({'success': True, 'message': '正在关机…'})
+            _do_windows_shutdown(seconds=0)
+            return jsonify({'success': True, 'message': '正在关机…'})
     except Exception as e:
-        return main.jsonify({'success': False, 'message': f'关机指令执行失败: {e}'}), 500
+        return jsonify({'success': False, 'message': f'关机指令执行失败: {e}'}), 500
 
 @bp.route('/api/system/shutdown/cancel', methods=['POST'])
 @admin_required
 def system_shutdown_cancel():
-    import main
     try:
         import subprocess
         subprocess.run('shutdown /a /f', shell=True, capture_output=True)
-        with main._SHUTDOWN_LOCK:
-            main._SHUTDOWN_CANCEL['after_tasks'] = True
-        return main.jsonify({'success': True, 'message': '已取消关机计划'})
+        with _SHUTDOWN_LOCK:
+            _SHUTDOWN_CANCEL['after_tasks'] = True
+        return jsonify({'success': True, 'message': '已取消关机计划'})
     except Exception as e:
-        return main.jsonify({'success': False, 'message': f'取消失败: {e}'}), 500
+        return jsonify({'success': False, 'message': f'取消失败: {e}'}), 500
 
 @bp.route('/api/settings', methods=['GET'])
 def api_get_settings():
-    import main
     """获取当前用户可见的分层设置（游客仅返回全局层与默认值）。
 
     返回 defaults / global / user 三层原始数据，浏览器层由前端自行合并。
     无需登录即可访问，以便游客也能继承管理员的全局默认。
     """
-    user_id, role = main.resolve_identity()
-    global_setting = main.AppSetting.query.filter_by(scope='global', owner='').first()
+    user_id, role = resolve_identity()
+    global_setting = AppSetting.query.filter_by(scope='global', owner='').first()
     global_data = global_setting.get_data() if global_setting else {}
     user_data = {}
     if user_id:
-        user_setting = main.AppSetting.query.filter_by(scope='user', owner=str(user_id)).first()
+        user_setting = AppSetting.query.filter_by(scope='user', owner=str(user_id)).first()
         user_data = user_setting.get_data() if user_setting else {}
-    return main.jsonify({
+    return jsonify({
         'success': True,
-        'defaults': main.SETTINGS_DEFAULTS,
+        'defaults': SETTINGS_DEFAULTS,
         'global': global_data,
         'user': user_data,
-        'is_admin': role >= main.UserRole.ADMIN,
+        'is_admin': role >= UserRole.ADMIN,
     })
 
 @bp.route('/api/settings', methods=['POST'])
 @auth_required
 def api_save_settings():
-    import main
     """保存设置。
 
     body: { scope: 'user'|'global', settings: {...partial}, reset?: [keys] }
@@ -88,46 +110,45 @@ def api_save_settings():
     - scope='user'   写入当前登录用户（owner=用户ID），跨设备生效
     - reset 中的键会从该层删除（回落到下一层）
     """
-    user_id, role = main.resolve_identity()
-    body = main.request.get_json(silent=True) or {}
+    user_id, role = resolve_identity()
+    body = request.get_json(silent=True) or {}
     scope = body.get('scope')
     settings = body.get('settings') or {}
     reset_keys = body.get('reset') or []
 
     if not isinstance(settings, dict):
-        return main.jsonify({'success': False, 'message': 'settings 必须是对象', 'code': 400}), 400
+        return jsonify({'success': False, 'message': 'settings 必须是对象', 'code': 400}), 400
 
     if scope == 'global':
-        if role < main.UserRole.ADMIN:
-            return main.jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+        if role < UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
         owner = ''
     elif scope == 'user':
         if not user_id:
-            return main.jsonify({'success': False, 'message': '未登录', 'code': 401}), 401
+            return jsonify({'success': False, 'message': '未登录', 'code': 401}), 401
         owner = str(user_id)
     else:
-        return main.jsonify({'success': False, 'message': 'scope 必须是 user 或 global', 'code': 400}), 400
+        return jsonify({'success': False, 'message': 'scope 必须是 user 或 global', 'code': 400}), 400
 
-    record = main.AppSetting.query.filter_by(scope=scope, owner=owner).first()
+    record = AppSetting.query.filter_by(scope=scope, owner=owner).first()
     existing = record.get_data() if record else {}
     existing.update(settings)
     # 仅保留白名单内的键
-    existing = {k: v for k, v in existing.items() if k in main.SETTINGS_DEFAULTS}
+    existing = {k: v for k, v in existing.items() if k in SETTINGS_DEFAULTS}
     for k in (reset_keys or []):
         existing.pop(k, None)
 
     if record is None:
-        record = main.AppSetting(scope=scope, owner=owner)
-        main.db.session.add(record)
+        record = AppSetting(scope=scope, owner=owner)
+        db.session.add(record)
     record.set_data(existing)
-    main.db.session.commit()
-    main.log_operation('save settings', target=f'层={scope}', detail=f'键={list(settings.keys())}', success=True)
-    return main.jsonify({'success': True, 'scope': scope, 'data': record.get_data()})
+    db.session.commit()
+    log_operation('save settings', target=f'层={scope}', detail=f'键={list(settings.keys())}', success=True)
+    return jsonify({'success': True, 'scope': scope, 'data': record.get_data()})
 
 @bp.route('/api/admin/config', methods=['GET'])
 @admin_required
 def get_system_config():
-    import main
     """获取系统配置"""
     try:
         # 从数据库或配置文件读取
@@ -137,75 +158,70 @@ def get_system_config():
             'auto_sync': True,
             'allow_register': False
         }
-        return main.jsonify({'success': True, 'config': config})
+        return jsonify({'success': True, 'config': config})
     except Exception as e:
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/config', methods=['POST'])
 @admin_required
 def update_system_config():
-    import main
     """更新系统配置"""
     try:
-        data = main.request.get_json()
+        data = request.get_json()
         # 这里可以保存到数据库或配置文件
-        return main.jsonify({'success': True, 'message': '配置已保存'})
+        return jsonify({'success': True, 'message': '配置已保存'})
     except Exception as e:
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/config', methods=['GET'])
 def get_config():
-    import main
-    return main.jsonify({'success': True, 'config': main.app_config})
+    return jsonify({'success': True, 'config': app_config})
 
 @bp.route('/api/config', methods=['PUT'])
 def update_config():
-    import main
     try:
-        data = main.request.get_json()
+        data = request.get_json()
         for k, v in data.items():
-            main.app_config[k] = v
-        if main.save_config(main.app_config):
-            main.log.maintenance('INFO', f"更新配置文件: {list(data.keys())}")
-            return main.jsonify({'success': True, 'config': main.app_config})
-        return main.jsonify({'success': False, 'message': '保存失败'}), 500
+            app_config[k] = v
+        if save_config(app_config):
+            log.maintenance('INFO', f"更新配置文件: {list(data.keys())}")
+            return jsonify({'success': True, 'config': app_config})
+        return jsonify({'success': False, 'message': '保存失败'}), 500
     except Exception as e:
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/status')
 def status():
-    import main
     try:
         # 获取用户权限过滤后的视频数量
-        allowed_library_ids = main.get_allowed_library_ids()
+        allowed_library_ids = get_allowed_library_ids()
         
         if allowed_library_ids:
             # 过滤：library_id 为 NULL（主数据库的视频）或在允许的资源库中
-            filtered_query = main.Video.query.filter(
-                (main.Video.library_id == None) |
-                (main.Video.library_id.in_(allowed_library_ids))
-            ).filter(main.Video.in_trash == False)
+            filtered_query = Video.query.filter(
+                (Video.library_id == None) |
+                (Video.library_id.in_(allowed_library_ids))
+            ).filter(Video.in_trash == False)
             video_count = filtered_query.count()
         else:
             # 未登录或无权限用户只能看到主数据库的视频
-            video_count = main.Video.query.filter(main.Video.library_id == None, main.Video.in_trash == False).count()
+            video_count = Video.query.filter(Video.library_id == None, Video.in_trash == False).count()
         
-        return main.jsonify({
+        return jsonify({
             'success': True,
             'status': 'running',
             'database': {
                 'videos': video_count,
-                'tags': main.Tag.query.count()
+                'tags': Tag.query.count()
             },
-            'timestamp': main.datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/services', methods=['GET'])
 @admin_required
 def get_services():
-    import main
     """
     获取所有 dplayer 服务的状态。
 
@@ -216,14 +232,14 @@ def get_services():
     - 注意：每个请求创建独立的 BusClient，避免多线程共享 zmq socket 的问题
     """
     import time
-    bus_start = main.time.main.time()
+    bus_start = time.time()
 
     # 1. 优先通过总线查询 servicemgrd 缓存的状态
     # 注意：由于 zmq socket 不是线程安全的，每个请求创建独立的 BusClient
     try:
         from servicebus import BusClient
         _svc_bus = BusClient(
-            f'web-svc-req-{id(main.time.main.time())}',
+            f'web-svc-req-{id(time.time())}',
             host='127.0.0.1',
             rpc_port=15555,
             pub_port=15556
@@ -235,7 +251,7 @@ def get_services():
             {},
             timeout=3000  # 3秒超时，给 servicemgrd 足够的响应时间
         )
-        bus_elapsed = (main.time.main.time() - bus_start) * 1000
+        bus_elapsed = (time.time() - bus_start) * 1000
 
         if result and 'services' in result:
             # 转换总线返回的字段名以匹配前端期望
@@ -254,21 +270,21 @@ def get_services():
                     'health_latency_ms': svc.get('latency_ms'),
                     'health_detail': svc.get('description', ''),
                 })
-            return main.jsonify({
+            return jsonify({
                 'success': True,
                 'services': services,
                 'source': 'bus',
                 'bus_time_ms': round(bus_elapsed, 1),
             })
     except Exception as e:
-        bus_elapsed = (main.time.main.time() - bus_start) * 1000
-        main.log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
+        bus_elapsed = (time.time() - bus_start) * 1000
+        log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
 
     # 2. Fallback：如果总线不可用，返回静态服务列表（不调用 Windows API 扫描）
     # 这是正确的架构：不应该在 API 请求时重新扫描服务，应该信任 servicemgrd 的缓存
-    main.log.debug('WARN', 'servicemgrd 不可用，返回静态服务列表')
+    log.debug('WARN', 'servicemgrd 不可用，返回静态服务列表')
     services = []
-    for svc_name, meta in main._SERVICE_META.items():
+    for svc_name, meta in _SERVICE_META.items():
         services.append({
             'service_name': svc_name,
             'display_name': meta.get('display_name', svc_name),
@@ -283,7 +299,7 @@ def get_services():
             'health_detail': '服务管理器不可用',
         })
 
-    return main.jsonify({
+    return jsonify({
         'success': True,
         'services': services,
         'source': 'static',  # 明确标识这是静态列表，不是实时扫描
@@ -293,28 +309,27 @@ def get_services():
 @bp.route('/api/admin/services/<service_name>/control', methods=['POST'])
 @admin_required
 def control_service(service_name):
-    import main
     """控制服务：start / stop / restart（通过 servicemgrd 总线）"""
     try:
-        data = main.request.get_json()
+        data = request.get_json()
         action = data.get('action', '').lower()
 
         if action not in ('start', 'stop', 'restart'):
-            return main.jsonify({'success': False, 'message': f'无效操作: {action}'}), 400
+            return jsonify({'success': False, 'message': f'无效操作: {action}'}), 400
 
         # 安全检查：只允许操作 dplayer- 前缀的服务
         if not service_name.startswith('dplayer-'):
-            return main.jsonify({'success': False, 'message': '只允许操作 dplayer- 前缀的服务'}), 403
+            return jsonify({'success': False, 'message': '只允许操作 dplayer- 前缀的服务'}), 403
 
         # 防并发锁
-        if service_name not in main._svc_control_locks:
-            main._svc_control_locks[service_name] = main.threading.Lock()
+        if service_name not in _svc_control_locks:
+            _svc_control_locks[service_name] = threading.Lock()
 
-        if not main._svc_control_locks[service_name].acquire(blocking=False):
-            return main.jsonify({'success': False, 'message': '该服务正在操作中，请稍后再试'}), 409
+        if not _svc_control_locks[service_name].acquire(blocking=False):
+            return jsonify({'success': False, 'message': '该服务正在操作中，请稍后再试'}), 409
 
         try:
-            display_name = main._SERVICE_META.get(service_name, {}).get('display_name', service_name)
+            display_name = _SERVICE_META.get(service_name, {}).get('display_name', service_name)
             action_text = {'start': '启动', 'stop': '停止', 'restart': '重启'}
 
             # 优先通过总线调用 servicemgrd
@@ -328,14 +343,14 @@ def control_service(service_name):
                         {'name': service_name}
                     )
                     if result:
-                        main.log.maintenance('INFO', f'服务 {service_name} {action} via bus: {result}')
-                        return main.jsonify({
+                        log.maintenance('INFO', f'服务 {service_name} {action} via bus: {result}')
+                        return jsonify({
                             'success': result.get('success', False),
                             'message': result.get('message', ''),
                             'action': action,
                         })
                 except Exception as bus_err:
-                    main.log.debug('WARN', f'总线控制服务失败，降级到直接调用: {bus_err}')
+                    log.debug('WARN', f'总线控制服务失败，降级到直接调用: {bus_err}')
 
             # 降级：直接调用 win32service
             import win32service
@@ -353,7 +368,7 @@ def control_service(service_name):
                     if status[1] == win32service.SERVICE_RUNNING:
                         win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
                         for _ in range(30):
-                            main.time.sleep(1)
+                            time.sleep(1)
                             status = win32service.QueryServiceStatus(svc)
                             if status[1] == win32service.SERVICE_STOPPED:
                                 break
@@ -368,27 +383,26 @@ def control_service(service_name):
                 win32service.CloseServiceHandle(svc)
                 win32service.CloseServiceHandle(scm)
 
-            main.log.maintenance('INFO', f'服务 {service_name} {action} 成功（直接调用）')
-            return main.jsonify({
+            log.maintenance('INFO', f'服务 {service_name} {action} 成功（直接调用）')
+            return jsonify({
                 'success': True,
                 'message': f'{display_name} {action_text[action]}成功',
                 'action': action,
             })
         except Exception as e:
             error_msg = str(e)
-            main.log.debug('ERROR', f'服务 {service_name} {action} 失败: {error_msg}')
-            return main.jsonify({'success': False, 'message': error_msg}), 500
+            log.debug('ERROR', f'服务 {service_name} {action} 失败: {error_msg}')
+            return jsonify({'success': False, 'message': error_msg}), 500
         finally:
-            main._svc_control_locks[service_name].release()
+            _svc_control_locks[service_name].release()
 
     except Exception as e:
-        main.log.debug('ERROR', f'控制服务失败: {e}')
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        log.debug('ERROR', f'控制服务失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/logs', methods=['GET'])
 @admin_required
 def get_system_logs():
-    import main
     """
     获取系统日志（从 liblog 日志文件读取），支持多维筛选。
 
@@ -402,19 +416,19 @@ def get_system_logs():
     - page:    页码，默认 1
     - limit:   每页条数，默认 20
     """
-    log_type = main.request.args.get('type', 'maintenance').strip().lower()
-    service = main.request.args.get('service', '').strip() or None
-    level = main.request.args.get('level', '').strip().upper() or None
-    user = main.request.args.get('user', '').strip() or None
-    keyword = main.request.args.get('keyword', '').strip() or None
-    date = main.request.args.get('date', '').strip() or None
-    page = main.request.args.get('page', 1, type=int)
-    limit = main.request.args.get('limit', 20, type=int)
+    log_type = request.args.get('type', 'maintenance').strip().lower()
+    service = request.args.get('service', '').strip() or None
+    level = request.args.get('level', '').strip().upper() or None
+    user = request.args.get('user', '').strip() or None
+    keyword = request.args.get('keyword', '').strip() or None
+    date = request.args.get('date', '').strip() or None
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)
 
     # 验证日志类型
     valid_types = ['maintenance', 'runtime', 'debug', 'operation']
     if log_type not in valid_types:
-        return main.jsonify({'success': False, 'message': f'无效的日志类型，可选: {", ".join(valid_types)}'}), 400
+        return jsonify({'success': False, 'message': f'无效的日志类型，可选: {", ".join(valid_types)}'}), 400
 
     # 限制每页条数范围
     limit = max(1, min(limit, 200))
@@ -425,11 +439,11 @@ def get_system_logs():
         date = date[:10]
 
     # 日志文件路径
-    log_dir = main.os.path.join(main._DATA_DIR, 'logs')
-    log_file = main.os.path.join(log_dir, f'{log_type}.main.log')
+    log_dir = os.path.join(DATA_DIR, 'logs')
+    log_file = os.path.join(log_dir, f'{log_type}.log')
 
-    if not main.os.path.exists(log_file):
-        return main.jsonify({
+    if not os.path.exists(log_file):
+        return jsonify({
             'success': True,
             'logs': [],
             'total': 0,
@@ -466,7 +480,7 @@ def get_system_logs():
             if not line:
                 continue
 
-            parsed = main.parse_log_line(line, log_type)
+            parsed = parse_log_line(line, log_type)
             if not parsed:
                 continue
 
@@ -511,7 +525,7 @@ def get_system_logs():
         end = start + limit
         page_logs = parsed_logs[start:end]
 
-        return main.jsonify({
+        return jsonify({
             'success': True,
             'logs': page_logs,
             'total': total,
@@ -531,17 +545,16 @@ def get_system_logs():
         })
 
     except Exception as e:
-        main.log.debug('ERROR', f'读取日志文件失败: {e}')
-        return main.jsonify({'success': False, 'message': f'读取日志失败: {str(e)}'}), 500
+        log.debug('ERROR', f'读取日志文件失败: {e}')
+        return jsonify({'success': False, 'message': f'读取日志失败: {str(e)}'}), 500
 
 @bp.route('/api/admin/users', methods=['GET'])
 @admin_required
 def get_admin_users():
-    import main
     """获取用户列表（管理员）"""
     try:
-        users = main.User.query.all()
-        return main.jsonify({
+        users = User.query.all()
+        return jsonify({
             'success': True,
             'users': [{
                 'id': u.id,
@@ -552,42 +565,41 @@ def get_admin_users():
             } for u in users]
         })
     except Exception as e:
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/users', methods=['POST'])
 @admin_required
 def create_admin_user():
-    import main
     """创建新用户（管理员）"""
     try:
-        data = main.request.get_json()
+        data = request.get_json()
         username = data.get('username', '').strip()
         password = data.get('password', '')
         role_str = data.get('role', 'user')
         
         # 将字符串角色转换为数字
         role_map = {
-            'guest': main.UserRole.GUEST,
-            'user': main.UserRole.USER,
-            'admin': main.UserRole.ADMIN,
-            'root': main.UserRole.ROOT
+            'guest': UserRole.GUEST,
+            'user': UserRole.USER,
+            'admin': UserRole.ADMIN,
+            'root': UserRole.ROOT
         }
-        role = role_map.get(role_str, main.UserRole.USER)
+        role = role_map.get(role_str, UserRole.USER)
         
         if not username or not password:
-            return main.jsonify({'success': False, 'message': '用户名和密码不能为空'}), 400
+            return jsonify({'success': False, 'message': '用户名和密码不能为空'}), 400
         
-        if main.User.query.filter_by(username=username).first():
-            return main.jsonify({'success': False, 'message': '用户名已存在'}), 400
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': '用户名已存在'}), 400
         
-        user = main.User(username=username, role=role)
+        user = User(username=username, role=role)
         user.set_password(password)
-        main.db.session.add(user)
-        main.db.session.commit()
-        main.log.maintenance('INFO', f"创建用户: {username} (角色: {user.role_name})")
-        main.log_operation('create user', target=username, detail=f'角色={user.role_name}', success=True)
+        db.session.add(user)
+        db.session.commit()
+        log.maintenance('INFO', f"创建用户: {username} (角色: {user.role_name})")
+        log_operation('create user', target=username, detail=f'角色={user.role_name}', success=True)
         
-        return main.jsonify({
+        return jsonify({
             'success': True,
             'user': {
                 'id': user.id,
@@ -597,48 +609,47 @@ def create_admin_user():
             }
         })
     except Exception as e:
-        main.db.session.rollback()
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/users/<int:user_id>', methods=['PUT'])
 @admin_required
 def update_admin_user(user_id):
-    import main
     """更新用户信息（管理员）"""
     try:
-        user = main.User.query.get_or_404(user_id)
-        data = main.request.get_json()
+        user = User.query.get_or_404(user_id)
+        data = request.get_json()
 
         # 更新用户名
         if 'username' in data:
             new_username = data['username'].strip()
             if not new_username:
-                return main.jsonify({'success': False, 'message': '用户名不能为空'}), 400
+                return jsonify({'success': False, 'message': '用户名不能为空'}), 400
             # 检查用户名是否已被其他用户占用
-            existing_user = main.User.query.filter_by(username=new_username).first()
+            existing_user = User.query.filter_by(username=new_username).first()
             if existing_user and existing_user.id != user_id:
-                return main.jsonify({'success': False, 'message': '用户名已存在'}), 400
+                return jsonify({'success': False, 'message': '用户名已存在'}), 400
             user.username = new_username
 
         # 更新角色
         if 'role' in data:
             role_map = {
-                'guest': main.UserRole.GUEST,
-                'user': main.UserRole.USER,
-                'admin': main.UserRole.ADMIN,
-                'root': main.UserRole.ROOT
+                'guest': UserRole.GUEST,
+                'user': UserRole.USER,
+                'admin': UserRole.ADMIN,
+                'root': UserRole.ROOT
             }
-            user.role = role_map.get(data['role'], main.UserRole.USER)
+            user.role = role_map.get(data['role'], UserRole.USER)
 
         # 更新密码（如果提供了）
         if data.get('password'):
             user.set_password(data['password'])
 
-        main.db.session.commit()
-        main.log.maintenance('INFO', f"更新用户信息: {user.username} (ID: {user_id})")
-        main.log_operation('update user', target=user.username, detail=f'角色={user.role_name}', success=True)
+        db.session.commit()
+        log.maintenance('INFO', f"更新用户信息: {user.username} (ID: {user_id})")
+        log_operation('update user', target=user.username, detail=f'角色={user.role_name}', success=True)
 
-        return main.jsonify({
+        return jsonify({
             'success': True,
             'user': {
                 'id': user.id,
@@ -648,25 +659,24 @@ def update_admin_user(user_id):
             }
         })
     except Exception as e:
-        main.db.session.rollback()
-        main.log.debug('ERROR', f"更新用户信息失败: {user_id}, {e}")
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        db.session.rollback()
+        log.debug('ERROR', f"更新用户信息失败: {user_id}, {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def delete_admin_user(user_id):
-    import main
     """删除用户（管理员）"""
     try:
-        user = main.User.query.get_or_404(user_id)
-        if user.id == main.g.user_id:
-            return main.jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
-        main.db.session.delete(user)
-        main.db.session.commit()
-        main.log.maintenance('INFO', f"删除用户: {user.username} (ID: {user_id})")
-        main.log_operation('delete user', target=user.username, success=True)
-        return main.jsonify({'success': True, 'message': '用户已删除'})
+        user = User.query.get_or_404(user_id)
+        if user.id == g.user_id:
+            return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
+        db.session.delete(user)
+        db.session.commit()
+        log.maintenance('INFO', f"删除用户: {user.username} (ID: {user_id})")
+        log_operation('delete user', target=user.username, success=True)
+        return jsonify({'success': True, 'message': '用户已删除'})
     except Exception as e:
-        main.db.session.rollback()
-        main.log.debug('ERROR', f"删除用户失败: {user_id}, {e}")
-        return main.jsonify({'success': False, 'message': str(e)}), 500
+        db.session.rollback()
+        log.debug('ERROR', f"删除用户失败: {user_id}, {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500

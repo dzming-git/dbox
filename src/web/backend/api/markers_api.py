@@ -1,10 +1,11 @@
 """精彩片段标记 API：为单位用户的视频标记时间戳（支持备注、跳转、删除）。
 
-身份严格复用主应用 main.current_interaction_key()：
+身份严格复用主应用 current_interaction_key()：
   - 登录用户 -> 'u{user_id}'（无论 JWT Bearer 还是 Flask 会话，跨设备一致）
   - 游客     -> 随机会话（仅当前浏览器有效）
 标记仅本人可见、仅本人可删除，与文件名/标题完全解耦。
 """
+from backend.access import current_interaction_key
 from flask import Blueprint, request, jsonify
 
 from core.models import db, Video, VideoMarker
