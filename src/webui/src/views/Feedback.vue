@@ -140,9 +140,13 @@ function changeStatusFilter(key: 'all' | 'open' | 'pending' | 'closed') {
   loadIssues(true)
 }
 
-// 切换类型筛选：点「全部类型」时一并清空关键词，避免残留过滤
+// 切换类型筛选：点「全部类型」时一并清空状态与关键词，避免残留过滤
 function changeTypeFilter(key: 'all' | 'bug' | 'suggestion' | 'other') {
   typeFilter.value = key
+  if (key === 'all') {
+    statusFilter.value = 'all'
+    keyword.value = ''
+  }
   loadIssues(true)
 }
 

@@ -143,23 +143,19 @@ const onScroll = () => {
       const notScrollable = maxScroll <= 2
       const d = top - lastScrollTop
       if (notScrollable) {
-        // 不可滚动：保持显示状态（非沉浸显示控件，沉浸显示顶栏）
-        if (immersive.value) controlsVisible.value = true
-        else uiHidden.value = false
+        // 不可滚动：保持原状（不主动展开/收起）
       } else if (!atTop && !atBottom) {
-        // 仅在页面中部滚动时根据方向收起/显示；到达上/下边界时（易因回弹抖动）
+        // 仅在页面中部滚动时根据方向收起；到达上/下边界时（易因回弹抖动）
         // 跳过切换，防止顶部窗口高频显示/隐藏
+        // 注意：按需求菜单栏隐藏后不再自动展开，需用户点击「展开」按钮手动唤出，
+        // 因此这里只处理“下滑隐藏”，上滑与边界均不自动显示。
         if (d > 6) {
           if (immersive.value) controlsVisible.value = false
           else uiHidden.value = true
-        } else if (d < -6) {
-          if (immersive.value) controlsVisible.value = true
-          else uiHidden.value = false
         }
+        // 上滑不再自动展开（由用户点击「展开」按钮唤出）
       } else {
-        // 处于边界：稳定在“显示”状态，避免回弹造成的方向抖动
-        if (immersive.value) controlsVisible.value = true
-        else uiHidden.value = false
+        // 处于边界：保持原状，不自动展开，避免回弹造成的方向抖动
       }
       lastScrollTop = top
     }
@@ -586,6 +582,14 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       title="退出全屏 (Esc)"
     >✕ 退出</button>
 
+    <!-- 沉浸模式下菜单隐藏后露出的小展开按钮，点击唤出顶部菜单 -->
+    <button
+      class="immersive-expand"
+      v-if="immersive && !controlsVisible"
+      @click="toggleControls"
+      title="展开菜单"
+    >☰</button>
+
     <!-- 顶部工具栏 -->
     <div class="reader-bar" :class="{ 'ui-hidden': uiHidden }">
       <button class="bar-btn" @click="back" title="返回">‹ 返回</button>
@@ -841,6 +845,16 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   display: flex; align-items: center; gap: 4px; transition: all 0.2s;
 }
 .immersive-exit:hover { background: rgba(0,0,0,0.85); }
+
+/* 菜单隐藏后露出的小展开按钮：尽量小，避免遮挡阅读内容 */
+.immersive-expand {
+  position: fixed; top: 12px; left: 12px; z-index: 60;
+  width: 30px; height: 30px; line-height: 28px; text-align: center;
+  background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px; font-size: 16px; cursor: pointer; padding: 0;
+  transition: all 0.2s;
+}
+.immersive-expand:hover { background: rgba(0,0,0,0.8); }
 
 /* 操作台：带文字标签的按钮（与视频详情页操作栏风格一致） */
 .bar-action { display: inline-flex; align-items: center; gap: 5px; background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
