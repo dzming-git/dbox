@@ -1,4 +1,5 @@
 """Auto-split blueprint: library_api (moved from main.py)."""
+from backend.paths import DATA_DIR
 from backend.library_helpers import _restart_library_watchers
 from core.models import LibraryUserGroupMember
 from backend.library_helpers import _INVALID_NAME_RE

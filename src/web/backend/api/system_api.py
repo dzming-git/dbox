@@ -1,4 +1,5 @@
 """Auto-split blueprint: system_api (moved from main.py)."""
+from backend.paths import DATA_DIR
 import threading
 from backend.system_helpers import SETTINGS_DEFAULTS
 from backend.system_helpers import _do_windows_shutdown

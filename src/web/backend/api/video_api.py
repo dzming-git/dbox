@@ -1,4 +1,5 @@
 """Auto-split blueprint: video_api (moved from main.py)."""
+from backend.paths import DATA_DIR
 from backend.helpers import _ensure_interaction
 from backend.access import current_interaction_key
 from core.models import LibraryUserGroupMember
