@@ -33,7 +33,8 @@ jobs:
             tests.test_backend_helpers \
             tests.test_runtime \
             tests.test_helpers_integration \
-            tests.test_runtime_injection
+            tests.test_runtime_injection \
+            tests.test_app_import
 
   frontend:
     runs-on: ubuntu-latest

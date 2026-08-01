@@ -132,20 +132,11 @@ try:
 except Exception:
     _HAS_RESOURCE_DB = False
 
-# 导入API蓝图
-from api.auth_api import auth_bp
-from api.playlist_api import playlist_bp
-from api.system_api import system_bp
-from api.history_api import history_bp, init_history_api
-from api.collection_api import collection_bp, init_collection_api
-from api.collection_set_api import collection_set_api  # 独立合集模块（视频+图集）
-from api.search_api import search_bp, init_search_api
-from api.suggestion_api import suggestion_bp
-from backend.api.shared_watch_api import shared_watch_bp
-from backend.api.auth_api_v2 import auth_v2_bp
-from backend.gallery.gallery_api import gallery_bp
+# 导入API蓝图初始化函数（蓝图注册收敛至 backend.blueprints，见下方 register_core_blueprints）
+from api.history_api import init_history_api
+from api.collection_api import init_collection_api
+from api.search_api import init_search_api
 from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_trash_list, get_trash_obj
-from backend.api.markers_api import markers_bp
 
 # ============ 配置 ============
 app = Flask(__name__)
@@ -179,18 +170,9 @@ with app.app_context():
     init_root_user()
 
 # ============ 注册蓝图 ============
-app.register_blueprint(auth_bp)
-app.register_blueprint(auth_v2_bp)  # v2版本JWT认证API
-app.register_blueprint(playlist_bp)
-app.register_blueprint(system_bp)
-app.register_blueprint(history_bp)  # 播放历史API
-app.register_blueprint(collection_bp)  # 收藏夹API
-app.register_blueprint(collection_set_api)  # 独立合集模块（视频+图集）
-app.register_blueprint(search_bp)  # 搜索API
-app.register_blueprint(suggestion_bp, url_prefix='/api/suggestion')  # 建议反馈API / Issue
-app.register_blueprint(shared_watch_bp)  # 共享观看API
-app.register_blueprint(gallery_bp)  # 图集模式 API
-app.register_blueprint(markers_bp)  # 精彩片段标记 API
+# 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变
+from backend.blueprints import register_core_blueprints, register_domain_blueprints
+register_core_blueprints(app)
 # 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8092），
 #     主服务作为网关将脚本相关接口反向代理过去（见下方 _gateway_script_routes）。
 #     前端仍统一访问 8080（开发/生产一致），主服务不直接执行脚本代码：
@@ -564,24 +546,8 @@ except Exception as e:
 
 
 # ============ 从 main.py 拆分出的领域蓝图（main 完整初始化后再注册，避免循环导入） ============
-from backend.api.video_api import bp as video_api_bp
-app.register_blueprint(video_api_bp)
-from backend.api.tag_api import bp as tag_api_bp
-app.register_blueprint(tag_api_bp)
-from backend.api.collection_api import bp as collection_api_bp
-app.register_blueprint(collection_api_bp)
-from backend.api.watch_later_api import bp as watch_later_api_bp
-app.register_blueprint(watch_later_api_bp)
-from backend.api.library_api import bp as library_api_bp
-app.register_blueprint(library_api_bp)
-from backend.api.thumbnail_api import bp as thumbnail_api_bp
-app.register_blueprint(thumbnail_api_bp)
-from backend.api.system_api import bp as system_api_bp
-app.register_blueprint(system_api_bp)
-from backend.api.post_resource_api import bp as post_resource_api_bp
-app.register_blueprint(post_resource_api_bp)
-from backend.api.serve_api import bp as serve_api_bp
-app.register_blueprint(serve_api_bp)
+# 延迟导入与注册逻辑收敛至 backend.blueprints.register_domain_blueprints
+register_domain_blueprints(app)
 
 # ============ 主入口 ============
 if __name__ == '__main__':
