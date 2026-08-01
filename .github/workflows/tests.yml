@@ -32,7 +32,8 @@ jobs:
           python -m unittest -v \
             tests.test_backend_helpers \
             tests.test_runtime \
-            tests.test_helpers_integration
+            tests.test_helpers_integration \
+            tests.test_runtime_injection
 
   frontend:
     runs-on: ubuntu-latest
