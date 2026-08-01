@@ -8,9 +8,9 @@ export const tagApi = {
   // 获取所有标签（管理员用，不进行权限过滤）
   getAllTags: () => api.get('/api/tags/all'),
   
-  // 创建标签 - 支持parent_id创建子标签，支持 qualifiers 补充项
-  createTag: (name: string, category?: string, parentId?: number, qualifiers?: string[]) =>
-    api.post('/api/tags', { name, category, parent_id: parentId, qualifiers }),
+  // 创建标签 - 支持parent_id创建子标签，支持 qualifiers 补充项，支持 library_id 归属标签集
+  createTag: (name: string, category?: string, parentId?: number, qualifiers?: string[], libraryId?: number | null) =>
+    api.post('/api/tags', { name, category, parent_id: parentId, qualifiers, library_id: libraryId }),
   
   // 更新标签 - 支持修改parent_id
   updateTag: (id: number, data: Record<string, unknown>) =>

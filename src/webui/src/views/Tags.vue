@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useTagStore } from '../stores/tagStore'
 import { tagApi } from '../api/tag'
+import { libraryApi } from '../api/library'
 import type { Tag } from '../types'
 
 const userStore = useUserStore()
@@ -123,6 +124,7 @@ const displayTags = computed(() => {
 
 onMounted(async () => {
   await fetchAllTags()
+  if (isAdmin) await loadLibraries()
 })
 
 // 展开/收起
@@ -160,7 +162,19 @@ const dialogName = ref('')
 const dialogQualifiers = ref('')  // 补充项（换行/逗号分隔的原始文本）
 const dialogCategory = ref('')
 const dialogParentId = ref<number | null>(null)
+const dialogLibraryId = ref<number | null>(null)  // 标签集（资源库）归属
 const dialogError = ref('')
+
+// 资源库（标签集）列表
+const libraries = ref<{ id: number, name: string }[]>([])
+const loadLibraries = async () => {
+  try {
+    const res: any = await libraryApi.getLibraries()
+    libraries.value = Array.isArray(res) ? res : (res.data || [])
+  } catch (e) {
+    libraries.value = []
+  }
+}
 
 // 轻量 toast
 const toastMessage = ref('')
@@ -179,6 +193,7 @@ const openCreateDialog = () => {
   dialogQualifiers.value = ''
   dialogCategory.value = ''
   dialogParentId.value = null
+  dialogLibraryId.value = null
   dialogError.value = ''
   showDialog.value = true
 }
@@ -191,6 +206,7 @@ const openEditDialog = (tag: Tag) => {
   dialogQualifiers.value = (tag.qualifiers || []).join('\n')
   dialogCategory.value = tag.category || ''
   dialogParentId.value = tag.parent_id || null
+  dialogLibraryId.value = tag.library_id ?? null
   dialogError.value = ''
   showDialog.value = true
 }
@@ -214,14 +230,21 @@ const submitDialog = async () => {
   }
   try {
     if (dialogMode.value === 'create') {
-      await tagApi.createTag(name, dialogCategory.value.trim() || '类型', dialogParentId.value || undefined, dialogQualifiers.value.trim() || undefined)
+      await tagApi.createTag(
+        name,
+        dialogCategory.value.trim() || '类型',
+        dialogParentId.value || undefined,
+        dialogQualifiers.value.trim() || undefined,
+        dialogLibraryId.value
+      )
       showToast('标签已创建')
     } else if (dialogTag.value) {
       await tagApi.updateTag(dialogTag.value.id, {
         name,
         qualifiers: dialogQualifiers.value.trim() || null,
         category: dialogCategory.value.trim() || '类型',
-        parent_id: dialogParentId.value || null
+        parent_id: dialogParentId.value || null,
+        library_id: dialogLibraryId.value
       })
       showToast('标签已更新')
     }
@@ -557,6 +580,18 @@ const confirmMerge = async () => {
             :value="t.id"
           >{{ t.path || t.name }}</option>
         </select>
+      </div>
+      <div class="form-group" v-if="isAdmin">
+        <label>标签集（资源库，可选）</label>
+        <select v-model="dialogLibraryId" class="parent-select">
+          <option :value="null">全局标签（所有资源库可用）</option>
+          <option
+            v-for="lib in libraries"
+            :key="lib.id"
+            :value="lib.id"
+          >{{ lib.name }}</option>
+        </select>
+        <p class="hint-text">归属到指定资源库后，仅该资源库下的视频可使用此标签；留空则为全局标签。</p>
       </div>
       <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
       <div class="dialog-actions">
@@ -1050,6 +1085,13 @@ const confirmMerge = async () => {
   color: #f44336;
   font-size: 13px;
   margin: -8px 0 16px 0;
+}
+
+.hint-text {
+  color: #8b949e;
+  font-size: 12px;
+  margin: 6px 0 0 0;
+  line-height: 1.5;
 }
 
 .warning-text {
