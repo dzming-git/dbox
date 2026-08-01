@@ -44,122 +44,8 @@ import json
 import struct
 
 
-def extract_mp4_duration(file_path, max_probe_bytes=32 * 1024 * 1024):
-    """纯 Python 解析 MP4 容器头部提取视频时长（秒），无需 ffmpeg/cv2。
+from backend.utils.media import extract_mp4_duration
 
-    按 ISO BMFF 规范结构化遍历 box：在文件头/尾各 max_probe_bytes 范围内，
-    根据 box 的 size 字段逐级定位 moov -> mvhd，读取 timescale 与 duration 计算时长。
-    这种方式避免了按字符串盲搜 'moov' 误匹配到非 box 数据导致的解析错误。
-    仅读取文件头/尾最多 max_probe_bytes，避免读取数十 GB 的完整文件。
-    非 MP4 或解析失败返回 None。
-    """
-    try:
-        size = os.path.getsize(file_path)
-    except OSError:
-        return None
-    if size < 8:
-        return None
-
-    def _read_at(offset, length):
-        with open(file_path, 'rb') as f:
-            f.seek(offset)
-            return f.read(length)
-
-    def _find_box(data, want, start=0):
-        """在 data 内按 ISO BMFF 结构遍历，返回 (offset, box_size)；找不到返回 None。
-        start 用于跳过外层 box 头（如进入 moov 后从子 box 起始处搜索）。"""
-        pos = start
-        n = len(data)
-        while pos + 8 <= n:
-            box_size = struct.unpack('>I', data[pos:pos + 4])[0]
-            box_type = data[pos + 4:pos + 8]
-            if box_size == 1:
-                # 64 位 size
-                if pos + 16 > n:
-                    break
-                box_size = struct.unpack('>Q', data[pos + 8:pos + 16])[0]
-                header = 16
-            elif box_size == 0:
-                # box 延伸到文件结尾
-                box_size = n - pos
-                header = 8
-            else:
-                header = 8
-            if box_type == want:
-                return pos, box_size
-            pos += box_size
-        return None
-
-    head = _read_at(0, min(size, max_probe_bytes))
-    tail_size = min(size, max_probe_bytes)
-    tail = _read_at(size - tail_size, tail_size) if tail_size < size else b''
-
-    for chunk in (head, tail):
-        d = _parse_duration_from_chunk(chunk)
-        if d is not None:
-            return d
-    return None
-
-
-def _parse_mvhd(moov):
-    """从 moov box 内容中解析时长（秒），失败返回 None。"""
-    if len(moov) < 8:
-        return None
-    res = _find_box(moov, b'mvhd', start=8)
-    if not res:
-        return None
-    mvhd_off = res[0]
-    if mvhd_off + 12 > len(moov):
-        return None
-    version = moov[mvhd_off + 8]
-    try:
-        if version == 0:
-            # v0: timescale@20(4B), duration@24(4B)  (相对 mvhd box 起点)
-            timescale = struct.unpack('>I', moov[mvhd_off + 20:mvhd_off + 24])[0]
-            duration = struct.unpack('>I', moov[mvhd_off + 24:mvhd_off + 28])[0]
-        elif version == 1:
-            # v1: timescale@28(4B), duration@32(8B)
-            timescale = struct.unpack('>I', moov[mvhd_off + 28:mvhd_off + 32])[0]
-            duration = struct.unpack('>Q', moov[mvhd_off + 32:mvhd_off + 40])[0]
-        else:
-            return None
-    except Exception:
-        return None
-    if timescale:
-        return int(round(duration / timescale))
-    return None
-
-
-def _parse_duration_from_chunk(chunk):
-    """从一段字节（文件头/尾切片）中解析视频时长。
-
-    方法1：按 ISO BMFF 结构遍历定位 moov。
-    方法2（fallback）：当切片不以合法 box 边界开头（如文件尾部切片）导致结构遍历
-    错位时，按 'moov' 字节串定位 moov box 起点再解析。
-    """
-    # 方法1：结构化遍历
-    res = _find_box(chunk, b'moov')
-    if res:
-        moov_off, moov_size = res
-        d = _parse_mvhd(chunk[moov_off:moov_off + moov_size])
-        if d is not None:
-            return d
-    # 方法2：字符串定位 fallback
-    pos = 0
-    n = len(chunk)
-    while True:
-        i = chunk.find(b'moov', pos)
-        if i == -1:
-            break
-        moov_start = i - 4
-        if moov_start >= 0 and moov_start + 8 <= n:
-            box_size = struct.unpack('>I', chunk[moov_start:moov_start + 4])[0]
-            if 8 <= box_size <= n - moov_start:
-                d = _parse_mvhd(chunk[moov_start:moov_start + box_size])
-                if d is not None:
-                    return d
-        pos = i + 1
-    return None
 
 import threading
 from liblog import get_service_logger
@@ -305,7 +191,6 @@ CORS(app, resources={
 log.maintenance('INFO', 'DPlayer Web 服务日志系统初始化完成')
 
 # ============ 数据库初始化 ============
-print("[DEBUG] Initializing database...")
 db.init_app(app)
 with app.app_context():
     migrate_video_libraries_rename()
@@ -319,10 +204,8 @@ with app.app_context():
     migrate_post_source_columns()
     migrate_post_group_key()
     init_root_user()
-    print("[DEBUG] Database initialized")
 
 # ============ 注册蓝图 ============
-print("[DEBUG] Registering blueprints...")
 app.register_blueprint(auth_bp)
 app.register_blueprint(auth_v2_bp)  # v2版本JWT认证API
 app.register_blueprint(playlist_bp)
@@ -391,7 +274,7 @@ app.after_request(auto_audit_hook)
 init_history_api(history_bus)
 init_collection_api(collection_bus)
 init_search_api(search_bus)
-print("[DEBUG] Service bus clients initialized for APIs")
+log.maintenance('INFO', 'Service bus clients initialized for APIs')
 
 # ============ 认证装饰器 ============
 def auth_required(f):
@@ -832,23 +715,6 @@ def record_interaction(video_id, user_session, interaction_type, score=1.0):
 # 注意：8080端口仅提供API服务，不提供前端静态文件
 # 前端由 dplayer-webui 服务独立提供（5173端口）
 # 以下静态文件路由已禁用，如需启用请注释掉
-
-# DIST_DIR = os.path.join(PROJECT_ROOT, 'static', 'dist')
-
-# @app.route('/')
-# def index():
-#     """返回前端首页"""
-#     return send_from_directory(DIST_DIR, 'index.html')
-
-# @app.route('/assets/<path:filename>')
-# def serve_assets(filename):
-#     """返回前端资源文件"""
-#     return send_from_directory(os.path.join(DIST_DIR, 'assets'), filename)
-
-# @app.route('/favicon.svg')
-# def serve_favicon():
-#     """返回favicon"""
-#     return send_from_directory(DIST_DIR, 'favicon.svg')
 
 # ============ API 路由 ============
 
