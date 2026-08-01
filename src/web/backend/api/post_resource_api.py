@@ -8,6 +8,7 @@ from core.models import Gallery
 from core.models import Text
 from core.models import Post
 from core.models import ResourceModeMembership
+from sqlalchemy import or_
 from backend.helpers import _resolve_post_refs
 from auth_service import AuthService
 from core.models import ResourceIndex
@@ -29,11 +30,15 @@ bp = Blueprint('post_resource_api', __name__)
 def get_posts():
     library_id = request.args.get('library_id', type=int)
     include_trash = request.args.get('include_trash') == '1'
+    search = (request.args.get('search') or '').strip()
     q = Post.query
     if not include_trash:
         q = q.filter_by(in_trash=False)
     if library_id is not None:
         q = q.filter_by(library_id=library_id)
+    if search:
+        like = f'%{search}%'
+        q = q.filter(or_(Post.title.ilike(like), Post.content.ilike(like)))
     posts = q.order_by(Post.created_at.desc()).all()
     # 帖子 read 权限：其引用资源的全部权限取交集
     allowed_libs = get_allowed_library_ids()
