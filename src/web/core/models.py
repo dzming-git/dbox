@@ -2001,6 +2001,93 @@ def _migrate_gallery_progress_col():
             print(f'gallery_progress 列迁移跳过: {e}')
 
 
+def _migrate_gallery_playlists_col():
+    """修复图集播放列表表的 comic 遗留列。
+
+    历史表 comic_playlists / comic_playlist_items 经 RENAME 而来：
+    - gallery_playlists 仍保留 comic_count 列，而模型 GalleryPlaylist 期望 gallery_count，
+      查询时 SELECT 该列不存在导致 /api/gallery-playlists 返回 500。
+    - gallery_playlist_items 同时保留 comic_id 与新增的 gallery_id，模型仅用 gallery_id，
+      需把 comic_id 数据并入 gallery_id 并删除遗留列，避免语义混乱。
+
+    幂等：列已收敛则跳过。
+    """
+    try:
+        # --- gallery_playlists: comic_count -> gallery_count ---
+        pl_cols = [r[1] for r in db.session.execute(
+            db.text("PRAGMA table_info(gallery_playlists)")).fetchall()]
+        if 'comic_count' in pl_cols and 'gallery_count' not in pl_cols:
+            db.session.execute(db.text(
+                "CREATE TABLE gallery_playlists_new ("
+                " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " name VARCHAR(200) NOT NULL,"
+                " description TEXT,"
+                " user_session VARCHAR(100) NOT NULL,"
+                " is_public BOOLEAN,"
+                " thumbnail VARCHAR(500),"
+                " gallery_count INTEGER DEFAULT 0,"
+                " play_count INTEGER DEFAULT 0,"
+                " created_at DATETIME,"
+                " updated_at DATETIME"
+                ")"))
+            db.session.execute(db.text(
+                "INSERT INTO gallery_playlists_new "
+                "(id, name, description, user_session, is_public, thumbnail, gallery_count, "
+                " play_count, created_at, updated_at) "
+                "SELECT id, name, description, user_session, is_public, thumbnail, "
+                "COALESCE(comic_count, 0), COALESCE(play_count, 0), created_at, updated_at "
+                "FROM gallery_playlists"))
+            db.session.execute(db.text("DROP TABLE gallery_playlists"))
+            db.session.execute(db.text("ALTER TABLE gallery_playlists_new RENAME TO gallery_playlists"))
+            db.session.execute(db.text(
+                "CREATE INDEX IF NOT EXISTS ix_gallery_playlists_user_session "
+                "ON gallery_playlists(user_session)"))
+            db.session.commit()
+            print('[MIGRATE] gallery_playlists 已收敛 comic_count -> gallery_count')
+
+        # --- gallery_playlist_items: comic_id -> gallery_id ---
+        pi_cols = [r[1] for r in db.session.execute(
+            db.text("PRAGMA table_info(gallery_playlist_items)")).fetchall()]
+        if 'comic_id' in pi_cols:
+            # 1) 把 comic_id 数据补进 gallery_id（仅当 gallery_id 缺失时）
+            if 'gallery_id' in pi_cols:
+                db.session.execute(db.text(
+                    "UPDATE gallery_playlist_items SET gallery_id = comic_id "
+                    "WHERE gallery_id IS NULL"))
+                db.session.commit()
+            # 2) 重建表去掉 comic_id
+            db.session.execute(db.text(
+                "CREATE TABLE gallery_playlist_items_new ("
+                " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " playlist_id INTEGER NOT NULL,"
+                " gallery_id INTEGER NOT NULL,"
+                " position INTEGER NOT NULL,"
+                " added_at DATETIME"
+                ")"))
+            db.session.execute(db.text(
+                "INSERT INTO gallery_playlist_items_new "
+                "(id, playlist_id, gallery_id, position, added_at) "
+                "SELECT id, playlist_id, COALESCE(gallery_id, comic_id), position, added_at "
+                "FROM gallery_playlist_items"))
+            db.session.execute(db.text("DROP TABLE gallery_playlist_items"))
+            db.session.execute(db.text("ALTER TABLE gallery_playlist_items_new RENAME TO gallery_playlist_items"))
+            db.session.execute(db.text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS _gallery_playlist_uc "
+                "ON gallery_playlist_items(playlist_id, gallery_id)"))
+            db.session.execute(db.text(
+                "CREATE INDEX IF NOT EXISTS ix_gallery_playlist_items_gallery_id "
+                "ON gallery_playlist_items(gallery_id)"))
+            db.session.commit()
+            print('[MIGRATE] gallery_playlist_items 已收敛 comic_id -> gallery_id')
+    except Exception as e:
+        db.session.rollback()
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'gallery_playlists 列迁移跳过: {e}')
+        except Exception:
+            print(f'gallery_playlists 列迁移跳过: {e}')
+
+
 def _is_valid_hash(h):
     return bool(h) and len(h) == 64 and all(ch in '0123456789abcdefABCDEF' for ch in h)
 
