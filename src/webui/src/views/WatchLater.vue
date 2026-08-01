@@ -57,6 +57,11 @@ onMounted(() => {
       </svg>
       <p>暂无「稍后再看」内容。</p>
       <p class="wl-empty-hint">在视频、图集、帖子或文本上点「稍后再看」即可加入。</p>
+      <div class="wl-empty-rel">
+        <span><b>稍后再看</b>：待处理清单，看完即移除</span>
+        <span><b>收藏</b>：个人长期保存，跨设备保留</span>
+        <span><b>合集</b>：公开整理，可分享给他人</span>
+      </div>
     </div>
 
     <div v-else class="wl-grid">
@@ -134,6 +139,19 @@ onMounted(() => {
 }
 .wl-empty p { margin: 6px 0 0; font-size: 15px; }
 .wl-empty-hint { font-size: 13px !important; color: #666 !important; }
+.wl-empty-rel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 14px 18px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #999;
+}
+.wl-empty-rel b { color: #ddd; }
 
 .wl-grid {
   display: grid;
