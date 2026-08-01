@@ -84,9 +84,16 @@ def setup_auth_middleware(app):
         if request.method == 'OPTIONS':
             return None
 
-        # 4. 从请求头提取 Bearer Token
+        # 4. 从请求头提取 Bearer Token；浏览器 <video>/<img> 等媒体请求
+        #    无法附带 Authorization 头，允许通过 ?token= 查询参数携带 JWT
         auth_header = request.headers.get('Authorization', '')
-        if not auth_header or not auth_header.startswith('Bearer '):
+        token = None
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header[7:]  # 去掉 'Bearer ' 前缀
+        else:
+            token = request.args.get('token')
+
+        if not token:
             log.debug('WARN', f"[Auth] 未携带 Token，拒绝访问: {path}")
             return jsonify({
                 'success': False,
@@ -94,8 +101,6 @@ def setup_auth_middleware(app):
                 'message': '未授权，请先登录',
                 'code': 401
             }), 401
-
-        token = auth_header[7:]  # 去掉 'Bearer ' 前缀
 
         # 5. 验证 Token
         from backend.utils.jwt_authlib import verify_token
