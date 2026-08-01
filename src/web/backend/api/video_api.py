@@ -29,6 +29,8 @@ from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
+from thumbnail.thumbnail_service_client import get_thumbnail_client
+import threading
 log = get_service_logger('dplayer-web')
 
 bp = Blueprint('video_api', __name__)
@@ -916,8 +918,18 @@ def upload_video():
         db.session.commit()
         log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size}, 路径: {file_path})")
 
-        # 异步生成缩略图（这里简化处理）
-        # TODO: 调用缩略图服务生成真实缩略图
+        # 异步生成真实缩略图
+        try:
+            def _gen_thumb():
+                try:
+                    client = get_thumbnail_client()
+                    client.generate_thumbnail(file_path, video_hash, output_format='gif')
+                except Exception as e:
+                    log.debug('WARN', f'上传后异步生成缩略图失败: hash={video_hash}, 错误={e}')
+
+            threading.Thread(target=_gen_thumb, daemon=True).start()
+        except Exception as e:
+            log.debug('WARN', f'启动缩略图生成线程失败: {e}')
 
         log_operation('upload video', target=video.hash, detail=f'标题={title}', success=True)
         return jsonify({
