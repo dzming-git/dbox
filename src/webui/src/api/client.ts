@@ -130,5 +130,16 @@ api.interceptors.response.use(
   }
 )
 
-export default api
+// 响应拦截器已把返回值剥为 response.data，因此对外暴露的 api 应视为「直接返回数据」。
+// 用 TypedApi 覆盖 AxiosInstance 的默认签名，消除各 store/api 中对 res.data / res.success 的类型摩擦。
+type AnyPromise = Promise<any>
+interface TypedApi {
+  get(url: string, config?: any): AnyPromise
+  post(url: string, data?: any, config?: any): AnyPromise
+  put(url: string, data?: any, config?: any): AnyPromise
+  delete(url: string, config?: any): AnyPromise
+  patch(url: string, data?: any, config?: any): AnyPromise
+}
+
+export default api as unknown as TypedApi
 export { API_BASE, axios }

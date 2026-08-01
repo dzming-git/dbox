@@ -22,6 +22,10 @@ export interface Video {
   is_favorited?: boolean
   is_liked?: boolean
   is_disliked?: boolean
+  cover_url?: string
+  library_id?: number | null
+  hidden?: boolean
+  resource_index_id?: number | null
   tags: Tag[]
   created_at?: string
   updated_at?: string
@@ -40,10 +44,13 @@ export interface VideoMarker {
 export interface Tag {
   id: number
   name: string
+  path?: string            // 标签在树中的完整路径（后端 to_dict 返回）
   category?: string
   parent_id?: number | null
+  level?: number           // 层级（1 为根级）
   video_count: number
   qualifiers?: string[]   // 补充项（标签维度预设的属性池，如 ["白","长毛"]）
+  selected_qualifiers?: string[] // 该资源在此标签上勾选的补充项
   children?: Tag[]
 }
 
@@ -105,6 +112,7 @@ export interface Gallery {
   last_page?: number
   progress?: number
   in_continue?: boolean
+  tags?: Tag[]
   pages?: GalleryPage[]
   created_at?: string
   updated_at?: string
@@ -291,6 +299,8 @@ export interface ModeCollection {
 export interface TextResource {
   id: number
   resource_index_id: number
+  title?: string
+  cover?: string
   body?: string
   summary?: string
   kind?: string
