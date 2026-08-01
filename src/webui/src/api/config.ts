@@ -1,10 +1,8 @@
-// 配置相关 API
-import api from './client'
+// config 相关 API（从原 index.ts 按业务域拆分，方法签名保持 1:1）
+import api, { API_BASE, axios } from './client'
 
 export const configApi = {
-  get: () => api.get('/api/config'),
-  update: (config: Record<string, unknown>) => api.post('/api/config', config),
-  getSettings: () => api.get('/api/settings'),
-  updateSetting: (scope: string, key: string, value: unknown) =>
-    api.post('/api/settings', { scope, key, value })
+  getConfig: () => api.get('/api/config'),
+  updateConfig: (config: Record<string, unknown>) =>
+    api.put('/api/config', config)
 }

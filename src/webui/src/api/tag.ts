@@ -1,20 +1,26 @@
-// 标签相关 API
-import api from './client'
+// tag 相关 API（从原 index.ts 按业务域拆分，方法签名保持 1:1）
+import api, { API_BASE, axios } from './client'
 
 export const tagApi = {
-  getTags: () => api.get('/api/tags'),
-  createTag: (name: string, parentId?: number | null) =>
-    api.post('/api/tags', { name, parent_id: parentId }),
-  // 全量标签树（含 path、qualifiers 等）
-  getTagTree: () => api.get('/api/tags/tree'),
-  deleteTag: (id: number) => api.delete(`/api/tags/${id}`),
-  renameTag: (id: number, name: string) => api.put(`/api/tags/${id}`, { name }),
-  getTagVideos: (id: number, params?: Record<string, unknown>) =>
-    api.get(`/api/tags/${id}/videos`, { params }),
-  // 标签建议（按前缀/关键字）
-  suggest: (keyword: string, parentId?: number) =>
-    api.get('/api/tags/suggest', { params: { keyword, parent_id: parentId } }),
-  // 仅创建标签路径（不关联视频），返回末端 Tag
-  createPath: (path: string, libraryId?: number) =>
-    api.post('/api/tags/path', { path, library_id: libraryId })
+  // 获取标签列表 - 支持tree参数获取树形结构
+  getTags: (params?: { tree?: boolean }) => api.get('/api/tags', { params }),
+  
+  // 获取所有标签（管理员用，不进行权限过滤）
+  getAllTags: () => api.get('/api/tags/all'),
+  
+  // 创建标签 - 支持parent_id创建子标签，支持 qualifiers 补充项
+  createTag: (name: string, category?: string, parentId?: number, qualifiers?: string[]) =>
+    api.post('/api/tags', { name, category, parent_id: parentId, qualifiers }),
+  
+  // 更新标签 - 支持修改parent_id
+  updateTag: (id: number, data: Record<string, unknown>) =>
+    api.put(`/api/tags/${id}`, data),
+  
+  // 删除标签
+  deleteTag: (id: number) =>
+    api.delete(`/api/tags/${id}`),
+
+  // 搜索标签 - 用于智能提示
+  searchTags: (keyword: string, libraryId?: number) =>
+    api.get('/api/tags/search', { params: { q: keyword, library_id: libraryId } })
 }

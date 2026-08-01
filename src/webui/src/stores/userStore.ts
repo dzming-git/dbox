@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '../types'
 import { UserRole } from '../types'
-import api from '../api'
+import { libraryApi } from '../api'
 
 // 从 localStorage 恢复用户信息
 const getStoredUser = (): User | null => {
@@ -39,7 +39,7 @@ export const useUserStore = defineStore('user', () => {
       return
     }
     try {
-      const res = await api.get('/api/my-libraries') as any
+      const res = await libraryApi.getLibraries() as any
       manageableLibraries.value = (res && res.success && res.data) ? res.data : []
     } catch {
       manageableLibraries.value = []

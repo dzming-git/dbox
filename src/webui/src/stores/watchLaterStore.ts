@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api from '../api'
+import { watchLaterApi } from '../api'
 
 export type WatchLaterType = 'video' | 'gallery' | 'post' | 'text'
 
@@ -47,7 +47,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   // 避免登录后覆盖丢失历史数据，再以「后端为唯一数据源」为准。
   const init = async () => {
     try {
-      const res = await api.get('/api/watch-later')
+      const res = await watchLaterApi.list()
       const serverItems: WatchLaterItem[] =
         res && res.success && Array.isArray(res.items) ? res.items : []
       const serverKeys = new Set(serverItems.map((it) => keyOf(it.type, it.id)))
@@ -56,8 +56,8 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
       if (localOnly.length) {
         await Promise.all(
           localOnly.map((it) =>
-            api
-              .post('/api/watch-later', {
+            watchLaterApi
+              .add({
                 type: it.type,
                 id: it.id,
                 title: it.title,
@@ -67,7 +67,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
           )
         )
         // 重新拉取一次，确保与后端完全一致
-        const res2 = await api.get('/api/watch-later')
+        const res2 = await watchLaterApi.list()
         if (res2 && res2.success && Array.isArray(res2.items)) {
           items.value = res2.items
           persistLocal(items.value)
@@ -86,7 +86,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     items.value.push({ ...item, addedAt: new Date().toISOString() })
     persistLocal(items.value)
     try {
-      await api.post('/api/watch-later', item)
+      await watchLaterApi.add(item)
     } catch {
       // 后端失败：保留本地状态，下次 init 不会被覆盖（以本地为准兜底）
     }
@@ -96,7 +96,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     items.value = items.value.filter((it) => !(it.type === type && it.id === id))
     persistLocal(items.value)
     try {
-      await api.delete(`/api/watch-later/${type}/${id}`)
+      await watchLaterApi.remove(type, id)
     } catch {
       // 同上，本地已移除，后端失败兜底
     }
@@ -111,7 +111,7 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     items.value = []
     persistLocal(items.value)
     try {
-      await api.delete('/api/watch-later')
+      await watchLaterApi.clear()
     } catch {
       // 后端失败：本地已清空，下次 init 以本地为准兜底
     }

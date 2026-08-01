@@ -2,7 +2,10 @@
 // 各领域 API 模块统一从本文件导入 api 实例，避免拦截器逻辑散落重复。
 import axios from 'axios'
 
-const API_BASE = '' // 统一使用相对路径，开发时由 Vite 代理处理
+// 根据环境自动选择API地址
+// 开发环境使用代理（留空，让 Vite 代理处理），生产环境使用相对路径（同域名）
+const isDev = import.meta.env.DEV
+const API_BASE = ''  // 统一使用相对路径，开发时由 Vite 代理处理
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -13,7 +16,7 @@ const api = axios.create({
   }
 })
 
-// 请求拦截器：注入 access_token
+// 请求拦截器
 api.interceptors.request.use(
   config => {
     const token = localStorage.getItem('token')
@@ -26,6 +29,7 @@ api.interceptors.request.use(
 )
 
 // ---- 401 自动刷新 access_token，避免登录态被无故踢出 ----
+// 用 refresh_token 静默换取新 access_token；仅在刷新也失败时才清理并跳登录。
 let isRefreshing = false
 let pendingQueue: Array<(token: string | null) => void> = []
 
@@ -41,7 +45,7 @@ async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = localStorage.getItem('refresh_token')
   if (!refreshToken) return null
   try {
-    // 用裸 axios 调用，不经过 api 拦截器，避免对刷新接口自身递归触发刷新
+    // 注意：用裸 axios 调用，不经过 api 拦截器，避免对刷新接口自身递归触发刷新
     const resp = await axios.post('/api/v2/auth/refresh', { refresh_token: refreshToken }, {
       headers: { 'Content-Type': 'application/json' }
     })
@@ -79,7 +83,7 @@ async function clearAuthAndRedirect() {
   }
 }
 
-// 响应拦截器：剥离 data 包裹，并对 401 静默刷新后重试
+// 响应拦截器
 api.interceptors.response.use(
   response => response.data,
   async error => {
@@ -127,4 +131,4 @@ api.interceptors.response.use(
 )
 
 export default api
-export { API_BASE }
+export { API_BASE, axios }

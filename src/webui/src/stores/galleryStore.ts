@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { galleryApi } from '../api'
+import { galleryApi, videoApi } from '../api'
 import { getDefaultSort } from '../utils/userSettings'
 import type { Gallery } from '../types'
 
@@ -180,7 +180,7 @@ export const useGalleryStore = defineStore('gallery', () => {
     try {
       const res: any = await galleryApi.getGallerys({ limit: 1 })
       // libraries 通过 video 接口更全；这里从 user/libraries 取
-      const vres: any = await (await import('../api')).videoApi.getLibraries()
+      const vres: any = await videoApi.getLibraries()
       if (vres.success && vres.data) libraries.value = vres.data
       else libraries.value = []
     } catch {
