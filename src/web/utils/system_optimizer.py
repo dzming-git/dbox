@@ -347,7 +347,7 @@ def optimize_socket(sock):
 
 if __name__ == '__main__':
     # 测试系统优化
-        print('测试系统优化...')
+    print('测试系统优化...')
     results = optimize_system(
         ports=[80, 8080],
         service_names=['主应用', '管理后台']
