@@ -19,6 +19,7 @@ from core.models import (
 )
 from auth_service import AuthService
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
+from backend.helpers import _resolve_dplayer_library_id_by_folder
 
 
 def get_user_session():
@@ -268,9 +269,7 @@ def library_admin_required(param='library_id'):
                 return f(*args, **kwargs)
             lid = kwargs.get(param)
             if param == 'folder_id':
-                # 延迟导入避免循环：main 在请求时已完整初始化
-                import main as _main
-                lid = _main._resolve_dplayer_library_id_by_folder(lid)
+                lid = _resolve_dplayer_library_id_by_folder(lid)
             if lid is None or not _is_library_admin(user_id, lid):
                 return jsonify({'success': False, 'message': '需要该资源库管理员权限', 'code': 403}), 403
             return f(*args, **kwargs)
