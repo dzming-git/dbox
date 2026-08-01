@@ -470,6 +470,13 @@ class ScriptJobManager:
         if not token or token != job['token']:
             return False, '令牌无效'
         with self._lock:
+            try:
+                import json as _json, tempfile
+                _p = os.path.join(tempfile.gettempdir(), '_notify_files.json')
+                with open(_p, 'w', encoding='utf-8') as _df:
+                    _df.write(_json.dumps(files, ensure_ascii=False, default=str))
+            except Exception:
+                pass
             self._reported[job_id] = files or []
             self._db.execute('UPDATE jobs SET notified=1, updated_at=? WHERE id=?',
                              (_now(), job_id))

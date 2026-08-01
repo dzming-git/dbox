@@ -1143,6 +1143,7 @@ def main():
 
     progress(5, '开始解析推文')
     tweet_text = ''
+    tweet_author = None
     try:
         if simulate:
             log('演示模式：合成媒体列表（不联网）')
