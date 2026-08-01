@@ -15,7 +15,7 @@ auth_v2_bp = Blueprint('auth_v2', __name__, url_prefix='/api/v2/auth')
 def register():
     """用户注册（v2版本 - 返回JWT token）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         
         if not data:
             return jsonify({
@@ -130,7 +130,7 @@ def register():
         }), 201
         
     except Exception as e:
-        log.debug('ERROR', f"注册失败: {e}", exc_info=True)
+        log.debug('ERROR', f"注册失败: {e}")
         log_operation('user register', target=username, success=False, detail=str(e))
         db.session.rollback()
         return jsonify({
@@ -145,7 +145,7 @@ def register():
 def login():
     """用户登录（v2版本 - 返回JWT token）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
 
         if not data:
             return jsonify({
@@ -243,7 +243,7 @@ def login():
         })
         
     except Exception as e:
-        log.debug('ERROR', f"登录失败: {e}", exc_info=True)
+        log.debug('ERROR', f"登录失败: {e}")
         log_operation('user login', target=username if 'username' in dir() else '', success=False, detail=str(e))
         return jsonify({
             'success': False,
@@ -257,7 +257,7 @@ def login():
 def refresh_token():
     """刷新token"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         
         if not data:
             return jsonify({
@@ -337,7 +337,7 @@ def refresh_token():
         })
         
     except Exception as e:
-        log.debug('ERROR', f"刷新token失败: {e}", exc_info=True)
+        log.debug('ERROR', f"刷新token失败: {e}")
         return jsonify({
             'success': False,
             'data': None,
@@ -376,7 +376,7 @@ def logout():
         })
         
     except Exception as e:
-        log.debug('ERROR', f"登出失败: {e}", exc_info=True)
+        log.debug('ERROR', f"登出失败: {e}")
         return jsonify({
             'success': False,
             'data': None,
@@ -419,7 +419,7 @@ def get_current_user():
         })
         
     except Exception as e:
-        log.debug('ERROR', f"获取用户信息失败: {e}", exc_info=True)
+        log.debug('ERROR', f"获取用户信息失败: {e}")
         return jsonify({
             'success': False,
             'data': None,
