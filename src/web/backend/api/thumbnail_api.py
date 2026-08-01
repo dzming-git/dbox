@@ -13,6 +13,7 @@ from backend.thumbnail_helpers import _thumb_auto_thread
 from backend.thumbnail_helpers import _load_thumb_config
 import os
 from backend.access import admin_required
+from backend.paths import DATA_DIR
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 log = get_service_logger('dplayer-web')
