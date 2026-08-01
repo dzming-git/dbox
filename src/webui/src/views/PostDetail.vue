@@ -120,7 +120,14 @@ const fetchPost = async () => {
     loading.value = false
   }
 }
-onMounted(fetchPost)
+onMounted(() => {
+  // 帖子详情页不依赖首页的 mode 参数，进入时规范化 URL，
+  // 去掉从首页视频流/帖子列表带入的 ?mode=video 等遗留参数，保持地址栏干净。
+  if (route.query && Object.keys(route.query).length > 0) {
+    router.replace({ path: `/post/${route.params.id}` })
+  }
+  fetchPost()
+})
 
 // 帖子专属图集内联渲染 + 点击放大
 const lightbox = ref<{ images: string[]; index: number } | null>(null)
