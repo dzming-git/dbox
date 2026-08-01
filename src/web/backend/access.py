@@ -8,7 +8,8 @@
 本模块只依赖 core.models、auth_service、backend.utils.jwt_authlib，
 不依赖 main，可在任意上下文中安全导入。
 """
-from flask import request, session, g
+from flask import request, session, g, jsonify
+from functools import wraps
 import random
 
 from core.models import (
@@ -208,3 +209,85 @@ def _user_library_admin_ids(user_id):
         ).all():
             ids.add(p.library_id)
     return ids
+
+
+def auth_required(f):
+    """通用认证装饰器 - 复用 resolve_identity 统一解析；保留 URL query token 回退。"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user_id, role = resolve_identity()
+        if user_id:
+            g.user_id = user_id
+            g.role = role
+            u = User.query.get(user_id)
+            g.username = u.username if u else None
+            return f(*args, **kwargs)
+        token = request.args.get('token')
+        if token:
+            for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+                try:
+                    from authlib.jose import jwt as _jwt
+                    payload = _jwt.decode(token, _secret)
+                    if payload.get('type') == 'access':
+                        g.user_id = payload.get('user_id')
+                        g.role = payload.get('role', 0)
+                        g.username = payload.get('username')
+                        return f(*args, **kwargs)
+                except Exception:
+                    continue
+        return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+    return decorated
+
+
+def admin_required(f):
+    """管理员权限装饰器 - 复用 resolve_identity 统一解析。"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user_id, role = resolve_identity()
+        if not user_id:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        if role < UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+        g.user_id = user_id
+        g.role = role
+        u = User.query.get(user_id)
+        g.username = u.username if u else None
+        return f(*args, **kwargs)
+    return decorated
+
+
+def library_admin_required(param='library_id'):
+    """要求：登录用户 且 (全局管理员) 或 (该资源库的 'admin' 权限持有者)。"""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user_id, role = resolve_identity()
+            if not user_id:
+                return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+            if role >= UserRole.ADMIN:
+                return f(*args, **kwargs)
+            lid = kwargs.get(param)
+            if param == 'folder_id':
+                # 延迟导入避免循环：main 在请求时已完整初始化
+                import main as _main
+                lid = _main._resolve_dplayer_library_id_by_folder(lid)
+            if lid is None or not _is_library_admin(user_id, lid):
+                return jsonify({'success': False, 'message': '需要该资源库管理员权限', 'code': 403}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+def resource_manager_required(f):
+    """要求：登录用户 且 (全局管理员) 或 (任一资源库的 'admin' 权限持有者)。"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user_id, role = resolve_identity()
+        if not user_id:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        if role >= UserRole.ADMIN:
+            return f(*args, **kwargs)
+        if _user_library_admin_ids(user_id):
+            return f(*args, **kwargs)
+        return jsonify({'success': False, 'message': '需要资源库管理员权限', 'code': 403}), 403
+    return decorated
