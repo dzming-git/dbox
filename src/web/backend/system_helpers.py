@@ -4,8 +4,8 @@
 从 main.py 下沉而来，供 system_api 蓝图直接 import，消除
 「蓝图函数体内 import main」的反模式。
 
-需要运行时单例（app / app_config / buses）的地方，统一通过
-模块级 `import main as runtime` 受控获取，仅一次，非函数级延迟导入。
+需要运行时单例（app / app_config / buses）的地方，统一从
+backend.runtime 读取，而非延迟导入 main。
 """
 import os
 import json
@@ -17,6 +17,7 @@ import subprocess
 from liblog import get_service_logger
 
 log = get_service_logger('dplayer-web')
+from backend.runtime import runtime
 
 
 # ============ 分层设置（用户 / 全局 / 浏览器） ============
@@ -38,7 +39,6 @@ SETTINGS_DEFAULTS = {
 
 
 def _apply_setting(scope, key, value):
-    import main as runtime
     """将设置应用到对应范围（global/user/browser）。
 
     - global: 写入 AppSetting（全用户共享）
@@ -102,10 +102,6 @@ def save_config(cfg):
     except Exception as e:
         log.debug('ERROR', f'保存配置失败: {e}')
         return False
-
-
-# 全局配置（模块级单例，运行时由 main 重新加载）
-app_config = load_config()
 
 
 # ============ 日志查看 ============

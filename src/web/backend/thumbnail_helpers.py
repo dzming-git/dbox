@@ -4,8 +4,8 @@
 从 main.py 下沉而来，供 thumbnail_api 蓝图直接 import，消除
 「蓝图函数体内 import main」的反模式。
 
-需要运行时单例（thumbnail_bus / db / _DATA_DIR）的地方，统一通过
-模块级 `import main as runtime` 受控获取，仅一次。
+需要运行时单例（thumbnail_bus / db / _DATA_DIR）的地方，统一从
+backend.runtime 读取，而非延迟导入 main。
 """
 import os
 import json
@@ -14,6 +14,7 @@ import threading
 from liblog import get_service_logger
 
 log = get_service_logger('dplayer-web')
+from backend.runtime import runtime
 
 from backend.paths import DATA_DIR, THUMB_CONFIG_FILE
 
@@ -82,7 +83,6 @@ def _start_auto_generate(config=None):
 
 
 def _generate_missing_thumbnails(config=None):
-    import main as runtime
     """扫描并生成缺失的缩略图"""
     if config is None:
         config = _load_thumb_config()

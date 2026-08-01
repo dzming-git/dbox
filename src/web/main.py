@@ -253,11 +253,11 @@ log.maintenance('INFO', 'Service bus clients initialized for APIs')
 # auth_required / admin_required / library_admin_required / resource_manager_required
 # 已统一下沉至 backend.access（基于 resolve_identity），避免重复定义与硬编码 secret。
 from backend.access import (auth_required, admin_required, library_admin_required, resource_manager_required)
-# 辅助函数已下沉到 backend.*_helpers，运行时从对应模块导入并回绑到本命名空间，
-# 供 access.py 等通过 `import main` 延迟调用的旧逻辑继续可用。
+# 辅助函数已下沉到 backend.*_helpers，运行时从对应模块导入并回绑到本命名空间。
+# 运行时单例（db/app/app_config/buses）统一注入 backend.runtime，彻底消除对 main 的依赖。
 from backend.system_helpers import (
     _count_active_tasks, _do_windows_shutdown, parse_log_line,
-    SETTINGS_DEFAULTS, app_config, load_config, save_config,
+    SETTINGS_DEFAULTS, load_config, save_config,
     _scan_services, _get_service_status, _check_service_health, _open_scm,
     _SERVICE_META, _WIN32_SVC_STATUS, _svc_control_locks,
     _SHUTDOWN_CANCEL, _SHUTDOWN_LOCK, _shutdown_threading, _apply_setting,
@@ -275,6 +275,16 @@ from backend.thumbnail_helpers import (
     _load_thumb_config, _save_thumb_config, _start_auto_generate,
     _generate_missing_thumbnails, _thumb_auto_thread, _thumb_auto_stop_event,
     _DEFAULT_THUMB_CONFIG,
+)
+
+# 运行时单例统一注入到 backend.runtime，彻底消除 helper 对 main 的依赖
+from backend.runtime import runtime as _runtime
+app_config = load_config()
+_runtime.init(
+    db=db, app=app, app_config=app_config,
+    thumbnail_bus=thumbnail_bus, resource_bus=resource_bus,
+    svc_mgr_bus=svc_mgr_bus, history_bus=history_bus,
+    collection_bus=collection_bus, search_bus=search_bus,
 )
 
 

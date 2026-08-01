@@ -20,7 +20,7 @@ from core.models import UserRole
 from core.models import Video
 from core.models import AppSetting
 from datetime import datetime, timedelta
-from backend.system_helpers import app_config
+from backend.runtime import runtime
 from backend.access import get_allowed_library_ids
 from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
@@ -175,15 +175,15 @@ def update_system_config():
 
 @bp.route('/api/config', methods=['GET'])
 def get_config():
-    return jsonify({'success': True, 'config': app_config})
+    return jsonify({'success': True, 'config': runtime.app_config})
 
 @bp.route('/api/config', methods=['PUT'])
 def update_config():
     try:
         data = request.get_json()
         for k, v in data.items():
-            app_config[k] = v
-        if save_config(app_config):
+            runtime.app_config[k] = v
+        if save_config(runtime.app_config):
             log.maintenance('INFO', f"更新配置文件: {list(data.keys())}")
             return jsonify({'success': True, 'config': app_config})
         return jsonify({'success': False, 'message': '保存失败'}), 500

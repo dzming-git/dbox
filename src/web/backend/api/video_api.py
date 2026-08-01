@@ -23,7 +23,7 @@ from core.models import Video
 from core.models import UserRole
 import re
 from backend.trash import purge_trash
-from backend.system_helpers import app_config
+from backend.runtime import runtime
 from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
@@ -1103,7 +1103,7 @@ def scan_videos():
         root_user = User.query.filter_by(role=UserRole.ROOT).order_by(User.id).first()
         root_id = root_user.id if root_user else 1
         total_added = 0
-        for dir_cfg in app_config.get('scan_directories', []):
+        for dir_cfg in runtime.app_config.get('scan_directories', []):
             if not dir_cfg.get('enabled', True):
                 continue
             
@@ -1113,7 +1113,7 @@ def scan_videos():
             
             for root, _, files in os.walk(dir_path):
                 for f in files:
-                    if any(f.lower().endswith(ext) for ext in app_config.get('supported_formats', [])):
+                    if any(f.lower().endswith(ext) for ext in runtime.app_config.get('supported_formats', [])):
                         video_path = os.path.join(root, f)
                         video_hash = Video.generate_hash(video_path)
                         
@@ -1134,7 +1134,7 @@ def scan_videos():
                         db.session.add(video)
                         db.session.flush()
                         
-                        for tag_name in app_config.get('default_tags', []):
+                        for tag_name in runtime.app_config.get('default_tags', []):
                             tag = Tag.query.filter_by(name=tag_name).first()
                             if not tag:
                                 tag = Tag(name=tag_name, category='类型')

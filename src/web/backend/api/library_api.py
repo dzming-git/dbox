@@ -32,7 +32,7 @@ import random
 import re
 from datetime import datetime, timedelta
 from backend.trash import purge_trash
-from backend.system_helpers import app_config
+from backend.runtime import runtime
 from backend.helpers import _resolve_resource_library_id
 from backend.access import admin_required, library_admin_required, resource_manager_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
@@ -771,7 +771,7 @@ def scan_folder():
         data = request.get_json()
         folder_path = data.get('folder_path', '').strip()
         recursive = data.get('recursive', True)
-        supported_formats = data.get('supported_formats', app_config.get('supported_formats', []))
+        supported_formats = data.get('supported_formats', runtime.app_config.get('supported_formats', []))
         
         if not folder_path:
             return jsonify({'success': False, 'message': '请指定要扫描的文件夹路径'}), 400
@@ -896,7 +896,7 @@ def import_videos():
         library_id = data.get('library_id')  # 必须指定有效的资源库ID
         videos = data.get('videos', [])
         skip_existing = data.get('skip_existing', True)
-        default_tags = data.get('default_tags', app_config.get('default_tags', []))
+        default_tags = data.get('default_tags', runtime.app_config.get('default_tags', []))
 
         if not videos:
             return jsonify({'success': False, 'message': '请选择要导入的视频'}), 400

@@ -4,8 +4,8 @@
 从 main.py 下沉而来，供 library_api 蓝图直接 import，消除
 「蓝图函数体内 import main」的反模式。
 
-需要运行时单例（app / app_config / buses）的地方，统一通过
-模块级 `import main as runtime` 受控获取，仅一次。
+需要运行时单例（app / app_config / buses）的地方，统一从
+backend.runtime 读取，而非延迟导入 main。
 """
 import os
 import re as _re
@@ -13,6 +13,7 @@ import re as _re
 from liblog import get_service_logger
 
 log = get_service_logger('dplayer-web')
+from backend.runtime import runtime
 
 
 # ============ 资源库扫描进度（web 侧，驱动 Video 表作为唯一索引源） ============
@@ -41,8 +42,6 @@ def _list_system_drives():
 
 
 def _restart_library_watchers():
-    import main as runtime
-
     """（重新）启动资源库文件夹监控，供服务启动 / 新增文件夹后调用。
 
     监控路径优先从 resourced 查询（资源库/文件夹的磁盘路径），回退到现有 Video.local_path。

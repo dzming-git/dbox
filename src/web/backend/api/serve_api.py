@@ -3,7 +3,7 @@ from urllib.parse import quote, unquote
 from core.models import Video
 from core.models import ResourceIndex
 from datetime import datetime, timedelta
-from backend.system_helpers import app_config
+from backend.runtime import runtime
 import os
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
@@ -25,7 +25,7 @@ def serve_local_video(video_path):
         log.runtime('INFO', f"[serve_local_video] 原始请求: {request.path}, 解析后: {video_path}")
 
         # 获取扫描目录白名单
-        scan_dirs = [cfg['path'].replace('\\', '/') for cfg in app_config.get('scan_directories', [])]
+        scan_dirs = [cfg['path'].replace('\\', '/') for cfg in runtime.app_config.get('scan_directories', [])]
 
         # 白名单检查：1. 扫描目录 2. 数据库中已有视频的 local_path（精确匹配，绝不用文件名）
         allowed = any(video_path.startswith(d.replace('/', os.sep)) for d in scan_dirs)
