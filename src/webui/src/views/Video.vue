@@ -38,6 +38,32 @@ const videoPlayer = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 
+// 移动端手势控制
+const isMobile = ref(false)
+const isTouchMode = computed(() => isMobile.value && !isFullscreen.value)
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const touchStartCurrent = ref(0)
+const touchMoved = ref(false)
+const lastTapTime = ref(0)
+const tapTimer = ref<number | null>(null)
+const seekFeedbackVisible = ref(false)
+const seekFeedbackText = ref('')
+let seekFeedbackTimer: number | null = null
+
+const updateMobileState = () => {
+  isMobile.value = window.matchMedia('(pointer: coarse)').matches
+}
+const updateFullscreenState = () => {
+  isFullscreen.value = !!document.fullscreenElement
+}
+const togglePlay = () => {
+  const p = videoPlayer.value
+  if (!p) return
+  if (p.paused) p.play().catch(() => {})
+  else p.pause()
+}
+
 // 精彩片段标记（用户个人时间戳）
 const markers = ref<VideoMarker[]>([])
 const showMarkerForm = ref(false)
@@ -263,6 +289,10 @@ onMounted(async () => {
   await checkSharedLink()
   await loadVideo()
   document.addEventListener('click', onDocClickCloseMenu)
+  updateMobileState()
+  updateFullscreenState()
+  window.addEventListener('resize', updateMobileState)
+  document.addEventListener('fullscreenchange', updateFullscreenState)
 })
 
 function onDocClickCloseMenu(e: Event) {
@@ -512,6 +542,70 @@ const onPause = () => {
     lastSyncedPlaying.value = false
     lastSyncedTime.value = videoPlayer.value.currentTime
     syncPlaybackState(true)
+  }
+}
+
+// ===== 移动端触摸手势：单击/双击切换播放，左右滑动快进快退 =====
+const SEEK_SENSITIVITY = 0.4 // 滑动一屏宽度约等于 40% 总时长
+
+const onGestureStart = (e: TouchEvent) => {
+  const t = e.touches[0]
+  if (!t) return
+  touchStartX.value = t.clientX
+  touchStartY.value = t.clientY
+  touchStartCurrent.value = videoPlayer.value?.currentTime || 0
+  touchMoved.value = false
+}
+
+const onGestureMove = (e: TouchEvent) => {
+  if (!videoPlayer.value) return
+  const t = e.touches[0]
+  if (!t) return
+  const dx = t.clientX - touchStartX.value
+  const dy = t.clientY - touchStartY.value
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // 水平滑动：快进 / 快退
+    touchMoved.value = true
+    const ratio = dx / window.innerWidth
+    const delta = ratio * videoDuration.value * SEEK_SENSITIVITY
+    const target = Math.max(0, Math.min(videoDuration.value, touchStartCurrent.value + delta))
+    videoPlayer.value.currentTime = target
+    const sign = delta >= 0 ? '快进' : '快退'
+    seekFeedbackText.value = `${sign} ${Math.abs(Math.round(delta))} 秒`
+    seekFeedbackVisible.value = true
+    if (seekFeedbackTimer) clearTimeout(seekFeedbackTimer)
+  } else {
+    // 垂直滑动：标记为已移动，避免误触发播放/暂停
+    touchMoved.value = true
+  }
+}
+
+const onGestureEnd = () => {
+  if (touchMoved.value) {
+    if (seekFeedbackTimer) clearTimeout(seekFeedbackTimer)
+    seekFeedbackTimer = window.setTimeout(() => {
+      seekFeedbackVisible.value = false
+    }, 500)
+    touchMoved.value = false
+    return
+  }
+  // 轻触：用定时器区分单击与双击
+  const now = Date.now()
+  if (now - lastTapTime.value < 300) {
+    if (tapTimer.value) {
+      clearTimeout(tapTimer.value)
+      tapTimer.value = null
+    }
+    togglePlay()
+    lastTapTime.value = 0
+  } else {
+    lastTapTime.value = now
+    if (tapTimer.value) clearTimeout(tapTimer.value)
+    tapTimer.value = window.setTimeout(() => {
+      togglePlay()
+      tapTimer.value = null
+    }, 280)
   }
 }
 
@@ -827,6 +921,8 @@ onUnmounted(() => {
   stopSyncLoop()
   clearAutoContinueTimer()
   document.removeEventListener('click', onDocClickCloseMenu)
+  window.removeEventListener('resize', updateMobileState)
+  document.removeEventListener('fullscreenchange', updateFullscreenState)
 })
 
 // 打开编辑抽屉（管理员可编辑标题/简介/资源库/标签）
@@ -1595,8 +1691,20 @@ const handleDelete = async () => {
               @timeupdate="onTimeUpdate"
               @ended="onVideoEnded"
               preload="metadata"
-              controls
+              :controls="!isTouchMode"
             ></video>
+            <!-- 移动端手势层：双击/左右滑动控制播放进度 -->
+            <div
+              v-if="isTouchMode"
+              class="gesture-layer"
+              @touchstart="onGestureStart"
+              @touchmove.prevent="onGestureMove"
+              @touchend="onGestureEnd"
+            ></div>
+            <!-- 快进/快退反馈 -->
+            <div v-if="isTouchMode && seekFeedbackVisible" class="seek-feedback">
+              {{ seekFeedbackText }}
+            </div>
             <!-- 自动续播倒计时遮罩 -->
             <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
               <div class="ac-card">
@@ -2353,6 +2461,29 @@ const handleDelete = async () => {
   border-top-color: #2196F3;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* 移动端手势层与快进/快退反馈 */
+.gesture-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  touch-action: none;
+}
+
+.seek-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 16px;
+  z-index: 6;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .recommendations-list {
