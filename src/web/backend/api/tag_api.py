@@ -40,10 +40,10 @@ def create_tag():
         else:
             tag_path = f"/{name}"
         
-        # 基于路径判断唯一性（标签路径全局唯一，跨资源库复用，避免重复创建）
-        existing = Tag.query.filter_by(path=tag_path).first()
+        # 基于路径 + 资源库判断唯一性（同一资源库内路径唯一，不同资源库可重名）
+        existing = Tag.query.filter_by(path=tag_path, library_id=library_id).first()
         if existing:
-            return jsonify({'success': False, 'message': f'标签路径已存在: {tag_path}'}), 400
+            return jsonify({'success': False, 'message': f'该标签集中已存在相同路径的标签: {tag_path}'}), 400
         
         tag = Tag(
             name=name,

@@ -1326,9 +1326,17 @@ def get_tags():
 
 @bp.route('/api/tags/all', methods=['GET'])
 def get_all_tags():
-    """获取所有标签（不进行权限过滤）"""
+    """获取所有标签（不进行权限过滤）。
+    支持 library_id 筛选：传入时只返回该资源库标签 + 全局标签（library_id 为 null），
+    实现「视频属于哪个资源库，就只能使用该资源库的标签集」的隔离。"""
     try:
-        tags = Tag.query.all()
+        library_id = request.args.get('library_id', type=int)
+        query = Tag.query
+        if library_id is not None:
+            query = query.filter(
+                (Tag.library_id == library_id) | (Tag.library_id.is_(None))
+            )
+        tags = query.all()
         result = []
         for tag in tags:
             result.append({
@@ -1337,6 +1345,7 @@ def get_all_tags():
                 'path': tag.path,  # 添加完整路径
                 'category': tag.category,
                 'parent_id': tag.parent_id,
+                'library_id': tag.library_id,
                 'video_count': tag.video_count()
             })
         return jsonify({'success': True, 'tags': result})
