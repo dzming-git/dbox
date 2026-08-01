@@ -278,89 +278,51 @@ log.maintenance('INFO', 'Service bus clients initialized for APIs')
 
 # ============ 认证装饰器 ============
 def auth_required(f):
-    """通用认证装饰器 - 同时支持 Session、JWT Bearer Token 和 URL query token"""
+    """通用认证装饰器 - 复用 backend.access.resolve_identity 统一解析登录态。
+
+    支持 Session、JWT Bearer Token；另保留 URL query 参数 token 回退，
+    用于 video/audio 标签等无法自定义 header 的场景。
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = None
-        
-        # 优先检查 JWT Bearer Token
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-        
-        # 回退到 URL query 参数 token（用于 video/audio 标签等无法自定义 header 的场景）
-        if not token:
-            token = request.args.get('token')
-        
-        if token:
-            try:
-                from authlib.jose import jwt as _jwt
-                payload = _jwt.decode(token, JWT_SECRET_KEY)
-                if payload.get('type') == 'access':
-                    g.user_id = payload.get('user_id')
-                    g.role = payload.get('role', 0)
-                    g.username = payload.get('username')
-                    return f(*args, **kwargs)
-            except Exception as e:
-                log.debug('WARN', f'JWT 认证失败: {e}')
-                # JWT 无效时继续尝试 session
-        
-        # 回退到 Session 认证（登录仅写入 auth_token，需反查用户身份）
-        user = AuthService.get_current_user()
-        if user:
-            g.user_id = user.id
-            g.role = int(user.role)
-            g.username = user.username
+        user_id, role = resolve_identity()
+        if user_id:
+            g.user_id = user_id
+            g.role = role
+            u = User.query.get(user_id)
+            g.username = u.username if u else None
             return f(*args, **kwargs)
-        
+        # URL query token 回退（video/audio 标签鉴权）
+        token = request.args.get('token')
+        if token:
+            for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+                try:
+                    from authlib.jose import jwt as _jwt
+                    payload = _jwt.decode(token, _secret)
+                    if payload.get('type') == 'access':
+                        g.user_id = payload.get('user_id')
+                        g.role = payload.get('role', 0)
+                        g.username = payload.get('username')
+                        return f(*args, **kwargs)
+                except Exception:
+                    continue
         return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
     return decorated
 
 def admin_required(f):
-    """管理员权限装饰器 - 兼容 JWT 与 session 两套登录态
-
-    前端登录默认走 Flask session（无 JWT），故优先用 Bearer 解析 JWT，
-    解析失败时回退到 session（AuthService.get_current_user），避免管理员被误踢出登录。
-    """
+    """管理员权限装饰器 - 复用 resolve_identity 统一解析，避免硬编码 secret 散落。"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        user = None
-        token = request.headers.get('Authorization', '')
-        if token.startswith('Bearer '):
-            token = token[7:]
-        if token:
-            try:
-                from authlib.jose import jwt
-                SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
-                payload = jwt.decode(token, SECRET_KEY)
-                if payload.get('type') == 'access':
-                    user = User.query.get(payload.get('user_id'))
-                    if user:
-                        g.user_id = payload.get('user_id')
-                        g.role = payload.get('role', 0)
-                        g.username = payload.get('username')
-            except Exception:
-                user = None
-
-        # JWT 解析失败或缺失时，回退到 session 登录态（前端默认）
-        if user is None:
-            user = AuthService.get_current_user()
-
-        if user is None:
+        user_id, role = resolve_identity()
+        if not user_id:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-
-        # 确保 g 上记录身份（session 回退路径）
-        if not hasattr(g, 'user_id') or g.user_id is None:
-            g.user_id = user.id
-            g.role = getattr(user, 'role', 0)
-            g.username = getattr(user, 'username', None)
-
-        # 检查是否是管理员或更高权限
-        if g.role < UserRole.ADMIN:
+        if role < UserRole.ADMIN:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
-
+        g.user_id = user_id
+        g.role = role
+        u = User.query.get(user_id)
+        g.username = u.username if u else None
         return f(*args, **kwargs)
-
     return decorated
 
 
