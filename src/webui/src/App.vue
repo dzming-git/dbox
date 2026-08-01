@@ -5,6 +5,7 @@ import { useWatchLaterStore } from './stores/watchLaterStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings } from './utils/settings'
 import { routes } from './router'
+import { useToast } from './composables/useToast'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
 const cachedViews = routes
@@ -15,6 +16,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const watchLaterStore = useWatchLaterStore()
+const { toastMessage, showToastFlag } = useToast()
 
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
@@ -220,6 +222,9 @@ const closeUserDropdown = (event: MouseEvent) => {
         </KeepAlive>
       </RouterView>
     </main>
+
+    <!-- 全局 Toast 宿主：后台上传完成等通知 -->
+    <div v-if="showToastFlag" class="global-toast">{{ toastMessage }}</div>
   </div>
 </template>
 
@@ -534,6 +539,35 @@ body {
 
 .main-content.no-nav {
   padding-top: 0;
+}
+
+/* 全局 Toast（后台上传完成通知等） */
+.global-toast {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(33, 33, 33, 0.95);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: toastSlideIn 0.3s ease;
+  max-width: 90vw;
+  text-align: center;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* 图集沉浸全屏阅读模式：隐藏全局导航，铺满全屏 */

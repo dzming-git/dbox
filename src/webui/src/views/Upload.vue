@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { api } from '../api'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
 const videoStore = useVideoStore()
 const userStore = useUserStore()
+const { showToast: showGlobalToast } = useToast()
 
 // 资源库列表
 const libraries = ref<any[]>([])
@@ -283,7 +285,11 @@ const startUpload = async () => {
   isUploading.value = true
   isProcessing.value = false
   uploadProgress.value = 0
-  
+
+  // 后台上传：立即返回首页，上传在后台继续，完成后通过全局通知提示
+  showGlobalToast('已在后台上传，完成后将通知您')
+  router.push('/')
+
   const totalFiles = selectedFiles.value.length
   let uploadedCount = 0
   const failedFiles: { name: string; reason: string }[] = []
@@ -361,30 +367,21 @@ const startUpload = async () => {
     if (failedFiles.length === 0) {
       // 全部成功
       uploadedVideo.value = { count: totalFiles }
+      showGlobalToast(`上传完成：成功 ${uploadedCount} 个`)
       setTimeout(async () => {
         // 刷新视频列表
         await videoStore.fetchVideos(true)
-        router.push('/')
       }, 1500)
     } else if (uploadedCount > 0) {
-      // 部分成功 - 弹窗提示
-      const failList = failedFiles.map(f => `• ${f.name}：${f.reason}`).join('\n')
-      showErrorDialog(
-        '部分文件上传失败',
-        `成功上传 ${uploadedCount} 个，失败 ${failedFiles.length} 个：\n\n${failList}`
-      )
+      // 部分成功
+      showGlobalToast(`上传完成：${uploadedCount} 个成功，${failedFiles.length} 个失败`)
     } else {
-      // 全部失败 - 弹窗提示
-      if (failedFiles.length === 1) {
-        showErrorDialog('上传失败', `${failedFiles[0].name}\n\n原因：${failedFiles[0].reason}`)
-      } else {
-        const failList = failedFiles.map(f => `• ${f.name}：${f.reason}`).join('\n')
-        showErrorDialog('上传失败', `全部 ${failedFiles.length} 个文件上传失败：\n\n${failList}`)
-      }
+      // 全部失败
+      showGlobalToast(`上传失败：全部 ${failedFiles.length} 个文件未上传`)
     }
   } catch (error: any) {
     isProcessing.value = false
-    showErrorDialog('上传失败', error.message || '上传过程中发生未知错误，请重试')
+    showGlobalToast('上传失败：' + (error.message || '上传过程中发生未知错误'))
   } finally {
     isUploading.value = false
   }
