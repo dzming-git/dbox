@@ -100,6 +100,8 @@ playwright-report/
 *.temp
 *.bak
 *.swp
+*_out.txt
+e2e_out.txt
 
 # ============================================
 # 归档目录（废弃文件）
