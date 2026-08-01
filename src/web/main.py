@@ -109,7 +109,7 @@ except Exception as e:
     collection_bus = None
     search_bus = None
     resource_bus = None
-    print(f"[WARNING] 总线客户端初始化失败: {e}")
+    log.maintenance('WARN', f'总线客户端初始化失败: {e}')
 
 # 导入JWT SECRET_KEY（统一使用 backend/utils/jwt_authlib.py 中的配置）
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
@@ -5558,7 +5558,7 @@ try:
     _tw.Thread(target=_restart_library_watchers, daemon=True,
                name='library-watcher-boot').start()
 except Exception as e:
-    print(f'[WARNING] 资源库文件夹监控模块不可用: {e}')
+    log.maintenance('WARN', f'资源库文件夹监控模块不可用: {e}')
 
 
 # ============ 帖子（Post）API ============
