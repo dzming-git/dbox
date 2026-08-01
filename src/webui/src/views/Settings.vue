@@ -76,6 +76,7 @@ const fields: FieldDef[] = [
   },
   { key: 'enableNotifications', label: '启用通知', desc: '接收应用内通知', type: 'toggle' },
   { key: 'notifyOnNewVideos', label: '新视频提醒', desc: '有新视频时通知我', type: 'toggle', showIf: 'enableNotifications' },
+  { key: 'autoContinue', label: '自动续播', desc: '视频播放结束后，自动跳转至合集下一集或推荐视频', type: 'toggle', testid: 'auto-continue-toggle' },
 ]
 
 const tabs: { scope: SettingScope; label: string; desc: string }[] = [

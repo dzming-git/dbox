@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi, collectionSetApi, resourceApi } from '../api'
+import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
@@ -42,6 +43,25 @@ const markers = ref<VideoMarker[]>([])
 const showMarkerForm = ref(false)
 const markerNote = ref('')
 const currentTime = ref(0)
+const videoDuration = computed(() => Number(video.value?.duration) || 0)
+const markerTrack = computed(() => {
+  if (!videoDuration.value) return []
+  return markers.value
+    .filter((m) => m.time_seconds >= 0 && m.time_seconds <= videoDuration.value)
+    .map((m) => ({
+      id: m.id,
+      time: m.time_seconds,
+      note: m.note || '精彩片段',
+      left: (m.time_seconds / videoDuration.value) * 100,
+    }))
+})
+const seekTo = (time: number) => {
+  const player = videoPlayer.value
+  if (player) {
+    player.currentTime = time
+    player.play().catch(() => {})
+  }
+}
 
 const videoHash = computed(() => route.params.hash as string)
 
@@ -139,8 +159,56 @@ const toggleContinueWatch = () => {
   }
   localStorage.setItem(CONTINUE_WATCH_KEY, JSON.stringify(arr))
 }
+// 自动续播：播放结束后 3 秒倒计时跳转
+const autoContinueVisible = ref(false)
+const autoContinueCountdown = ref(3)
+const autoContinueTarget = ref<{ type: string; hash: string; title?: string } | null>(null)
+let autoContinueTimer: number | null = null
+
+const pickAutoContinueTarget = (): { type: string; hash: string; title?: string } | null => {
+  if (nextItem.value) return nextItem.value
+  const rec = recommendedVideos.value.find((v) => v.hash !== videoHash.value)
+  if (rec) return { type: 'video', hash: rec.hash, title: rec.title }
+  return null
+}
+
+const clearAutoContinueTimer = () => {
+  if (autoContinueTimer !== null) {
+    clearInterval(autoContinueTimer)
+    autoContinueTimer = null
+  }
+  autoContinueVisible.value = false
+}
+
+const startAutoContinue = () => {
+  const target = pickAutoContinueTarget()
+  if (!target) return
+  autoContinueTarget.value = target
+  autoContinueCountdown.value = 3
+  autoContinueVisible.value = true
+  autoContinueTimer = window.setInterval(() => {
+    autoContinueCountdown.value -= 1
+    if (autoContinueCountdown.value <= 0) {
+      clearAutoContinueTimer()
+      goCollectionItem(target)
+    }
+  }, 1000)
+}
+
+const cancelAutoContinue = () => {
+  clearAutoContinueTimer()
+}
+
 const onVideoEnded = () => {
-  if (nextItem.value) goCollectionItem(nextItem.value)
+  if (!getEffectiveSettings().autoContinue) {
+    if (nextItem.value) goCollectionItem(nextItem.value)
+    return
+  }
+  if (!pickAutoContinueTarget()) {
+    if (nextItem.value) goCollectionItem(nextItem.value)
+    return
+  }
+  startAutoContinue()
 }
 
 // 推荐视频相关状态
@@ -205,6 +273,7 @@ function onDocClickCloseMenu(e: Event) {
 
 // 切换视频（含合集内上一集/下一集）时重新加载
 watch(videoHash, async () => {
+  clearAutoContinueTimer()
   await loadVideo()
 })
 
@@ -756,6 +825,7 @@ const copyShareUrl = () => {
 // 页面卸载时停止同步
 onUnmounted(() => {
   stopSyncLoop()
+  clearAutoContinueTimer()
   document.removeEventListener('click', onDocClickCloseMenu)
 })
 
@@ -843,13 +913,7 @@ const submitMarker = async () => {
   }
 }
 
-const jumpToMarker = (time: number) => {
-  const player = videoPlayer.value
-  if (player) {
-    player.currentTime = time
-    player.play().catch(() => {})
-  }
-}
+const jumpToMarker = (time: number) => seekTo(time)
 
 const deleteMarker = async (id: number) => {
   if (!video.value) return
@@ -1503,6 +1567,19 @@ const handleDelete = async () => {
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
+            <!-- 精彩片段标记进度条 -->
+            <div class="marker-track" v-if="markerTrack.length" @click.stop>
+              <div
+                v-for="mk in markerTrack"
+                :key="mk.id"
+                class="marker-tick"
+                :style="{ left: mk.left + '%' }"
+                :title="`${formatMarkerTime(mk.time)} · ${mk.note}`"
+                @click.stop="seekTo(mk.time)"
+              >
+                <span class="marker-tip">{{ mk.note }}</span>
+              </div>
+            </div>
             <video
               ref="videoPlayer"
               :src="videoUrl"
@@ -1520,6 +1597,18 @@ const handleDelete = async () => {
               preload="metadata"
               controls
             ></video>
+            <!-- 自动续播倒计时遮罩 -->
+            <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
+              <div class="ac-card">
+                <div class="ac-title">即将播放</div>
+                <div class="ac-name">{{ autoContinueTarget?.title || '下一个视频' }}</div>
+                <div class="ac-count">{{ autoContinueCountdown }} 秒后自动跳转</div>
+                <div class="ac-actions">
+                  <button class="ac-btn ac-cancel" @click="cancelAutoContinue">取消</button>
+                  <button class="ac-btn ac-now" @click="cancelAutoContinue(); autoContinueTarget && goCollectionItem(autoContinueTarget)">立即播放</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2385,6 +2474,134 @@ const handleDelete = async () => {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* 精彩片段标记进度条 */
+.marker-track {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+.marker-tick {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  transform: translateY(-50%);
+  background: #ff4d6d;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.marker-tick:hover {
+  transform: translateY(-50%) scale(1.4);
+}
+
+.marker-tip {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: #000;
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.marker-tick:hover .marker-tip {
+  opacity: 1;
+}
+
+.auto-continue-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 5;
+}
+
+.ac-card {
+  background: #1f1f1f;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 24px 28px;
+  text-align: center;
+  min-width: 240px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.ac-title {
+  color: #888;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.ac-name {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-count {
+  color: #bbb;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.ac-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.ac-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.ac-cancel {
+  background: #333;
+  color: #ddd;
+}
+
+.ac-cancel:hover {
+  background: #444;
+}
+
+.ac-now {
+  background: #ff4d6d;
+  color: #fff;
+  font-weight: 600;
+}
+
+.ac-now:hover {
+  background: #ff3a5c;
 }
 
 .video-info-section {

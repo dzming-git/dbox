@@ -13,6 +13,7 @@ export interface SettingsData {
   defaultOrder: string
   enableNotifications: boolean
   notifyOnNewVideos: boolean
+  autoContinue: boolean
   [key: string]: unknown
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   defaultOrder: 'desc',
   enableNotifications: true,
   notifyOnNewVideos: true,
+  autoContinue: true,
 }
 
 export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof SettingsData)[]
