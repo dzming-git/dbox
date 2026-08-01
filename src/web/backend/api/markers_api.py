@@ -12,13 +12,7 @@ from core.models import db, Video, VideoMarker
 markers_bp = Blueprint('markers', __name__)
 
 
-def current_interaction_key():
-    """对齐主应用身份约定，确保登录用户跨设备一致。
-
-    延迟导入 main，避免与 main 注册本蓝图时的循环依赖。
-    """
-    from main import current_interaction_key as _cik
-    return _cik()
+from backend.access import current_interaction_key
 
 
 def _video_by_hash(hash_):

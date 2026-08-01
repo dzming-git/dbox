@@ -17,18 +17,18 @@ from flask import Blueprint, jsonify, request
 
 from core.models import db, MediaCollection, MediaCollectionItem, Video, Gallery
 
+from backend.access import current_interaction_key, resolve_identity
+
 collection_set_api = Blueprint('collection_set_api', __name__, url_prefix='/api/collections')
 
 
 def _owner():
-    # 创建者审计字段（仅记录，不用于查询隔离）。延迟导入避免循环依赖。
-    from main import current_interaction_key
+    # 创建者审计字段（仅记录，不用于查询隔离）。
     return current_interaction_key()
 
 
 def _can_manage(collection):
     """删除/重命名等结构性操作：仅创建者或管理员可操作，否则返回 403 响应。"""
-    from main import current_interaction_key, resolve_identity
     user_id, role = resolve_identity()
     if user_id and role in (2, 3):
         return None

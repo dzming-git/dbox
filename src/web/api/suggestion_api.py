@@ -142,10 +142,11 @@ def migrate_if_needed():
     save_issues(issues)
 
 
+from backend.access import resolve_identity
+
 def _auth():
     """返回 (user_id, role, username)，未登录返回 (None, 0, None)"""
     try:
-        from main import resolve_identity
         from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
         uid, role = resolve_identity()
         if not uid:
