@@ -142,4 +142,4 @@ interface TypedApi {
 }
 
 export default api as unknown as TypedApi
-export { API_BASE, axios }
+export { api, API_BASE, axios }
