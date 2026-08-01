@@ -243,6 +243,12 @@ const onKey = (e: KeyboardEvent) => {
     case 'h':
     case 'H':
       toggleControls(); break
+    case 'j':
+    case 'J':
+      if (nextItem.value) goCollectionItem(nextItem.value); break
+    case 'k':
+    case 'K':
+      if (prevItem.value) goCollectionItem(prevItem.value); break
   }
 }
 

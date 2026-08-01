@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
@@ -122,12 +122,32 @@ const fetchPost = async () => {
 }
 onMounted(() => {
   // 帖子详情页不依赖首页的 mode 参数，进入时规范化 URL，
-  // 去掉从首页视频流/帖子列表带入的 ?mode=video 等遗留参数，保持地址栏干净。
-  if (route.query && Object.keys(route.query).length > 0) {
-    router.replace({ path: `/post/${route.params.id}` })
+  // 去掉从首页视频流/帖子列表带入的 ?mode=video 等遗留参数，但保留用于 J/K 导航的 prev/next。
+  const keep: Record<string, string> = {}
+  if (route.query.prev) keep.prev = String(route.query.prev)
+  if (route.query.next) keep.next = String(route.query.next)
+  if (Object.keys(route.query).length > Object.keys(keep).length) {
+    router.replace({ path: `/post/${route.params.id}`, query: keep })
   }
   fetchPost()
+  window.addEventListener('keydown', onPostKey)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onPostKey)
+})
+
+const onPostKey = (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+  const prevId = route.query.prev ? Number(route.query.prev) : 0
+  const nextId = route.query.next ? Number(route.query.next) : 0
+  if (e.key === 'j' || e.key === 'J') {
+    if (nextId) router.push({ path: `/post/${nextId}`, query: { prev: String(prevId || id), next: String(nextId) } })
+  } else if (e.key === 'k' || e.key === 'K') {
+    if (prevId) router.push({ path: `/post/${prevId}`, query: { prev: String(prevId), next: String(id) } })
+  }
+}
 
 // 帖子专属图集内联渲染 + 点击放大
 const lightbox = ref<{ images: string[]; index: number } | null>(null)

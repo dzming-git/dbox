@@ -163,7 +163,13 @@ const openCreate = async () => {
 }
 
 const openPost = (d: Post) => {
-  router.push(`/post/${d.id}`)
+  const idx = posts.value.findIndex((p) => p.id === d.id)
+  const prevId = idx > 0 ? posts.value[idx - 1].id : ''
+  const nextId = idx >= 0 && idx < posts.value.length - 1 ? posts.value[idx + 1].id : ''
+  const q: Record<string, string> = {}
+  if (prevId) q.prev = String(prevId)
+  if (nextId) q.next = String(nextId)
+  router.push({ path: `/post/${d.id}`, query: q })
 }
 
 const openResourcePicker = () => {
