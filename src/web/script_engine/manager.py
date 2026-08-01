@@ -16,6 +16,7 @@ from datetime import datetime
 from .manifest import load_all, scripts_base_dir
 from .ingest import ingest_file
 from .cookie_vault import CookieVault
+from unified_tasks import init_task_manager as _init_task_manager, sync_job as _tm_sync_job
 
 STATE_FILE = 'script_state.json'  # 持久化 enabled 覆盖，避免 reload 重置
 
@@ -61,7 +62,21 @@ class ScriptJobManager:
         self._init_db()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self.reload()
+        # 初始化统一任务管理器（幂等），脚本任务会镜像到任务表供前端展示
+        try:
+            _init_task_manager(data_dir)
+        except Exception as e:
+            print(f'[script_engine] 初始化任务管理器失败: {e}')
         self._initialized = True
+
+    def _sync_task(self, job_id):
+        """将脚本任务镜像到统一任务管理器（供前端任务页/红点读取）。"""
+        try:
+            job = self.get_job(job_id)
+            if job:
+                _tm_sync_job(job)
+        except Exception as e:
+            print(f'[script_engine] 镜像任务失败 job={job_id}: {e}')
 
     def _data_dir(self):
         env = os.environ.get('DPLAYER_DATA_DIR')
@@ -429,12 +444,14 @@ class ScriptJobManager:
                                  (pct, _now(), job_id))
                 self._db.commit()
             self._append_log(job_id, 'info', obj.get('message', f'进度 {pct}%'))
+            self._sync_task(job_id)
         elif t == 'log':
             self._append_log(job_id, obj.get('level', 'info'), obj.get('message', ''))
         elif t == 'error':
             self._append_log(job_id, 'error', obj.get('message', ''))
         elif t == 'await_input':
             self._set_awaiting(job_id, obj.get('input', {}))
+            self._sync_task(job_id)
         elif t == 'result':
             files = obj.get('files', [])
             if isinstance(files, list):
@@ -619,6 +636,7 @@ class ScriptJobManager:
                 ('awaiting_input', json.dumps(spec, ensure_ascii=False), _now(), job_id))
             self._db.commit()
         self._append_log(job_id, 'info', '脚本请求用户输入: ' + str(spec.get('prompt', '')))
+        self._sync_task(job_id)
 
     def respond(self, job_id, value):
         """前端提交用户对脚本提问的答复。"""
@@ -637,6 +655,7 @@ class ScriptJobManager:
                 ('running', json.dumps(value, ensure_ascii=False), _now(), job_id))
             self._db.commit()
         self._append_log(job_id, 'info', '用户已作出选择，继续运行')
+        self._sync_task(job_id)
         return True, 'ok'
 
     def get_input(self, job_id, token, timeout=30):
@@ -717,6 +736,7 @@ class ScriptJobManager:
             self._db.execute('UPDATE jobs SET status=?, updated_at=? WHERE id=?',
                              (status, _now(), job_id))
             self._db.commit()
+        self._sync_task(job_id)
 
     def _finish(self, job_id, status, result=None, error=None):
         with self._lock:
@@ -727,6 +747,7 @@ class ScriptJobManager:
                 self._db.execute('UPDATE jobs SET status=?, error=?, updated_at=? WHERE id=?',
                                  (status, error or '', _now(), job_id))
             self._db.commit()
+        self._sync_task(job_id)
 
     def _is_notified(self, job_id):
         with self._lock:

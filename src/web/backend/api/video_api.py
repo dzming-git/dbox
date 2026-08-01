@@ -30,6 +30,7 @@ from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 from thumbnail.thumbnail_service_client import get_thumbnail_client
+from unified_tasks import init_task_manager as _init_tm, create_task, update_task
 import threading
 log = get_service_logger('dplayer-web')
 
@@ -810,6 +811,12 @@ def upload_video():
                 'message': f'不支持的文件格式，请上传 {", ".join(allowed_extensions)} 格式的视频'
             }), 400
 
+        # 初始化统一任务管理器（幂等）
+        try:
+            _init_tm(DATA_DIR)
+        except Exception:
+            pass
+
         # 获取表单数据
         title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
         description = request.form.get('description', '').strip()
@@ -851,6 +858,17 @@ def upload_video():
         # 保存文件
         file.save(file_path)
 
+        # 创建上传任务（统一任务管理器），用于前端「任务」页展示进度
+        upload_task_id = 'upload:' + os.path.splitext(safe_filename)[0]
+        try:
+            create_task(
+                upload_task_id, 'upload', f'上传：{title}',
+                owner_id=user_id, library_id=library_id if isinstance(library_id, int) else None,
+                status='running', progress=50, stage='保存文件', detail='文件已接收，正在计算指纹'
+            )
+        except Exception as e:
+            log.debug('WARN', f'创建上传任务失败: {e}')
+
         # 生成视频hash
         video_hash = Video.generate_hash(file_path)
 
@@ -858,6 +876,10 @@ def upload_video():
         existing = Video.query.filter_by(hash=video_hash).first()
         if existing:
             os.remove(file_path)
+            try:
+                update_task(upload_task_id, status='failed', stage='重复', detail='该视频已存在，已取消上传')
+            except Exception:
+                pass
             return jsonify({
                 'success': False,
                 'message': '该视频已存在',
@@ -918,18 +940,38 @@ def upload_video():
         db.session.commit()
         log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size}, 路径: {file_path})")
 
+        # 更新上传任务进度（入库完成）
+        try:
+            update_task(upload_task_id, progress=60, stage='入库完成', detail='视频记录已写入数据库')
+        except Exception as e:
+            log.debug('WARN', f'更新上传任务失败: {e}')
+
         # 异步生成真实缩略图
         try:
             def _gen_thumb():
                 try:
+                    update_task(upload_task_id, progress=80, stage='生成缩略图', detail='正在生成预览图')
+                except Exception:
+                    pass
+                try:
                     client = get_thumbnail_client()
                     client.generate_thumbnail(file_path, video_hash, output_format='gif')
+                    update_task(upload_task_id, progress=100, status='completed',
+                                stage='完成', detail='上传成功，缩略图已生成')
                 except Exception as e:
                     log.debug('WARN', f'上传后异步生成缩略图失败: hash={video_hash}, 错误={e}')
+                    # 缩略图失败不影响主任务，仍标记为完成
+                    update_task(upload_task_id, progress=100, status='completed',
+                                stage='完成', detail='上传成功（缩略图生成失败，可稍后重试）')
 
             threading.Thread(target=_gen_thumb, daemon=True).start()
         except Exception as e:
             log.debug('WARN', f'启动缩略图生成线程失败: {e}')
+            try:
+                update_task(upload_task_id, progress=100, status='completed',
+                            stage='完成', detail='上传成功')
+            except Exception:
+                pass
 
         log_operation('upload video', target=video.hash, detail=f'标题={title}', success=True)
         return jsonify({

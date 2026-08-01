@@ -17,6 +17,13 @@
       "description": "要下载的 X/Twitter 推文 URL，不要带默认示例链接，粘贴真实链接即可"
     },
     {
+      "name": "auto",
+      "type": "bool",
+      "label": "全自动运行（默认开启）",
+      "default": true,
+      "description": "开启后脚本自动完成所有选择，无需人工干预；关闭后遇到需要确认的步骤（如多图选择）会暂停并上报事件，等待处理后再继续。"
+    },
+    {
       "name": "proxy",
       "type": "string",
       "label": "代理地址（可选，默认自动）",

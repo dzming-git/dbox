@@ -1220,8 +1220,9 @@ def main():
     log(f'解析到 {len(media)} 个媒体：' + '，'.join(x['label'] for x in media))
 
     selected = media
-    # 多个资源 -> 二次触发用户选择
-    if len(media) > 1:
+    # 多个资源 -> 二次触发用户选择（仅非全自动模式才交互，否则自动全选）
+    auto_mode = bool(params.get('auto', True))
+    if len(media) > 1 and not auto_mode:
         options = [{'value': str(i), 'label': x['label']} for i, x in enumerate(media)]
         progress(20, '等待用户选择要下载的媒体…')
         emit({
@@ -1250,6 +1251,9 @@ def main():
                 indices = list(range(len(media)))
         selected = [media[i] for i in indices]
         log('用户选择：' + '，'.join(x['label'] for x in selected))
+    elif len(media) > 1:
+        selected = media
+        log(f'全自动模式：自动下载全部 {len(media)} 个媒体')
     else:
         log('仅 1 个媒体，直接下载')
 

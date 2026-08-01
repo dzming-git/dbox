@@ -6,6 +6,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings } from './utils/settings'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
+import { taskApi } from './api/task'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
 const cachedViews = routes
@@ -16,7 +17,21 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const watchLaterStore = useWatchLaterStore()
+const taskActionCount = ref(0)
 const { toastMessage, showToastFlag } = useToast()
+
+async function loadTaskCount() {
+  if (!userStore.isLoggedIn) {
+    taskActionCount.value = 0
+    return
+  }
+  try {
+    const res: any = await taskApi.actionCount()
+    taskActionCount.value = res.count || 0
+  } catch (e) {
+    // 红点非关键功能，忽略错误
+  }
+}
 
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
@@ -47,6 +62,8 @@ onMounted(() => {
   // 已登录则拉取后端分层设置（用户层 + 全局层），供默认排序等生效
   if (userStore.isLoggedIn) {
     fetchServerSettings()
+    loadTaskCount()
+    setInterval(loadTaskCount, 20000)
   }
 })
 
@@ -70,8 +87,10 @@ watch(
     if (logged) {
       fetchServerSettings()
       watchLaterStore.init()
+      loadTaskCount()
     } else {
       clearServerSettings()
+      taskActionCount.value = 0
     }
   }
 )
@@ -150,6 +169,15 @@ const closeUserDropdown = (event: MouseEvent) => {
               <span v-if="watchLaterStore.count" class="watchlater-badge">{{ watchLaterStore.count }}</span>
             </span>
             <span>稍后再看</span>
+          </RouterLink>
+          <RouterLink to="/tasks" class="nav-link nav-icon-link task-nav-link" title="任务管理器">
+            <span class="task-ico-wrap">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+              </svg>
+              <span v-if="taskActionCount > 0" class="task-badge">{{ taskActionCount > 99 ? '99+' : taskActionCount }}</span>
+            </span>
+            <span>任务</span>
           </RouterLink>
 
           <!-- 用户头像下拉菜单 -->
@@ -381,6 +409,26 @@ body {
   line-height: 16px;
   text-align: center;
   font-weight: 600;
+}
+.task-ico-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.task-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f85149;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 0 6px rgba(248, 81, 73, 0.6);
 }
 
 .login-link {
