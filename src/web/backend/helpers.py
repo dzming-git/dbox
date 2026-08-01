@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """跨蓝图共享的纯业务辅助函数。
 
-从 main.py 下沉而来，统一收敛到本模块，供所有蓝图直接 import，
-消除「蓝图函数体内 import main」的反模式与循环依赖。
+从 main.py 下沉而来，统一收敛到本模块，供所有蓝图直接 import。
 
 本模块只依赖 core.models / resource.models（可选）/ liblog，不依赖 main。
 """

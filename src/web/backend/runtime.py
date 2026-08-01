@@ -3,8 +3,7 @@
 
 彻底消除 helper 模块 / 蓝图对 ``main`` 模块的依赖：所有需要运行时
 单例（SQLAlchemy ``db``、Flask ``app``、配置 ``app_config``、服务总线
-``thumbnail_bus`` / ``resource_bus`` 等）的代码，统一从本模块读取，
-而非 ``import main as runtime``。
+``thumbnail_bus`` / ``resource_bus`` 等）的代码，统一从本模块读取。
 
 ``main.py`` 在应用完全初始化（总线连接、app 创建、配置加载）之后调用
 :func:`init` 注入这些单例；helper 模块在请求处理时（此时 app 已就绪）

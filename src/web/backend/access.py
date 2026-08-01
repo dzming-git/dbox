@@ -2,8 +2,7 @@
 """统一鉴权与资源库权限解析层。
 
 把原先散落在 main.py 顶层的鉴权辅助函数集中到此处，供所有蓝图
-（gallery / trash / posts / tags ...）直接 import，消除
-「蓝图从 main 延迟 import 鉴权函数」的反模式与循环依赖。
+（gallery / trash / posts / tags ...）直接 import，模块自身不依赖 main。
 
 本模块只依赖 core.models、auth_service、backend.utils.jwt_authlib，
 不依赖 main，可在任意上下文中安全导入。

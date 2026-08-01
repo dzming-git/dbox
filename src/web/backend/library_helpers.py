@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """资源库 / 扫描辅助函数。
 
-从 main.py 下沉而来，供 library_api 蓝图直接 import，消除
-「蓝图函数体内 import main」的反模式。
+从 main.py 下沉而来，供 library_api 蓝图直接 import。
 
 需要运行时单例（app / app_config / buses）的地方，统一从
-backend.runtime 读取，而非延迟导入 main。
+backend.runtime 读取。
 """
 import os
 import re as _re
