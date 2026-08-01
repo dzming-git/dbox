@@ -1,12 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { videoApi, tagApi } from '../api'
+import { videoApi } from '../api'
+import { useTagStore } from './tagStore'
 import { getDefaultSort } from '../utils/userSettings'
 import type { Video, Tag } from '../types'
 
 export const useVideoStore = defineStore('video', () => {
   const videos = ref<Video[]>([])
-  const tags = ref<Tag[]>([])
+  // 标签状态统一由 tagStore 持有，这里保留只读引用以兼容既有消费方
+  const tagStore = useTagStore()
+  const tags = computed<Tag[]>(() => tagStore.tags)
   const currentVideo = ref<Video | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -264,69 +267,29 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
   
+  // 标签管理：委托给 tagStore，避免重复逻辑与状态分叉
   const fetchTags = async () => {
-    try {
-      const response = await tagApi.getTags() as any
-      tags.value = response.tags
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '获取标签失败'
-    }
+    return tagStore.fetchTags()
   }
-  
+
   // 创建标签 - 支持多级标签与补充项
   const createTag = async (name: string, category?: string, parentId?: number, qualifiers?: string[]) => {
-    try {
-      const response = await tagApi.createTag(name, category, parentId, qualifiers) as any
-      if (response.success) {
-        await fetchTags()
-      }
-      return response
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '创建标签失败'
-      throw e
-    }
+    return tagStore.createTag(name, category, parentId, qualifiers)
   }
-  
+
   // 更新标签 - 支持修改父标签
   const updateTag = async (id: number, data: Partial<Tag>) => {
-    try {
-      const response = await tagApi.updateTag(id, data) as any
-      if (response.success) {
-        await fetchTags()
-      }
-      return response
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '更新标签失败'
-      throw e
-    }
+    return tagStore.updateTag(id, data)
   }
-  
+
   // 删除标签
   const deleteTag = async (id: number) => {
-    try {
-      const response = await tagApi.deleteTag(id) as any
-      if (response.success) {
-        tags.value = tags.value.filter(t => t.id !== id)
-      }
-      return response
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '删除标签失败'
-      throw e
-    }
+    return tagStore.deleteTag(id)
   }
 
   // 搜索标签 - 用于智能提示
   const searchTags = async (keyword: string, libraryId?: number) => {
-    try {
-      const response = await tagApi.searchTags(keyword, libraryId) as any
-      if (response.success) {
-        return response.tags || []
-      }
-      return []
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '搜索标签失败'
-      return []
-    }
+    return tagStore.searchTags(keyword, libraryId)
   }
 
   const filterByTag = async (tagId: number | null) => {

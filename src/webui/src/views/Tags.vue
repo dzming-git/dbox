@@ -1,18 +1,17 @@
 <script setup lang="ts">
 defineOptions({ name: 'Tags' })
 import { ref, onMounted, computed } from 'vue'
-import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { tagApi } from '../api'
+import { useTagStore } from '../stores/tagStore'
 import type { Tag } from '../types'
 
-const videoStore = useVideoStore()
 const userStore = useUserStore()
+const tagStore = useTagStore()
 
 // 管理员友好：是否允许编辑（仅管理员）
 const isAdmin = computed(() => userStore.isAdmin)
 
-const loading = computed(() => videoStore.loading)
+const loading = computed(() => tagStore.loading)
 
 // 标签列表 - 使用融合模式获取用户可见的所有标签
 const allTagsList = ref<Tag[]>([])
@@ -23,10 +22,8 @@ const expandedTags = ref<Set<number>>(new Set())
 const fetchAllTags = async () => {
   try {
     // 使用 merge=true 获取融合后的标签列表，用户能看到所有有权限的资源库的标签
-    const response = await tagApi.getTags({ tree: false, merge: true }) as any
-    if (response.success && response.tags) {
-      allTagsList.value = response.tags
-    }
+    await tagStore.fetchTags({ tree: false, merge: true })
+    allTagsList.value = tagStore.tags as Tag[]
   } catch (e) {
     console.error('获取标签失败:', e)
   }
