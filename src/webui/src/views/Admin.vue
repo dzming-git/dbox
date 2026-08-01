@@ -2303,51 +2303,51 @@ onUnmounted(() => {
         <div v-if="resourceLoading" class="loading">加载中...</div>
         <div v-else class="resource-table-wrap">
         <table class="data-table">
-          <thead>
+          <thead class="res-thead">
             <tr>
-              <th>类型</th>
-              <th>标题</th>
+              <th data-label="类型">类型</th>
+              <th data-label="标题">标题</th>
               <!-- 视频独有属性 -->
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">大小</th>
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">时长</th>
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">分辨率</th>
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="大小">大小</th>
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="时长">时长</th>
+              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="分辨率">分辨率</th>
               <!-- 图集独有属性 -->
-              <th v-if="resourceTypeFilter === 'gallery'">图片个数</th>
+              <th v-if="resourceTypeFilter === 'gallery'" data-label="图片个数">图片个数</th>
               <!-- 帖子独有属性 -->
-              <th v-if="resourceTypeFilter === 'post'">正文字数</th>
+              <th v-if="resourceTypeFilter === 'post'" data-label="正文字数">正文字数</th>
               <!-- 文本独有属性 -->
-              <th v-if="resourceTypeFilter === 'text'">字数</th>
-              <th>资源库</th>
-              <th>更新时间</th>
-              <th>操作</th>
+              <th v-if="resourceTypeFilter === 'text'" data-label="字数">字数</th>
+              <th data-label="资源库">资源库</th>
+              <th data-label="更新时间">更新时间</th>
+              <th data-label="操作">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in resources" :key="r.type + ':' + r.id">
-              <td class="res-type">
+            <tr v-for="r in resources" :key="r.type + ':' + r.id" class="res-row">
+              <td data-label="类型" class="res-type">
                 <span class="type-badge" :class="'type-' + r.type">
                   <span class="type-badge-icon">{{ typeIcon(r.type) }}</span>{{ typeLabel(r.type) }}
                 </span>
               </td>
-              <td class="res-title">
+              <td data-label="标题" class="res-title">
                 <img v-if="r.cover && !isCoverBroken(r)" :src="withThumbToken(r.cover)" class="res-thumb" @error="onCoverError(r)" />
                 <span v-else class="res-thumb-placeholder">{{ typeIcon(r.type) }}</span>
                 <span :title="r.title">{{ r.title }}</span>
                 <span v-if="r.hidden" class="hidden-badge">已隐藏</span>
               </td>
               <!-- 视频独有属性 -->
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatSize(r.file_size) }}</td>
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatDuration(r.duration) }}</td>
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'">{{ formatResolution(r.width, r.height) }}</td>
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="大小">{{ formatSize(r.file_size) }}</td>
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="时长">{{ formatDuration(r.duration) }}</td>
+              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="分辨率">{{ formatResolution(r.width, r.height) }}</td>
               <!-- 图集独有属性 -->
-              <td v-if="resourceTypeFilter === 'gallery'">{{ formatCount(r.page_count) }}</td>
+              <td v-if="resourceTypeFilter === 'gallery'" data-label="图片个数">{{ formatCount(r.page_count) }}</td>
               <!-- 帖子独有属性 -->
-              <td v-if="resourceTypeFilter === 'post'">{{ formatCount(r.content_length) }}</td>
+              <td v-if="resourceTypeFilter === 'post'" data-label="正文字数">{{ formatCount(r.content_length) }}</td>
               <!-- 文本独有属性 -->
-              <td v-if="resourceTypeFilter === 'text'">{{ formatCount(r.char_count) }}</td>
-              <td>{{ libraryName(r.library_id) }}</td>
-              <td>{{ formatDate(r.updated_at) }}</td>
-              <td class="row-actions">
+              <td v-if="resourceTypeFilter === 'text'" data-label="字数">{{ formatCount(r.char_count) }}</td>
+              <td data-label="资源库">{{ libraryName(r.library_id) }}</td>
+              <td data-label="更新时间">{{ formatDate(r.updated_at) }}</td>
+              <td data-label="操作" class="row-actions">
                 <button
                   class="icon-btn"
                   :class="{ active: r.hidden }"
@@ -3961,11 +3961,67 @@ onUnmounted(() => {
   border-collapse: collapse;
 }
 
-/* 资源表格移动端横向滚动容器，避免列被挤乱、操作按钮被遮挡 */
+/* 资源表格容器 */
 .resource-table-wrap {
   width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+}
+
+/* 移动端（≤768px）：资源表格改为纵向卡片布局，取消横向滚动，列对齐 */
+@media (max-width: 768px) {
+  .resource-table-wrap {
+    overflow-x: visible;
+  }
+  .resource-table-wrap .data-table {
+    min-width: unset;
+    display: block;
+  }
+  .resource-table-wrap .res-thead {
+    display: none;
+  }
+  .resource-table-wrap .res-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: #1a1a24;
+    border: 1px solid #2a2a38;
+  }
+  .resource-table-wrap .res-row td {
+    display: contents;
+    padding: 2px 0;
+    border-bottom: none;
+    text-align: left;
+  }
+  .resource-table-wrap .res-row td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #8b949e;
+    font-size: 12px;
+    white-space: nowrap;
+    min-width: 60px;
+  }
+  /* 标题列：缩略图+标题+隐藏标记，占满整行 */
+  .resource-table-wrap .res-row td[data-label="标题"] {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .resource-table-wrap .res-row td[data-label="标题"]::before {
+    content: none;
+  }
+  /* 操作按钮：整行显示，靠右 */
+  .resource-table-wrap .res-row td[data-label="操作"] {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .resource-table-wrap .res-row td[data-label="操作"]::before {
+    content: none;
+  }
 }
 
 /* 资源管理标签页 */
