@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { logApi } from '../api'
 
 const logType = ref('maintenance')
@@ -8,6 +8,42 @@ const logLevel = ref('')
 const logUser = ref('')
 const logKeyword = ref('')
 const logDate = ref('')
+
+// 视图模式：table（表格） / raw（原始文本）
+const viewMode = ref('table')
+// 实时刷新
+const autoRefresh = ref(false)
+const refreshInterval = ref(5) // 秒
+let refreshTimer: number | null = null
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  if (!autoRefresh.value) return
+  refreshTimer = window.setInterval(() => {
+    if (!logLoading.value) loadLogs()
+  }, refreshInterval.value * 1000)
+}
+const stopAutoRefresh = () => {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+// 实时刷新开关变化时重建定时器
+const onAutoRefreshChange = () => {
+  if (autoRefresh.value) startAutoRefresh()
+  else stopAutoRefresh()
+}
+
+// 原始文本视图：将解析后的日志拼回原始行格式
+const rawLines = computed(() => {
+  return logLogs.value.map((e: any) => {
+    if (logType.value === 'operation') {
+      return `[${e.timestamp}] | [${e.source || ''}] | [${e.service}] | [${e.content}]`
+    }
+    return `[${e.timestamp}] | [${e.level || 'INFO'}] | [${e.service}] | [${e.content}]`
+  })
+})
 
 const logServices = ref<string[]>([])   // 兼容旧字段（模块名列表）
 const logModules = ref<string[]>([])     // 模块维度 facet
@@ -100,7 +136,11 @@ const showLevelFilter = () => logType.value !== 'operation'
 // 非操作审计类型下操作人无意义，自动隐藏用户筛选
 const showUserFilter = () => logType.value === 'operation'
 
-onMounted(loadLogs)
+onMounted(() => {
+  loadLogs()
+  if (autoRefresh.value) startAutoRefresh()
+})
+onUnmounted(stopAutoRefresh)
 </script>
 
 <template>
@@ -114,6 +154,44 @@ onMounted(loadLogs)
         :class="{ active: logType === lt.value }"
         @click="switchLogType(lt.value)"
       >{{ lt.label }}</button>
+    </div>
+
+    <!-- 工具栏：视图切换 + 实时刷新 -->
+    <div class="log-toolbar">
+      <div class="toolbar-left">
+        <div class="view-switch">
+          <button
+            class="view-btn"
+            :class="{ active: viewMode === 'table' }"
+            @click="viewMode = 'table'"
+          >表格</button>
+          <button
+            class="view-btn"
+            :class="{ active: viewMode === 'raw' }"
+            @click="viewMode = 'raw'"
+          >原始</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <label class="refresh-toggle">
+          <input type="checkbox" v-model="autoRefresh" @change="onAutoRefreshChange" />
+          <span>实时刷新</span>
+        </label>
+        <select
+          class="refresh-interval"
+          v-model="refreshInterval"
+          @change="onAutoRefreshChange"
+          :disabled="!autoRefresh"
+        >
+          <option :value="3">3s</option>
+          <option :value="5">5s</option>
+          <option :value="10">10s</option>
+          <option :value="30">30s</option>
+        </select>
+        <button class="manual-refresh-btn" @click="loadLogs" :disabled="logLoading">
+          {{ logLoading ? '刷新中…' : '刷新' }}
+        </button>
+      </div>
     </div>
 
     <!-- 多维筛选区 -->
@@ -179,7 +257,12 @@ onMounted(loadLogs)
 
     <!-- 日志表格 -->
     <div class="log-container">
-      <div class="log-table-wrapper" v-if="!logLoading && logLogs.length">
+      <!-- 原始文本视图 -->
+      <div class="log-raw" v-if="viewMode === 'raw' && !logLoading && rawLines.length">
+        <pre class="log-raw-text">{{ rawLines.join('\n') }}</pre>
+      </div>
+
+      <div class="log-table-wrapper" v-if="viewMode === 'table' && !logLoading && logLogs.length">
         <table class="log-table">
           <thead>
             <tr>
@@ -213,7 +296,7 @@ onMounted(loadLogs)
       </div>
 
       <!-- 移动端卡片 -->
-      <div class="log-cards" v-if="!logLoading && logLogs.length">
+      <div class="log-cards" v-if="viewMode === 'table' && !logLoading && logLogs.length">
         <div class="log-card" v-for="(entry, idx) in logLogs" :key="idx">
           <div class="log-card-header">
             <span v-if="logType !== 'operation'" class="log-badge" :class="'log-level-' + (entry.level || 'info').toLowerCase()">{{ entry.level }}</span>
@@ -256,6 +339,116 @@ onMounted(loadLogs)
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* 工具栏 */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.view-switch {
+  display: inline-flex;
+  border: 1px solid #2d2d3f;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.view-btn {
+  padding: 6px 16px;
+  border: none;
+  background: #16161d;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-btn.active {
+  background: #1976d2;
+  color: #fff;
+}
+
+.refresh-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #c9d1d9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.refresh-interval {
+  padding: 5px 8px;
+  border: 1px solid #2d2d3f;
+  border-radius: 6px;
+  background: #16161d;
+  color: #e1e1e1;
+  font-size: 13px;
+}
+
+.refresh-interval:disabled {
+  opacity: 0.5;
+}
+
+.manual-refresh-btn {
+  padding: 6px 16px;
+  border: 1px solid #2d2d3f;
+  border-radius: 6px;
+  background: #23232f;
+  cursor: pointer;
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
+.manual-refresh-btn:hover:not(:disabled) {
+  background: #2a2a38;
+}
+
+.manual-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 原始文本视图 */
+.log-raw {
+  background: #0d0d14;
+  border: 1px solid #2d2d3f;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.log-raw-text {
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .log-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar-right {
+    flex-wrap: wrap;
+  }
 }
 
 /* 多维筛选区 */
