@@ -40,14 +40,21 @@ _metrics_lock = threading.Lock()
 
 
 def get_runtime_dir():
-    """获取运行时目录（exe 同目录优先，否则项目根目录）。"""
+    """获取运行时目录（exe 同目录优先，否则项目根目录）。
+
+    项目根的 data/ 为唯一权威数据存储位置。若代码位于 src/ 子目录下，
+    向上多走一层确保命中项目根而非 src/data（避免重构后路径错位丢数据）。
+    """
     if getattr(sys, 'frozen', False):
         base = os.path.dirname(sys.executable)
     else:
         base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    # 防止命中 src/data：当 base 解析到 src 目录时，再向上一层到项目根
+    if os.path.basename(base) == 'src':
+        base = os.path.dirname(base)
     candidates = [
-        os.path.join(base, 'runtime'),
         os.path.join(base, 'data'),
+        os.path.join(base, 'runtime'),
     ]
     for c in candidates:
         if os.path.isdir(c):

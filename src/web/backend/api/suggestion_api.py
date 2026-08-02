@@ -24,8 +24,10 @@ suggestion_bp = Blueprint('suggestion_api', __name__)
 
 _lock = threading.Lock()
 
-ISSUES_FILE = os.path.join(get_runtime_dir(), 'data', 'issues.json')
-SUGGESTIONS_FILE = os.path.join(get_runtime_dir(), 'data', 'suggestions.json')
+# get_runtime_dir() 返回的是数据目录（{root}/data），issues.json 直接位于其下，
+# 切勿再追加一层 'data'，否则会落到 {root}/data/data/issues.json（路径错位丢数据）。
+ISSUES_FILE = os.path.join(get_runtime_dir(), 'issues.json')
+SUGGESTIONS_FILE = os.path.join(get_runtime_dir(), 'suggestions.json')
 
 # 状态
 STATUS_OPEN = 'open'              # 开放
