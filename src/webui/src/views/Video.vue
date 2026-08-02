@@ -4300,12 +4300,15 @@ const handleDelete = async () => {
 
   .rec-item {
     flex-direction: column;
+    min-width: 0;
   }
 
   .rec-thumbnail-wrapper {
     width: 100%;
     height: auto;
+    min-width: 0;
     aspect-ratio: 16 / 9;
+    overflow: hidden;
   }
 }
 
@@ -4320,7 +4323,9 @@ const handleDelete = async () => {
 
   .rec-thumbnail-wrapper {
     height: auto;
+    min-width: 0;
     aspect-ratio: 16 / 9;
+    overflow: hidden;
   }
 }
 /* 精彩片段标记 */
