@@ -216,7 +216,7 @@ const showToast = (message: string) => {
 @media (max-width: 768px) {
   .disliked-page { padding: 16px; }
   .page-title { font-size: 22px; }
-  .disliked-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .disliked-grid { grid-template-columns: repeat(1, 1fr); gap: 12px; }
 }
 /* 管理员可见的资源位置与大小（权限控制） */
 .admin-meta {
