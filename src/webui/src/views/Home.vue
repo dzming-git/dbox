@@ -133,7 +133,7 @@ const goBackTagLevel = () => {
     currentTagLevel.value = allTagsTree.value
   } else {
     const parentPath = tagBreadcrumbs.value.map(b => b.name).join('/')
-    const findLevel = (nodes: any[], path: string): any[] => {
+    const findLevel = (nodes: any[], path: string): any[] | null => {
       for (const node of nodes) {
         if ((node.path || node.name) === path && node.children) {
           return node.children
@@ -2119,7 +2119,6 @@ const onListImgError = (e: Event) => {
     line-clamp: 2;
   }
 
-  /* 操作区只占自身内容宽度，竖排靠右，不再撑开中间区域 */
   /* 手机端列表：普通模式下操作列不占位，标题占满；仅编辑模式显示编辑按钮 */
   .list-actions {
     display: none;
@@ -2137,6 +2136,20 @@ const onListImgError = (e: Event) => {
     width: 30px;
     height: 30px;
   }
-}
+
+  /* 列表缩略图本就小，缩小右上角稍后再看浮层，避免喧宾夺主 */
+  .list-thumb .watch-later-btn.overlay {
+    width: 22px;
+    height: 22px;
+    top: 4px;
+    right: 4px;
+    opacity: 0.8;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(1px);
+  }
+  .list-thumb .watch-later-btn.overlay .wl-icon {
+    width: 12px;
+    height: 12px;
+  }
 }
 </style>
