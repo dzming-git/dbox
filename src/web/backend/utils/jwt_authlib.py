@@ -2,6 +2,7 @@
 from authlib.jose import jwt
 import datetime
 import os
+import secrets
 from functools import wraps
 from flask import request, jsonify, g
 from typing import Optional, Dict, Any
@@ -38,13 +39,19 @@ def create_access_token(user_id: int, role: int, username: str) -> str:
 
 
 def create_refresh_token(user_id: int) -> str:
-    """创建刷新token"""
+    """创建刷新token
+
+    注意：payload 必须包含随机 jti，否则同一秒内重复登录会生成完全相同的
+    JWT，而登录逻辑把它当作 user_sessions.session_token 写入，触发 UNIQUE
+    冲突导致登录 500。加入随机 jti 后每次令牌唯一。
+    """
     expire = datetime.datetime.utcnow() + datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         'user_id': user_id,
         'exp': expire,
         'iat': datetime.datetime.utcnow(),
-        'type': 'refresh'
+        'type': 'refresh',
+        'jti': secrets.token_hex(8)
     }
     header = {'alg': ALGORITHM}
     token = jwt.encode(header, payload, SECRET_KEY)
