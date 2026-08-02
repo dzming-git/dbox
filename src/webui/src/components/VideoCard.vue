@@ -339,7 +339,7 @@ const handleImageError = () => {
 .title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 4px 0;
   overflow: hidden;
   text-overflow: ellipsis;
