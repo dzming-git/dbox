@@ -158,5 +158,5 @@ const handleClick = () => {
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.card-tag:hover { background: var(--accent-soft-hover); color: var(--text-on-accent); }
+.card-tag:hover { background: var(--accent-soft-hover); color: var(--accent); }
 </style>

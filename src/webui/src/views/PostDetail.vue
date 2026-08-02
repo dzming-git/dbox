@@ -354,10 +354,10 @@ const removePost = async () => {
 <style scoped>
 .detail-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .back-btn { background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
-.back-btn:hover { color: var(--text-on-accent); }
+.back-btn:hover { color: var(--accent); }
 .detail-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .watchlater-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
-.watchlater-detail-btn:hover { color: var(--text-on-accent); background: var(--bg-surface-2); }
+.watchlater-detail-btn:hover { color: var(--accent); background: var(--bg-surface-2); }
 .watchlater-detail-btn.active { color: #ffb300; border-color: rgba(255,179,0,0.4); background: rgba(255,179,0,0.12); }
 .delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--danger-soft); background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
 .delete-detail-btn:hover { background: var(--danger-soft); color: var(--danger); }
@@ -388,7 +388,7 @@ const removePost = async () => {
 .inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid var(--border-default); transition: transform .15s; }
 .inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
 .doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid var(--bg-surface-2); border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
-.doc-card:hover { border-color: var(--accent); color: var(--text-on-accent); }
+.doc-card:hover { border-color: var(--accent); color: var(--accent); }
 .doc-icon { font-size: 22px; }
 .doc-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
 .doc-dl { margin-left: auto; font-size: 12px; color: var(--accent); background: var(--info-soft); border-radius: 6px; padding: 3px 10px; }
@@ -423,7 +423,7 @@ const removePost = async () => {
 .del-actions { display: flex; gap: 12px; margin-top: 20px; }
 .del-cancel, .del-confirm { flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; cursor: pointer; border: 1px solid transparent; }
 .del-cancel { background: var(--bg-surface-hover); border-color: var(--border-default); color: var(--text-secondary); }
-.del-cancel:hover { background: var(--bg-surface-2); color: var(--text-on-accent); }
+.del-cancel:hover { background: var(--bg-surface-2); color: var(--accent); }
 .del-confirm { background: #b22; color: var(--text-on-accent); border-color: #d33; }
 .del-confirm:hover { background: #d22; }
 .del-confirm:disabled, .del-cancel:disabled { opacity: .55; cursor: not-allowed; }

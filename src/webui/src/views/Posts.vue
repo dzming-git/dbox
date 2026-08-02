@@ -389,7 +389,7 @@ const formatDate = (s?: string) => {
 .open-hint { font-size: 13px; color: var(--accent); opacity: 0; transition: opacity 0.15s; }
 .post-card:hover .open-hint { opacity: 1; }
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }
-.op-btn:hover { color: var(--text-on-accent); }
+.op-btn:hover { color: var(--accent); }
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .post-content { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin: 12px 0; white-space: pre-wrap; }
 
@@ -445,7 +445,7 @@ const formatDate = (s?: string) => {
 
 .modal-ops { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .cancel-btn { padding: 8px 18px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 8px; cursor: pointer; }
-.cancel-btn:hover { color: var(--text-on-accent); }
+.cancel-btn:hover { color: var(--accent); }
 .save-btn { padding: 8px 22px; border: none; border-radius: 8px; background: var(--accent); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .save-btn:hover:not(:disabled) { background: var(--accent-active); }

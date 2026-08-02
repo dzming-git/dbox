@@ -141,7 +141,7 @@ const formatDate = (s?: string) => {
 .text-date { font-size: 12px; color: var(--text-tertiary); }
 .text-ops { display: flex; gap: 8px; }
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }
-.op-btn:hover { color: var(--text-on-accent); }
+.op-btn:hover { color: var(--accent); }
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .text-summary { color: var(--text-secondary); font-size: 13px; margin: 8px 0 4px; }
 .text-body { color: var(--text-secondary); font-size: 14px; line-height: 1.6; white-space: pre-wrap; margin: 0; }
@@ -154,7 +154,7 @@ const formatDate = (s?: string) => {
 .text-input:focus, .text-area:focus { outline: none; border-color: #4CAF50; }
 .modal-ops { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .cancel-btn { padding: 8px 18px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 8px; cursor: pointer; }
-.cancel-btn:hover { color: var(--text-on-accent); }
+.cancel-btn:hover { color: var(--accent); }
 .save-btn { padding: 8px 22px; border: none; border-radius: 8px; background: #4CAF50; color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .save-btn:hover:not(:disabled) { background: #43a047; }

@@ -2752,7 +2752,7 @@ const handleDelete = async () => {
   cursor: pointer;
   transition: all 0.15s;
 }
-.more-menu-item:hover { background: var(--bg-surface-hover); color: var(--text-on-accent); }
+.more-menu-item:hover { background: var(--bg-surface-hover); color: var(--accent); }
 .more-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
 
