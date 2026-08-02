@@ -63,7 +63,7 @@ onMounted(loadTags)
 
 <style scoped>
 .gallery-tags-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.page-title { font-size: 24px; font-weight: 600; color: var(--text-on-accent); margin: 0 0 6px; }
+.page-title { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0 0 6px; }
 .page-desc { color: var(--text-tertiary); font-size: 14px; margin: 0 0 20px; }
 .loading, .empty { color: var(--text-secondary); text-align: center; padding: 60px 0; }
 .tag-tree { list-style: none; margin: 0; padding: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 12px; overflow: hidden; }

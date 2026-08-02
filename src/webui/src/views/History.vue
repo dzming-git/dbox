@@ -128,7 +128,7 @@ const showToast = (message: string) => {
   align-items: center;
   margin-bottom: 24px;
 }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-primary); }
 .clear-btn {
   display: flex;
   align-items: center;

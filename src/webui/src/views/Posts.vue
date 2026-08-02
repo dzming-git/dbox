@@ -360,7 +360,7 @@ const formatDate = (s?: string) => {
 <style scoped>
 .posts-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .posts-header { display: flex; align-items: center; justify-content: space-between; }
-.section-title { font-size: 20px; font-weight: 600; color: var(--text-on-accent); margin: 0; }
+.section-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .create-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 16px; border: none; border-radius: 8px;
@@ -401,7 +401,7 @@ const formatDate = (s?: string) => {
 /* 弹窗 */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
 .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 820px; max-height: 90vh; overflow-y: auto; }
-.modal-title { color: var(--text-on-accent); margin: 0 0 16px; font-size: 18px; }
+.modal-title { color: var(--text-primary); margin: 0 0 16px; font-size: 18px; }
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-on-accent); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }

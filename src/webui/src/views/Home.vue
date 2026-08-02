@@ -1443,10 +1443,10 @@ const onListImgError = (e: Event) => {
 .shuffle-btn {
   height: 36px;
   padding: 0 14px;
-  border: 1px solid rgba(74, 158, 255, 0.3);
+  border: 1px solid var(--accent-border);
   border-radius: 18px;
-  background: linear-gradient(135deg, rgba(74, 158, 255, 0.15) 0%, rgba(74, 158, 255, 0.05) 100%);
-  color: #4a9eff;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -1458,9 +1458,10 @@ const onListImgError = (e: Event) => {
 }
 
 .shuffle-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(74, 158, 255, 0.25) 0%, rgba(74, 158, 255, 0.15) 100%);
-  border-color: #4a9eff;
-  box-shadow: 0 0 20px rgba(74, 158, 255, 0.2);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(234, 88, 12, 0.2);
   transform: translateY(-1px);
 }
 

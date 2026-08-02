@@ -315,7 +315,7 @@ watch(() => route.query, async (newQuery) => {
 .spinner { width: 48px; height: 48px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .continue-section { margin-bottom: 32px; }
-.section-title { font-size: 20px; font-weight: 600; color: var(--text-on-accent); margin: 0 0 16px; }
+.section-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0 0 16px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; color: var(--text-tertiary); }
 .empty-state p { margin-top: 12px; font-size: 16px; }
 .empty-tip { font-size: 13px; color: var(--text-secondary); max-width: 420px; text-align: center; }
@@ -360,7 +360,7 @@ watch(() => route.query, async (newQuery) => {
 .continue-header:hover { background: var(--bg-surface-hover); }
 .continue-header.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .continue-title { display: flex; align-items: center; gap: 8px; }
-.continue-title .section-title { margin: 0; font-size: 17px; font-weight: 600; color: var(--text-on-accent); }
+.continue-title .section-title { margin: 0; font-size: 17px; font-weight: 600; color: var(--text-primary); }
 .continue-count {
   min-width: 20px;
   padding: 1px 7px;

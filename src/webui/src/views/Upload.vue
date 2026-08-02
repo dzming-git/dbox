@@ -767,7 +767,7 @@ const clearError = () => {
 /* 上传区域 */
 .upload-zone {
   background: linear-gradient(135deg, #fef3ea 0%, #f1f3f7 100%);
-  border: 2px dashed #667eea;
+  border: 2px dashed var(--accent-border);
   border-radius: 16px;
   padding: 60px 40px;
   text-align: center;
@@ -777,8 +777,8 @@ const clearError = () => {
 
 .upload-zone:hover,
 .upload-zone.dragging {
-  background: linear-gradient(135deg, var(--bg-surface-2) 0%, #1a2748 100%);
-  border-color: #764ba2;
+  background: linear-gradient(135deg, #fff3e8 0%, var(--accent-soft) 100%);
+  border-color: var(--accent);
   transform: translateY(-2px);
 }
 
@@ -1196,7 +1196,7 @@ const clearError = () => {
 
 /* 进度条处理中状态（闪烁动画） */
 .progress-fill.processing {
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+  background: linear-gradient(90deg, #f97316 0%, #ea580c 50%, #f97316 100%);
   background-size: 200% 100%;
   animation: progressShimmer 1.5s ease infinite;
 }

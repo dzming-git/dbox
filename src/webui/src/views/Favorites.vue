@@ -315,7 +315,7 @@ const showToast = (message: string) => {
 .del-collection-btn:hover { color: var(--danger); }
 .favorites-main { flex: 1; min-width: 0; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-primary); }
 .loading-container {
   display: flex;
   flex-direction: column;

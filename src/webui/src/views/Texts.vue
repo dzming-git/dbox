@@ -124,9 +124,9 @@ const formatDate = (s?: string) => {
 <style scoped>
 .texts-container { padding: 20px; max-width: 1000px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .texts-header { display: flex; align-items: center; justify-content: space-between; }
-.section-title { font-size: 20px; font-weight: 600; color: var(--text-on-accent); margin: 0; }
-.create-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 8px; background: #4CAF50; color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
-.create-btn:hover { background: #43a047; }
+.section-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.create-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 8px; background: var(--accent); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
+.create-btn:hover { background: var(--accent-active); }
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 16px; line-height: 1.5; }
 .hint code { background: var(--bg-surface-hover); padding: 1px 6px; border-radius: 4px; color: var(--text-secondary); }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
@@ -147,7 +147,7 @@ const formatDate = (s?: string) => {
 .text-body { color: var(--text-secondary); font-size: 14px; line-height: 1.6; white-space: pre-wrap; margin: 0; }
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
 .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; }
-.modal-title { color: var(--text-on-accent); margin: 0 0 16px; font-size: 18px; }
+.modal-title { color: var(--text-primary); margin: 0 0 16px; font-size: 18px; }
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-on-accent); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }

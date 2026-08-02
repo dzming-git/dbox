@@ -2719,7 +2719,7 @@ const handleDelete = async () => {
 .edit-video-btn:hover {
   border-color: var(--accent);
   color: var(--text-on-accent);
-  background: var(--bg-surface-hover);
+  background: var(--accent);
 }
 
 /* “更多”菜单（收纳不常用操作：显示/隐藏） */
@@ -3776,8 +3776,8 @@ const handleDelete = async () => {
 }
 
 .tag-editor-dialog .btn-icon:hover {
-  background: var(--bg-surface-2);
-  color: var(--text-on-accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .tag-editor-dialog .btn-primary {
@@ -4330,7 +4330,7 @@ const handleDelete = async () => {
 }
 .marker-save {
   background: var(--accent);
-  border-color: #2196f3;
+  border-color: var(--accent);
   color: var(--text-on-accent);
 }
 .marker-save:hover {
@@ -4431,20 +4431,21 @@ const handleDelete = async () => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--border-default);
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
   transition: all 0.15s ease;
 }
 .qualifier-chip:hover {
-  border-color: rgba(105, 219, 255, 0.6);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .qualifier-chip.on {
-  background: rgba(105, 219, 255, 0.18);
-  border-color: #69dbff;
-  color: #e7f6ff;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .qualifier-add {
   display: inline-flex;
@@ -4455,14 +4456,14 @@ const handleDelete = async () => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.28);
-  background: rgba(0, 0, 0, 0.25);
-  color: #e2e8f0;
+  border: 1px dashed var(--border-default);
+  background: var(--bg-base);
+  color: var(--text-primary);
   width: 110px;
   outline: none;
 }
 .qualifier-add-input:focus {
-  border-color: #69dbff;
+  border-color: var(--accent);
   border-style: solid;
 }
 .qualifier-add-btn {

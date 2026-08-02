@@ -93,7 +93,7 @@ const showToast = (message: string) => {
   color: var(--text-on-accent);
 }
 .page-header { margin-bottom: 24px; }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-primary); }
 .loading-container {
   display: flex;
   flex-direction: column;
