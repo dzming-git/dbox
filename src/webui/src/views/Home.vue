@@ -1696,7 +1696,6 @@ const onListImgError = (e: Event) => {
   flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
-  max-width: 144px;
 }
 
 .list-action-btn {
@@ -2088,18 +2087,31 @@ const onListImgError = (e: Event) => {
     justify-content: center;
   }
 
-  /* 移动端列表模式：缩略图收窄，操作按钮缩小 */
+  /* 移动端列表模式：缩略图收窄让位标题，操作按钮不再霸占右侧空间 */
   .video-list-row {
     gap: 10px;
-    padding: 6px;
+    padding: 8px 10px;
+    align-items: stretch;
   }
 
   .list-thumb {
-    width: 120px;
+    width: 92px;
+    align-self: center;
+  }
+
+  /* 标题区占满缩略图到操作按钮之间的全部宽度 */
+  .list-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   .list-title {
-    font-size: 13px;
+    font-size: 15px;
+    line-height: 1.4;
+    margin: 0 0 4px 0;
     white-space: normal;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -2107,13 +2119,20 @@ const onListImgError = (e: Event) => {
     line-clamp: 2;
   }
 
+  /* 操作区只占自身内容宽度，竖排靠右，不再撑开中间区域 */
+  .list-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    flex-shrink: 0;
+    max-width: none;
+    width: auto;
+    gap: 6px;
+  }
+
   .list-action-btn {
     width: 30px;
     height: 30px;
-  }
-
-  .list-actions {
-    gap: 4px;
   }
 }
 </style>
