@@ -1804,31 +1804,25 @@ onUnmounted(() => {
           </div>
           <div v-if="trashLoading" class="empty-tip">加载中…</div>
           <div v-else-if="trashItems.length === 0" class="empty-tip">回收站为空</div>
-          <table v-else class="data-table">
-            <thead>
-              <tr>
-                <th>类型</th>
-                <th>标题</th>
-                <th>上传者</th>
-                <th>删除时间</th>
-                <th>大小</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in trashItems" :key="item.type + item.hash">
-                <td>{{ item.type === 'video' ? '视频' : '图集' }}</td>
-                <td class="cell-title">{{ item.title }}</td>
-                <td>{{ item.owner || '—' }}</td>
-                <td>{{ formatTrashTime(item.trashed_at) }}</td>
-                <td>{{ formatSize(item.size) }}</td>
-                <td class="cell-actions">
-                  <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
-                  <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else class="trash-grid">
+            <div v-for="item in trashItems" :key="item.type + item.hash" class="trash-card">
+              <div class="trash-card-header">
+                <span class="trash-type-badge" :class="item.type === 'video' ? 'type-video' : 'type-gallery'">
+                  {{ item.type === 'video' ? '视频' : '图集' }}
+                </span>
+                <span class="trash-time">{{ formatTrashTime(item.trashed_at) }}</span>
+              </div>
+              <h4 class="trash-title">{{ item.title || '(无标题)' }}</h4>
+              <div class="trash-meta">
+                <span class="meta-line">{{ item.owner || '—' }}</span>
+                <span class="meta-line">{{ formatSize(item.size) }}</span>
+              </div>
+              <div class="trash-actions">
+                <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
+                <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -8472,6 +8466,92 @@ input:checked + .slider:before {
 .import-action-bar .selected-count { color: var(--text-tertiary); font-size: 13px; }
 
 .import-action-bar .action-btn.primary.large { margin-left: auto; }
+
+/* 回收站卡片网格（替代旧 data-table） */
+.trash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.trash-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.trash-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.trash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.trash-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.trash-type-badge.type-video { background: rgba(96,165,250,0.14); color: #60a5fa; }
+.trash-type-badge.type-gallery { background: rgba(168,85,247,0.14); color: #a855f7; }
+
+.trash-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.trash-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.trash-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 640px) {
+  .trash-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .trash-card {
+    padding: 12px;
+  }
+  .trash-actions {
+    flex-wrap: wrap;
+  }
+  .trash-actions .btn {
+    flex: 1;
+    text-align: center;
+  }
+}
 
 </style>
 
