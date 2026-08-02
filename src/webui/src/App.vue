@@ -779,6 +779,19 @@ body.reader-active .main-content {
     padding: 8px 12px;
     font-size: 13px;
   }
+
+  /* 手机端：头像固定钉在右上角，不受导航换行影响 */
+  .user-avatar-wrapper {
+    position: fixed;
+    top: 10px;
+    right: 12px;
+    z-index: 300;
+  }
+
+  /* 为固定头像预留空间，避免与其他导航图标重叠 */
+  .nav-right {
+    padding-right: 48px;
+  }
 }
 
 
