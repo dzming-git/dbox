@@ -137,7 +137,7 @@ const formatDate = (s?: string) => {
 .texts-list { display: flex; flex-direction: column; gap: 16px; }
 .text-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 18px; cursor: pointer; }
 .text-head { display: flex; align-items: center; gap: 12px; }
-.text-title { font-size: 17px; font-weight: 600; color: var(--text-on-accent); margin: 0; flex: 1; }
+.text-title { font-size: 17px; font-weight: 600; color: var(--text-primary); margin: 0; flex: 1; }
 .text-date { font-size: 12px; color: var(--text-tertiary); }
 .text-ops { display: flex; gap: 8px; }
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }

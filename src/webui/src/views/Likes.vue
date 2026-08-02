@@ -90,7 +90,7 @@ const showToast = (message: string) => {
   margin: 0 auto;
   min-height: 100vh;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 .page-header { margin-bottom: 24px; }
 .page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-primary); }
@@ -126,7 +126,7 @@ const showToast = (message: string) => {
   background: #ff4757;
   border: none;
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   text-decoration: none;
   cursor: pointer;

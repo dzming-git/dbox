@@ -446,7 +446,7 @@ watch(
   width: 100%;
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;

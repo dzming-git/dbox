@@ -236,7 +236,7 @@ const showToast = (message: string) => {
   margin: 0 auto;
   min-height: 100vh;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 .favorites-layout {
   display: flex;

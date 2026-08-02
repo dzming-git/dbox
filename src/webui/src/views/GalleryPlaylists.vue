@@ -121,7 +121,7 @@ onMounted(load)
 <style scoped>
 .playlists-container { padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-.header h1 { font-size: 24px; font-weight: 600; color: var(--text-on-accent); margin: 0; }
+.header h1 { font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .create-btn { padding: 10px 18px; background: var(--accent); border: none; border-radius: 8px; color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .loading, .empty { color: var(--text-secondary); text-align: center; padding: 60px 0; }
 .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
@@ -129,21 +129,21 @@ onMounted(load)
 .playlist-card:hover { border-color: var(--accent); }
 .playlist-card.active { border-color: var(--accent); background: var(--info-soft); }
 .pl-head { display: flex; align-items: center; justify-content: space-between; }
-.pl-head h3 { font-size: 16px; color: var(--text-on-accent); margin: 0; }
+.pl-head h3 { font-size: 16px; color: var(--text-primary); margin: 0; }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #4caf50; color: var(--text-on-accent); }
 .pl-desc { color: var(--text-tertiary); font-size: 13px; margin: 8px 0; min-height: 18px; }
 .pl-meta { color: var(--text-tertiary); font-size: 12px; }
 .detail { margin-top: 28px; border-top: 1px solid var(--border-default); padding-top: 20px; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.detail-head h2 { font-size: 20px; color: var(--text-on-accent); margin: 0; }
+.detail-head h2 { font-size: 20px; color: var(--text-primary); margin: 0; }
 .del-btn { padding: 8px 14px; background: rgba(255,107,107,0.15); border: 1px solid rgba(255,107,107,0.3); border-radius: 6px; color: var(--danger); cursor: pointer; font-size: 13px; }
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
 .detail-item { position: relative; }
 .remove-btn { position: absolute; top: 6px; right: 6px; z-index: 5; padding: 4px 8px; background: rgba(0,0,0,0.6); border: none; border-radius: 4px; color: var(--text-on-accent); font-size: 12px; cursor: pointer; }
 .dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .dialog { background: var(--bg-surface-hover); border-radius: 16px; padding: 24px; width: 420px; max-width: 90vw; }
-.dialog h3 { color: var(--text-on-accent); margin: 0 0 16px; }
-.fld { width: 100%; box-sizing: border-box; padding: 10px 12px; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-on-accent); font-size: 14px; margin-bottom: 12px; font-family: inherit; }
+.dialog h3 { color: var(--text-primary); margin: 0 0 16px; }
+.fld { width: 100%; box-sizing: border-box; padding: 10px 12px; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-primary); font-size: 14px; margin-bottom: 12px; font-family: inherit; }
 .fld:focus { outline: none; border-color: var(--accent); }
 .pub { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 14px; margin-bottom: 16px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 12px; }

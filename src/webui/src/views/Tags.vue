@@ -689,7 +689,7 @@ const confirmMerge = async () => {
 .page-title {
   font-size: 28px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -990,7 +990,7 @@ const confirmMerge = async () => {
 .dialog h3 {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 20px 0;
 }
 
@@ -1062,7 +1062,7 @@ const confirmMerge = async () => {
 }
 
 .suggestion-path {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -1112,7 +1112,7 @@ const confirmMerge = async () => {
   background: transparent;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -1159,7 +1159,7 @@ const confirmMerge = async () => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(33, 33, 33, 0.95);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 14px;
@@ -1215,7 +1215,7 @@ const confirmMerge = async () => {
   background: var(--bg-surface-2);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -1263,7 +1263,7 @@ const confirmMerge = async () => {
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--bg-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;

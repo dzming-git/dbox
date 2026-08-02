@@ -305,7 +305,7 @@ watch(() => route.query, async (newQuery) => {
 .list-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .list-pages { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.7); color: var(--text-on-accent); padding: 1px 6px; border-radius: 4px; font-size: 11px; }
 .list-info { flex: 1; min-width: 0; }
-.list-title { font-size: 14px; font-weight: 500; color: var(--text-on-accent); margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-title { font-size: 14px; font-weight: 500; color: var(--text-primary); margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-meta { display: flex; gap: 14px; font-size: 12px; color: var(--text-tertiary); }
 .list-actions { display: flex; gap: 6px; }
 .list-action-btn { width: 34px; height: 34px; background: var(--bg-surface-hover); border: none; border-radius: 50%; color: var(--text-secondary); cursor: pointer; }
@@ -329,7 +329,7 @@ watch(() => route.query, async (newQuery) => {
 .list-action-btn.delete { background: var(--bg-surface-hover); color: var(--danger); }
 .list-action-btn.delete:hover { background: rgba(255,107,107,0.18); color: #ff5252; }
 .page-btn { padding: 8px 14px; background: var(--bg-surface-hover); color: var(--text-secondary); border: 1px solid var(--border-strong); border-radius: 6px; cursor: pointer; font-size: 14px; }
-.page-btn:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--text-on-accent); }
+.page-btn:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--accent); }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 .page-ellipsis { color: var(--text-tertiary); padding: 0 4px; }

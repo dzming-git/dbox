@@ -381,7 +381,7 @@ const formatDate = (s?: string) => {
 .post-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .post-head-main { cursor: pointer; display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
 .post-card:hover .post-title { color: var(--accent); }
-.post-title { font-size: 17px; font-weight: 600; color: var(--text-on-accent); margin: 0; }
+.post-title { font-size: 17px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .post-title--empty { color: var(--text-tertiary); font-weight: 500; }
 .post-date { font-size: 12px; color: var(--text-tertiary); }
 .post-ops { display: flex; gap: 8px; flex-shrink: 0; }

@@ -222,7 +222,7 @@ onMounted(() => {
 }
 .wl-card-remove:hover {
   background: #ff6b6b;
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 .wl-card-title {
   padding: 10px 12px;

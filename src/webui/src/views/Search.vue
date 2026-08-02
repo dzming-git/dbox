@@ -163,7 +163,7 @@ onMounted(search)
 </template>
 
 <style scoped>
-.search-page { padding: 24px; max-width: 1400px; margin: 0 auto; min-height: 100vh; background: var(--bg-surface); color: var(--text-on-accent); }
+.search-page { padding: 24px; max-width: 1400px; margin: 0 auto; min-height: 100vh; background: var(--bg-surface); color: var(--text-primary); }
 .search-header { margin-bottom: 20px; }
 .search-box { position: relative; max-width: 600px; }
 .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); }

@@ -88,8 +88,9 @@ const goBack = () => {
 .text-detail { padding: 12px 16px 32px; max-width: 920px; margin: 0 auto; }
 .detail-bar {
   display: flex; align-items: center; gap: 12px;
-  position: sticky; top: 0; background: var(--bg, var(--text-on-accent));
+  position: sticky; top: 0; background: var(--bg, var(--text-primary));
   padding: 10px 0; z-index: 5; border-bottom: 1px solid var(--border, var(--text-primary));
+  color: var(--text-on-accent);
 }
 .back-btn {
   border: none; background: transparent; color: var(--accent, #39f);

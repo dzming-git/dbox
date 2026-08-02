@@ -847,7 +847,7 @@ watch(
   transition: all 0.15s ease;
 }
 .fb-type-tab:hover { color: var(--text-primary); border-color: var(--text-secondary); }
-.fb-type-tab.active { color: var(--text-on-accent); border-color: transparent; }
+.fb-type-tab.active { color: var(--text-primary); border-color: transparent; }
 .fb-type-tab.bug.active { background: #f85149; }
 .fb-type-tab.suggestion.active { background: #58a6ff; }
 .fb-type-tab.other.active { background: var(--text-secondary); }
@@ -879,7 +879,7 @@ watch(
   transition: all 0.15s ease;
 }
 .fb-type-option:hover { color: var(--text-primary); border-color: var(--text-secondary); }
-.fb-type-option.active { color: var(--text-on-accent); border-color: transparent; }
+.fb-type-option.active { color: var(--text-primary); border-color: transparent; }
 .fb-type-option.bug.active { background: #f85149; }
 .fb-type-option.suggestion.active { background: #58a6ff; }
 .fb-type-option.other.active { background: var(--text-secondary); }

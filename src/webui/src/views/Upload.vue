@@ -655,7 +655,7 @@ const clearError = () => {
 }
 
 .page-title {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 28px;
   margin-bottom: 32px;
   text-align: center;
@@ -686,7 +686,7 @@ const clearError = () => {
 }
 
 .section-title {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 18px;
   margin-bottom: 16px;
   display: flex;
@@ -738,7 +738,7 @@ const clearError = () => {
 }
 
 .library-name {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 500;
 }
@@ -811,7 +811,7 @@ const clearError = () => {
 }
 
 .upload-text {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 18px;
   margin-bottom: 12px;
 }
@@ -880,7 +880,7 @@ const clearError = () => {
 }
 
 .progress-header h3 {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -932,7 +932,7 @@ const clearError = () => {
 }
 
 .upload-success h3 {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 24px;
   margin-bottom: 12px;
 }
@@ -957,7 +957,7 @@ const clearError = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 32px;
   margin: 0 auto 20px;
 }
@@ -991,7 +991,7 @@ const clearError = () => {
 }
 
 .video-form h3 {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 18px;
   margin-bottom: 8px;
 }
@@ -1057,7 +1057,7 @@ const clearError = () => {
 
 .tag-option:hover {
   border-color: var(--accent);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .tag-option.selected {
@@ -1082,7 +1082,7 @@ const clearError = () => {
 }
 
 .files-header h3 {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 18px;
   margin: 0;
 }
@@ -1127,7 +1127,7 @@ const clearError = () => {
 }
 
 .file-name {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   margin-bottom: 4px;
 }
@@ -1172,7 +1172,7 @@ const clearError = () => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 77, 79, 0.95);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 14px;
@@ -1264,7 +1264,7 @@ const clearError = () => {
 }
 
 .error-modal-header h3 {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 20px;
   margin: 0;
   font-weight: 600;

@@ -980,7 +980,7 @@ const onListImgError = (e: Event) => {
 .ob-title {
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
@@ -1011,7 +1011,7 @@ const onListImgError = (e: Event) => {
   height: 26px;
   border-radius: 50%;
   background: #ff4d6d;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
   display: flex;
@@ -1020,7 +1020,7 @@ const onListImgError = (e: Event) => {
 }
 
 .ob-step-title {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
 }
@@ -1054,7 +1054,7 @@ const onListImgError = (e: Event) => {
 
 .ob-primary {
   background: #ff4d6d;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   border-color: #ff4d6d;
 }
 
@@ -1102,7 +1102,7 @@ const onListImgError = (e: Event) => {
 }
 
 .media-tab:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -1150,7 +1150,7 @@ const onListImgError = (e: Event) => {
 .tags-header h3 {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -1188,7 +1188,7 @@ const onListImgError = (e: Event) => {
 }
 
 .breadcrumb-item:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .breadcrumb-item.active {
@@ -1211,7 +1211,7 @@ const onListImgError = (e: Event) => {
 
 .nav-back-btn:hover {
   background: var(--border-strong);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .tags-container {
@@ -1286,7 +1286,7 @@ const onListImgError = (e: Event) => {
 }
 
 .tag-nav-item.active .tag-nav-name {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .tag-nav-badge {
@@ -1339,7 +1339,7 @@ const onListImgError = (e: Event) => {
 
 .tags-toggle-btn:hover {
   background: var(--bg-surface-2);
-  color: var(--text-on-accent);
+  color: var(--accent);
   border-color: var(--border-strong);
 }
 
@@ -1595,7 +1595,7 @@ const onListImgError = (e: Event) => {
 }
 
 .view-toggle-btn:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
   background: var(--bg-surface-2);
 }
 
@@ -1665,7 +1665,7 @@ const onListImgError = (e: Event) => {
 .list-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 6px 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1715,7 +1715,7 @@ const onListImgError = (e: Event) => {
 
 .list-action-btn:hover {
   background: var(--bg-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .list-action-btn.like.active {
@@ -1800,7 +1800,7 @@ const onListImgError = (e: Event) => {
 
 .page-btn:hover:not(:disabled) {
   background: var(--bg-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .page-btn:disabled {
@@ -1895,7 +1895,7 @@ const onListImgError = (e: Event) => {
 .section-title {
   font-size: 20px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 16px;
 }
 
@@ -1955,7 +1955,7 @@ const onListImgError = (e: Event) => {
 .continue-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 4px;
   line-height: 1.4;
   display: -webkit-box;

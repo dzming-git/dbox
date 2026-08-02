@@ -435,7 +435,7 @@ watch(
   margin: 0 auto;
   min-height: 100vh;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -446,7 +446,7 @@ watch(
   font-size: 28px;
   font-weight: 600;
   margin: 0 0 8px 0;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .page-sub {
@@ -515,7 +515,7 @@ watch(
   font-size: 18px;
   font-weight: 600;
   margin: 0 0 20px 0;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .setting-item {
@@ -541,7 +541,7 @@ watch(
   gap: 8px;
   font-size: 15px;
   font-weight: 500;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
@@ -713,7 +713,7 @@ input:disabled + .toggle-slider {
 
 .reset-btn:hover:not(:disabled) {
   background: var(--bg-surface-2);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .save-btn {

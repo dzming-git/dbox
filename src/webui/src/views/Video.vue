@@ -2273,7 +2273,7 @@ const handleDelete = async () => {
 .video-page {
   min-height: 100vh;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .back-btn {
@@ -2283,7 +2283,7 @@ const handleDelete = async () => {
   padding: 16px 24px;
   background: transparent;
   border: none;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 16px;
   cursor: pointer;
   transition: color 0.2s;
@@ -2353,7 +2353,7 @@ const handleDelete = async () => {
 .recommendations-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .shuffle-btn {
@@ -2372,7 +2372,7 @@ const handleDelete = async () => {
 
 .shuffle-btn:hover:not(:disabled) {
   background: var(--bg-surface-2);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .shuffle-btn:disabled {
@@ -2479,7 +2479,7 @@ const handleDelete = async () => {
 
 .rec-title {
   font-size: 13px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2564,7 +2564,7 @@ const handleDelete = async () => {
   margin-left: -5px;
   transform: translateY(-50%);
   background: #ff4d6d;
-  border: 2px solid var(--text-on-accent);
+  border: 2px solid var(--text-primary);
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.15s;
@@ -2621,7 +2621,7 @@ const handleDelete = async () => {
 }
 
 .ac-name {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 10px;
@@ -2663,7 +2663,7 @@ const handleDelete = async () => {
 
 .ac-now {
   background: #ff4d6d;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -2681,7 +2681,7 @@ const handleDelete = async () => {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .video-title-row {
@@ -2814,7 +2814,7 @@ const handleDelete = async () => {
 
 .edit-mode-toggle:hover {
   border-color: var(--accent);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .edit-mode-toggle.active {
@@ -3058,7 +3058,7 @@ const handleDelete = async () => {
 }
 
 .action-btn.active:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .action-btn .btn-label {
@@ -3233,7 +3233,7 @@ const handleDelete = async () => {
 }
 
 .suggestion-path {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -3268,7 +3268,7 @@ const handleDelete = async () => {
 .tag-add-btn:hover {
   background: var(--border-strong);
   border-color: var(--text-tertiary);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 /* 标签编辑器对话框 */
@@ -3331,7 +3331,7 @@ const handleDelete = async () => {
 }
 
 .close-btn:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 /* 标签编辑器主体：左右分栏 */
@@ -3395,7 +3395,7 @@ const handleDelete = async () => {
 }
 
 .tag-tree-item.active .tag-tree-name {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .tag-tree-badge {
@@ -3461,7 +3461,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-item:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .breadcrumb-item.active {
@@ -3487,7 +3487,7 @@ const handleDelete = async () => {
 
 .breadcrumb-back:hover {
   background: var(--border-strong);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 /* 右侧输入面板 */
@@ -3513,7 +3513,7 @@ const handleDelete = async () => {
 }
 
 .path-value {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .path-part {
@@ -3558,7 +3558,7 @@ const handleDelete = async () => {
 .slash-btn:hover {
   background: var(--border-strong);
   border-color: var(--text-tertiary);
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 /* 输入区域操作按钮 */
@@ -3672,7 +3672,7 @@ const handleDelete = async () => {
 
 .clear-filter:hover {
   background: var(--bg-surface-2);
-  color: var(--text-on-accent);
+  color: var(--accent);
   border-color: var(--border-strong);
 }
 
@@ -3709,11 +3709,11 @@ const handleDelete = async () => {
 }
 
 .tag-flat-item:hover .tag-flat-path {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 
 .tag-flat-item.active .tag-flat-path {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .tag-flat-check {
@@ -3724,7 +3724,7 @@ const handleDelete = async () => {
 }
 
 .tag-flat-item.active .tag-flat-check {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 /* 添加标签区域 */
@@ -3829,7 +3829,7 @@ const handleDelete = async () => {
   background: transparent;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -3902,7 +3902,7 @@ const handleDelete = async () => {
 .dialog h3 {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   margin: 0 0 16px 0;
 }
 
@@ -4025,7 +4025,7 @@ const handleDelete = async () => {
 
 .status-value.pending {
   background: #ff9800;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 
 .status-value.active {
@@ -4282,7 +4282,7 @@ const handleDelete = async () => {
 .markers-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 .markers-add-btn {
   padding: 6px 12px;

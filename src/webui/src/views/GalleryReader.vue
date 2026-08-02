@@ -792,7 +792,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .bar-btn:hover:not(:disabled) { background: #333; color: var(--text-on-accent); }
 .bar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .bar-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
-.bar-title { font-size: 14px; font-weight: 500; color: var(--text-on-accent); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-title { font-size: 14px; font-weight: 500; color: var(--text-primary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-page { display: flex; align-items: center; gap: 6px; }
 .page-input { width: 56px; height: 32px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-primary); font-size: 13px; }
 .page-total { color: var(--text-tertiary); font-size: 13px; }
@@ -874,7 +874,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 /* 删除确认对话框 */
 .dialog-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
 .dialog { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px 22px; max-width: 440px; width: 100%; }
-.dialog h3 { margin: 0 0 12px; color: var(--text-on-accent); font-size: 16px; }
+.dialog h3 { margin: 0 0 12px; color: var(--text-primary); font-size: 16px; }
 .dialog p { color: #bbb; font-size: 14px; line-height: 1.6; margin: 0; }
 .delete-file-option { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #aaa; font-size: 13px; cursor: pointer; }
 .delete-file-option input { width: 16px; height: 16px; accent-color: #e53935; }

@@ -366,7 +366,7 @@ const removePost = async () => {
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-box { color: var(--danger); padding: 12px; background: var(--danger-soft); border-radius: 8px; }
 .detail-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; }
-.detail-title { font-size: 24px; font-weight: 700; color: var(--text-on-accent); margin: 0 0 8px; }
+.detail-title { font-size: 24px; font-weight: 700; color: var(--text-primary); margin: 0 0 8px; }
 .detail-meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; }
 .detail-source { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; color: var(--text-tertiary); }
 .src-label { color: var(--text-secondary); }
@@ -402,14 +402,14 @@ const removePost = async () => {
 .del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
 .del-card { width: 100%; max-width: 440px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 16px; padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .del-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.del-card-head h3 { margin: 0; font-size: 18px; color: var(--text-on-accent); }
+.del-card-head h3 { margin: 0; font-size: 18px; color: var(--text-primary); }
 .del-icon { font-size: 22px; }
 .del-warn { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
 .del-check-row { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; background: var(--bg-surface-hover); transition: border-color .15s, background .15s; }
 .del-check-row.on { border-color: rgba(255,179,0,.5); background: rgba(255,179,0,.08); }
 .del-check-row input { margin-top: 3px; width: 16px; height: 16px; accent-color: #ffb300; }
 .del-check-text { display: flex; flex-direction: column; gap: 4px; }
-.del-check-text strong { color: var(--text-on-accent); font-size: 14px; }
+.del-check-text strong { color: var(--text-primary); font-size: 14px; }
 .del-check-text small { color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
 .del-res-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
 .del-res-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; background: var(--bg-surface); transition: border-color .15s; }
