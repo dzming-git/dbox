@@ -150,51 +150,57 @@ const onAction = (name: string, e: Event) => {
 
 <style scoped>
 .media-card {
-  background: #1a1a1a;
-  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform var(--transition), box-shadow var(--transition),
+    border-color var(--transition);
   position: relative;
 }
 .media-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
 }
 .thumbnail-wrapper {
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
+  background: var(--bg-input);
 }
 .thumbnail {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s;
+  transition: transform 0.4s ease;
 }
 .media-card:hover .thumbnail {
-  transform: scale(1.05);
+  transform: scale(1.04);
 }
 .type-badge {
   position: absolute;
   top: 8px;
   left: 8px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   color: #fff;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
 }
-.type-badge.video { background: rgba(33, 150, 243, 0.85); }
-.type-badge.gallery { background: rgba(255, 152, 0, 0.85); }
+.type-badge.video { background: rgba(86, 182, 240, 0.9); }
+.type-badge.gallery { background: rgba(255, 180, 84, 0.9); }
 .sub-badge {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 4px;
+  padding: 3px 9px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: #fff;
 }
@@ -204,10 +210,11 @@ const onAction = (name: string, e: Event) => {
   right: 8px;
   width: 36px;
   height: 36px;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
   border: none;
   border-radius: 50%;
-  color: #f44336;
+  color: var(--danger);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -216,17 +223,17 @@ const onAction = (name: string, e: Event) => {
   transition: opacity 0.2s, background 0.2s;
 }
 .media-card:hover .action-btn { opacity: 1; }
-.action-btn.danger { color: #f44336; }
-.action-btn.danger:hover { background: rgba(244, 67, 54, 0.2); }
-.action-btn.warn { color: #ffd93d; right: 52px; }
-.action-btn.warn:hover { background: rgba(255, 217, 61, 0.2); }
-.action-btn.add-collection { color: #ffa502; right: 52px; }
-.action-btn.add-collection:hover { background: rgba(255, 165, 2, 0.2); }
+.action-btn.danger { color: var(--danger); }
+.action-btn.danger:hover { background: var(--danger-soft); }
+.action-btn.warn { color: var(--warning); right: 52px; }
+.action-btn.warn:hover { background: var(--warning-soft); }
+.action-btn.add-collection { color: var(--warning); right: 52px; }
+.action-btn.add-collection:hover { background: var(--warning-soft); }
 .media-info { padding: 16px; }
 .media-title {
   font-size: 15px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
   line-height: 1.4;
   display: -webkit-box;
@@ -239,9 +246,9 @@ const onAction = (name: string, e: Event) => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
 }
-.progress-text { color: #f44336; }
+.progress-text { color: var(--danger); }
 .media-actions {
   position: absolute;
   bottom: 8px;
@@ -250,28 +257,30 @@ const onAction = (name: string, e: Event) => {
   gap: 8px;
 }
 .continue-btn {
-  padding: 6px 12px;
-  background: #2196F3;
+  padding: 6px 14px;
+  background: var(--accent);
   border: none;
-  border-radius: 6px;
-  color: #fff;
+  border-radius: var(--radius-sm);
+  color: var(--text-on-accent);
   font-size: 13px;
   cursor: pointer;
+  transition: background var(--transition-fast);
 }
-.continue-btn:hover { background: #1976D2; }
+.continue-btn:hover { background: var(--accent-hover); }
 .delete-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  background: rgba(244, 67, 54, 0.15);
+  background: var(--danger-soft);
   border: none;
-  border-radius: 6px;
-  color: #f44336;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
   font-size: 13px;
   cursor: pointer;
+  transition: background var(--transition-fast);
 }
-.delete-btn:hover { background: rgba(244, 67, 54, 0.3); color: #ff6659; }
+.delete-btn:hover { background: rgba(255, 90, 106, 0.28); color: #ff7a88; }
 @media (max-width: 768px) {
   .action-btn { opacity: 1; }
 }

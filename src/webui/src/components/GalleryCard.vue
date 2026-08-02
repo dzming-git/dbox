@@ -112,22 +112,22 @@ const handleClick = () => {
 </template>
 
 <style scoped>
-.gallery-card { cursor: pointer; transition: transform 0.2s ease; width: 100%; position: relative; }
+.gallery-card { cursor: pointer; transition: transform var(--transition); width: 100%; position: relative; }
 .gallery-card:hover { transform: scale(1.02); }
-.thumbnail-container { position: relative; overflow: hidden; border-radius: 8px; background: #1a1a1a; width: 100%; }
+.thumbnail-container { position: relative; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-input); width: 100%; }
 .thumbnail { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumbnail-error { opacity: 0.5; }
-.thumbnail-loading { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #1a1a1a; }
-.loading-spinner { width: 24px; height: 24px; border: 2px solid #333; border-top-color: #2196F3; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.thumbnail-loading { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg-input); }
+.loading-spinner { width: 24px; height: 24px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.page-count { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: 500; }
-.continue-badge { position: absolute; top: 8px; left: 8px; background: rgba(33,150,243,0.85); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.page-count { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: #fff; padding: 2px 6px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+.continue-badge { position: absolute; top: 8px; left: 8px; background: var(--info); color: #fff; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; }
 .continue-progress { position: absolute; left: 0; bottom: 0; width: 100%; height: 4px; background: rgba(0,0,0,0.5); }
-.continue-progress-bar { height: 100%; background: #2196F3; }
+.continue-progress-bar { height: 100%; background: var(--info); }
 .gallery-info { padding: 8px 0; }
-.title { font-size: 14px; font-weight: 500; color: #fff; margin: 0 0 4px 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2; height: 40px; }
-.meta { display: flex; gap: 12px; font-size: 12px; color: #999; }
-.likes { display: flex; align-items: center; gap: 4px; color: #ff6b6b; }
+.title { font-size: 14px; font-weight: 500; color: var(--text-primary); margin: 0 0 4px 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2; height: 40px; }
+.meta { display: flex; gap: 12px; font-size: 12px; color: var(--text-tertiary); }
+.likes { display: flex; align-items: center; gap: 4px; color: var(--danger); }
 
 .edit-overlay {
   position: absolute;
@@ -135,8 +135,8 @@ const handleClick = () => {
   left: 8px;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  background: rgba(33, 150, 243, 0.85);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
   border: none;
   color: #fff;
   display: flex;
@@ -145,17 +145,18 @@ const handleClick = () => {
   cursor: pointer;
   z-index: 4;
 }
-.edit-overlay:hover { background: #2196F3; }
+.edit-overlay:hover { background: var(--accent-hover); }
 .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .card-tag {
   display: inline-block;
   padding: 2px 8px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 12px;
-  color: #9ecbff;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  color: #b08cff;
   font-size: 11px;
   cursor: pointer;
+  transition: background var(--transition-fast);
 }
-.card-tag:hover { background: #2196F3; color: #fff; }
+.card-tag:hover { background: var(--accent-soft-hover); color: #fff; }
 </style>
