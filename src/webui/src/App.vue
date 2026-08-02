@@ -136,15 +136,14 @@ const closeUserDropdown = (event: MouseEvent) => {
                 <stop offset="1" stop-color="#ea580c"/>
               </linearGradient>
             </defs>
-            <!-- 盒子：立体开口盒（顶面 + 左面 + 正面），融入 D 元素 -->
-            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="url(#logoGrad)" opacity="0.85"/>
-            <path d="M20 38 L60 58 L60 102 L20 82 Z" fill="#ea580c" opacity="0.55"/>
-            <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
-            <!-- 盒子开口描边 -->
-            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#logoGrad)" stroke-width="3" stroke-linejoin="round"/>
-            <!-- 正面 D 字（向右开口，居中于盒子正面，圆润现代） -->
-            <path d="M46 34h18a20 20 0 010 40H46V34zm11 10v20a6 6 0 000-12z" fill="#fff" opacity="0.95"/>
-            <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
+            <!-- 盒子：3D 等距立方体，露出三个面（顶面 + 左面 + 右面） -->
+            <polygon points="50,30 90,50 50,70 10,50" fill="url(#logoGrad)"/>
+            <polygon points="10,50 50,70 50,104 10,84" fill="#ea580c"/>
+            <polygon points="90,50 50,70 50,104 90,84" fill="#f97316"/>
+            <!-- 正面（左面）写 D，靠左 -->
+            <path d="M24 58 h16 a16 16 0 0 1 0 32 H24 V58 z M33 68 v12 a6 6 0 0 0 0 -12 z" fill="#fff"/>
+            <!-- 右侧一个点 -->
+            <circle cx="76" cy="92" r="5" fill="#fff"/>
           </svg>
           <span class="logo-text">DBox</span>
         </RouterLink>
