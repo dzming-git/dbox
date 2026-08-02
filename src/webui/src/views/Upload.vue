@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { api } from '../api'
-import { useToast } from '@/composables/useToast'
+import { useToast } from '../composables/useToast'
 
 const router = useRouter()
 const videoStore = useVideoStore()
