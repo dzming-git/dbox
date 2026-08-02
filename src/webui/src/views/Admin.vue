@@ -23,7 +23,6 @@ import AdminLogs from '../admin/AdminLogs.vue'
 import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
-import AdminScripts from './admin/AdminScripts.vue'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -1670,9 +1669,11 @@ const switchTab = (tab: string) => {
 }
 
 onMounted(() => {
-  // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=scripts）
+  // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=services）
+  // 注意：外部脚本入口已移至用户头像下拉菜单，不再作为后台标签页
   const routeTab = router.currentRoute.value.query?.tab as string
-  if (routeTab) activeTab.value = routeTab
+  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'logs', 'sync', 'users', 'monitor', 'config']
+  if (routeTab && validTabs.includes(routeTab)) activeTab.value = routeTab
 
   fetchSystemInfo()
   fetchSystemStats()
@@ -1773,12 +1774,6 @@ onUnmounted(() => {
           @click="switchTab('sync')"
           v-if="!isResourceAdminOnly"
         >🔄 开发同步</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'scripts' }"
-          @click="switchTab('scripts')"
-          v-if="userStore.isAdmin"
-        >📦 外部脚本</button>
       </div>
 
       <div class="tab-group">
@@ -2374,9 +2369,6 @@ onUnmounted(() => {
           <button class="page-btn" :disabled="resourcePage >= Math.ceil(resourceTotal / RESOURCE_PAGE_SIZE)" @click="resourcePage++; fetchResources(false)">下一页</button>
         </div>
       </div>
-
-      <!-- 外部脚本标签页 -->
-      <AdminScripts v-if="activeTab === 'scripts'" />
 
       <!-- 缩略图管理标签页 -->
       <div v-if="activeTab === 'thumbnail'" class="tab-content">
