@@ -1670,6 +1670,10 @@ const switchTab = (tab: string) => {
 }
 
 onMounted(() => {
+  // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=scripts）
+  const routeTab = router.currentRoute.value.query?.tab as string
+  if (routeTab) activeTab.value = routeTab
+
   fetchSystemInfo()
   fetchSystemStats()
   fetchSystemPaths()
