@@ -94,7 +94,7 @@ const sections = [
     <header class="guide-hero">
       <div class="hero-icon">🧭</div>
       <h1>功能指引</h1>
-      <p class="hero-sub">一份清晰、可交互的 DPlayer 使用指南 —— 点击任意条目展开细节。</p>
+      <p class="hero-sub">一份清晰、可交互的 DBox 使用指南 —— 点击任意条目展开细节。</p>
     </header>
 
     <!-- 模块卡片网格 -->

@@ -72,7 +72,23 @@ const handleKeydown = (e: KeyboardEvent) => {
   <div class="login-container">
     <div class="login-box">
       <div class="login-header">
-        <h1 class="login-title">DPlayer</h1>
+        <div class="login-brand">
+          <svg class="login-logo-mark" width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <linearGradient id="loginLogoGrad" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#f97316"/>
+                <stop offset="1" stop-color="#ea580c"/>
+              </linearGradient>
+            </defs>
+            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="url(#loginLogoGrad)" opacity="0.85"/>
+            <path d="M20 38 L60 58 L60 102 L20 82 Z" fill="#ea580c" opacity="0.55"/>
+            <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
+            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#loginLogoGrad)" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M44 64 V96 A16 16 0 0 0 44 64 Z" fill="#fff" opacity="0.95"/>
+            <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
+          </svg>
+          <span class="login-brand-text">DBox</span>
+        </div>
         <p class="login-subtitle">欢迎回来</p>
       </div>
 
@@ -158,11 +174,22 @@ const handleKeydown = (e: KeyboardEvent) => {
   margin-bottom: 32px;
 }
 
-.login-title {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
+.login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   margin: 0 0 8px 0;
+}
+
+.login-logo-mark {
+  flex-shrink: 0;
+}
+
+.login-brand-text {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
   background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;

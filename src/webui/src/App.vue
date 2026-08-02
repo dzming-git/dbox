@@ -123,11 +123,17 @@ const closeUserDropdown = (event: MouseEvent) => {
                 <stop offset="1" stop-color="#ea580c"/>
               </linearGradient>
             </defs>
-            <path d="M42 92 V28 A32 32 0 0 1 42 92 Z" fill="none" stroke="url(#logoGrad)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="92" cy="32" r="6" fill="#f97316"/>
-            <path d="M28 94 c9 -4 17 -3 25 2" fill="none" stroke="#f97316" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+            <!-- 盒子：立体开口盒（顶面 + 左面 + 正面），融入 D 元素 -->
+            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="url(#logoGrad)" opacity="0.85"/>
+            <path d="M20 38 L60 58 L60 102 L20 82 Z" fill="#ea580c" opacity="0.55"/>
+            <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
+            <!-- 盒子开口描边 -->
+            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#logoGrad)" stroke-width="3" stroke-linejoin="round"/>
+            <!-- 正面 D 字 -->
+            <path d="M44 64 V96 A16 16 0 0 0 44 64 Z" fill="#fff" opacity="0.95"/>
+            <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
           </svg>
-          <span class="logo-text">DPlayer</span>
+          <span class="logo-text">DBox</span>
         </RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
         <RouterLink to="/collections" class="nav-link" title="合集">合集</RouterLink>
