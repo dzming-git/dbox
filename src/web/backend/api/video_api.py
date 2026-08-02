@@ -1045,9 +1045,15 @@ def stats_overview():
         top_liked = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.like_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
         top_favorited = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.favorite_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
 
+        # 标签总数与用户总数（用于后台仪表盘概览卡片）
+        total_tags = Tag.query.count()
+        total_users = User.query.count()
+
         return jsonify({
             'success': True,
             'total': total,
+            'total_tags': total_tags,
+            'total_users': total_users,
             'by_library': by_library,
             'top_tags': top_tags,
             'top_liked': top_liked,

@@ -1074,13 +1074,17 @@ const loadHotStats = async () => {
   }
 }
 
-// 获取系统统计
+// 获取系统统计（视频/标签/用户总数）
 const fetchSystemStats = async () => {
   loading.value.stats = true
   try {
-    const res = await api.get('/api/system/stats') as any
-    if (res.success) {
-      systemStats.value = res.stats
+    const res = await api.get('/api/stats/overview') as any
+    if (res && res.success) {
+      systemStats.value = {
+        videos: res.total || 0,
+        tags: res.total_tags || 0,
+        users: res.total_users || 0,
+      }
     }
   } catch (error) {
     console.error('获取系统统计失败:', error)
