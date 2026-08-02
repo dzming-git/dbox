@@ -1020,7 +1020,7 @@ const clearError = () => {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   transition: border-color 0.3s ease;
   box-sizing: border-box;

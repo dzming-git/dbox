@@ -403,7 +403,7 @@ const formatDate = (s?: string) => {
 .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 820px; max-height: 90vh; overflow-y: auto; }
 .modal-title { color: var(--text-primary); margin: 0 0 16px; font-size: 18px; }
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
-.text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-on-accent); padding: 10px 12px; font-size: 14px; font-family: inherit; }
+.text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-primary); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }
 .text-input:focus, .text-area:focus { outline: none; border-color: var(--accent); }
 

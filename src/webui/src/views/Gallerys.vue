@@ -290,10 +290,10 @@ watch(() => route.query, async (newQuery) => {
 .action-bar { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; flex-wrap: wrap; }
 .search-box { flex: 1; max-width: 500px; position: relative; }
 .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); }
-.search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-on-accent); font-size: 15px; }
+.search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-primary); font-size: 15px; }
 .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(33,150,243,0.1); }
 .sort-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
+.sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); font-size: 14px; cursor: pointer; }
 .view-toggle { display: flex; gap: 4px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 8px; padding: 3px; margin-left: auto; }
 .view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; border-radius: 6px; cursor: pointer; }
 .view-toggle-btn.active { background: var(--accent); color: var(--text-on-accent); }

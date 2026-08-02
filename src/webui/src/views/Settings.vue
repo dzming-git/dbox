@@ -627,7 +627,7 @@ input:disabled + .toggle-slider {
   background: var(--bg-surface-hover);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   min-width: 120px;

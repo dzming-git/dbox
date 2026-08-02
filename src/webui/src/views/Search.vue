@@ -167,7 +167,7 @@ onMounted(search)
 .search-header { margin-bottom: 20px; }
 .search-box { position: relative; max-width: 600px; }
 .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); }
-.search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-on-accent); font-size: 15px; }
+.search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-primary); font-size: 15px; }
 .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(33,150,243,0.1); }
 .result-summary { margin: 12px 0 0; color: var(--text-secondary); font-size: 14px; }
 .search-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }

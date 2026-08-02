@@ -794,7 +794,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .bar-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 .bar-title { font-size: 14px; font-weight: 500; color: var(--text-on-accent); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-page { display: flex; align-items: center; gap: 6px; }
-.page-input { width: 56px; height: 32px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-on-accent); font-size: 13px; }
+.page-input { width: 56px; height: 32px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-primary); font-size: 13px; }
 .page-total { color: var(--text-tertiary); font-size: 13px; }
 .reader-progress { position: fixed; left: 0; right: 0; bottom: var(--vv-bottom, 0px); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 7px 14px; padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px)); background: var(--bg-surface); border-top: 1px solid #2a2a2a; }
 .rp-text { color: #bbb; font-size: 12px; white-space: nowrap; }

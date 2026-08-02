@@ -589,7 +589,7 @@ watch(
   flex: 1;
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   border-radius: 6px;
   padding: 8px 10px;
 }

@@ -1376,7 +1376,7 @@ const onListImgError = (e: Event) => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
@@ -1398,7 +1398,7 @@ const onListImgError = (e: Event) => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
@@ -1422,7 +1422,7 @@ const onListImgError = (e: Event) => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;

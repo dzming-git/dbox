@@ -3188,7 +3188,7 @@ const handleDelete = async () => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   box-sizing: border-box;
 }
@@ -3630,7 +3630,7 @@ const handleDelete = async () => {
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -3745,7 +3745,7 @@ const handleDelete = async () => {
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -3802,7 +3802,7 @@ const handleDelete = async () => {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 15px;
   box-sizing: border-box;
 }
@@ -3972,7 +3972,7 @@ const handleDelete = async () => {
   background: var(--bg-surface-hover);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 13px;
   font-family: monospace;
 }
@@ -4314,7 +4314,7 @@ const handleDelete = async () => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 .marker-save,

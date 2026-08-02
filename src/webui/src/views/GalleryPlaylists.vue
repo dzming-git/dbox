@@ -147,6 +147,6 @@ onMounted(load)
 .fld:focus { outline: none; border-color: var(--accent); }
 .pub { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 14px; margin-bottom: 16px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 12px; }
-.dialog-actions button { padding: 10px 18px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--bg-surface-2); color: var(--text-on-accent); cursor: pointer; font-size: 14px; }
-.dialog-actions .primary { background: var(--accent); border-color: var(--accent); }
+.dialog-actions button { padding: 10px 18px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--bg-surface-2); color: var(--text-primary); cursor: pointer; font-size: 14px; }
+.dialog-actions .primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
 </style>

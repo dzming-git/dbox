@@ -745,7 +745,7 @@ const confirmMerge = async () => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -1013,7 +1013,7 @@ const confirmMerge = async () => {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--bg-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 14px;
   box-sizing: border-box;
 }
