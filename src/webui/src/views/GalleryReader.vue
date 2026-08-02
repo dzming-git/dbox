@@ -301,9 +301,10 @@ const setImmersive = (v: boolean) => {
   }
 }
 const toggleImmersive = () => setImmersive(!immersive.value)
-// 沉浸式下点击阅读区切换控件显隐
+// 沉浸式下点击阅读区切换控件显隐；非沉浸下唤回被收起的顶部工具栏
 const toggleControls = () => {
   if (immersive.value) controlsVisible.value = !controlsVisible.value
+  else uiHidden.value = false
 }
 
 const interact = async (type: 'like' | 'favorite' | 'dislike') => {
@@ -582,10 +583,10 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       title="退出全屏 (Esc)"
     >✕ 退出</button>
 
-    <!-- 沉浸模式下菜单隐藏后露出的小展开按钮，点击唤出顶部菜单 -->
+    <!-- 菜单隐藏后露出的小展开按钮，点击唤出顶部菜单（沉浸与非沉浸模式均生效） -->
     <button
       class="immersive-expand"
-      v-if="immersive && !controlsVisible"
+      v-if="uiHidden || !controlsVisible"
       @click="toggleControls"
       title="展开菜单"
     >☰</button>
