@@ -84,7 +84,7 @@ const handleKeydown = (e: KeyboardEvent) => {
             <path d="M20 38 L60 58 L60 102 L20 82 Z" fill="#ea580c" opacity="0.55"/>
             <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
             <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#loginLogoGrad)" stroke-width="3" stroke-linejoin="round"/>
-            <path d="M44 64 V96 A16 16 0 0 0 44 64 Z" fill="#fff" opacity="0.95"/>
+            <path d="M44 66 H58 A14 14 0 0 1 58 94 H44 Z" fill="#fff" opacity="0.95"/>
             <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
           </svg>
           <span class="login-brand-text">DBox</span>
