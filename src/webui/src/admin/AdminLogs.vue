@@ -334,7 +334,7 @@ onUnmounted(stopAutoRefresh)
   </div>
 </template>
 
-<style scoped>
+<style >
 .admin-logs {
   display: flex;
   flex-direction: column;
@@ -359,7 +359,7 @@ onUnmounted(stopAutoRefresh)
 
 .view-switch {
   display: inline-flex;
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -368,7 +368,7 @@ onUnmounted(stopAutoRefresh)
   padding: 6px 16px;
   border: none;
   background: var(--bg-surface);
-  color: #8b949e;
+  color: var(--text-tertiary, #8b909c);
   cursor: pointer;
   font-size: 13px;
 }
@@ -383,17 +383,17 @@ onUnmounted(stopAutoRefresh)
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #c9d1d9;
+  color: var(--text-secondary, #5a5e6b);
   cursor: pointer;
   user-select: none;
 }
 
 .refresh-interval {
   padding: 5px 8px;
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 6px;
   background: var(--bg-surface);
-  color: #e1e1e1;
+  color: var(--text-primary, #2b2f38);
   font-size: 13px;
 }
 
@@ -403,12 +403,12 @@ onUnmounted(stopAutoRefresh)
 
 .manual-refresh-btn {
   padding: 6px 16px;
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 6px;
   background: var(--bg-surface);
   cursor: pointer;
   font-size: 13px;
-  color: #c9d1d9;
+  color: var(--text-secondary, #5a5e6b);
 }
 
 .manual-refresh-btn:hover:not(:disabled) {
@@ -423,7 +423,7 @@ onUnmounted(stopAutoRefresh)
 /* 原始文本视图 */
 .log-raw {
   background: var(--bg-surface);
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 8px;
   padding: 12px 14px;
   max-height: 70vh;
@@ -435,7 +435,7 @@ onUnmounted(stopAutoRefresh)
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: #c9d1d9;
+  color: var(--text-secondary, #5a5e6b);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -460,7 +460,7 @@ onUnmounted(stopAutoRefresh)
   margin-bottom: 16px;
   padding: 12px 14px;
   background: var(--bg-surface-hover);
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 8px;
 }
 
@@ -472,19 +472,19 @@ onUnmounted(stopAutoRefresh)
 
 .filter-label {
   font-size: 12px;
-  color: #8b949e;
+  color: var(--text-tertiary, #8b909c);
   font-weight: 500;
 }
 
 .filter-input,
 .filter-select {
   padding: 6px 10px;
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 6px;
   background: var(--bg-surface);
   font-size: 13px;
   min-width: 160px;
-  color: #e1e1e1;
+  color: var(--text-primary, #2b2f38);
 }
 
 .filter-keyword .filter-input {
@@ -494,17 +494,17 @@ onUnmounted(stopAutoRefresh)
 .filter-select:focus,
 .filter-input:focus {
   outline: none;
-  border-color: #1976d2;
+  border-color: var(--accent, #ea580c);
 }
 
 .filter-reset-btn {
   padding: 6px 16px;
-  border: 1px solid #2d2d3f;
+  border: 1px solid var(--border-default, #e6e8ee);
   border-radius: 6px;
   background: var(--bg-surface);
   cursor: pointer;
   font-size: 13px;
-  color: #c9d1d9;
+  color: var(--text-secondary, #5a5e6b);
   height: 34px;
   margin-left: auto;
 }

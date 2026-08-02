@@ -488,13 +488,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.scripts-admin { padding: 16px; color: var(--text-color, #e6e6e6); }
+.scripts-admin { padding: 16px; color: var(--text-color, var(--text-primary)); }
 .subtabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .subtab-btn {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-color, #333);
-  background: var(--card-bg, #1c1c1c); color: var(--text-color, #e6e6e6); cursor: pointer;
+  background: var(--card-bg, #1c1c1c); color: var(--text-color, var(--text-primary)); cursor: pointer;
 }
-.subtab-btn.active { background: var(--accent, #4f8cff); color: var(--text-on-accent); border-color: transparent; }
+.subtab-btn.active { background: var(--accent, var(--accent)); color: var(--text-on-accent); border-color: transparent; }
 .panel-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .hint { color: var(--text-tertiary); font-size: 12px; }
 .loading, .empty { color: var(--text-tertiary); padding: 20px; }
@@ -505,18 +505,18 @@ onUnmounted(() => {
 }
 .script-head { display: flex; justify-content: space-between; gap: 12px; }
 .script-name { font-weight: 600; font-size: 15px; }
-.script-desc { color: #aaa; font-size: 13px; margin-top: 4px; }
-.script-err { color: #ff8080; font-size: 12px; margin-top: 4px; }
-.script-cookies { color: #ffcf80; font-size: 12px; margin-top: 4px; }
+.script-desc { color: var(--text-tertiary); font-size: 13px; margin-top: 4px; }
+.script-err { color: #c0392b; font-size: 12px; margin-top: 4px; }
+.script-cookies { color: #b07400; font-size: 12px; margin-top: 4px; }
 .script-actions { display: flex; align-items: center; gap: 10px; }
-.switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aaa; cursor: pointer; }
+.switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary); cursor: pointer; }
 .run-form {
   margin: 14px auto 0; background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color, #333); border-radius: 10px;
   padding: 16px; max-width: 720px;
 }
 .run-form-title {
-  font-size: 13px; font-weight: 600; color: #c9d1d9; margin-bottom: 14px;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 14px;
   padding-bottom: 8px; border-bottom: 1px solid var(--border-color, #333);
 }
 .form-row {
@@ -524,33 +524,33 @@ onUnmounted(() => {
   column-gap: 14px; row-gap: 4px; align-items: start;
 }
 .form-row > label { font-size: 13px; color: var(--text-secondary); text-align: right; padding-top: 9px; }
-.form-row > input[type="checkbox"] { justify-self: start; margin-top: 9px; width: 16px; height: 16px; accent-color: var(--accent, #4f8cff); }
-.req { color: #ff8080; }
+.form-row > input[type="checkbox"] { justify-self: start; margin-top: 9px; width: 16px; height: 16px; accent-color: var(--accent, var(--accent)); }
+.req { color: #c0392b; }
 .defaultable-tag {
   margin-left: 6px;
   padding: 1px 6px;
   font-size: 11px;
-  color: #6cb6ff;
-  border: 1px solid #2d4a66;
+  color: var(--info);
+  border: 1px solid var(--info);
   border-radius: 8px;
   background: rgba(108, 182, 255, 0.08);
 }
-.default-hint { margin-top: 8px; color: #7ec699; font-size: 12px; }
+.default-hint { margin-top: 8px; color: #2e7d32; font-size: 12px; }
 .param-hint { grid-column: 2; color: var(--text-secondary); font-size: 12px; }
 .multi-enum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .checkbox-inline {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #ddd;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary);
   cursor: pointer;
 }
-.checkbox-inline input { width: 15px; height: 15px; accent-color: var(--accent, #4f8cff); }
+.checkbox-inline input { width: 15px; height: 15px; accent-color: var(--accent, var(--accent)); }
 .custom-input {
-  background: var(--input-bg, #141414); color: var(--text-color, #e6e6e6);
+  background: var(--input-bg, #141414); color: var(--text-color, var(--text-primary));
   border: 1px dashed var(--border-color, #333); border-radius: 8px; padding: 6px 10px;
   font-size: 13px; min-width: 180px;
 }
 .form-row input[type="text"], .form-row select, .form-row textarea,
 .enum-editable input {
-  background: var(--input-bg, #141414); color: var(--text-color, #e6e6e6);
+  background: var(--input-bg, #141414); color: var(--text-color, var(--text-primary));
   border: 1px solid var(--border-color, #333); border-radius: 8px; padding: 8px 10px; font-size: 14px;
 }
 .form-row input[type="text"], .form-row select, .form-row textarea,
@@ -561,31 +561,31 @@ onUnmounted(() => {
 }
 .job-interaction {
   margin-top: 14px; padding: 14px; border-radius: 10px;
-  background: rgba(79, 140, 255, 0.08); border: 1px solid var(--border-color, #333);
+  background: var(--accent-soft); border: 1px solid var(--border-color, #e6e8ee);
 }
-.interaction-prompt { font-size: 14px; font-weight: 600; color: #e6e6e6; margin-bottom: 12px; }
+.interaction-prompt { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
 .interaction-options { display: flex; flex-direction: column; gap: 8px; }
-.radio-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ddd; cursor: pointer; }
-.radio-inline input { width: 15px; height: 15px; accent-color: var(--accent, #4f8cff); }
+.radio-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.radio-inline input { width: 15px; height: 15px; accent-color: var(--accent, var(--accent)); }
 .action-btn {
   padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border-color, #333);
-  background: var(--card-bg, #1c1c1c); color: var(--text-color, #e6e6e6); cursor: pointer;
+  background: var(--card-bg, #1c1c1c); color: var(--text-color, var(--text-primary)); cursor: pointer;
 }
-.action-btn.primary { background: var(--accent, #4f8cff); color: var(--text-on-accent); border-color: transparent; }
-.action-btn.danger { color: #ff8080; }
+.action-btn.primary { background: var(--accent, var(--accent)); color: var(--text-on-accent); border-color: transparent; }
+.action-btn.danger { color: #c0392b; }
 .action-btn:disabled { opacity: .5; cursor: not-allowed; }
 .job-progress { margin-top: 14px; }
 .progress-bar { height: 8px; background: var(--bg-surface-hover); border-radius: 6px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent, #4f8cff); transition: width .3s; }
+.progress-fill { height: 100%; background: var(--accent, var(--accent)); transition: width .3s; }
 .progress-text { font-size: 13px; color: var(--text-secondary); margin: 8px 0; }
-.job-error { color: #ff8080; font-size: 13px; }
+.job-error { color: #c0392b; font-size: 13px; }
 .job-logs {
   background: var(--bg-surface); border: 1px solid var(--border-color, #333); border-radius: 8px;
   padding: 10px; max-height: 240px; overflow: auto; font-family: monospace; font-size: 12px;
 }
-.log-line { margin-bottom: 3px; color: #cfcfcf; }
-.log-line.error { color: #ff8080; }
-.log-line.log { color: #9fd3ff; }
+.log-line { margin-bottom: 3px; color: var(--text-tertiary); }
+.log-line.error { color: #c0392b; }
+.log-line.log { color: var(--info); }
 .log-ts { color: var(--text-tertiary); }
 .data-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
 .data-table th, .data-table td {
