@@ -1307,12 +1307,29 @@ const confirmMerge = async () => {
 
 @media (max-width: 768px) {
   .header-actions {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .batch-toggle-btn,
+  .create-btn {
+    padding: 9px 14px;
+    font-size: 13px;
+    flex: 0 1 auto;
   }
   .batch-bar {
     flex-direction: column;
     align-items: stretch;
+  }
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .page-header > div:first-child {
+    text-align: left;
   }
 }
 </style>
