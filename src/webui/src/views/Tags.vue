@@ -1308,16 +1308,18 @@ const confirmMerge = async () => {
 @media (max-width: 768px) {
   .header-actions {
     flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
+    align-items: stretch;
+    justify-content: flex-start;
     flex-wrap: wrap;
     gap: 8px;
   }
   .batch-toggle-btn,
   .create-btn {
-    padding: 9px 14px;
+    padding: 8px 14px;
     font-size: 13px;
-    flex: 0 1 auto;
+    flex: 1 1 40%;
+    justify-content: center;
+    min-width: 0;
   }
   .batch-bar {
     flex-direction: column;
