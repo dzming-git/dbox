@@ -855,6 +855,14 @@ const onListImgError = (e: Event) => {
                 @error="onListImgError"
               />
               <span class="list-duration" v-if="video.duration">{{ formatDuration(video.duration) }}</span>
+              <WatchLaterButton
+                v-if="!editMode"
+                variant="overlay"
+                type="video"
+                :id="video.hash"
+                :title="video.title"
+                :thumbnail="video.thumbnail"
+              />
             </div>
             <div class="list-info">
               <h3 class="list-title" :title="video.title">{{ video.title }}</h3>
@@ -879,14 +887,6 @@ const onListImgError = (e: Event) => {
                   <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
                 </svg>
               </button>
-              <WatchLaterButton
-                v-if="!editMode"
-                variant="bar"
-                type="video"
-                :id="video.hash"
-                :title="video.title"
-                :thumbnail="video.thumbnail"
-              />
             </div>
           </div>
         </div>
@@ -2120,12 +2120,15 @@ const onListImgError = (e: Event) => {
   }
 
   /* 操作区只占自身内容宽度，竖排靠右，不再撑开中间区域 */
+  /* 手机端列表：普通模式下操作列不占位，标题占满；仅编辑模式显示编辑按钮 */
   .list-actions {
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
+    display: none;
+  }
+  .list-actions:has(.list-action-btn) {
+    display: flex;
     flex-shrink: 0;
-    max-width: none;
+    align-items: center;
+    justify-content: center;
     width: auto;
     gap: 6px;
   }
@@ -2134,5 +2137,6 @@ const onListImgError = (e: Event) => {
     width: 30px;
     height: 30px;
   }
+}
 }
 </style>
