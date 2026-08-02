@@ -28,7 +28,9 @@ export const useVideoStore = defineStore('video', () => {
   const sortBy = ref(getDefaultSort().sort)  // 排序方式（默认读取用户设置，回退推荐）
   const sortOrder = ref(getDefaultSort().order)  // 排序方向: asc, desc
   const viewMode = ref<'grid' | 'list'>(
-    (localStorage.getItem('dplayer_view_mode') as 'grid' | 'list') || 'grid'
+    (localStorage.getItem('dbox_view_mode') as 'grid' | 'list') ||
+    (localStorage.getItem('dplayer_view_mode') as 'grid' | 'list') ||
+    'grid'
   )  // 显示模式: grid=缩略图, list=列表
 
 
@@ -357,7 +359,7 @@ export const useVideoStore = defineStore('video', () => {
   const setViewMode = (mode: 'grid' | 'list') => {
     viewMode.value = mode
     try {
-      localStorage.setItem('dplayer_view_mode', mode)
+      localStorage.setItem('dbox_view_mode', mode)
     } catch {
       // 忽略隐私模式下的写入失败
     }

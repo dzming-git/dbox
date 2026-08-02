@@ -35,7 +35,9 @@ export const DEFAULT_SETTINGS: SettingsData = {
 export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof SettingsData)[]
 
 // 浏览器层（本机本浏览器）存储键
-const BROWSER_SETTINGS_KEY = 'dplayer_browser_settings'
+const BROWSER_SETTINGS_KEY = 'dbox_browser_settings'
+// 旧 key 兼容读取（dplayer -> dbox 迁移过渡）
+const BROWSER_SETTINGS_KEY_LEGACY = 'dplayer_browser_settings'
 
 // 后端缓存：global 层（管理员全局默认）与 user 层（当前登录用户）
 let serverGlobal: Partial<SettingsData> = {}
@@ -45,7 +47,8 @@ let serverIsAdmin = false
 // 浏览器层：从 localStorage 读取
 export function loadBrowserSettings(): Partial<SettingsData> {
   try {
-    const raw = localStorage.getItem(BROWSER_SETTINGS_KEY)
+    let raw = localStorage.getItem(BROWSER_SETTINGS_KEY)
+    if (!raw) raw = localStorage.getItem(BROWSER_SETTINGS_KEY_LEGACY)
     if (!raw) return {}
     const parsed = JSON.parse(raw)
     return parsed && typeof parsed === 'object' ? parsed : {}

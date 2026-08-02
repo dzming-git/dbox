@@ -17,7 +17,9 @@ export const useGalleryStore = defineStore('gallery', () => {
   const sortBy = ref(getDefaultSort().sort)
   const sortOrder = ref(getDefaultSort().order)
   const viewMode = ref<'grid' | 'list'>(
-    (localStorage.getItem('dplayer_gallery_view_mode') as 'grid' | 'list') || 'grid'
+    (localStorage.getItem('dbox_gallery_view_mode') as 'grid' | 'list') ||
+    (localStorage.getItem('dplayer_gallery_view_mode') as 'grid' | 'list') ||
+    'grid'
   )
 
   const hasMore = computed(() => galleries.value.length < pagination.value.total)
@@ -100,7 +102,7 @@ export const useGalleryStore = defineStore('gallery', () => {
 
   const setViewMode = (mode: 'grid' | 'list') => {
     viewMode.value = mode
-    localStorage.setItem('dplayer_gallery_view_mode', mode)
+    localStorage.setItem('dbox_gallery_view_mode', mode)
   }
 
   // ============ URL 状态同步（与视频模式框架一致） ============

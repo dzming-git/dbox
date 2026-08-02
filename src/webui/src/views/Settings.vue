@@ -198,6 +198,7 @@ async function clearAllData() {
       console.error('清空互动数据失败:', e)
     }
     // 同时清理浏览器本地缓存（播放设置等）
+    localStorage.removeItem('dbox_browser_settings')
     localStorage.removeItem('dplayer_browser_settings')
     showToast('所有互动数据已清除')
     loadTab(activeTab.value)

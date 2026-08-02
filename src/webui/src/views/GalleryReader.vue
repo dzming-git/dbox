@@ -20,14 +20,14 @@ const gallery = ref<Gallery | null>(null)
 const loading = ref(true)
 const error = ref('')
 
-const mode = ref<'scroll' | 'page'>((localStorage.getItem('dplayer_gallery_mode') as any) || 'scroll')
-const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dplayer_gallery_fit') as any) || 'width')
+const mode = ref<'scroll' | 'page'>((localStorage.getItem('dbox_gallery_mode') as any) || (localStorage.getItem('dplayer_gallery_mode') as any) || 'scroll')
+const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dbox_gallery_fit') as any) || (localStorage.getItem('dplayer_gallery_fit') as any) || 'width')
 const currentPage = ref(1)
 const showThumbs = ref(false)
 const isInContinue = ref(false)   // 是否已在「继续阅读」列表（用户主动加入）
 
 // 沉浸全屏阅读模式
-const immersive = ref(localStorage.getItem('dplayer_gallery_immersive') === '1')
+const immersive = ref(localStorage.getItem('dbox_gallery_immersive') === '1' || localStorage.getItem('dplayer_gallery_immersive') === '1')
 const controlsVisible = ref(true) // 沉浸式下控件是否可见（点击屏幕切换）
 const readerEl = ref<HTMLElement | null>(null)
 
@@ -259,12 +259,12 @@ const back = () => {
 
 const setMode = (m: 'scroll' | 'page') => {
   mode.value = m
-  localStorage.setItem('dplayer_gallery_mode', m)
+  localStorage.setItem('dbox_gallery_mode', m)
   if (m === 'scroll') nextTick(() => goToPage(currentPage.value))
 }
 const setFit = (f: 'width' | 'height' | 'original') => {
   fit.value = f
-  localStorage.setItem('dplayer_gallery_fit', f)
+  localStorage.setItem('dbox_gallery_fit', f)
 }
 
 // ============ 沉浸全屏阅读模式 ============
@@ -291,7 +291,7 @@ const setImmersive = (v: boolean) => {
   immersive.value = v
   updateViewportInsets() // 进入/退出沉浸时可视区基准变化，立即重算安全偏移
   uiHidden.value = false // 进出沉浸模式都复位工具栏显隐
-  localStorage.setItem('dplayer_gallery_immersive', v ? '1' : '0')
+  localStorage.setItem('dbox_gallery_immersive', v ? '1' : '0')
   document.body.classList.toggle('reader-immersive', v)
   if (v) {
     controlsVisible.value = true
