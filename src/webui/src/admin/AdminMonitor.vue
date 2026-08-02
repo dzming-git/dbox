@@ -13,9 +13,9 @@ const fetchMonitorMetrics = async () => {
   try {
     const res = await api.get('/api/system/metrics') as any
     if (res.success) {
-      monitorMetrics.value = res.metrics
-      if (res.metrics && monitorHistory.value.length < 60) {
-        monitorHistory.value.push(res.metrics)
+      monitorMetrics.value = res.data
+      if (res.data && monitorHistory.value.length < 60) {
+        monitorHistory.value.push(res.data)
       }
     }
   } catch (error) {
