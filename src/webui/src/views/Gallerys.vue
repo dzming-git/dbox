@@ -285,6 +285,13 @@ watch(() => route.query, async (newQuery) => {
         <button class="page-btn" :disabled="currentPage===totalPages" @click="goToPage(totalPages)">末页</button>
         <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
       </div>
+
+      <!-- 移动端单手翻页：底部悬浮的上一页 / 下一页 -->
+      <div v-if="totalPages > 1" class="mobile-pager">
+        <button class="page-btn mobile-page-btn" :disabled="currentPage===1" @click="goToPage(currentPage-1)">‹ 上一页</button>
+        <span class="mobile-page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <button class="page-btn mobile-page-btn" :disabled="currentPage===totalPages" @click="goToPage(currentPage+1)">下一页 ›</button>
+      </div>
     </template>
   </div>
 </template>
@@ -337,6 +344,25 @@ watch(() => route.query, async (newQuery) => {
   .gallery-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
   .search-box { max-width: 100%; width: 100%; }
   .action-bar { flex-direction: column; align-items: stretch; }
+  .view-toggle { margin-left: 0; width: 100%; }
+  .view-toggle-btn { flex: 1; justify-content: center; }
+  .gallery-section { padding-bottom: 76px; }
+  .mobile-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--nav-bg);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid var(--border-subtle);
+    z-index: 50;
+  }
+  .mobile-page-btn { flex: 1; height: 44px; border-radius: 22px; font-size: 14px; }
+  .mobile-page-info { color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
 }
 
 /* 继续阅读：默认收起，点击展开，避免遮挡界面 */
