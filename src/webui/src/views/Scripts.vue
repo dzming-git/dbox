@@ -41,7 +41,8 @@
                 <input type="checkbox" :checked="sc.enabled" @change="toggleEnabled(sc)" />
                 <span>{{ sc.enabled ? '已启用' : '已禁用' }}</span>
               </label>
-              <button class="action-btn" :disabled="!sc.enabled" @click="selectScript(sc)">运行</button>
+              <button v-if="!(selected && selected.id === sc.id)" class="action-btn" :disabled="!sc.enabled" @click="selectScript(sc)">配置参数</button>
+              <button v-else class="action-btn" @click="collapseScript(sc)">收起</button>
             </div>
           </div>
 
@@ -311,6 +312,14 @@ function selectScript(sc: ScriptInfo) {
   loadDefaults(sc.id)
 }
 
+function collapseScript(sc: ScriptInfo) {
+  if (selected.value && selected.value.id === sc.id) {
+    selected.value = null
+    runningJob.value = null
+    interaction.value = null
+  }
+}
+
 async function loadDefaults(scriptId: string) {
   try {
     const res: any = await scriptApi.getDefaults(scriptId)
@@ -516,7 +525,7 @@ onUnmounted(() => {
 .script-desc { color: var(--text-tertiary); font-size: 13px; margin-top: 4px; }
 .script-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
 .script-cookies { color: var(--warning); font-size: 12px; margin-top: 4px; }
-.script-actions { display: flex; align-items: center; gap: 10px; }
+.script-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary); cursor: pointer; }
 .run-form {
   margin: 14px auto 0; background: var(--bg-base);
@@ -613,6 +622,13 @@ onUnmounted(() => {
 @media (max-width: 560px) {
   .form-row { grid-template-columns: 1fr; row-gap: 6px; }
   .form-row > label { text-align: left; padding-top: 0; }
-  .run-form { max-width: 100%; }
+  .run-form { max-width: 100%; margin: 14px 0 0; }
+  .script-head { flex-direction: column; align-items: stretch; }
+  .script-actions { justify-content: flex-end; flex-wrap: wrap; }
+  .switch { flex-shrink: 0; }
+  .data-table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  .data-table th, .data-table td { white-space: nowrap; }
+  .run-buttons { flex-wrap: wrap; }
+  .run-buttons .action-btn { flex: 1 1 auto; }
 }
 </style>
