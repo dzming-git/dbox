@@ -63,7 +63,7 @@ const onAction = (name: string, e: Event) => {
 </script>
 
 <template>
-  <div class="media-card" @click="onOpen" data-testid="media-card">
+  <div class="media-card" :class="item.type" @click="onOpen" data-testid="media-card">
     <div class="thumbnail-wrapper">
       <img :src="coverUrl" :alt="item.title" class="thumbnail" @error="(e:any)=>e.target.src='/default-thumb.jpg'" />
       <span class="type-badge" :class="item.type">{{ typeLabel }}</span>
@@ -175,6 +175,11 @@ const onAction = (name: string, e: Event) => {
   height: 100%;
   object-fit: cover;
   transition: transform 0.4s ease;
+}
+/* 图集封面多为竖图，用 contain 完整显示，避免被 16:9 盒子横向裁切导致「大小异常」观感 */
+.media-card.gallery .thumbnail {
+  object-fit: contain;
+  background: var(--bg-base);
 }
 .media-card:hover .thumbnail {
   transform: scale(1.04);
