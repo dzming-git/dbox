@@ -1466,6 +1466,7 @@ class Gallery(db.Model):
             'like_count': self.like_count,
             'favorite_count': self.favorite_count,
             'hidden': bool(self.resource_index.hidden) if self.resource_index else False,
+            'folder_path': self.folder_path,
             'cover_url': self.cover_url,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

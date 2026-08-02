@@ -465,8 +465,17 @@ def set_gallery_continue(gallery_hash):
 # ============ 我的图集（收藏 / 点赞 / 不喜欢 / 历史）列表 ============
 # 与 main.py 的 /api/favorites|likes|disliked 对齐，使图集与视频地位等同，
 # 可被「我的收藏 / 点赞 / 不喜欢 / 历史」统一合并展示。
-def _gallery_interaction_rows(key, itype, date_field):
-    """返回某用户某类型交互对应的图集列表（带交互时间）。"""
+def _gallery_interaction_rows(key, itype, date_field, with_size=False):
+    """返回某用户某类型交互对应的图集列表（带交互时间）。
+    with_size=True 时，对管理员额外计算文件夹总大小（磁盘遍历）。
+    """
+    include_size = False
+    if with_size:
+        try:
+            _, urole = _resolve_identity()
+            include_size = urole in (UserRole.ADMIN, UserRole.ROOT)
+        except Exception:
+            include_size = False
     rows = GalleryInteraction.query.filter_by(
         user_session=key, interaction_type=itype
     ).order_by(GalleryInteraction.created_at.desc()).all()
@@ -478,6 +487,15 @@ def _gallery_interaction_rows(key, itype, date_field):
         d = c.to_dict()
         d['cover_url'] = c.cover_url or _gallery_url(c.cover_path)
         d[date_field] = row.created_at.isoformat() if row.created_at else None
+        if include_size and c.folder_path and os.path.isdir(c.folder_path):
+            try:
+                total = 0
+                for entry in os.scandir(c.folder_path):
+                    if entry.is_file():
+                        total += entry.stat().st_size
+                d['size'] = total
+            except Exception:
+                pass
         items.append(d)
     return items
 
@@ -506,7 +524,7 @@ def list_gallery_likes():
 def list_gallery_disliked():
     try:
         key = current_interaction_key()
-        galleries = _gallery_interaction_rows(key, 'dislike', 'disliked_at') if key else []
+        galleries = _gallery_interaction_rows(key, 'dislike', 'disliked_at', with_size=True) if key else []
         return jsonify({'success': True, 'galleries': galleries, 'total': len(galleries)})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

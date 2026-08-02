@@ -31,6 +31,8 @@ export interface MediaItem {
   progress?: number      // 0~1，历史进度展示用
   page?: number          // 图集当前阅读页
   date?: string          // 交互/历史时间（用于排序与展示）
+  location?: string      // 磁盘位置（管理员可见，权限控制）
+  size?: number          // 文件大小（字节，管理员可见，权限控制）
   raw?: any              // 原始接口数据
 }
 
@@ -44,6 +46,8 @@ function normalizeVideo(v: any): MediaItem {
     duration: v.duration,
     progress: typeof v.progress === 'number' ? v.progress : undefined,
     date: v.favorited_at || v.liked_at || v.disliked_at || v.watched_at || v.updated_at,
+    location: v.local_path,
+    size: typeof v.file_size === 'number' ? v.file_size : undefined,
     raw: v
   }
 }
@@ -58,6 +62,8 @@ function normalizeGallery(c: any): MediaItem {
     progress: typeof c.progress === 'number' ? c.progress : undefined,
     page: c.page ?? c.last_page,
     date: c.favorited_at || c.liked_at || c.disliked_at || c.updated_at,
+    location: c.folder_path,
+    size: typeof c.size === 'number' ? c.size : undefined,
     raw: c
   }
 }

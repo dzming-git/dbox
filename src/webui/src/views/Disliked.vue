@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { videoApi, galleryApi } from '../api'
 import { fetchDisliked, type MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
+import { useUserStore } from '../stores/userStore'
 
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.isAdmin)
 const disliked = ref<MediaItem[]>([])
 const loading = ref(false)
 
@@ -22,18 +25,54 @@ const loadDisliked = async () => {
 
 onMounted(loadDisliked)
 
-// 取消不喜欢（撤销屏蔽），调后端切换状态
+// 管理员可见的操作：删除（永久删除资源）+ 普通用户的取消屏蔽
+const cardActions = computed(() => (isAdmin.value ? ['restore', 'delete'] : ['restore']))
+
+// 格式化文件大小
+const formatSize = (bytes?: number) => {
+  if (!bytes || bytes <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = bytes
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+// 截断磁盘路径，仅显示末尾
+const shortPath = (p?: string) => {
+  if (!p) return ''
+  return p.length > 48 ? '…' + p.slice(-48) : p
+}
+
+// 取消不喜欢（撤销屏蔽），或管理员永久删除资源
 const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
-  if (name !== 'restore') return
-  try {
-    if (item.type === 'gallery') await galleryApi.interact(item.hash, 'dislike')
-    else await videoApi.dislikeVideo(item.hash)
-  } catch (e) {
-    console.error('取消不喜欢失败:', e)
+  if (name === 'restore') {
+    try {
+      if (item.type === 'gallery') await galleryApi.interact(item.hash, 'dislike')
+      else await videoApi.dislikeVideo(item.hash)
+    } catch (e) {
+      console.error('取消不喜欢失败:', e)
+    }
+    await loadDisliked()
+    showToast('已取消屏蔽')
+    return
   }
-  await loadDisliked()
-  showToast('已取消屏蔽')
+  if (name === 'delete') {
+    if (!confirm(`确定要永久删除「${item.title}」吗？此操作不可恢复。`)) return
+    try {
+      if (item.type === 'gallery') await galleryApi.deleteGallery(item.hash, true)
+      else await videoApi.deleteVideo(item.hash, true)
+      await loadDisliked()
+      showToast('已永久删除')
+    } catch (e) {
+      console.error('删除失败:', e)
+      showToast('删除失败')
+    }
+  }
 }
 
 const toastMessage = ref('')
@@ -69,14 +108,26 @@ const showToast = (message: string) => {
     </div>
 
     <div v-else class="disliked-grid">
-      <MediaCard
+      <div
         v-for="item in disliked"
         :key="item.type + ':' + item.hash"
-        :item="item"
-        :actions="['restore']"
-        @action="onAction"
-        data-testid="video-card"
-      />
+        class="disliked-card-wrap"
+      >
+        <MediaCard
+          :item="item"
+          :actions="cardActions"
+          @action="onAction"
+          data-testid="video-card"
+        />
+        <div v-if="isAdmin && (item.location || item.size)" class="admin-meta">
+          <div v-if="item.location" class="meta-line" :title="item.location">
+            <span class="meta-label">位置</span>{{ shortPath(item.location) }}
+          </div>
+          <div v-if="item.size" class="meta-line">
+            <span class="meta-label">大小</span>{{ formatSize(item.size) }}
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="showToastFlag" class="toast" data-testid="restore-success">
@@ -166,5 +217,28 @@ const showToast = (message: string) => {
   .disliked-page { padding: 16px; }
   .page-title { font-size: 22px; }
   .disliked-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+}
+/* 管理员可见的资源位置与大小（权限控制） */
+.admin-meta {
+  margin: -8px 12px 12px;
+  padding: 8px 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: 0 0 10px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.meta-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta-label {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-weight: 600;
 }
 </style>
