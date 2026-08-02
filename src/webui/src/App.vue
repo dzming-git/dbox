@@ -500,6 +500,20 @@ body {
   position: relative;
 }
 
+/* PC 端：头像固定钉在右上角，避免导航换行时掉到第二行中间 */
+@media (min-width: 601px) {
+  .user-avatar-wrapper {
+    position: fixed;
+    top: 14px;
+    right: 24px;
+    z-index: 300;
+  }
+  /* 为固定头像预留右侧空间，避免 nav-right 内图标与其重叠 */
+  .nav-right {
+    padding-right: 150px;
+  }
+}
+
 .user-avatar-trigger {
   display: flex;
   align-items: center;

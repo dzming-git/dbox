@@ -1829,14 +1829,14 @@ const onListImgError = (e: Event) => {
 .batch-toggle-btn {
   height: 36px;
   padding: 0 14px;
-  border: 1px solid rgba(33, 150, 243, 0.3);
+  border: 1px solid var(--accent-border);
   border-radius: 18px;
-  background: rgba(33, 150, 243, 0.1);
-  color: #4a9eff;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.25s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1844,7 +1844,9 @@ const onListImgError = (e: Event) => {
 }
 
 .batch-toggle-btn:hover {
-  background: rgba(33, 150, 243, 0.2);
+  background: var(--accent-soft-hover);
+  border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .batch-toggle-btn.active {
