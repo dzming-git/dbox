@@ -153,7 +153,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fef3ea 0%, #f1f3f7 100%);
+  background: var(--bg-base);
   padding: 20px;
 }
 
