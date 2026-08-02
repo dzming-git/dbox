@@ -264,7 +264,7 @@ const formatDate = (s?: string) => {
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
           <div class="post-ops" @click.stop>
-            <WatchLaterButton variant="bar" type="post" :id="String(d.id)" :title="d.title || '帖子'" />
+            <WatchLaterButton variant="compact" type="post" :id="String(d.id)" :title="d.title || '帖子'" />
           </div>
         </div>
 

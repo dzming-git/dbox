@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
 import type { TextResource } from '../types'
-import WatchLaterButton from '../components/WatchLaterButton.vue'
+import PlainListRow from '../components/PlainListRow.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -90,17 +90,18 @@ const formatDate = (s?: string) => {
     </div>
 
     <div v-else class="texts-list">
-      <div v-for="t in texts" :key="t.id" class="text-card" @click="openText(t)">
-        <div class="text-head">
-          <h3 class="text-title">{{ t.presentation?.title || '未命名文本' }}</h3>
-          <span class="text-date">{{ formatDate(t.updated_at) }}</span>
-          <div class="text-ops">
-            <WatchLaterButton variant="bar" type="text" :id="String(t.id)" :title="t.presentation?.title || '未命名文本'" />
-          </div>
-        </div>
+      <PlainListRow
+        v-for="t in texts"
+        :key="t.id"
+        type="text"
+        :item="t"
+        :title="t.presentation?.title || '未命名文本'"
+        :meta="[formatDate(t.updated_at)]"
+        @click="openText"
+      >
         <p v-if="t.summary" class="text-summary">{{ t.summary }}</p>
         <p class="text-body">{{ (t.body || '').slice(0, 200) }}{{ (t.body || '').length > 200 ? '…' : '' }}</p>
-      </div>
+      </PlainListRow>
     </div>
 
     <div v-if="dialogVisible" class="modal-mask" @click.self="dialogVisible = false">
@@ -135,11 +136,6 @@ const formatDate = (s?: string) => {
 .error-box { color: var(--danger); padding: 12px; background: var(--danger-soft); border-radius: 8px; }
 .empty-state { color: var(--text-tertiary); text-align: center; padding: 60px 0; }
 .texts-list { display: flex; flex-direction: column; gap: 16px; }
-.text-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 18px; cursor: pointer; }
-.text-head { display: flex; align-items: center; gap: 12px; }
-.text-title { font-size: 17px; font-weight: 600; color: var(--text-primary); margin: 0; flex: 1; }
-.text-date { font-size: 12px; color: var(--text-tertiary); }
-.text-ops { display: flex; gap: 8px; }
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }
 .op-btn:hover { color: var(--accent); }
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }

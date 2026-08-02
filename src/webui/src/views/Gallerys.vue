@@ -5,7 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
 import GalleryCard from '../components/GalleryCard.vue'
-import WatchLaterButton from '../components/WatchLaterButton.vue'
+import ResourceListRow from '../components/ResourceListRow.vue'
 import type { Gallery } from '../types'
 import { galleryApi } from '../api'
 
@@ -28,6 +28,13 @@ const handleTagChange = (e: Event) => {
   const v = (e.target as HTMLSelectElement).value
   galleryStore.filterByTag(v === '' ? null : parseInt(v))
   updateUrl()
+}
+
+const galleryListMeta = (g: Gallery): string[] => {
+  const meta = [`${g.page_count} 页`]
+  if (g.like_count > 0) meta.push(`♥ ${g.like_count}`)
+  return meta
+}
 }
 
 // 当前是否作为首页（Home）内嵌的图集 tab 存在。
@@ -249,19 +256,17 @@ watch(() => route.query, async (newQuery) => {
           />
         </div>
         <div v-else class="gallery-list">
-          <div v-for="c in displayGallerys" :key="c.hash" class="gallery-list-row" @click="handleGalleryClick(c)">
-            <div class="list-thumb" @click.stop="handleGalleryClick(c)">
-              <img :src="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'" loading="lazy" @error="(e:any)=>e.target.src='/placeholder.jpg'" />
-              <span class="list-pages">{{ c.page_count }}P</span>
-            </div>
-            <div class="list-info">
-              <h3 class="list-title">{{ c.title }}</h3>
-              <div class="list-meta"><span>{{ c.page_count }} 页</span><span v-if="c.like_count>0">♥ {{ c.like_count }}</span></div>
-            </div>
-            <div class="list-actions">
-              <WatchLaterButton variant="bar" type="gallery" :id="c.hash" :title="c.title" :thumbnail="c.cover_url" />
-            </div>
-          </div>
+          <ResourceListRow
+            v-for="c in displayGallerys"
+            :key="c.hash"
+            type="gallery"
+            :item="c"
+            :thumb-url="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'"
+            :meta="galleryListMeta(c)"
+            :badge="c.page_count + 'P'"
+            :edit-mode="false"
+            @click="handleGalleryClick"
+          />
         </div>
       </div>
       <div v-if="galleries.length === 0" class="empty-state">
@@ -299,14 +304,6 @@ watch(() => route.query, async (newQuery) => {
 .view-toggle-btn.active { background: var(--accent); color: var(--text-on-accent); }
 .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .gallery-list { display: flex; flex-direction: column; gap: 8px; }
-.gallery-list-row { display: flex; align-items: center; gap: 14px; padding: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; transition: background 0.2s; }
-.gallery-list-row:hover { background: var(--bg-surface-2); }
-.list-thumb { position: relative; width: 120px; flex-shrink: 0; aspect-ratio: 3/4; overflow: hidden; border-radius: 8px; background: #000; }
-.list-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.list-pages { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.7); color: var(--text-on-accent); padding: 1px 6px; border-radius: 4px; font-size: 11px; }
-.list-info { flex: 1; min-width: 0; }
-.list-title { font-size: 14px; font-weight: 500; color: var(--text-primary); margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.list-meta { display: flex; gap: 14px; font-size: 12px; color: var(--text-tertiary); }
 .list-actions { display: flex; gap: 6px; }
 .list-action-btn { width: 34px; height: 34px; background: var(--bg-surface-hover); border: none; border-radius: 50%; color: var(--text-secondary); cursor: pointer; }
 .list-action-btn.like.active { color: #ff4757; background: rgba(255,71,87,0.15); }

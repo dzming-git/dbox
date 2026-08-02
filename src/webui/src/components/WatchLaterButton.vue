@@ -7,8 +7,8 @@ const props = defineProps<{
   id: string
   title: string
   thumbnail?: string
-  // variant: 'overlay' 用于预览图角标，'bar' 用于详情页按钮
-  variant?: 'overlay' | 'bar'
+  // variant: 'overlay' 用于预览图角标，'bar' 用于详情页按钮，'compact' 用于列表行小图标
+  variant?: 'overlay' | 'bar' | 'compact'
 }>()
 
 const store = useWatchLaterStore()
@@ -79,6 +79,21 @@ const onToggle = () => {
   background: var(--bg-surface-2);
 }
 .watch-later-btn.bar.active {
+  background: rgba(255, 179, 0, 0.15);
+}
+/* 列表行小图标：无文字，固定小尺寸 */
+.watch-later-btn.compact {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  background: var(--bg-surface-hover);
+}
+.watch-later-btn.compact .wl-label {
+  display: none;
+}
+.watch-later-btn.compact.active {
   background: rgba(255, 179, 0, 0.15);
 }
 .wl-label {

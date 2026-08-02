@@ -6,9 +6,9 @@ import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
 import VideoCard from '../components/VideoCard.vue'
-import WatchLaterButton from '../components/WatchLaterButton.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
+import ResourceListRow from '../components/ResourceListRow.vue'
 import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
@@ -507,16 +507,16 @@ const formatDuration = (seconds?: number): string => {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+const videoListMeta = (video: Video): string[] => {
+  const meta = [`${video.view_count} 次播放`]
+  if (video.like_count > 0) meta.push(`♥ ${video.like_count}`)
+  return meta
+}
+
 // 列表模式的缩略图地址（带登录 token 鉴权）
 const listThumbUrl = (video: Video): string => {
   const base = video.thumbnail || '/placeholder.jpg'
   return userStore.token ? `${base}?token=${userStore.token}` : base
-}
-
-const onListImgError = (e: Event) => {
-  const img = e.target as HTMLImageElement
-  img.onerror = null
-  img.src = PLACEHOLDER_THUMB
 }
 </script>
 
@@ -840,55 +840,18 @@ const onListImgError = (e: Event) => {
         </div>
         <!-- 列表模式 -->
         <div v-else class="video-list">
-          <div
+          <ResourceListRow
             v-for="video in displayVideos"
             :key="video.hash"
-            class="video-list-row"
-            @click="editMode ? openEdit(video) : handleVideoClick(video)"
-          >
-            <div class="list-thumb" @click.stop="editMode ? openEdit(video) : handleVideoClick(video)">
-              <img
-                :src="listThumbUrl(video)"
-                :alt="video.title"
-                loading="lazy"
-                class="list-thumb-img"
-                @error="onListImgError"
-              />
-              <span class="list-duration" v-if="video.duration">{{ formatDuration(video.duration) }}</span>
-              <WatchLaterButton
-                v-if="!editMode"
-                variant="overlay"
-                type="video"
-                :id="video.hash"
-                :title="video.title"
-                :thumbnail="video.thumbnail"
-              />
-            </div>
-            <div class="list-info">
-              <h3 class="list-title" :title="video.title">{{ video.title }}</h3>
-              <div class="list-meta">
-                <span class="list-views">{{ video.view_count }} 次播放</span>
-                <span class="list-likes" v-if="video.like_count > 0">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                  </svg>
-                  {{ video.like_count }}
-                </span>
-              </div>
-            </div>
-            <div class="list-actions">
-              <button
-                v-if="editMode"
-                class="list-action-btn edit"
-                @click.stop="openEdit(video)"
-                title="编辑"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-                </svg>
-              </button>
-            </div>
-          </div>
+            type="video"
+            :item="video"
+            :thumb-url="listThumbUrl(video)"
+            :meta="videoListMeta(video)"
+            :badge="video.duration ? formatDuration(video.duration) : ''"
+            :edit-mode="editMode"
+            @click="handleVideoClick"
+            @edit="openEdit"
+          />
         </div>
       </div>
 
@@ -1609,127 +1572,6 @@ const onListImgError = (e: Event) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.video-list-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.video-list-row:hover {
-  background: var(--bg-surface-2);
-  border-color: var(--border-default);
-}
-
-.list-thumb {
-  position: relative;
-  width: 160px;
-  flex-shrink: 0;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #000;
-}
-
-.list-thumb-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.list-duration {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  background: rgba(0, 0, 0, 0.75);
-  color: var(--text-on-accent);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.list-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.list-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin: 0 0 6px 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.list-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.list-likes {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--danger);
-}
-
-.list-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.list-action-btn {
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface-hover);
-  border: none;
-  border-radius: 50%;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.list-action-btn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--accent);
-}
-
-.list-action-btn.like.active {
-  color: #ff4757;
-  background: rgba(255, 71, 87, 0.15);
-}
-
-.list-action-btn.favorite.active {
-  color: #ffa502;
-  background: rgba(255, 165, 2, 0.15);
-}
-
-.list-action-btn.dislike.active {
-  color: #ffd93d;
-  background: rgba(255, 217, 61, 0.15);
 }
 
 /* 空状态 */
