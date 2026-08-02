@@ -2,7 +2,7 @@
 import api, { API_BASE, axios } from './client'
 
 export const serviceManageApi = {
-  // 获取所有 dplayer 服务的状态
+  // 获取所有 dbox 服务的状态
   getServices: () => api.get('/api/admin/services'),
 
   // 控制服务（start/stop/restart）

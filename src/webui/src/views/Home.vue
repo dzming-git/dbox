@@ -215,7 +215,7 @@ watch(() => route.query, async (newQuery) => {
 
 // 更新 URL query 参数
 // 使用 push 而非 replace：让每次筛选/排序/搜索都成为一条独立的浏览器历史记录，
-// 用户点击「后退」会返回上一次的筛选状态（而不是直接退出 Dplayer）。
+// 用户点击「后退」会返回上一次的筛选状态（而不是直接退出 DBox）。
 const updateUrl = () => {
   const query = videoStore.toQuery()
   // 始终保留当前媒体模式，避免换页/筛选后 mode 丢失导致切换 tab 消失
@@ -604,7 +604,9 @@ const listThumbUrl = (video: Video): string => {
         @click="mediaTab = 'mixed'"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 6h16M4 12h16M4 18h10"/>
+          <path d="M3 7l9-4 9 4-9 4-9-4z"/>
+          <path d="M3 12l9 4 9-4"/>
+          <path d="M3 17l9 4 9-4"/>
         </svg>
         帖子
       </button>
@@ -853,6 +855,17 @@ const listThumbUrl = (video: Video): string => {
             @edit="openEdit"
           />
         </div>
+      </div>
+
+      <!-- 移动端单手翻页：底部悬浮的换一批 -->
+      <div v-if="mediaTab === 'video' && totalPages > 1" class="mobile-pager">
+        <button class="shuffle-btn mobile-shuffle" @click="handleShuffle" :disabled="shuffling">
+          <svg class="shuffle-icon" :class="{ spinning: shuffling }" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l4.4-6c.6-.9 1.9-1.4 3-1.1l5.8 1.6"/>
+            <path d="M16.5 12L19 16l-9-4 2.5-4"/>
+          </svg>
+          <span>{{ shuffling ? '换选中...' : '换一批' }}</span>
+        </button>
       </div>
 
       <!-- 空状态 -->
@@ -1825,6 +1838,11 @@ const listThumbUrl = (video: Video): string => {
   }
 }
 
+/* 移动端底部单手翻页栏：桌面默认隐藏，仅移动端（下方 @media）显示 */
+.mobile-pager {
+  display: none;
+}
+
 @media (max-width: 600px) {
   .home-container {
     padding: 12px;
@@ -1916,6 +1934,36 @@ const listThumbUrl = (video: Video): string => {
   .undo-btn svg {
     width: 14px;
     height: 14px;
+  }
+
+  /* 移动端：底部悬浮单手翻页栏 */
+  .mobile-pager {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    justify-content: center;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg-primary) 70%, transparent);
+    pointer-events: none;
+  }
+
+  .mobile-shuffle {
+    pointer-events: auto;
+    height: 44px;
+    padding: 0 28px;
+    font-size: 15px;
+    border-radius: 22px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    flex: 1 1 auto;
+    max-width: 320px;
+  }
+
+  /* 给底部悬浮翻页栏留出空间，避免遮挡最后一行 */
+  .video-section {
+    padding-bottom: 76px;
   }
 
   /* 移动端显示模式切换占满整行 */

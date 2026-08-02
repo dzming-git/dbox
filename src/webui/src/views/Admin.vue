@@ -2534,7 +2534,7 @@ onUnmounted(() => {
         </div>
 
         <div v-else-if="services.length === 0" class="empty-state">
-          <p>未发现 dplayer- 前缀的 NSSM 服务</p>
+          <p>未发现 dbox- 前缀的 NSSM 服务</p>
         </div>
 
         <div v-else class="services-list">
