@@ -3023,7 +3023,7 @@ const handleDelete = async () => {
 
 .interact-btn.sharewatch-btn:hover .btn-icon,
 .interact-btn.sharewatch-btn.active .btn-icon {
-  background: rgba(33, 150, 243, 0.15);
+  background: var(--accent-soft);
 }
 
 /* 右侧操作按钮 */
@@ -3074,7 +3074,7 @@ const handleDelete = async () => {
   align-items: center;
   gap: 4px;
   padding: 3px 10px;
-  background: rgba(33, 150, 243, 0.12);
+  background: var(--accent-soft);
   color: var(--accent);
   border-radius: 12px;
   cursor: pointer;
@@ -3082,7 +3082,7 @@ const handleDelete = async () => {
 }
 
 .collection-meta:hover {
-  background: rgba(33, 150, 243, 0.22);
+  background: var(--accent-soft-hover);
 }
 
 /* 更多菜单 */
@@ -4286,10 +4286,10 @@ const handleDelete = async () => {
 }
 .markers-add-btn {
   padding: 6px 12px;
-  border: 1px solid var(--info-soft);
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
-  background: rgba(33, 150, 243, 0.12);
-  color: var(--text-secondary);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
