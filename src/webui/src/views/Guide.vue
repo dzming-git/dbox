@@ -111,7 +111,7 @@ const sections = [
   margin-bottom: 8px;
 }
 .guide-subtitle {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 15px;
 }
 .guide-sections {
@@ -120,7 +120,7 @@ const sections = [
   gap: 24px;
 }
 .guide-section {
-  background: #1a1a24;
+  background: var(--bg-surface-hover);
   border: 1px solid #2a2a38;
   border-radius: 12px;
   padding: 24px;
@@ -149,7 +149,7 @@ const sections = [
   align-items: baseline;
   gap: 10px;
   padding: 8px 12px;
-  background: #14141c;
+  background: var(--bg-surface);
   border-radius: 8px;
   font-size: 14px;
   line-height: 1.5;

@@ -112,12 +112,12 @@ onMounted(() => {
 }
 .wl-count {
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
 }
 .wl-clear-btn {
   background: transparent;
   border: 1px solid #444;
-  color: #ff6b6b;
+  color: var(--danger);
   border-radius: 8px;
   padding: 7px 14px;
   font-size: 13px;
@@ -125,7 +125,7 @@ onMounted(() => {
   transition: all 0.15s;
 }
 .wl-clear-btn:hover {
-  border-color: #ff6b6b;
+  border-color: var(--danger);
   background: rgba(255, 107, 107, 0.1);
 }
 .wl-empty {
@@ -134,22 +134,22 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 80px 20px;
-  color: #888;
+  color: var(--text-secondary);
   text-align: center;
 }
 .wl-empty p { margin: 6px 0 0; font-size: 15px; }
-.wl-empty-hint { font-size: 13px !important; color: #666 !important; }
+.wl-empty-hint { font-size: 13px !important; color: var(--text-tertiary) !important; }
 .wl-empty-rel {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 18px;
   padding: 14px 18px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 .wl-empty-rel b { color: #ddd; }
 
@@ -159,7 +159,7 @@ onMounted(() => {
   gap: 16px;
 }
 .wl-card {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   overflow: hidden;
@@ -189,15 +189,15 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  color: #999;
-  background: #2a2a2a;
+  color: var(--text-tertiary);
+  background: var(--bg-surface-hover);
 }
 .wl-card-type {
   position: absolute;
   left: 8px;
   bottom: 8px;
   background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 11px;
   padding: 2px 7px;
   border-radius: 6px;
@@ -222,7 +222,7 @@ onMounted(() => {
 }
 .wl-card-remove:hover {
   background: #ff6b6b;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .wl-card-title {
   padding: 10px 12px;

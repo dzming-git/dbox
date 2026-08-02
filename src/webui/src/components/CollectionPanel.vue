@@ -148,9 +148,9 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #2a2a2a;
-  border: 1px solid #333;
-  color: #ccc;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
@@ -158,12 +158,12 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   transition: all 0.2s;
   white-space: nowrap;
 }
-.cp-trigger:hover { background: #333; color: #fff; }
+.cp-trigger:hover { background: #333; color: var(--text-on-accent); }
 .cp-icon { display: inline-flex; align-items: center; }
 .cp-icon svg { width: 16px; height: 16px; }
 .cp-badge {
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border-radius: 10px;
   font-size: 11px;
   padding: 0 6px;
@@ -178,7 +178,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 .cp-dropdown {
   position: fixed;
   z-index: 2001;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-radius: 10px;
   padding: 8px;
@@ -196,14 +196,14 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   display: inline-block;
   margin: 0 6px 6px 0;
   padding: 4px 10px;
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border-radius: 14px;
   font-size: 12px;
   cursor: pointer;
 }
-.cp-chip:hover { background: #1976D2; }
-.cp-divider { height: 1px; background: #3a3a3a; margin: 6px 0; }
+.cp-chip:hover { background: var(--accent-active); }
+.cp-divider { height: 1px; background: var(--bg-surface-hover); margin: 6px 0; }
 .cp-empty { font-size: 12px; color: #777; padding: 6px; }
 .cp-item {
   padding: 8px;
@@ -212,7 +212,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   color: #eee;
   cursor: pointer;
 }
-.cp-item:hover { background: #2196F3; color: #fff; }
+.cp-item:hover { background: var(--accent); color: var(--text-on-accent); }
 .cp-new {
   display: flex;
   gap: 6px;
@@ -223,21 +223,21 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 .cp-new input {
   flex: 1;
   min-width: 0;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #444;
-  color: #fff;
+  color: var(--text-on-accent);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 13px;
 }
 .cp-new button {
-  background: #2196F3;
+  background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
 }
-.cp-new button:hover { background: #1976D2; }
+.cp-new button:hover { background: var(--accent-active); }
 </style>

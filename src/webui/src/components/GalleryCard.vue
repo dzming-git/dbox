@@ -120,8 +120,8 @@ const handleClick = () => {
 .thumbnail-loading { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg-input); }
 .loading-spinner { width: 24px; height: 24px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.page-count { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: #fff; padding: 2px 6px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
-.continue-badge { position: absolute; top: 8px; left: 8px; background: var(--info); color: #fff; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; }
+.page-count { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); color: var(--text-on-accent); padding: 2px 6px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+.continue-badge { position: absolute; top: 8px; left: 8px; background: var(--info); color: var(--text-on-accent); padding: 2px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; }
 .continue-progress { position: absolute; left: 0; bottom: 0; width: 100%; height: 4px; background: rgba(0,0,0,0.5); }
 .continue-progress-bar { height: 100%; background: var(--info); }
 .gallery-info { padding: 8px 0; }
@@ -138,7 +138,7 @@ const handleClick = () => {
   border-radius: var(--radius-sm);
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -158,5 +158,5 @@ const handleClick = () => {
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.card-tag:hover { background: var(--accent-soft-hover); color: #fff; }
+.card-tag:hover { background: var(--accent-soft-hover); color: var(--text-on-accent); }
 </style>

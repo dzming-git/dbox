@@ -235,8 +235,8 @@ const showToast = (message: string) => {
   max-width: 1400px;
   margin: 0 auto;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 .favorites-layout {
   display: flex;
@@ -246,7 +246,7 @@ const showToast = (message: string) => {
 .collections-sidebar {
   width: 200px;
   flex-shrink: 0;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 12px;
   position: sticky;
@@ -257,7 +257,7 @@ const showToast = (message: string) => {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px 12px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
   margin-bottom: 8px;
   font-size: 14px;
   color: #aaa;
@@ -267,13 +267,13 @@ const showToast = (message: string) => {
   height: 24px;
   border: none;
   border-radius: 6px;
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
-.add-collection-btn:hover { background: #1976D2; }
+.add-collection-btn:hover { background: var(--accent-active); }
 .collection-list {
   list-style: none;
   margin: 0;
@@ -289,11 +289,11 @@ const showToast = (message: string) => {
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
-  color: #ccc;
+  color: var(--text-secondary);
   transition: background 0.2s;
 }
-.collection-item:hover { background: #252525; }
-.collection-item.active { background: #2196F3; color: #fff; }
+.collection-item:hover { background: var(--bg-surface-hover); }
+.collection-item.active { background: var(--accent); color: var(--text-on-accent); }
 .collection-name {
   flex: 1;
   font-size: 13px;
@@ -301,21 +301,21 @@ const showToast = (message: string) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.collection-count { font-size: 11px; color: #888; }
+.collection-count { font-size: 11px; color: var(--text-secondary); }
 .collection-item.active .collection-count { color: rgba(255, 255, 255, 0.8); }
 .del-collection-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
   padding: 0 2px;
 }
-.del-collection-btn:hover { color: #ff6b6b; }
+.del-collection-btn:hover { color: var(--danger); }
 .favorites-main { flex: 1; min-width: 0; }
 .page-header { margin-bottom: 24px; }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: #fff; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -326,8 +326,8 @@ const showToast = (message: string) => {
 .spinner {
   width: 48px;
   height: 48px;
-  border: 3px solid #333;
-  border-top-color: #2196F3;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -338,23 +338,23 @@ const showToast = (message: string) => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 .empty-icon { margin-bottom: 16px; color: #444; }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
 .browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
   padding: 10px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   text-decoration: none;
   cursor: pointer;
   transition: background 0.2s;
 }
-.browse-link:hover { background: #1976D2; }
+.browse-link:hover { background: var(--accent-active); }
 .browse-link.gallery { background: #ff9800; }
 .browse-link.gallery:hover { background: #e68a00; }
 .favorites-grid {
@@ -368,7 +368,7 @@ const showToast = (message: string) => {
   top: 50px;
   right: 8px;
   width: 180px;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-radius: 10px;
   padding: 6px;
@@ -379,7 +379,7 @@ const showToast = (message: string) => {
   font-size: 12px;
   color: #aaa;
   padding: 4px 8px 8px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
   margin-bottom: 4px;
 }
 .collection-menu-empty { font-size: 12px; color: #777; padding: 6px 8px; }
@@ -390,14 +390,14 @@ const showToast = (message: string) => {
   color: #eee;
   cursor: pointer;
 }
-.collection-menu-item:hover { background: #2196F3; color: #fff; }
+.collection-menu-item:hover { background: var(--accent); color: var(--text-on-accent); }
 .toast {
   position: fixed;
   bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 24px;
   font-size: 14px;

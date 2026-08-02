@@ -367,15 +367,15 @@ onUnmounted(stopAutoRefresh)
 .view-btn {
   padding: 6px 16px;
   border: none;
-  background: #16161d;
+  background: var(--bg-surface);
   color: #8b949e;
   cursor: pointer;
   font-size: 13px;
 }
 
 .view-btn.active {
-  background: #1976d2;
-  color: #fff;
+  background: var(--accent-active);
+  color: var(--text-on-accent);
 }
 
 .refresh-toggle {
@@ -392,7 +392,7 @@ onUnmounted(stopAutoRefresh)
   padding: 5px 8px;
   border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #16161d;
+  background: var(--bg-surface);
   color: #e1e1e1;
   font-size: 13px;
 }
@@ -405,14 +405,14 @@ onUnmounted(stopAutoRefresh)
   padding: 6px 16px;
   border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #23232f;
+  background: var(--bg-surface);
   cursor: pointer;
   font-size: 13px;
   color: #c9d1d9;
 }
 
 .manual-refresh-btn:hover:not(:disabled) {
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
 }
 
 .manual-refresh-btn:disabled {
@@ -422,7 +422,7 @@ onUnmounted(stopAutoRefresh)
 
 /* 原始文本视图 */
 .log-raw {
-  background: #0d0d14;
+  background: var(--bg-surface);
   border: 1px solid #2d2d3f;
   border-radius: 8px;
   padding: 12px 14px;
@@ -459,7 +459,7 @@ onUnmounted(stopAutoRefresh)
   gap: 12px;
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: #1a1a24;
+  background: var(--bg-surface-hover);
   border: 1px solid #2d2d3f;
   border-radius: 8px;
 }
@@ -481,7 +481,7 @@ onUnmounted(stopAutoRefresh)
   padding: 6px 10px;
   border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #16161d;
+  background: var(--bg-surface);
   font-size: 13px;
   min-width: 160px;
   color: #e1e1e1;
@@ -501,7 +501,7 @@ onUnmounted(stopAutoRefresh)
   padding: 6px 16px;
   border: 1px solid #2d2d3f;
   border-radius: 6px;
-  background: #23232f;
+  background: var(--bg-surface);
   cursor: pointer;
   font-size: 13px;
   color: #c9d1d9;
@@ -510,7 +510,7 @@ onUnmounted(stopAutoRefresh)
 }
 
 .filter-reset-btn:hover {
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
 }
 
 /* 移动端适配 */

@@ -187,7 +187,7 @@ const onAction = (name: string, e: Event) => {
   border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
 }
@@ -202,7 +202,7 @@ const onAction = (name: string, e: Event) => {
   backdrop-filter: blur(4px);
   border-radius: var(--radius-sm);
   font-size: 12px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .action-btn {
   position: absolute;

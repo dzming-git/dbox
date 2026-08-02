@@ -645,7 +645,7 @@ const clearError = () => {
 <style scoped>
 .upload-page {
   min-height: 100vh;
-  background: #0f0f0f;
+  background: var(--bg-surface);
   padding: 40px 20px;
 }
 
@@ -655,7 +655,7 @@ const clearError = () => {
 }
 
 .page-title {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 28px;
   margin-bottom: 32px;
   text-align: center;
@@ -665,7 +665,7 @@ const clearError = () => {
 .library-section {
   margin-bottom: 24px;
   padding: 20px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   border: 2px solid transparent;
   transition: border-color 0.3s ease;
@@ -686,7 +686,7 @@ const clearError = () => {
 }
 
 .section-title {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 18px;
   margin-bottom: 16px;
   display: flex;
@@ -712,8 +712,8 @@ const clearError = () => {
 }
 
 .library-card {
-  background: #1a1a1a;
-  border: 2px solid #333;
+  background: var(--bg-surface);
+  border: 2px solid var(--border-default);
   border-radius: 12px;
   padding: 20px 16px;
   text-align: center;
@@ -723,12 +723,12 @@ const clearError = () => {
 }
 
 .library-card:hover {
-  border-color: #667eea;
+  border-color: var(--accent);
   transform: translateY(-2px);
 }
 
 .library-card.selected {
-  border-color: #667eea;
+  border-color: var(--accent);
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
 }
 
@@ -738,7 +738,7 @@ const clearError = () => {
 }
 
 .library-name {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 500;
 }
@@ -749,24 +749,24 @@ const clearError = () => {
   right: 8px;
   width: 24px;
   height: 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
 .no-library-hint {
-  color: #888;
+  color: var(--text-secondary);
   text-align: center;
   padding: 20px;
 }
 
 /* 上传区域 */
 .upload-zone {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #fef3ea 0%, #f1f3f7 100%);
   border: 2px dashed #667eea;
   border-radius: 16px;
   padding: 60px 40px;
@@ -806,37 +806,37 @@ const clearError = () => {
 }
 
 .upload-icon {
-  color: #667eea;
+  color: var(--accent);
   margin-bottom: 20px;
 }
 
 .upload-text {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 18px;
   margin-bottom: 12px;
 }
 
 .upload-text .highlight {
-  color: #667eea;
+  color: var(--accent);
   font-weight: 600;
 }
 
 .upload-hint {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
 }
 
 .mobile-hint {
   display: none;
-  color: #667eea;
+  color: var(--accent);
   font-size: 12px;
   margin-top: 8px;
 }
 
 .desktop-hint {
   display: block;
-  color: #667eea;
+  color: var(--accent);
   font-size: 12px;
   margin-top: 8px;
 }
@@ -866,7 +866,7 @@ const clearError = () => {
 
 /* 上传进度 */
 .upload-progress {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   padding: 40px;
   text-align: center;
@@ -880,12 +880,12 @@ const clearError = () => {
 }
 
 .progress-header h3 {
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0;
 }
 
 .progress-percent {
-  color: #667eea;
+  color: var(--accent);
   font-size: 24px;
   font-weight: 700;
 }
@@ -900,19 +900,19 @@ const clearError = () => {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(90deg, #f97316 0%, #ea580c 100%);
   border-radius: 4px;
   transition: width 0.3s ease;
 }
 
 .progress-hint {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 /* 上传成功 */
 .upload-success {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   padding: 60px 40px;
   text-align: center;
@@ -926,24 +926,24 @@ const clearError = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 40px;
   margin: 0 auto 24px;
 }
 
 .upload-success h3 {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 24px;
   margin-bottom: 12px;
 }
 
 .upload-success p {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 /* 错误提示 */
 .upload-error {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   padding: 40px;
   text-align: center;
@@ -957,7 +957,7 @@ const clearError = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 32px;
   margin: 0 auto 20px;
 }
@@ -969,8 +969,8 @@ const clearError = () => {
 
 .retry-btn {
   padding: 12px 32px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 14px;
@@ -984,20 +984,20 @@ const clearError = () => {
 
 /* 视频信息表单 */
 .video-form {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   padding: 32px;
   margin-top: 24px;
 }
 
 .video-form h3 {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 18px;
   margin-bottom: 8px;
 }
 
 .form-hint {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 13px;
   margin-bottom: 24px;
 }
@@ -1008,7 +1008,7 @@ const clearError = () => {
 
 .form-group label {
   display: block;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 14px;
   margin-bottom: 8px;
 }
@@ -1017,10 +1017,10 @@ const clearError = () => {
 .form-group textarea {
   width: 100%;
   padding: 12px 16px;
-  background: #0f0f0f;
-  border: 1px solid #333;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   transition: border-color 0.3s ease;
   box-sizing: border-box;
@@ -1029,7 +1029,7 @@ const clearError = () => {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--accent);
 }
 
 .form-group textarea {
@@ -1046,29 +1046,29 @@ const clearError = () => {
 
 .tag-option {
   padding: 6px 14px;
-  background: #0f0f0f;
-  border: 1px solid #333;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 16px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .tag-option:hover {
-  border-color: #667eea;
-  color: #fff;
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .tag-option.selected {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   border-color: transparent;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 /* 已选择文件列表 */
 .selected-files {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 16px;
   padding: 24px;
   margin-bottom: 24px;
@@ -1082,7 +1082,7 @@ const clearError = () => {
 }
 
 .files-header h3 {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 18px;
   margin: 0;
 }
@@ -1092,7 +1092,7 @@ const clearError = () => {
   background: transparent;
   border: 1px solid #666;
   border-radius: 6px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -1113,7 +1113,7 @@ const clearError = () => {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #0f0f0f;
+  background: var(--bg-surface);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -1127,13 +1127,13 @@ const clearError = () => {
 }
 
 .file-name {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   margin-bottom: 4px;
 }
 
 .file-size {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
@@ -1145,8 +1145,8 @@ const clearError = () => {
 .upload-btn {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 16px;
@@ -1172,7 +1172,7 @@ const clearError = () => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 77, 79, 0.95);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 14px;
@@ -1226,7 +1226,7 @@ const clearError = () => {
 
 /* 错误弹窗主体 */
 .error-modal {
-  background: #1e1e2e;
+  background: var(--bg-surface);
   border: 1px solid #3a3a5c;
   border-radius: 20px;
   width: 100%;
@@ -1257,14 +1257,14 @@ const clearError = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 28px;
   font-weight: bold;
   box-shadow: 0 8px 24px rgba(255, 77, 79, 0.35);
 }
 
 .error-modal-header h3 {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 20px;
   margin: 0;
   font-weight: 600;
@@ -1306,8 +1306,8 @@ const clearError = () => {
 .error-modal-retry {
   flex: 1;
   padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 10px;
   font-size: 15px;
@@ -1324,7 +1324,7 @@ const clearError = () => {
   flex: 1;
   padding: 12px;
   background: transparent;
-  color: #888;
+  color: var(--text-secondary);
   border: 1px solid #444;
   border-radius: 10px;
   font-size: 15px;
@@ -1333,8 +1333,8 @@ const clearError = () => {
 }
 
 .error-modal-close:hover {
-  border-color: #666;
-  color: #ccc;
+  border-color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 /* 响应式 - 弹窗 */

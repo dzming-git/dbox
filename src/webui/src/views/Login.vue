@@ -262,7 +262,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
@@ -286,7 +286,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: 20px;
   height: 20px;
   border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
+  border-top-color: var(--text-on-accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -302,7 +302,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 .login-footer p {
   font-size: 13px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 /* 响应式适配 */

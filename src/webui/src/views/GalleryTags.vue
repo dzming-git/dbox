@@ -63,15 +63,15 @@ onMounted(loadTags)
 
 <style scoped>
 .gallery-tags-container { padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.page-title { font-size: 24px; font-weight: 600; color: #fff; margin: 0 0 6px; }
-.page-desc { color: #999; font-size: 14px; margin: 0 0 20px; }
-.loading, .empty { color: #888; text-align: center; padding: 60px 0; }
-.tag-tree { list-style: none; margin: 0; padding: 0; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; }
+.page-title { font-size: 24px; font-weight: 600; color: var(--text-on-accent); margin: 0 0 6px; }
+.page-desc { color: var(--text-tertiary); font-size: 14px; margin: 0 0 20px; }
+.loading, .empty { color: var(--text-secondary); text-align: center; padding: 60px 0; }
+.tag-tree { list-style: none; margin: 0; padding: 0; background: var(--bg-surface); border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; }
 .tag-node { border-bottom: 1px solid #222; }
 .tag-node:last-child { border-bottom: none; }
 .tag-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
-.tag-name { flex: 1; color: #fff; font-size: 15px; }
-.tag-count { color: #888; font-size: 13px; min-width: 32px; text-align: right; }
-.tag-view-btn { padding: 6px 14px; background: #2196F3; border: none; border-radius: 6px; color: #fff; font-size: 13px; cursor: pointer; }
+.tag-name { flex: 1; color: var(--text-on-accent); font-size: 15px; }
+.tag-count { color: var(--text-secondary); font-size: 13px; min-width: 32px; text-align: right; }
+.tag-view-btn { padding: 6px 14px; background: var(--accent); border: none; border-radius: 6px; color: var(--text-on-accent); font-size: 13px; cursor: pointer; }
 .tag-view-btn:disabled { background: #333; color: #777; cursor: not-allowed; }
 </style>

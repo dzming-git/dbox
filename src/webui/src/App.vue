@@ -456,7 +456,7 @@ body {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 10px;
   line-height: 16px;
   text-align: center;
@@ -475,7 +475,7 @@ body {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 10px;
   line-height: 16px;
   text-align: center;
@@ -524,7 +524,7 @@ body {
   justify-content: center;
   font-weight: 600;
   font-size: 14px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .username {
@@ -618,7 +618,7 @@ body {
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   background: var(--success);
-  color: #fff;
+  color: var(--text-on-accent);
   white-space: nowrap;
 }
 

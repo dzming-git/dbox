@@ -434,8 +434,8 @@ watch(
   max-width: 800px;
   margin: 0 auto;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 
 .page-header {
@@ -446,13 +446,13 @@ watch(
   font-size: 28px;
   font-weight: 600;
   margin: 0 0 8px 0;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .page-sub {
   margin: 0;
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
   line-height: 1.6;
 }
 
@@ -466,23 +466,23 @@ watch(
 
 .tab-btn {
   padding: 10px 18px;
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .tab-btn:hover {
-  background: #252525;
+  background: var(--bg-surface-hover);
 }
 
 .tab-btn.active {
-  background: #2196F3;
-  border-color: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .tab-btn.locked {
@@ -491,7 +491,7 @@ watch(
 
 .tab-desc {
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
@@ -506,7 +506,7 @@ watch(
 }
 
 .settings-section {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 24px;
 }
@@ -515,7 +515,7 @@ watch(
   font-size: 18px;
   font-weight: 600;
   margin: 0 0 20px 0;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .setting-item {
@@ -523,7 +523,7 @@ watch(
   justify-content: space-between;
   align-items: center;
   padding: 16px 0;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .setting-item:last-child {
@@ -541,14 +541,14 @@ watch(
   gap: 8px;
   font-size: 15px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-on-accent);
   margin-bottom: 4px;
 }
 
 .setting-desc {
   margin: 0;
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 /* 来源徽章 */
@@ -560,7 +560,7 @@ watch(
   line-height: 1.4;
   white-space: nowrap;
 }
-.src-browser { background: rgba(33, 150, 243, 0.18); color: #64b5f6; }
+.src-browser { background: rgba(33, 150, 243, 0.18); color: var(--accent); }
 .src-user { background: rgba(76, 175, 80, 0.18); color: #81c784; }
 .src-global { background: rgba(255, 152, 0, 0.18); color: #ffb74d; }
 .src-default { background: rgba(158, 158, 158, 0.18); color: #bdbdbd; }
@@ -609,7 +609,7 @@ watch(
 }
 
 input:checked + .toggle-slider {
-  background-color: #2196F3;
+  background-color: var(--accent);
 }
 
 input:checked + .toggle-slider:before {
@@ -624,10 +624,10 @@ input:disabled + .toggle-slider {
 /* Select */
 .setting-select {
   padding: 8px 16px;
-  background: #252525;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   min-width: 120px;
@@ -635,7 +635,7 @@ input:disabled + .toggle-slider {
 
 .setting-select:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 .setting-select:disabled {
@@ -666,11 +666,11 @@ input:disabled + .toggle-slider {
   gap: 8px;
   cursor: pointer;
   font-size: 14px;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .radio-label input[type="radio"] {
-  accent-color: #2196F3;
+  accent-color: var(--accent);
 }
 
 .radio-label input:disabled {
@@ -705,7 +705,7 @@ input:disabled + .toggle-slider {
   background: transparent;
   border: 1px solid #444;
   border-radius: 8px;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -713,22 +713,22 @@ input:disabled + .toggle-slider {
 
 .reset-btn:hover:not(:disabled) {
   background: #333;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .save-btn {
   padding: 12px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .save-btn:hover:not(:disabled) {
-  background: #1976d2;
+  background: var(--accent-active);
 }
 
 .save-btn:disabled,
@@ -744,7 +744,7 @@ input:disabled + .toggle-slider {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 24px;
   font-size: 14px;

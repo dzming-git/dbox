@@ -9,8 +9,8 @@
 body {
   margin: 0;
   padding: 0;
-  background: #0a0a0a;
-  color: #e0e0e0;
+  background: var(--bg-base);
+  color: var(--text-primary);
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -19,7 +19,7 @@ body {
 
 #app {
   min-height: 100vh;
-  background: #0f0f0f;
+  background: var(--bg-base);
 }
 
 /* 滚动条样式 */
@@ -29,32 +29,32 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1a;
+  background: var(--bg-surface-hover);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--border-strong);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: var(--text-tertiary);
 }
 
-/* 匽钮样式 */
+/* 按钮样式 */
 button {
   padding: 12px 24px;
   border: none;
   border-radius: 8px;
-  background: #667eea;
-  color: white;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 button:hover {
-  background: #5a67d8;
+  background: var(--accent-hover);
 }
 
 button:active {
@@ -62,33 +62,34 @@ button:active {
 }
 
 button:disabled {
-  background: #444;
+  background: var(--border-default);
+  color: var(--text-tertiary);
   cursor: not-allowed;
 }
 
 /* 输入框样式 */
 input {
   padding: 12px 16px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s ease;
 }
 
 input:focus {
-  border-color: #667eea;
+  border-color: var(--accent);
 }
 
 input::placeholder {
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 /* 卡片容器 */
 .card {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   overflow: hidden;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -96,7 +97,7 @@ input::placeholder {
 
 .card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 /* 标签样式 */
@@ -184,8 +185,8 @@ input::placeholder {
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #333;
-  border-top-color: #667eea;
+  border: 4px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear;
   margin: 20px auto;
@@ -202,8 +203,8 @@ input::placeholder {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: #333;
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--text-on-accent);
   padding: 8px 12px;
   border-radius: 4px;
   font-size: 12px;

@@ -91,12 +91,12 @@ const showToast = (message: string) => {
   max-width: 1400px;
   margin: 0 auto;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 .page-header { margin-bottom: 24px; }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: #fff; }
-.page-sub { margin: 8px 0 0; color: #888; font-size: 14px; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
+.page-sub { margin: 8px 0 0; color: var(--text-secondary); font-size: 14px; }
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -107,7 +107,7 @@ const showToast = (message: string) => {
 .spinner {
   width: 48px;
   height: 48px;
-  border: 3px solid #333;
+  border: 3px solid var(--border-default);
   border-top-color: #ffd93d;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -119,7 +119,7 @@ const showToast = (message: string) => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 .empty-icon { margin-bottom: 16px; color: #444; }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
@@ -136,7 +136,7 @@ const showToast = (message: string) => {
   transition: background 0.2s;
 }
 .browse-link:hover { background: #e6c233; }
-.browse-link.gallery { background: #ff9800; color: #fff; }
+.browse-link.gallery { background: #ff9800; color: var(--text-on-accent); }
 .browse-link.gallery:hover { background: #e68a00; }
 .disliked-grid {
   display: grid;
@@ -149,7 +149,7 @@ const showToast = (message: string) => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 24px;
   font-size: 14px;

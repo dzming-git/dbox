@@ -239,7 +239,7 @@ onUnmounted(() => {
   margin: 0;
 }
 .refresh-btn {
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
   color: #e6e6e6;
   border: 1px solid #3a3a4a;
   border-radius: 8px;
@@ -259,7 +259,7 @@ onUnmounted(() => {
 }
 .empty-tip {
   text-align: center;
-  color: #888;
+  color: var(--text-secondary);
   padding: 40px 0;
 }
 .task-list {
@@ -268,7 +268,7 @@ onUnmounted(() => {
   gap: 12px;
 }
 .task-card {
-  background: #1a1a24;
+  background: var(--bg-surface-hover);
   border: 1px solid #2a2a38;
   border-radius: 12px;
   padding: 14px 16px;
@@ -283,7 +283,7 @@ onUnmounted(() => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
   color: #8fd0ff;
 }
 .kind-upload {
@@ -318,7 +318,7 @@ onUnmounted(() => {
 }
 .st-failed {
   background: rgba(255, 120, 120, 0.15);
-  color: #ff8a8a;
+  color: var(--danger);
 }
 .st-cancelled {
   background: rgba(150, 150, 150, 0.15);
@@ -326,7 +326,7 @@ onUnmounted(() => {
 }
 .task-progress {
   height: 6px;
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -379,7 +379,7 @@ onUnmounted(() => {
 }
 .task-time {
   font-size: 11px;
-  color: #666;
+  color: var(--text-tertiary);
   margin-top: 8px;
   text-align: right;
 }
@@ -393,7 +393,7 @@ onUnmounted(() => {
   z-index: 1000;
 }
 .modal {
-  background: #1e1e28;
+  background: var(--bg-surface);
   border: 1px solid #3a3a4a;
   border-radius: 14px;
   padding: 22px;
@@ -419,7 +419,7 @@ onUnmounted(() => {
 .text-input {
   width: 100%;
   min-height: 64px;
-  background: #14141c;
+  background: var(--bg-surface);
   border: 1px solid #3a3a4a;
   border-radius: 8px;
   color: #e6e6e6;
@@ -436,13 +436,13 @@ onUnmounted(() => {
   padding: 8px 18px;
   border-radius: 8px;
   border: 1px solid #3a3a4a;
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
   color: #e6e6e6;
   cursor: pointer;
 }
 .modal-actions .primary {
   background: #4a8cff;
   border-color: #4a8cff;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 </style>

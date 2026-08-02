@@ -689,13 +689,13 @@ const confirmMerge = async () => {
 .page-title {
   font-size: 28px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0;
 }
 
 .page-desc {
   font-size: 14px;
-  color: #888;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -704,10 +704,10 @@ const confirmMerge = async () => {
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
@@ -715,7 +715,7 @@ const confirmMerge = async () => {
 }
 
 .create-btn:hover {
-  background: #1976D2;
+  background: var(--accent-active);
 }
 
 .toolbar {
@@ -735,23 +735,23 @@ const confirmMerge = async () => {
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .search-input {
   width: 100%;
   height: 44px;
   padding: 0 16px 0 44px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 .loading-container {
@@ -765,8 +765,8 @@ const confirmMerge = async () => {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #333;
-  border-top-color: #2196F3;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -787,13 +787,13 @@ const confirmMerge = async () => {
   align-items: center;
   gap: 4px;
   padding: 12px 16px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 8px;
   transition: all 0.2s;
 }
 
 .tag-row:hover {
-  background: #252525;
+  background: var(--bg-surface-hover);
 }
 
 .tag-row:hover .tag-actions {
@@ -802,19 +802,19 @@ const confirmMerge = async () => {
 
 /* 层级样式 */
 .tag-row.level-0 {
-  background: #1e3a5f;
+  background: var(--info-soft);
 }
 
 .tag-row.level-1 {
-  background: #1a2a2a;
+  background: var(--info-soft);
 }
 
 .tag-row.level-2 {
-  background: #1a1a2a;
+  background: var(--info-soft);
 }
 
 .tag-row.level-3 {
-  background: #2a1a1a;
+  background: var(--danger-soft);
 }
 
 .indent {
@@ -844,7 +844,7 @@ const confirmMerge = async () => {
   height: 24px;
   background: transparent;
   border: none;
-  color: #999;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: transform 0.2s;
   flex-shrink: 0;
@@ -880,7 +880,7 @@ const confirmMerge = async () => {
 .tag-name {
   font-size: 15px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-on-accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -889,7 +889,7 @@ const confirmMerge = async () => {
 
 .level-badge {
   font-size: 10px;
-  color: #888;
+  color: var(--text-secondary);
   background: #333;
   padding: 2px 6px;
   border-radius: 3px;
@@ -898,7 +898,7 @@ const confirmMerge = async () => {
 
 .tag-category {
   font-size: 12px;
-  color: #888;
+  color: var(--text-secondary);
   background: #333;
   padding: 2px 8px;
   border-radius: 4px;
@@ -910,11 +910,11 @@ const confirmMerge = async () => {
   display: flex;
   gap: 16px;
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .tag-children-count {
-  color: #2196F3;
+  color: var(--accent);
 }
 
 .tag-actions {
@@ -938,7 +938,7 @@ const confirmMerge = async () => {
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: #999;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -952,7 +952,7 @@ const confirmMerge = async () => {
 }
 
 .action-icon-btn.edit:hover {
-  color: #2196F3;
+  color: var(--accent);
 }
 
 .action-icon-btn.delete:hover {
@@ -962,7 +962,7 @@ const confirmMerge = async () => {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 /* 对话框样式 */
@@ -980,7 +980,7 @@ const confirmMerge = async () => {
 }
 
 .dialog {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 24px;
   width: 90%;
@@ -990,7 +990,7 @@ const confirmMerge = async () => {
 .dialog h3 {
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 20px 0;
 }
 
@@ -1001,7 +1001,7 @@ const confirmMerge = async () => {
 .form-group label {
   display: block;
   font-size: 14px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-bottom: 8px;
 }
 
@@ -1010,10 +1010,10 @@ const confirmMerge = async () => {
   width: 100%;
   height: 44px;
   padding: 0 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #252525;
-  color: #fff;
+  background: var(--bg-surface-hover);
+  color: var(--text-on-accent);
   font-size: 14px;
   box-sizing: border-box;
 }
@@ -1021,7 +1021,7 @@ const confirmMerge = async () => {
 .form-group input:focus,
 .parent-select:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 /* 智能建议下拉框 */
@@ -1034,7 +1034,7 @@ const confirmMerge = async () => {
   top: 100%;
   left: 0;
   right: 0;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-top: none;
   border-radius: 0 0 8px 8px;
@@ -1050,7 +1050,7 @@ const confirmMerge = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .suggestion-item:last-child {
@@ -1058,16 +1058,16 @@ const confirmMerge = async () => {
 }
 
 .suggestion-item:hover {
-  background: #3a3a3a;
+  background: var(--bg-surface-hover);
 }
 
 .suggestion-path {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
 .suggestion-category {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
   background: #444;
   padding: 2px 8px;
@@ -1076,7 +1076,7 @@ const confirmMerge = async () => {
 
 .suggestion-empty {
   padding: 10px 12px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   text-align: center;
 }
@@ -1112,7 +1112,7 @@ const confirmMerge = async () => {
   background: transparent;
   border: 1px solid #444;
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -1124,17 +1124,17 @@ const confirmMerge = async () => {
 
 .btn-primary {
   padding: 10px 20px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .btn-primary:hover {
-  background: #1976D2;
+  background: var(--accent-active);
 }
 
 .btn-danger {
@@ -1142,7 +1142,7 @@ const confirmMerge = async () => {
   background: #f44336;
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -1159,7 +1159,7 @@ const confirmMerge = async () => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(33, 33, 33, 0.95);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 14px;
@@ -1215,18 +1215,18 @@ const confirmMerge = async () => {
   background: #333;
   border: 1px solid #444;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .batch-toggle-btn:hover {
-  background: #3a3a3a;
+  background: var(--bg-surface-hover);
 }
 
 .batch-toggle-btn.active {
-  background: #1976D2;
+  background: var(--accent-active);
   border-color: #1976D2;
 }
 
@@ -1237,8 +1237,8 @@ const confirmMerge = async () => {
   flex-wrap: wrap;
   gap: 12px;
   padding: 14px 18px;
-  background: #1e1e2a;
-  border: 1px solid #333;
+  background: var(--info-soft);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   margin-bottom: 20px;
 }
@@ -1262,15 +1262,15 @@ const confirmMerge = async () => {
   padding: 9px 16px;
   border: 1px solid #444;
   border-radius: 6px;
-  background: #2a2a38;
-  color: #fff;
+  background: var(--bg-surface-hover);
+  color: var(--text-on-accent);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .batch-btn:hover:not(:disabled) {
-  background: #34344a;
+  background: var(--bg-surface-hover);
 }
 
 .batch-btn:disabled {

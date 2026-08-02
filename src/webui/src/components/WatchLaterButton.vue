@@ -52,7 +52,7 @@ const onToggle = () => {
   transition: color 0.15s, background 0.15s;
 }
 .watch-later-btn:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .watch-later-btn.active {
   color: #ffb300;
@@ -72,7 +72,7 @@ const onToggle = () => {
 .watch-later-btn.bar {
   padding: 8px 14px;
   border-radius: 10px;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   font-size: 14px;
 }
 .watch-later-btn.bar:hover {

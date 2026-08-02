@@ -963,7 +963,7 @@ const onListImgError = (e: Event) => {
   gap: 20px;
   align-items: flex-start;
   background: linear-gradient(135deg, #23252b, #1c1d22);
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 14px;
   padding: 24px;
   margin-bottom: 20px;
@@ -980,7 +980,7 @@ const onListImgError = (e: Event) => {
 .ob-title {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-on-accent);
   margin-bottom: 4px;
 }
 
@@ -1011,7 +1011,7 @@ const onListImgError = (e: Event) => {
   height: 26px;
   border-radius: 50%;
   background: #ff4d6d;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 700;
   display: flex;
@@ -1020,13 +1020,13 @@ const onListImgError = (e: Event) => {
 }
 
 .ob-step-title {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 600;
 }
 
 .ob-step-desc {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 12px;
   margin-top: 2px;
 }
@@ -1042,19 +1042,19 @@ const onListImgError = (e: Event) => {
   border-radius: 8px;
   font-size: 14px;
   text-decoration: none;
-  background: #2c2c2c;
+  background: var(--bg-surface-hover);
   color: #ddd;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   transition: background 0.2s;
 }
 
 .ob-btn:hover {
-  background: #383838;
+  background: var(--bg-surface-hover);
 }
 
 .ob-primary {
   background: #ff4d6d;
-  color: #fff;
+  color: var(--text-on-accent);
   border-color: #ff4d6d;
 }
 
@@ -1078,8 +1078,8 @@ const onListImgError = (e: Event) => {
 .media-tabs {
   display: flex;
   gap: 4px;
-  background: #252525;
-  border: 1px solid #333;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   padding: 4px;
   margin-bottom: 20px;
@@ -1102,13 +1102,13 @@ const onListImgError = (e: Event) => {
 }
 
 .media-tab:hover {
-  color: #fff;
+  color: var(--text-on-accent);
   background: rgba(255, 255, 255, 0.06);
 }
 
 .media-tab.active {
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 /* 顶部栏：媒体切换（左） + 稍后再看（右） */
@@ -1138,7 +1138,7 @@ const onListImgError = (e: Event) => {
 /* 标签区域 */
 .tags-section {
   margin-bottom: 16px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 12px 16px;
 }
@@ -1150,7 +1150,7 @@ const onListImgError = (e: Event) => {
 .tags-header h3 {
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0;
 }
 
@@ -1183,12 +1183,12 @@ const onListImgError = (e: Event) => {
 }
 
 .breadcrumb-item {
-  color: #ccc;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .breadcrumb-item:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .breadcrumb-item.active {
@@ -1199,7 +1199,7 @@ const onListImgError = (e: Event) => {
 .nav-back-btn {
   background: #333;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   padding: 6px 12px;
   border-radius: 6px;
@@ -1211,7 +1211,7 @@ const onListImgError = (e: Event) => {
 
 .nav-back-btn:hover {
   background: #444;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tags-container {
@@ -1226,8 +1226,8 @@ const onListImgError = (e: Event) => {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #252525;
-  border: 1px solid #333;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 20px;
   cursor: pointer;
   transition: all 0.2s;
@@ -1239,8 +1239,8 @@ const onListImgError = (e: Event) => {
 }
 
 .tag-nav-item.active {
-  background: #2196F3;
-  border-color: #2196F3;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .tag-nav-item.all-tag {
@@ -1250,18 +1250,18 @@ const onListImgError = (e: Event) => {
 /* 未标记（待整理）：灰色低调，与真实标签区分，不抢视觉 */
 .tag-nav-item.untagged-tag {
   border-style: dashed;
-  border-color: #3a3a3a;
-  color: #888;
+  border-color: var(--border-default);
+  color: var(--text-secondary);
 }
 
 .tag-nav-item.untagged-tag:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border-color: #4a4a4a;
   color: #aaa;
 }
 
 .tag-nav-item.untagged-tag.active {
-  background: #3a2f1a;
+  background: var(--warning-soft);
   border-color: #c79100;
   color: #ffca28;
 }
@@ -1271,7 +1271,7 @@ const onListImgError = (e: Event) => {
 }
 
 .untagged-badge {
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   color: #777;
 }
 
@@ -1282,11 +1282,11 @@ const onListImgError = (e: Event) => {
 
 .tag-nav-name {
   font-size: 13px;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .tag-nav-item.active .tag-nav-name {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tag-nav-badge {
@@ -1294,8 +1294,8 @@ const onListImgError = (e: Event) => {
   align-items: center;
   gap: 2px;
   font-size: 11px;
-  color: #888;
-  background: #1a1a1a;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
   padding: 2px 6px;
   border-radius: 10px;
 }
@@ -1306,7 +1306,7 @@ const onListImgError = (e: Event) => {
 }
 
 .no-tags {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 13px;
   text-align: center;
   padding: 12px;
@@ -1327,8 +1327,8 @@ const onListImgError = (e: Event) => {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #252525;
-  border: 1px solid #333;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   color: #aaa;
   font-size: 14px;
@@ -1339,12 +1339,12 @@ const onListImgError = (e: Event) => {
 
 .tags-toggle-btn:hover {
   background: #333;
-  color: #fff;
+  color: var(--text-on-accent);
   border-color: #444;
 }
 
 .selected-tag-name {
-  color: #2196F3;
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -1373,10 +1373,10 @@ const onListImgError = (e: Event) => {
 .sort-select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
@@ -1395,10 +1395,10 @@ const onListImgError = (e: Event) => {
 .sort-order-select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
@@ -1419,10 +1419,10 @@ const onListImgError = (e: Event) => {
 .library-select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
@@ -1541,8 +1541,8 @@ const onListImgError = (e: Event) => {
 .spinner {
   width: 48px;
   height: 48px;
-  border: 3px solid #333;
-  border-top-color: #2196F3;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -1571,8 +1571,8 @@ const onListImgError = (e: Event) => {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: #252525;
-  border: 1px solid #333;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 3px;
   flex-shrink: 0;
@@ -1594,13 +1594,13 @@ const onListImgError = (e: Event) => {
 }
 
 .view-toggle-btn:hover {
-  color: #fff;
+  color: var(--text-on-accent);
   background: #333;
 }
 
 .view-toggle-btn.active {
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 /* 列表模式 */
@@ -1615,7 +1615,7 @@ const onListImgError = (e: Event) => {
   align-items: center;
   gap: 14px;
   padding: 8px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   cursor: pointer;
@@ -1624,7 +1624,7 @@ const onListImgError = (e: Event) => {
 
 .video-list-row:hover {
   background: #222;
-  border-color: #3a3a3a;
+  border-color: var(--border-default);
 }
 
 .list-thumb {
@@ -1649,7 +1649,7 @@ const onListImgError = (e: Event) => {
   bottom: 6px;
   right: 6px;
   background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 11px;
@@ -1664,7 +1664,7 @@ const onListImgError = (e: Event) => {
 .list-title {
   font-size: 14px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 6px 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1678,14 +1678,14 @@ const onListImgError = (e: Event) => {
   align-items: center;
   gap: 14px;
   font-size: 12px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .list-likes {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .list-actions {
@@ -1704,7 +1704,7 @@ const onListImgError = (e: Event) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border: none;
   border-radius: 50%;
   color: #aaa;
@@ -1713,8 +1713,8 @@ const onListImgError = (e: Event) => {
 }
 
 .list-action-btn:hover {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--bg-surface-hover);
+  color: var(--text-on-accent);
 }
 
 .list-action-btn.like.active {
@@ -1739,7 +1739,7 @@ const onListImgError = (e: Event) => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .empty-state p {
@@ -1755,7 +1755,7 @@ const onListImgError = (e: Event) => {
   justify-content: center;
   gap: 12px;
   padding: 20px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .loading-more p {
@@ -1766,8 +1766,8 @@ const onListImgError = (e: Event) => {
 .spinner-small {
   width: 20px;
   height: 20px;
-  border: 2px solid #333;
-  border-top-color: #2196F3;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1788,8 +1788,8 @@ const onListImgError = (e: Event) => {
 
 .page-btn {
   padding: 8px 14px;
-  background: #2a2a2a;
-  color: #ccc;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
   border: 1px solid #444;
   border-radius: 6px;
   cursor: pointer;
@@ -1798,8 +1798,8 @@ const onListImgError = (e: Event) => {
 }
 
 .page-btn:hover:not(:disabled) {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--bg-surface-hover);
+  color: var(--text-on-accent);
 }
 
 .page-btn:disabled {
@@ -1808,18 +1808,18 @@ const onListImgError = (e: Event) => {
 }
 
 .page-btn.active {
-  background: #2196F3;
-  color: #fff;
-  border-color: #2196F3;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
 }
 
 .page-ellipsis {
-  color: #666;
+  color: var(--text-tertiary);
   padding: 0 4px;
 }
 
 .page-info {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   margin-left: 12px;
 }
@@ -1847,9 +1847,9 @@ const onListImgError = (e: Event) => {
 }
 
 .batch-toggle-btn.active {
-  background: #2196F3;
-  color: #fff;
-  border-color: #2196F3;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
 }
 
 .batch-toggle-text {
@@ -1865,42 +1865,42 @@ const onListImgError = (e: Event) => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
   transition: background 0.2s;
 }
-.continue-header:hover { background: #212121; }
+.continue-header:hover { background: var(--bg-surface-hover); }
 .continue-header.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .continue-title-row { display: flex; align-items: center; gap: 8px; }
 .continue-title-row .section-title { margin: 0; font-size: 17px; }
 .continue-count {
   min-width: 20px;
   padding: 1px 7px;
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border-radius: 10px;
   font-size: 12px;
   text-align: center;
 }
 .chev { color: #aaa; transition: transform 0.2s ease; }
 .chev.open { transform: rotate(90deg); }
-.continue-hint { color: #888; font-size: 13px; }
-.continue-more { margin: 10px 2px 0; color: #666; font-size: 12px; }
+.continue-hint { color: var(--text-secondary); font-size: 13px; }
+.continue-more { margin: 10px 2px 0; color: var(--text-tertiary); font-size: 12px; }
 .continue-section .video-grid { margin-top: 14px; }
 
 .section-title {
   font-size: 20px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 16px;
 }
 
 .continue-card {
   cursor: pointer;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   overflow: hidden;
   transition: transform 0.2s;
@@ -1930,7 +1930,7 @@ const onListImgError = (e: Event) => {
   background: rgba(0, 0, 0, 0.8);
   border-radius: 4px;
   font-size: 12px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .continue-progress {
@@ -1954,7 +1954,7 @@ const onListImgError = (e: Event) => {
 .continue-title {
   font-size: 13px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 4px;
   line-height: 1.4;
   display: -webkit-box;

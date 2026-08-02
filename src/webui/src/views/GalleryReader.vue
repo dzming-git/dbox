@@ -775,7 +775,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.85);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 10px 20px;
   border-radius: 8px;
   font-size: 14px;
@@ -784,40 +784,40 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   max-width: 80vw;
   text-align: center;
 }
-.reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: #0e0e0e; }
-.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: visible; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
+.reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-surface); }
+.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--bg-surface); border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: visible; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
 .reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; }
-.bar-btn { background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
-.bar-btn:hover:not(:disabled) { background: #333; color: #fff; }
+.bar-btn { background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+.bar-btn:hover:not(:disabled) { background: #333; color: var(--text-on-accent); }
 .bar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.bar-btn.active { background: #2196F3; color: #fff; border-color: #2196F3; }
-.bar-title { font-size: 14px; font-weight: 500; color: #fff; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+.bar-title { font-size: 14px; font-weight: 500; color: var(--text-on-accent); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-page { display: flex; align-items: center; gap: 6px; }
-.page-input { width: 56px; height: 32px; text-align: center; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; }
-.page-total { color: #999; font-size: 13px; }
-.reader-progress { position: fixed; left: 0; right: 0; bottom: var(--vv-bottom, 0px); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 7px 14px; padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px)); background: #161616; border-top: 1px solid #2a2a2a; }
+.page-input { width: 56px; height: 32px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-on-accent); font-size: 13px; }
+.page-total { color: var(--text-tertiary); font-size: 13px; }
+.reader-progress { position: fixed; left: 0; right: 0; bottom: var(--vv-bottom, 0px); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 7px 14px; padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px)); background: var(--bg-surface); border-top: 1px solid #2a2a2a; }
 .rp-text { color: #bbb; font-size: 12px; white-space: nowrap; }
-.rp-track { flex: 1; height: 5px; background: #2a2a2a; border-radius: 3px; cursor: pointer; overflow: hidden; }
-.rp-fill { height: 100%; background: #2196F3; transition: width 0.2s; }
+.rp-track { flex: 1; height: 5px; background: var(--bg-surface-hover); border-radius: 3px; cursor: pointer; overflow: hidden; }
+.rp-fill { height: 100%; background: var(--accent); transition: width 0.2s; }
 .bar-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .divider { width: 1px; height: 22px; background: #333; margin: 0 2px; }
-.cn-reader-info { font-size: 12px; color: #9db4e0; margin: 0 4px; white-space: nowrap; }
-.thumbs-strip { display: flex; gap: 6px; padding: 8px; background: #161616; border-bottom: 1px solid #2a2a2a; overflow-x: auto; max-height: 110px; transition: opacity 0.2s ease; }
+.cn-reader-info { font-size: 12px; color: var(--text-secondary); margin: 0 4px; white-space: nowrap; }
+.thumbs-strip { display: flex; gap: 6px; padding: 8px; background: var(--bg-surface); border-bottom: 1px solid #2a2a2a; overflow-x: auto; max-height: 110px; transition: opacity 0.2s ease; }
 .thumbs-strip.ui-hidden { display: none; }
 .thumb-item { position: relative; flex-shrink: 0; width: 64px; height: 88px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 2px solid transparent; background: #000; }
-.thumb-item.active { border-color: #2196F3; }
+.thumb-item.active { border-color: var(--accent); }
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; }
-.thumb-idx { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px; }
+.thumb-idx { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.7); color: var(--text-on-accent); font-size: 10px; padding: 0 4px; border-radius: 3px; }
 .reader-body { flex: 1; min-height: 0; overflow: hidden; position: relative; padding-bottom: 44px; }
-.scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: #0e0e0e; }
-.page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: #0e0e0e; position: relative; }
+.scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: var(--bg-surface); }
+.page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: var(--bg-surface); position: relative; }
 .gallery-page-img { background: #000; }
-.page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 96px; background: rgba(0,0,0,0.4); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 36px; cursor: pointer; border-radius: 8px; user-select: none; }
+.page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 96px; background: rgba(0,0,0,0.4); color: var(--text-on-accent); display: flex; align-items: center; justify-content: center; font-size: 36px; cursor: pointer; border-radius: 8px; user-select: none; }
 .page-nav:hover { background: rgba(0,0,0,0.65); }
 .page-nav.prev { left: 12px; }
 .page-nav.next { right: 12px; }
-.reader-loading, .reader-error { height: 100vh; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: #888; }
-.spinner { width: 48px; height: 48px; border: 3px solid #333; border-top-color: #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
+.reader-loading, .reader-error { height: 100vh; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--text-secondary); }
+.spinner { width: 48px; height: 48px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============ 沉浸全屏阅读模式 ============ */
@@ -840,7 +840,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 
 .immersive-exit {
   position: fixed; top: 12px; left: 12px; z-index: 60;
-  background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(0,0,0,0.6); color: var(--text-on-accent); border: 1px solid rgba(255,255,255,0.25);
   border-radius: 20px; padding: 6px 14px; font-size: 13px; cursor: pointer;
   display: flex; align-items: center; gap: 4px; transition: all 0.2s;
 }
@@ -850,37 +850,37 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .immersive-expand {
   position: fixed; top: 12px; left: 12px; z-index: 60;
   width: 30px; height: 30px; line-height: 28px; text-align: center;
-  background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.5); color: var(--text-on-accent); border: 1px solid rgba(255,255,255,0.2);
   border-radius: 8px; font-size: 16px; cursor: pointer; padding: 0;
   transition: all 0.2s;
 }
 .immersive-expand:hover { background: rgba(0,0,0,0.8); }
 
 /* 操作台：带文字标签的按钮（与视频详情页操作栏风格一致） */
-.bar-action { display: inline-flex; align-items: center; gap: 5px; background: #2a2a2a; border: 1px solid #333; color: #ccc; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
-.bar-action:hover:not(:disabled) { background: #333; color: #fff; }
-.bar-action.active { background: #2196F3; color: #fff; border-color: #2196F3; }
+.bar-action { display: inline-flex; align-items: center; gap: 5px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.bar-action:hover:not(:disabled) { background: #333; color: var(--text-on-accent); }
+.bar-action.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 .bar-action.danger { color: #ff8585; border-color: #5a2a2a; }
-.bar-action.danger:hover { background: #3a1a1a; color: #ff9b9b; }
+.bar-action.danger:hover { background: var(--danger-soft); color: var(--danger); }
 
 /* 更多菜单（收起不常用的“不喜欢”） */
 .more-wrap { position: relative; display: inline-flex; }
-.more-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 10px; padding: 6px; min-width: 150px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+.more-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 10px; padding: 6px; min-width: 150px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
 .more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; background: transparent; border: none; color: #ddd; cursor: pointer; font-size: 13px; border-radius: 6px; text-align: left; }
-.more-item:hover { background: #333; color: #fff; }
+.more-item:hover { background: #333; color: var(--text-on-accent); }
 .more-item.active { color: #ffd93d; }
 
 /* 删除确认对话框 */
 .dialog-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.dialog { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 20px 22px; max-width: 440px; width: 100%; }
-.dialog h3 { margin: 0 0 12px; color: #fff; font-size: 16px; }
+.dialog { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px 22px; max-width: 440px; width: 100%; }
+.dialog h3 { margin: 0 0 12px; color: var(--text-on-accent); font-size: 16px; }
 .dialog p { color: #bbb; font-size: 14px; line-height: 1.6; margin: 0; }
 .delete-file-option { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #aaa; font-size: 13px; cursor: pointer; }
 .delete-file-option input { width: 16px; height: 16px; accent-color: #e53935; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-.btn-secondary { background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.btn-secondary:hover { background: #333; color: #fff; }
-.btn-danger { background: #e53935; border: 1px solid #e53935; color: #fff; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-secondary { background: var(--bg-surface-hover); border: 1px solid #444; color: var(--text-secondary); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-secondary:hover { background: #333; color: var(--text-on-accent); }
+.btn-danger { background: #e53935; border: 1px solid #e53935; color: var(--text-on-accent); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
 .btn-danger:hover { background: #f44336; }
 .reader.immersive.controls-shown .immersive-exit { top: 64px; }
 

@@ -61,7 +61,7 @@ const formatCount = (count: number): string => {
   padding: 8px 12px;
   font-size: 16px;
   font-weight: 600;
-  background: #12243a;
+  background: var(--accent-soft);
   color: #69c0ff;
   border-radius: 8px;
   margin-right: 8px;
@@ -69,14 +69,14 @@ const formatCount = (count: number): string => {
 }
 
 .tag-level-1:hover {
-  background: #1a3a5a;
+  background: var(--accent-soft);
 }
 
 /* 二级标签 */
 .tag-level-2 {
   padding: 6px 10px;
   font-size: 14px;
-  background: #1f1f29;
+  background: var(--bg-surface-hover);
   color: #c9d1d9;
   border-radius: 6px;
   margin-right: 6px;
@@ -84,14 +84,14 @@ const formatCount = (count: number): string => {
 }
 
 .tag-level-2:hover {
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
 }
 
 /* 三级标签 */
 .tag-level-3 {
   padding: 4px 8px;
   font-size: 12px;
-  background: #1a1a24;
+  background: var(--bg-surface-hover);
   color: #a0a8b4;
   border-radius: 4px;
   margin-right: 4px;
@@ -99,7 +99,7 @@ const formatCount = (count: number): string => {
 }
 
 .tag-level-3:hover {
-  background: #2a2a38;
+  background: var(--bg-surface-hover);
 }
 
 /* 激活状态 */
@@ -108,7 +108,7 @@ const formatCount = (count: number): string => {
 }
 
 .tag-level-1.active {
-  background: #1976D2;
+  background: var(--accent-active);
   color: white;
 }
 

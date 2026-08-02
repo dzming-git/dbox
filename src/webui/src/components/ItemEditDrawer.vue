@@ -192,8 +192,8 @@ const save = async () => {
   width: 420px;
   max-width: 92vw;
   height: 100%;
-  background: #1e1e1e;
-  border-left: 1px solid #333;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
@@ -207,7 +207,7 @@ const save = async () => {
 }
 .drawer-header h3 {
   margin: 0;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 16px;
 }
 .drawer-close {
@@ -219,7 +219,7 @@ const save = async () => {
   cursor: pointer;
 }
 .drawer-close:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .drawer-body {
   flex: 1;
@@ -241,10 +241,10 @@ const save = async () => {
 .field-input {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #161616;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
@@ -261,7 +261,7 @@ const save = async () => {
   border: 1px solid #3a5a7a;
   border-radius: 8px;
   background: rgba(33, 150, 243, 0.12);
-  color: #9ecbff;
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
@@ -269,15 +269,15 @@ const save = async () => {
 }
 
 .sync-filename-btn:hover {
-  background: #2196f3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 .field-textarea {
   padding: 10px 12px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #161616;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
   resize: vertical;
   font-family: inherit;
@@ -292,9 +292,9 @@ const save = async () => {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #161616;
+  background: var(--bg-surface);
 }
 .tag-edit-chip {
   display: inline-flex;
@@ -304,7 +304,7 @@ const save = async () => {
   background: rgba(33, 150, 243, 0.12);
   border: 1px solid rgba(33, 150, 243, 0.3);
   border-radius: 8px;
-  color: #cfe6ff;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 .tag-edit-remove {
@@ -317,7 +317,7 @@ const save = async () => {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #9ecbff;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -325,19 +325,19 @@ const save = async () => {
 }
 .tag-edit-remove:hover {
   background: #ef4444;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .tag-edit-input {
   flex: 1;
   min-width: 140px;
   border: none;
   background: transparent;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   outline: none;
 }
 .drawer-error {
-  color: #ff6b6b;
+  color: var(--danger);
   font-size: 13px;
   margin: 0;
 }
@@ -357,12 +357,12 @@ const save = async () => {
   cursor: pointer;
 }
 .drawer-btn.cancel {
-  background: #2a2a2a;
-  color: #ccc;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
 }
 .drawer-btn.save {
-  background: #2196f3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 .drawer-btn.save:disabled {
   opacity: 0.6;

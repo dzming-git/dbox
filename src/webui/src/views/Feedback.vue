@@ -512,7 +512,7 @@ watch(
   gap: 8px;
   font-size: 20px;
   font-weight: 600;
-  color: #e6edf3;
+  color: var(--text-primary);
 }
 .fb-title svg { color: #58a6ff; }
 .fb-title small {
@@ -543,14 +543,14 @@ watch(
   cursor: pointer;
   font-size: 13px;
 }
-.fb-tab:hover { background: #21262d; color: #e6edf3; }
+.fb-tab:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
 .fb-tab.active {
-  background: #21262d;
-  border-color: #30363d;
-  color: #e6edf3;
+  background: var(--bg-surface-hover);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
 .fb-tab-count {
-  background: #30363d;
+  background: var(--bg-surface-hover);
   border-radius: 10px;
   padding: 0 6px;
   font-size: 11px;
@@ -558,10 +558,10 @@ watch(
 }
 .fb-toolbar-right { display: flex; gap: 8px; align-items: center; }
 .fb-search {
-  background: #0d1117;
+  background: var(--bg-surface);
   border: 1px solid #30363d;
   border-radius: 6px;
-  color: #e6edf3;
+  color: var(--text-primary);
   padding: 7px 10px;
   font-size: 13px;
   width: 200px;
@@ -572,16 +572,16 @@ watch(
   display: flex;
   align-items: center;
   gap: 4px;
-  background: #238636;
+  background: var(--accent);
   border: 1px solid rgba(255,255,255,0.1);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 7px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
   white-space: nowrap;
 }
-.fb-new-btn:hover { background: #2ea043; }
+.fb-new-btn:hover { background: var(--accent-hover); }
 
 /* 列表 */
 .fb-loading, .fb-empty, .fb-error {
@@ -601,7 +601,7 @@ watch(
   cursor: pointer;
 }
 .fb-item:first-child { border-top: none; }
-.fb-item:hover { background: #1c2128; }
+.fb-item:hover { background: var(--bg-surface-hover); }
 .fb-dot {
   width: 14px;
   height: 14px;
@@ -609,13 +609,13 @@ watch(
   margin-top: 3px;
   flex-shrink: 0;
 }
-.fb-dot.open { background: #3fb950; }
+.fb-dot.open { background: var(--success); }
 .fb-dot.pending { background: #d29922; }
 .fb-dot.resolved { background: #a371f7; }
 .fb-dot.dismissed { background: #6e7681; }
 .fb-item-main { flex: 1; min-width: 0; }
 .fb-item-title {
-  color: #e6edf3;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 500;
   white-space: nowrap;
@@ -630,7 +630,7 @@ watch(
 }
 .fb-comment-badge {
   margin-left: 8px;
-  background: #21262d;
+  background: var(--bg-surface-hover);
   border-radius: 10px;
   padding: 1px 8px;
 }
@@ -658,7 +658,7 @@ watch(
 .fb-detail-title {
   font-size: 20px;
   font-weight: 600;
-  color: #e6edf3;
+  color: var(--text-primary);
   margin: 0;
 }
 .fb-detail-id { color: #8b949e; font-size: 16px; }
@@ -686,7 +686,7 @@ watch(
 .fb-detail-meta { color: #8b949e; font-size: 12px; }
 
 .fb-content-box {
-  background: #0d1117;
+  background: var(--bg-surface);
   border: 1px solid #30363d;
   border-radius: 8px;
   padding: 14px 16px;
@@ -716,7 +716,7 @@ watch(
   margin-bottom: 10px;
 }
 .fb-comment {
-  background: #0d1117;
+  background: var(--bg-surface);
   border: 1px solid #30363d;
   border-radius: 8px;
   padding: 12px 14px;
@@ -759,10 +759,10 @@ watch(
   font-weight: 500;
 }
 .fb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.fb-btn-primary { background: #238636; color: #fff; }
-.fb-btn-primary:hover:not(:disabled) { background: #2ea043; }
-.fb-btn-secondary { background: #21262d; color: #e6edf3; border-color: #30363d; }
-.fb-btn-secondary:hover:not(:disabled) { background: #30363d; }
+.fb-btn-primary { background: var(--accent); color: var(--text-on-accent); }
+.fb-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.fb-btn-secondary { background: var(--bg-surface-hover); color: var(--text-primary); border-color: var(--border-default); }
+.fb-btn-secondary:hover:not(:disabled) { background: var(--bg-surface-hover); }
 .fb-btn-pending { background: rgba(210,153,34,0.15); color: #d29922; border-color: rgba(210,153,34,0.4); }
 .fb-btn-pending:hover:not(:disabled) { background: rgba(210,153,34,0.25); }
 .fb-btn-resolved { background: rgba(163,113,247,0.15); color: #a371f7; border-color: rgba(163,113,247,0.4); }
@@ -775,10 +775,10 @@ watch(
 .fb-comment-form { display: flex; gap: 10px; align-items: flex-start; }
 .fb-comment-input {
   flex: 1;
-  background: #0d1117;
+  background: var(--bg-surface);
   border: 1px solid #30363d;
   border-radius: 6px;
-  color: #e6edf3;
+  color: var(--text-primary);
   padding: 10px;
   font-size: 14px;
   font-family: inherit;
@@ -788,7 +788,7 @@ watch(
 .fb-comment-input:focus { border-color: #58a6ff; }
 
 /* 新建 */
-.fb-new-title { font-size: 18px; color: #e6edf3; margin: 4px 0 6px; }
+.fb-new-title { font-size: 18px; color: var(--text-primary); margin: 4px 0 6px; }
 .fb-new-desc { color: #8b949e; font-size: 13px; margin-bottom: 18px; }
 .fb-form-group { margin-bottom: 16px; }
 .fb-form-group label {
@@ -800,10 +800,10 @@ watch(
 .required { color: #ff7b72; }
 .fb-input, .fb-textarea {
   width: 100%;
-  background: #0d1117;
+  background: var(--bg-surface);
   border: 1px solid #30363d;
   border-radius: 6px;
-  color: #e6edf3;
+  color: var(--text-primary);
   padding: 10px 12px;
   font-size: 14px;
   font-family: inherit;
@@ -846,8 +846,8 @@ watch(
   font-size: 13px;
   transition: all 0.15s ease;
 }
-.fb-type-tab:hover { color: #e6edf3; border-color: #8b949e; }
-.fb-type-tab.active { color: #fff; border-color: transparent; }
+.fb-type-tab:hover { color: var(--text-primary); border-color: #8b949e; }
+.fb-type-tab.active { color: var(--text-on-accent); border-color: transparent; }
 .fb-type-tab.bug.active { background: #f85149; }
 .fb-type-tab.suggestion.active { background: #58a6ff; }
 .fb-type-tab.other.active { background: #8b949e; }
@@ -878,8 +878,8 @@ watch(
   font-size: 13px;
   transition: all 0.15s ease;
 }
-.fb-type-option:hover { color: #e6edf3; border-color: #8b949e; }
-.fb-type-option.active { color: #fff; border-color: transparent; }
+.fb-type-option:hover { color: var(--text-primary); border-color: #8b949e; }
+.fb-type-option.active { color: var(--text-on-accent); border-color: transparent; }
 .fb-type-option.bug.active { background: #f85149; }
 .fb-type-option.suggestion.active { background: #58a6ff; }
 .fb-type-option.other.active { background: #8b949e; }

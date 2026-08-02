@@ -209,7 +209,7 @@ const handleImageError = () => {
   position: relative;
   overflow: hidden;
   border-radius: 8px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   width: 100%;
   aspect-ratio: 16 / 9; /* 加载完成前占位，加载后由 inline style 覆盖为原图比例 */
 }
@@ -232,14 +232,14 @@ const handleImageError = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1a1a1a;
+  background: var(--bg-surface);
 }
 
 .loading-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid #333;
-  border-top-color: #2196F3;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -279,7 +279,7 @@ const handleImageError = () => {
   background: rgba(0, 0, 0, 0.55);
   border: none;
   border-radius: 50%;
-  color: #fff;
+  color: var(--text-on-accent);
   cursor: pointer;
   opacity: 1;
   transition: background 0.2s ease, color 0.2s ease;
@@ -339,7 +339,7 @@ const handleImageError = () => {
 .title {
   font-size: 14px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 4px 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -356,7 +356,7 @@ const handleImageError = () => {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: #999;
+  color: var(--text-tertiary);
   max-width: 100%;
   overflow: hidden;
 }
@@ -370,16 +370,16 @@ const handleImageError = () => {
 .card-tag {
   display: inline-block;
   padding: 2px 8px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  color: #9ecbff;
+  color: var(--text-secondary);
   font-size: 11px;
   cursor: pointer;
 }
 .card-tag:hover {
-  background: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 .edit-overlay {
   position: absolute;
@@ -390,7 +390,7 @@ const handleImageError = () => {
   border-radius: 6px;
   background: rgba(33, 150, 243, 0.85);
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -398,13 +398,13 @@ const handleImageError = () => {
   z-index: 4;
 }
 .edit-overlay:hover {
-  background: #2196F3;
+  background: var(--accent);
 }
 .likes {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 /* 已赞状态标记 */

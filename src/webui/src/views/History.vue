@@ -119,8 +119,8 @@ const showToast = (message: string) => {
   max-width: 1400px;
   margin: 0 auto;
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 .page-header {
   display: flex;
@@ -128,7 +128,7 @@ const showToast = (message: string) => {
   align-items: center;
   margin-bottom: 24px;
 }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; color: #fff; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; color: var(--text-on-accent); }
 .clear-btn {
   display: flex;
   align-items: center;
@@ -137,7 +137,7 @@ const showToast = (message: string) => {
   background: transparent;
   border: 1px solid #444;
   border-radius: 8px;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -157,8 +157,8 @@ const showToast = (message: string) => {
 .spinner {
   width: 48px;
   height: 48px;
-  border: 3px solid #333;
-  border-top-color: #2196F3;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -169,23 +169,23 @@ const showToast = (message: string) => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 .empty-icon { margin-bottom: 16px; color: #444; }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
 .browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
   padding: 10px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   text-decoration: none;
   cursor: pointer;
   transition: background 0.2s;
 }
-.browse-link:hover { background: #1976D2; }
+.browse-link:hover { background: var(--accent-active); }
 .browse-link.gallery { background: #ff9800; }
 .browse-link.gallery:hover { background: #e68a00; }
 .history-grid {
@@ -199,7 +199,7 @@ const showToast = (message: string) => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 24px;
   font-size: 14px;

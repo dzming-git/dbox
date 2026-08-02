@@ -2272,8 +2272,8 @@ const handleDelete = async () => {
 <style scoped>
 .video-page {
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 
 .back-btn {
@@ -2283,14 +2283,14 @@ const handleDelete = async () => {
   padding: 16px 24px;
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 16px;
   cursor: pointer;
   transition: color 0.2s;
 }
 
 .back-btn:hover {
-  color: #2196F3;
+  color: var(--accent);
 }
 
 .loading-container {
@@ -2304,8 +2304,8 @@ const handleDelete = async () => {
 .spinner {
   width: 48px;
   height: 48px;
-  border: 3px solid #333;
-  border-top-color: #2196F3;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -2333,7 +2333,7 @@ const handleDelete = async () => {
 .recommendations-section {
   width: 350px;
   flex-shrink: 0;
-  background: #181818;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 16px;
   max-height: calc(100vh - 120px);
@@ -2353,7 +2353,7 @@ const handleDelete = async () => {
 .recommendations-title {
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .shuffle-btn {
@@ -2361,8 +2361,8 @@ const handleDelete = async () => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: #252525;
-  border: 1px solid #333;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   color: #aaa;
   font-size: 12px;
@@ -2372,7 +2372,7 @@ const handleDelete = async () => {
 
 .shuffle-btn:hover:not(:disabled) {
   background: #333;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .shuffle-btn:disabled {
@@ -2386,15 +2386,15 @@ const handleDelete = async () => {
   justify-content: center;
   gap: 8px;
   padding: 24px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .spinner-small {
   width: 16px;
   height: 16px;
-  border: 2px solid #333;
-  border-top-color: #2196F3;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -2413,7 +2413,7 @@ const handleDelete = async () => {
   left: 50%;
   transform: translate(-50%, -50%);
   background: rgba(0, 0, 0, 0.7);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 16px;
@@ -2438,7 +2438,7 @@ const handleDelete = async () => {
 }
 
 .rec-item:hover {
-  background: #252525;
+  background: var(--bg-surface-hover);
 }
 
 .rec-thumbnail-wrapper {
@@ -2462,7 +2462,7 @@ const handleDelete = async () => {
   bottom: 4px;
   right: 4px;
   background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 11px;
   padding: 2px 4px;
   border-radius: 3px;
@@ -2479,7 +2479,7 @@ const handleDelete = async () => {
 
 .rec-title {
   font-size: 13px;
-  color: #fff;
+  color: var(--text-on-accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2487,7 +2487,7 @@ const handleDelete = async () => {
 
 .rec-meta {
   font-size: 12px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .player-section {
@@ -2503,30 +2503,30 @@ const handleDelete = async () => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  background: #1e2740;
+  background: var(--accent-soft);
   border: 1px solid #2c3a5e;
   border-radius: 10px;
   padding: 10px 14px;
   margin-bottom: 16px;
 }
 .cn-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.cn-label { font-size: 12px; color: #9db4e0; background: #2c3a5e; padding: 2px 8px; border-radius: 4px; }
+.cn-label { font-size: 12px; color: var(--text-secondary); background: var(--accent-soft); padding: 2px 8px; border-radius: 4px; }
 .cn-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
-.cn-progress { font-size: 12px; color: #9db4e0; }
+.cn-progress { font-size: 12px; color: var(--text-secondary); }
 .cn-actions { display: flex; align-items: center; gap: 8px; }
 .cn-btn {
-  background: #2c3a5e;
+  background: var(--accent-soft);
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
 }
-.cn-btn:hover:not(:disabled) { background: #38507f; }
+.cn-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .cn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.cn-btn.primary { background: #2196F3; }
-.cn-btn.primary:hover:not(:disabled) { background: #1976D2; }
+.cn-btn.primary { background: var(--accent); }
+.cn-btn.primary:hover:not(:disabled) { background: var(--accent-active); }
 
 .video-player-container {
   position: relative;
@@ -2581,7 +2581,7 @@ const handleDelete = async () => {
   transform: translateX(-50%);
   white-space: nowrap;
   background: #000;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 6px;
@@ -2605,8 +2605,8 @@ const handleDelete = async () => {
 }
 
 .ac-card {
-  background: #1f1f1f;
-  border: 1px solid #333;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 24px 28px;
   text-align: center;
@@ -2615,13 +2615,13 @@ const handleDelete = async () => {
 }
 
 .ac-title {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   margin-bottom: 6px;
 }
 
 .ac-name {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 10px;
@@ -2663,7 +2663,7 @@ const handleDelete = async () => {
 
 .ac-now {
   background: #ff4d6d;
-  color: #fff;
+  color: var(--text-on-accent);
   font-weight: 600;
 }
 
@@ -2672,7 +2672,7 @@ const handleDelete = async () => {
 }
 
 .video-info-section {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 24px;
 }
@@ -2681,7 +2681,7 @@ const handleDelete = async () => {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .video-title-row {
@@ -2709,7 +2709,7 @@ const handleDelete = async () => {
   padding: 7px 14px;
   border-radius: 8px;
   border: 1px solid #444;
-  background: #252525;
+  background: var(--bg-surface-hover);
   color: #ddd;
   font-size: 13px;
   cursor: pointer;
@@ -2717,9 +2717,9 @@ const handleDelete = async () => {
 }
 
 .edit-video-btn:hover {
-  border-color: #2196F3;
-  color: #fff;
-  background: #2d2d2d;
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+  background: var(--bg-surface-hover);
 }
 
 /* “更多”菜单（收纳不常用操作：显示/隐藏） */
@@ -2730,8 +2730,8 @@ const handleDelete = async () => {
   top: calc(100% + 6px);
   right: 0;
   min-width: 200px;
-  background: #1f1f1f;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   padding: 6px;
@@ -2752,7 +2752,7 @@ const handleDelete = async () => {
   cursor: pointer;
   transition: all 0.15s;
 }
-.more-menu-item:hover { background: #2d2d2d; color: #fff; }
+.more-menu-item:hover { background: var(--bg-surface-hover); color: var(--text-on-accent); }
 .more-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
 
@@ -2760,14 +2760,14 @@ const handleDelete = async () => {
   display: flex;
   gap: 16px;
   margin-bottom: 16px;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 14px;
 }
 
 .video-description {
   font-size: 15px;
   line-height: 1.6;
-  color: #ccc;
+  color: var(--text-secondary);
   margin-bottom: 16px;
   white-space: pre-wrap;
 }
@@ -2787,7 +2787,7 @@ const handleDelete = async () => {
   background: #333;
   border-radius: 16px;
   font-size: 13px;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 /* 标签编辑工具条（管理员编辑模式开关） */
@@ -2805,27 +2805,27 @@ const handleDelete = async () => {
   padding: 6px 14px;
   border-radius: 8px;
   border: 1px solid #444;
-  background: #1a1a1a;
-  color: #ccc;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .edit-mode-toggle:hover {
-  border-color: #2196F3;
-  color: #fff;
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .edit-mode-toggle.active {
-  background: #2196F3;
-  border-color: #2196F3;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .edit-mode-hint {
   font-size: 12px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 /* 管理员可编辑的标签：高亮边框提示 */
@@ -2885,8 +2885,8 @@ const handleDelete = async () => {
   flex-wrap: wrap;
   gap: 16px;
   padding: 20px 0;
-  border-top: 1px solid #333;
-  border-bottom: 1px solid #333;
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
   margin: 20px 0;
 }
 
@@ -2906,7 +2906,7 @@ const handleDelete = async () => {
   background: transparent;
   border: none;
   border-radius: 8px;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -2935,14 +2935,14 @@ const handleDelete = async () => {
 .interact-btn .btn-label {
   display: block;
   font-size: 11px;
-  color: #888;
+  color: var(--text-secondary);
   line-height: 1.2;
 }
 
 /* 点赞按钮 */
 .interact-btn.like-btn:hover,
 .interact-btn.like-btn.active {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 
 .interact-btn.like-btn:hover .btn-icon,
@@ -3018,7 +3018,7 @@ const handleDelete = async () => {
 /* 共享观看按钮 */
 .interact-btn.sharewatch-btn:hover,
 .interact-btn.sharewatch-btn.active {
-  color: #2196F3;
+  color: var(--accent);
 }
 
 .interact-btn.sharewatch-btn:hover .btn-icon,
@@ -3042,7 +3042,7 @@ const handleDelete = async () => {
   background: transparent;
   border: none;
   border-radius: 8px;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -3054,17 +3054,17 @@ const handleDelete = async () => {
 }
 
 .action-btn.active {
-  color: #2196F3;
+  color: var(--accent);
 }
 
 .action-btn.active:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .action-btn .btn-label {
   display: block;
   font-size: 11px;
-  color: #888;
+  color: var(--text-secondary);
   line-height: 1.2;
 }
 
@@ -3075,7 +3075,7 @@ const handleDelete = async () => {
   gap: 4px;
   padding: 3px 10px;
   background: rgba(33, 150, 243, 0.12);
-  color: #64b5f6;
+  color: var(--accent);
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s ease;
@@ -3095,7 +3095,7 @@ const handleDelete = async () => {
   top: calc(100% + 8px);
   right: 0;
   min-width: 140px;
-  background: #1e1e1e;
+  background: var(--bg-surface);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   padding: 6px;
@@ -3115,7 +3115,7 @@ const handleDelete = async () => {
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
@@ -3145,23 +3145,23 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .back-link {
   margin-top: 16px;
   padding: 10px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
 }
 
 /* 编辑表单 */
 .edit-form {
-  background: #252525;
+  background: var(--bg-surface-hover);
   border-radius: 12px;
   padding: 24px;
 }
@@ -3173,7 +3173,7 @@ const handleDelete = async () => {
 .form-group label {
   display: block;
   font-size: 14px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-bottom: 8px;
 }
 
@@ -3185,17 +3185,17 @@ const handleDelete = async () => {
 .tag-input-wrapper input {
   width: 100%;
   padding: 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #252525;
-  color: #fff;
+  background: var(--bg-surface-hover);
+  color: var(--text-on-accent);
   font-size: 14px;
   box-sizing: border-box;
 }
 
 .tag-input-wrapper input:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 /* 标签智能建议下拉框 */
@@ -3204,7 +3204,7 @@ const handleDelete = async () => {
   top: 100%;
   left: 0;
   right: 0;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-top: none;
   border-radius: 0 0 8px 8px;
@@ -3220,7 +3220,7 @@ const handleDelete = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
   transition: background 0.2s;
 }
 
@@ -3229,11 +3229,11 @@ const handleDelete = async () => {
 }
 
 .tag-suggestion-item:hover {
-  background: #3a3a3a;
+  background: var(--bg-surface-hover);
 }
 
 .suggestion-path {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
@@ -3259,7 +3259,7 @@ const handleDelete = async () => {
   background: #333;
   border: 1px dashed #555;
   border-radius: 50%;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
@@ -3267,8 +3267,8 @@ const handleDelete = async () => {
 
 .tag-add-btn:hover {
   background: #444;
-  border-color: #666;
-  color: #fff;
+  border-color: var(--text-tertiary);
+  color: var(--text-on-accent);
 }
 
 /* 标签编辑器对话框 */
@@ -3311,7 +3311,7 @@ const handleDelete = async () => {
   justify-content: space-between;
   align-items: center;
   padding-bottom: 16px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -3323,7 +3323,7 @@ const handleDelete = async () => {
 .close-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 24px;
   cursor: pointer;
   padding: 0;
@@ -3331,7 +3331,7 @@ const handleDelete = async () => {
 }
 
 .close-btn:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 /* 标签编辑器主体：左右分栏 */
@@ -3349,13 +3349,13 @@ const handleDelete = async () => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #333;
+  border-right: 1px solid var(--border-default);
   padding-right: 16px;
 }
 
 .panel-title {
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
   margin-bottom: 12px;
   flex-shrink: 0;
 }
@@ -3378,24 +3378,24 @@ const handleDelete = async () => {
 }
 
 .tag-tree-item:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
 }
 
 .tag-tree-item.active {
-  background: #2196F3;
+  background: var(--accent);
 }
 
 .tag-tree-name {
   flex: 1;
   font-size: 14px;
-  color: #ccc;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tag-tree-item.active .tag-tree-name {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tag-tree-badge {
@@ -3403,7 +3403,7 @@ const handleDelete = async () => {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #666;
+  color: var(--text-tertiary);
   background: #333;
   padding: 2px 8px;
   border-radius: 10px;
@@ -3427,7 +3427,7 @@ const handleDelete = async () => {
   align-items: center;
   gap: 4px;
   padding: 8px 10px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 6px;
   margin-bottom: 10px;
   font-size: 13px;
@@ -3451,7 +3451,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-item {
-  color: #ccc;
+  color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
   max-width: 80px;
@@ -3461,7 +3461,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-item:hover {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .breadcrumb-item.active {
@@ -3473,7 +3473,7 @@ const handleDelete = async () => {
   margin-left: auto;
   background: #333;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 18px;
   width: 24px;
   height: 24px;
@@ -3487,7 +3487,7 @@ const handleDelete = async () => {
 
 .breadcrumb-back:hover {
   background: #444;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 /* 右侧输入面板 */
@@ -3502,18 +3502,18 @@ const handleDelete = async () => {
 /* 当前路径显示 */
 .current-path-display {
   padding: 10px 12px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 8px;
   font-size: 13px;
   flex-shrink: 0;
 }
 
 .path-label {
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .path-value {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .path-part {
@@ -3521,7 +3521,7 @@ const handleDelete = async () => {
 }
 
 .path-separator {
-  color: #888;
+  color: var(--text-secondary);
   margin: 0 2px;
 }
 
@@ -3547,7 +3547,7 @@ const handleDelete = async () => {
   background: #333;
   border: 1px dashed #555;
   border-radius: 8px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 18px;
   font-weight: bold;
   cursor: pointer;
@@ -3557,8 +3557,8 @@ const handleDelete = async () => {
 
 .slash-btn:hover {
   background: #444;
-  border-color: #666;
-  color: #fff;
+  border-color: var(--text-tertiary);
+  color: var(--text-on-accent);
 }
 
 /* 输入区域操作按钮 */
@@ -3571,7 +3571,7 @@ const handleDelete = async () => {
 
 /* 视频标签列表 */
 .video-tags-list {
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border-default);
   padding-top: 12px;
   flex-shrink: 0;
   max-height: 200px;
@@ -3580,7 +3580,7 @@ const handleDelete = async () => {
 
 .video-tags-list-header {
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
   margin-bottom: 10px;
 }
 
@@ -3594,14 +3594,14 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: #252525;
+  background: var(--bg-surface-hover);
   border-radius: 8px;
   margin-bottom: 8px;
 }
 
 .tag-item .tag-name {
   flex: 1;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -3627,20 +3627,20 @@ const handleDelete = async () => {
 .tag-edit-input {
   flex: 1;
   padding: 8px 12px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #444;
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
 .tag-edit-input:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 .no-tags {
-  color: #666;
+  color: var(--text-tertiary);
   text-align: center;
   padding: 20px;
   font-size: 14px;
@@ -3652,17 +3652,17 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #1a1a2e;
+  background: var(--bg-surface);
   border-radius: 6px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .clear-filter {
   background: none;
   border: 1px solid #444;
-  color: #888;
+  color: var(--text-secondary);
   padding: 4px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -3672,7 +3672,7 @@ const handleDelete = async () => {
 
 .clear-filter:hover {
   background: #333;
-  color: #fff;
+  color: var(--text-on-accent);
   border-color: #555;
 }
 
@@ -3690,18 +3690,18 @@ const handleDelete = async () => {
 }
 
 .tag-flat-item:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border-color: #444;
 }
 
 .tag-flat-item.active {
-  background: #2196F3;
+  background: var(--accent);
   border-color: #1976D2;
 }
 
 .tag-flat-path {
   font-size: 14px;
-  color: #ccc;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3709,11 +3709,11 @@ const handleDelete = async () => {
 }
 
 .tag-flat-item:hover .tag-flat-path {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tag-flat-item.active .tag-flat-path {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tag-flat-check {
@@ -3724,13 +3724,13 @@ const handleDelete = async () => {
 }
 
 .tag-flat-item.active .tag-flat-check {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 /* 添加标签区域 */
 .add-tag-section {
   padding-top: 16px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border-default);
   position: relative;
 }
 
@@ -3742,22 +3742,22 @@ const handleDelete = async () => {
 .tag-input {
   flex: 1;
   padding: 10px 12px;
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border: 1px solid #444;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 
 .tag-input:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 .tag-hint {
   margin-top: 12px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 /* 标签编辑器中的通用按钮样式 */
@@ -3770,29 +3770,29 @@ const handleDelete = async () => {
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .tag-editor-dialog .btn-icon:hover {
   background: #333;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tag-editor-dialog .btn-primary {
   padding: 8px 16px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .tag-editor-dialog .btn-primary:hover {
-  background: #1976D2;
+  background: var(--accent-active);
 }
 
 .form-group input,
@@ -3801,8 +3801,8 @@ const handleDelete = async () => {
   padding: 12px;
   border: 1px solid #444;
   border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 15px;
   box-sizing: border-box;
 }
@@ -3810,7 +3810,7 @@ const handleDelete = async () => {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #2196F3;
+  border-color: var(--accent);
 }
 
 .form-group textarea {
@@ -3829,7 +3829,7 @@ const handleDelete = async () => {
   background: transparent;
   border: 1px solid #444;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -3841,17 +3841,17 @@ const handleDelete = async () => {
 
 .btn-primary {
   padding: 10px 24px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .btn-primary:hover {
-  background: #1976D2;
+  background: var(--accent-active);
 }
 
 .btn-danger {
@@ -3859,7 +3859,7 @@ const handleDelete = async () => {
   background: #f44336;
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.2s;
@@ -3870,7 +3870,7 @@ const handleDelete = async () => {
 }
 
 .edit-btn:hover {
-  background: #2196F3;
+  background: var(--accent);
 }
 
 .delete-btn:hover {
@@ -3892,7 +3892,7 @@ const handleDelete = async () => {
 }
 
 .dialog {
-  background: #1a1a1a;
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 24px;
   width: 90%;
@@ -3902,12 +3902,12 @@ const handleDelete = async () => {
 .dialog h3 {
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   margin: 0 0 16px 0;
 }
 
 .dialog p {
-  color: #ccc;
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
 }
 
@@ -3926,7 +3926,7 @@ const handleDelete = async () => {
 .dialog-checkbox {
   margin: 16px 0;
   padding: 12px;
-  background: #2a2a2a;
+  background: var(--bg-surface-hover);
   border-radius: 8px;
 }
 
@@ -3935,7 +3935,7 @@ const handleDelete = async () => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -3956,7 +3956,7 @@ const handleDelete = async () => {
 
 .share-label {
   font-size: 14px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-bottom: 8px;
 }
 
@@ -3969,20 +3969,20 @@ const handleDelete = async () => {
 .share-url-input {
   flex: 1;
   padding: 10px 12px;
-  background: #252525;
+  background: var(--bg-surface-hover);
   border: 1px solid #444;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   font-family: monospace;
 }
 
 .btn-copy {
   padding: 10px 16px;
-  background: #2196F3;
+  background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
@@ -3990,19 +3990,19 @@ const handleDelete = async () => {
 }
 
 .btn-copy:hover {
-  background: #1976D2;
+  background: var(--accent-active);
 }
 
 .share-hint {
   font-size: 13px;
-  color: #999;
+  color: var(--text-tertiary);
   line-height: 1.6;
 }
 
 .share-status {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border-default);
 }
 
 .status-item {
@@ -4014,7 +4014,7 @@ const handleDelete = async () => {
 }
 
 .status-label {
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .status-value {
@@ -4025,12 +4025,12 @@ const handleDelete = async () => {
 
 .status-value.pending {
   background: #ff9800;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .status-value.active {
   background: #4caf50;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 /* Toast 提示 */
@@ -4040,7 +4040,7 @@ const handleDelete = async () => {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  color: var(--text-on-accent);
   padding: 12px 24px;
   border-radius: 24px;
   font-size: 14px;
@@ -4144,7 +4144,7 @@ const handleDelete = async () => {
   .tag-tree-panel {
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border-default);
     padding-right: 0;
     padding-bottom: 12px;
     max-height: none;
@@ -4162,7 +4162,7 @@ const handleDelete = async () => {
   .tag-tree-item {
     display: inline-block;
     margin-bottom: 4px;
-    background: #252525;
+    background: var(--bg-surface-hover);
     padding: 6px 12px;
   }
 
@@ -4268,7 +4268,7 @@ const handleDelete = async () => {
 .markers-section {
   margin: 16px 0;
   padding: 14px 16px;
-  background: #161616;
+  background: var(--bg-surface);
   border: 1px solid #2a2a2a;
   border-radius: 10px;
 }
@@ -4282,21 +4282,21 @@ const handleDelete = async () => {
 .markers-title {
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .markers-add-btn {
   padding: 6px 12px;
   border: 1px solid #3a5a7a;
   border-radius: 8px;
   background: rgba(33, 150, 243, 0.12);
-  color: #9ecbff;
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 .markers-add-btn:hover:not(:disabled) {
-  background: #2196f3;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 .markers-add-btn:disabled {
   opacity: 0.5;
@@ -4311,10 +4311,10 @@ const handleDelete = async () => {
   flex: 1;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #0f0f0f;
-  color: #fff;
+  background: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
 }
 .marker-save,
@@ -4322,19 +4322,19 @@ const handleDelete = async () => {
   padding: 0 14px;
   height: 36px;
   border-radius: 8px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border-default);
   background: #222;
   color: #ddd;
   cursor: pointer;
   font-size: 13px;
 }
 .marker-save {
-  background: #2196f3;
+  background: var(--accent);
   border-color: #2196f3;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .marker-save:hover {
-  background: #1976d2;
+  background: var(--accent-active);
 }
 .markers-list {
   display: flex;
@@ -4346,20 +4346,20 @@ const handleDelete = async () => {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: #0f0f0f;
+  background: var(--bg-surface);
   border: 1px solid #262626;
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
 }
 .marker-item:hover {
-  background: #1c1c1c;
+  background: var(--bg-surface-hover);
   border-color: #3a5a7a;
 }
 .marker-time {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #9ecbff;
+  color: var(--text-secondary);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -4378,17 +4378,17 @@ const handleDelete = async () => {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
 }
 .marker-del:hover {
-  background: #3a2020;
-  color: #ff6b6b;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .markers-empty {
   margin: 4px 0 0;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
