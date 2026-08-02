@@ -3,7 +3,7 @@ import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/userStore'
 import { useWatchLaterStore } from './stores/watchLaterStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { fetchServerSettings, clearServerSettings } from './utils/settings'
+import { fetchServerSettings, clearServerSettings, getEffectiveSettings } from './utils/settings'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
 import { taskApi } from './api/task'
@@ -53,7 +53,15 @@ const updateNavHeight = () => {
   navHeight.value = navEl.value ? navEl.value.offsetHeight : 0
 }
 
+// 应用生效的主题（与 Settings 的 applyTheme 保持一致），让首屏即应用主题
+function applyStartupTheme() {
+  const theme = getEffectiveSettings().theme || 'dark'
+  document.body.classList.remove('light-theme', 'dark-theme')
+  document.body.classList.add(theme === 'dark' ? 'dark-theme' : 'light-theme')
+}
+
 onMounted(() => {
+  applyStartupTheme()
   document.addEventListener('click', closeUserDropdown)
   updateNavHeight()
   window.addEventListener('resize', updateNavHeight)
@@ -319,7 +327,7 @@ body {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--nav-bg);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--border-subtle);

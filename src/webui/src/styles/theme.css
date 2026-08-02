@@ -71,6 +71,106 @@
 
   /* 向后兼容：旧组件仍引用以下变量名 */
   --primary: var(--accent);
+
+  /* 导航栏半透明背景（浅色） */
+  --nav-bg: rgba(255, 255, 255, 0.82);
+}
+
+/* ============================================================
+   深色主题（Midnight 午夜深蓝）—— 完全覆盖 :root 的同名 token。
+   通过 body 上的 .dark-theme class 生效（Settings 中 theme=dark 时加上）。
+   ============================================================ */
+.dark-theme {
+  /* —— 中性灰阶（深色）—— */
+  --bg-base: #0f1115;        /* 页面最底层背景 */
+  --bg-elevated: #1c1f26;    /* 导航栏 / 悬浮层 */
+  --bg-surface: #1a1d24;     /* 卡片 / 容器 */
+  --bg-surface-hover: #242832;
+  --bg-surface-2: #2a2f3a;
+  --bg-input: #242832;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* —— 文本 —— */
+  --text-primary: #f2f4f8;
+  --text-secondary: #b3b8c4;
+  --text-tertiary: #7c828f;
+  --text-on-accent: #ffffff;
+
+  /* —— 品牌强调色（落日橙，深色下保持高饱和）—— */
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --accent-active: #ea580c;
+  --accent-soft: rgba(249, 115, 22, 0.16);
+  --accent-soft-hover: rgba(249, 115, 22, 0.24);
+  --accent-border: rgba(249, 115, 22, 0.55);
+
+  /* —— 语义色（深色下略提亮）—— */
+  --danger: #ff6b70;
+  --danger-soft: rgba(255, 107, 112, 0.16);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.16);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.16);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.16);
+
+  /* —— 阴影（深色背景用更明显的投影）—— */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  /* 向后兼容 */
+  --primary: var(--accent);
+
+  /* 导航栏半透明背景（深色） */
+  --nav-bg: rgba(28, 31, 38, 0.82);
+}
+
+/* 浅色主题显式声明（与 :root 等价，便于 .light-theme class 直接生效） */
+.light-theme {
+  --bg-base: #f5f6f8;
+  --bg-elevated: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f0f1f4;
+  --bg-surface-2: #e9eaf0;
+  --bg-input: #f1f2f5;
+
+  --border-subtle: rgba(20, 20, 30, 0.06);
+  --border-default: rgba(20, 20, 30, 0.10);
+  --border-strong: rgba(20, 20, 30, 0.16);
+
+  --text-primary: #1c1e26;
+  --text-secondary: #5a5e6b;
+  --text-tertiary: #9398a5;
+  --text-on-accent: #ffffff;
+
+  --accent: #ea580c;
+  --accent-hover: #f97316;
+  --accent-active: #c2410c;
+  --accent-soft: rgba(234, 88, 12, 0.10);
+  --accent-soft-hover: rgba(234, 88, 12, 0.16);
+  --accent-border: rgba(234, 88, 12, 0.42);
+
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.12);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.12);
+  --info: #2563eb;
+  --info-soft: rgba(37, 99, 235, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 20, 30, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 20, 30, 0.12);
+
+  --primary: var(--accent);
+
+  /* 导航栏半透明背景（浅色显式） */
+  --nav-bg: rgba(255, 255, 255, 0.82);
 }
 
 /* 滚动条统一美化 */
