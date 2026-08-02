@@ -1,90 +1,22 @@
 /* ============================================================
-   统一设计系统 - Daylight 浅色主题（落日橙 Sunset Orange）
-   集中管理颜色 / 圆角 / 阴影 / 间距 token，取代散落在各组件中的硬编码值。
-   业务组件应通过 var(--xxx) 引用，避免再次出现多套配色混用。
+   统一设计系统 - 主题变量 Fallback
+   ------------------------------------------------------------
+   说明：真正的颜色 token 由 src/utils/theme.ts 的「主题注册表」在运行时
+   通过主题 id 计算并注入到 :root（document.documentElement.style.setProperty）。
+   原因：用户要求「定义几个颜色色号 + 颜色计算方式，绑定到主题；渲染时通过
+   主题 id 查询到颜色逻辑再应用」。每个皮肤只需声明少量核心色号，accent 的
+   hover/active/soft/border、语义色 soft、阴影、边框等全部由计算函数推导，
+   杜绝之前散落在 theme.css 多套重复硬编码的问题。
+
+   本文件仅保留「JS 未执行时的降级值」（等于默认皮肤 sunset-dark），
+   以及不依赖主题色的结构性样式（滚动条）。业务组件一律使用 var(--xxx)。
    ============================================================ */
 
 :root {
-  /* —— 中性灰阶（浅色）—— */
-  --bg-base: #f5f6f8;        /* 页面最底层背景（白偏灰） */
-  --bg-elevated: #ffffff;    /* 导航栏 / 悬浮层 */
-  --bg-surface: #ffffff;     /* 卡片 / 容器 */
-  --bg-surface-hover: #f0f1f4;
-  --bg-surface-2: #e9eaf0;
-  --bg-input: #f1f2f5;
-
-  --border-subtle: rgba(20, 20, 30, 0.06);
-  --border-default: rgba(20, 20, 30, 0.10);
-  --border-strong: rgba(20, 20, 30, 0.16);
-
-  /* —— 文本 —— */
-  --text-primary: #1c1e26;
-  --text-secondary: #5a5e6b;
-  --text-tertiary: #9398a5;
-  --text-on-accent: #ffffff;
-
-  /* —— 品牌强调色（落日橙）—— */
-  --accent: #ea580c;           /* 主强调（落日橙） */
-  --accent-hover: #f97316;
-  --accent-active: #c2410c;
-  --accent-soft: rgba(234, 88, 12, 0.10);
-  --accent-soft-hover: rgba(234, 88, 12, 0.16);
-  --accent-border: rgba(234, 88, 12, 0.42);
-
-  /* —— 语义色 —— */
-  --danger: #e5484d;
-  --danger-soft: rgba(229, 72, 77, 0.12);
-  --warning: #f59e0b;
-  --warning-soft: rgba(245, 158, 11, 0.14);
-  --success: #16a34a;
-  --success-soft: rgba(22, 163, 74, 0.12);
-  --info: #2563eb;
-  --info-soft: rgba(37, 99, 235, 0.12);
-
-  /* —— 圆角 —— */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 22px;
-  --radius-pill: 999px;
-
-  /* —— 阴影层级（浅色背景用更柔和的投影）—— */
-  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
-  --shadow-md: 0 4px 16px rgba(20, 20, 30, 0.08);
-  --shadow-lg: 0 12px 32px rgba(20, 20, 30, 0.12);
-
-  /* —— 间距尺度 —— */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-
-  /* —— 过渡 —— */
-  --transition-fast: 0.15s ease;
-  --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* —— 字体 —— */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
-
-  /* 向后兼容：旧组件仍引用以下变量名 */
-  --primary: var(--accent);
-
-  /* 导航栏半透明背景（浅色） */
-  --nav-bg: rgba(255, 255, 255, 0.82);
-}
-
-/* ============================================================
-   深色主题（Midnight 午夜深蓝）—— 完全覆盖 :root 的同名 token。
-   通过 body 上的 .dark-theme class 生效（Settings 中 theme=dark 时加上）。
-   ============================================================ */
-.dark-theme {
-  /* —— 中性灰阶（深色）—— */
-  --bg-base: #0f1115;        /* 页面最底层背景 */
-  --bg-elevated: #1c1f26;    /* 导航栏 / 悬浮层 */
-  --bg-surface: #1a1d24;     /* 卡片 / 容器 */
+  /* —— 中性灰阶（等于默认主题 sunset-dark）—— */
+  --bg-base: #0f1115;
+  --bg-elevated: #1c1f26;
+  --bg-surface: #1a1d24;
   --bg-surface-hover: #242832;
   --bg-surface-2: #2a2f3a;
   --bg-input: #242832;
@@ -99,7 +31,7 @@
   --text-tertiary: #7c828f;
   --text-on-accent: #ffffff;
 
-  /* —— 品牌强调色（落日橙，深色下保持高饱和）—— */
+  /* —— 品牌强调色（落日橙）—— */
   --accent: #f97316;
   --accent-hover: #fb923c;
   --accent-active: #ea580c;
@@ -107,7 +39,7 @@
   --accent-soft-hover: rgba(249, 115, 22, 0.24);
   --accent-border: rgba(249, 115, 22, 0.55);
 
-  /* —— 语义色（深色下略提亮）—— */
+  /* —— 语义色 —— */
   --danger: #ff6b70;
   --danger-soft: rgba(255, 107, 112, 0.16);
   --warning: #fbbf24;
@@ -117,63 +49,32 @@
   --info: #60a5fa;
   --info-soft: rgba(96, 165, 250, 0.16);
 
-  /* —— 阴影（深色背景用更明显的投影）—— */
+  /* —— 圆角 / 阴影 / 间距 / 过渡 / 字体（与主题色无关，保持统一）—— */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --transition-fast: 0.15s ease;
+  --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
 
   /* 向后兼容 */
   --primary: var(--accent);
-
-  /* 导航栏半透明背景（深色） */
   --nav-bg: rgba(28, 31, 38, 0.82);
 }
 
-/* 浅色主题显式声明（与 :root 等价，便于 .light-theme class 直接生效） */
-.light-theme {
-  --bg-base: #f5f6f8;
-  --bg-elevated: #ffffff;
-  --bg-surface: #ffffff;
-  --bg-surface-hover: #f0f1f4;
-  --bg-surface-2: #e9eaf0;
-  --bg-input: #f1f2f5;
-
-  --border-subtle: rgba(20, 20, 30, 0.06);
-  --border-default: rgba(20, 20, 30, 0.10);
-  --border-strong: rgba(20, 20, 30, 0.16);
-
-  --text-primary: #1c1e26;
-  --text-secondary: #5a5e6b;
-  --text-tertiary: #9398a5;
-  --text-on-accent: #ffffff;
-
-  --accent: #ea580c;
-  --accent-hover: #f97316;
-  --accent-active: #c2410c;
-  --accent-soft: rgba(234, 88, 12, 0.10);
-  --accent-soft-hover: rgba(234, 88, 12, 0.16);
-  --accent-border: rgba(234, 88, 12, 0.42);
-
-  --danger: #e5484d;
-  --danger-soft: rgba(229, 72, 77, 0.12);
-  --warning: #f59e0b;
-  --warning-soft: rgba(245, 158, 11, 0.14);
-  --success: #16a34a;
-  --success-soft: rgba(22, 163, 74, 0.12);
-  --info: #2563eb;
-  --info-soft: rgba(37, 99, 235, 0.12);
-
-  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
-  --shadow-md: 0 4px 16px rgba(20, 20, 30, 0.08);
-  --shadow-lg: 0 12px 32px rgba(20, 20, 30, 0.12);
-
-  --primary: var(--accent);
-
-  /* 导航栏半透明背景（浅色显式） */
-  --nav-bg: rgba(255, 255, 255, 0.82);
-}
-
-/* 滚动条统一美化 */
+/* 滚动条统一美化（使用主题变量） */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

@@ -1,4 +1,5 @@
 import { api } from '../api'
+import { DEFAULT_THEME_ID } from './theme'
 
 export type SettingScope = 'browser' | 'user' | 'global'
 
@@ -22,7 +23,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   autoplay: false,
   defaultQuality: 'auto',
   subtitleLanguage: 'off',
-  theme: 'dark',
+  theme: DEFAULT_THEME_ID,
   language: 'zh-CN',
   blockDisliked: false,
   defaultSort: 'recommended',

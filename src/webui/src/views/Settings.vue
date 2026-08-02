@@ -19,6 +19,7 @@ import {
   type SettingsData,
   type SettingScope,
 } from '../utils/settings'
+import { applyThemeById, getThemeOptions, DEFAULT_THEME_ID } from '../utils/theme'
 import { interactionApi } from '../api'
 import { systemApi } from '../api/index'
 
@@ -54,8 +55,8 @@ const fields: FieldDef[] = [
     ],
   },
   {
-    key: 'theme', label: '主题', desc: '选择界面主题颜色', type: 'radio', testid: 'theme-dark-radio',
-    options: [{ v: 'dark', t: '深色' }, { v: 'light', t: '浅色' }],
+    key: 'theme', label: '主题皮肤', desc: '选择界面主题皮肤，颜色由统一主题引擎计算生成', type: 'radio', testid: 'theme-skin-radio',
+    options: getThemeOptions(),
   },
   {
     key: 'language', label: '界面语言', desc: '选择界面显示语言', type: 'select', testid: 'interface-language-select',
@@ -130,7 +131,8 @@ const isDirty = computed(() =>
 )
 
 function applyTheme() {
-  document.body.className = form.value.theme === 'dark' ? 'dark-theme' : 'light-theme'
+  // 通过主题 id 查询注册表的颜色逻辑再应用，杜绝散落硬编码色值
+  applyThemeById(form.value.theme || DEFAULT_THEME_ID)
 }
 
 async function saveSettings() {

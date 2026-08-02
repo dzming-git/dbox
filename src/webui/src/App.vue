@@ -4,6 +4,7 @@ import { useUserStore } from './stores/userStore'
 import { useWatchLaterStore } from './stores/watchLaterStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings, getEffectiveSettings } from './utils/settings'
+import { applyThemeById, DEFAULT_THEME_ID } from './utils/theme'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
 import { taskApi } from './api/task'
@@ -55,9 +56,8 @@ const updateNavHeight = () => {
 
 // 应用生效的主题（与 Settings 的 applyTheme 保持一致），让首屏即应用主题
 function applyStartupTheme() {
-  const theme = getEffectiveSettings().theme || 'dark'
-  document.body.classList.remove('light-theme', 'dark-theme')
-  document.body.classList.add(theme === 'dark' ? 'dark-theme' : 'light-theme')
+  // 通过主题 id 查询注册表的颜色逻辑再应用
+  applyThemeById(getEffectiveSettings().theme || DEFAULT_THEME_ID)
 }
 
 onMounted(() => {
@@ -100,6 +100,8 @@ watch(
       clearServerSettings()
       taskActionCount.value = 0
     }
+    // 登录/登出后生效的设置层可能变化，重新应用主题
+    applyStartupTheme()
   }
 )
 

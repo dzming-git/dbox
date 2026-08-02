@@ -76,13 +76,13 @@ const handleKeydown = (e: KeyboardEvent) => {
           <svg class="login-logo-mark" width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <defs>
               <linearGradient id="loginLogoGrad" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="#f97316"/>
-                <stop offset="1" stop-color="#ea580c"/>
+                <stop offset="0" style="stop-color: var(--accent)"/>
+                <stop offset="1" style="stop-color: var(--accent-active)"/>
               </linearGradient>
             </defs>
             <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="url(#loginLogoGrad)" opacity="0.85"/>
-            <path d="M20 38 L60 58 L60 102 L20 82 Z" fill="#ea580c" opacity="0.55"/>
-            <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
+            <path d="M20 38 L60 58 L60 102 L20 82 Z" style="fill: var(--accent-active)" opacity="0.55"/>
+            <path d="M100 38 L60 58 L60 102 L100 82 Z" style="fill: var(--accent)" opacity="0.7"/>
             <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#loginLogoGrad)" stroke-width="3" stroke-linejoin="round"/>
             <path d="M44 66 H58 A14 14 0 0 1 58 94 H44 Z" fill="#fff" opacity="0.95"/>
             <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
@@ -190,7 +190,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   font-size: 30px;
   font-weight: 800;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -274,11 +274,11 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 .error-message {
-  color: #ff5252;
+  color: var(--danger);
   font-size: 14px;
   text-align: center;
   padding: 8px;
-  background: rgba(255, 82, 82, 0.1);
+  background: var(--danger-soft);
   border-radius: 6px;
   margin-top: -8px;
 }
@@ -287,7 +287,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: 100%;
   height: 48px;
   margin-top: 8px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   border: none;
   border-radius: 8px;
   color: var(--text-on-accent);
@@ -302,7 +302,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 8px 20px var(--accent-soft);
 }
 
 .login-btn:disabled {
@@ -313,7 +313,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 .spinner-small {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid var(--border-strong);
   border-top-color: var(--text-on-accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
