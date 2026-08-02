@@ -880,7 +880,7 @@ const confirmMerge = async () => {
 .tag-name {
   font-size: 15px;
   font-weight: 500;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1199,8 +1199,8 @@ const confirmMerge = async () => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* 批量管理 */
