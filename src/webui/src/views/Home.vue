@@ -594,7 +594,9 @@ const listThumbUrl = (video: Video): string => {
         @click="mediaTab = 'text'"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 7h16M4 12h16M4 17h10"/>
+          <path d="M6 2h9l5 5v15H6z"/>
+          <path d="M14 2v6h6"/>
+          <path d="M9 13h6M9 17h6"/>
         </svg>
         文本
       </button>
