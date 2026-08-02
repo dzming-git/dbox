@@ -20,14 +20,27 @@ from backend.access import admin_required
 from backend.helpers import success_response, error_response
 
 try:
-    from liblog import get_service_logger
+    from liblog import get_service_logger as _get_service_logger
+
+    def get_service_logger(name=''):
+        return _get_service_logger(name)
 except Exception:  # pragma: no cover - 运行时由 main 注入
     from logging import getLogger as _getLogger
 
     def get_service_logger(name=''):  # type: ignore
         return _getLogger(name)
 
-log = get_service_logger('dplayer-web')
+
+# 统一使用标准 logging 语义（log.error(msg)），避免 ServiceLogger.error 签名
+# 不兼容标准 logging 导致 /api/system/metrics 等接口 500（TypeError）。
+import logging as _logging
+
+_log = get_service_logger('dplayer-web')
+if not isinstance(_log, _logging.Logger):
+    _log = _logging.getLogger('dplayer-web')
+    if not _log.handlers:
+        _log.addHandler(_logging.NullHandler())
+log = _log
 
 # 后台指标采集缓存（带锁）
 _metrics_cache = {
@@ -132,56 +145,71 @@ def _get_system_monitor():
         return None
 
 
-def collect_metrics():
-    """采集系统资源信息。"""
-    monitor_cls = _get_system_monitor()
-    if not monitor_cls:
-        return {'cpu': None, 'memory': None, 'disk': None}
-    try:
-        monitor = monitor_cls()
-        return monitor.collect_metrics()
-    except Exception as e:  # pragma: no cover
-        log.error(f"采集系统指标失败: {e}")
-        return {'cpu': None, 'memory': None, 'disk': None}
-
-
 def collect_cpu_metrics():
-    """采集 CPU 使用率。"""
-    monitor_cls = _get_system_monitor()
-    if not monitor_cls:
-        return None
+    """采集 CPU 使用率（使用 psutil，兼容各平台）。"""
     try:
-        monitor = monitor_cls()
-        return monitor.get_cpu_metrics()
-    except Exception as e:  # pragma: no cover
+        import psutil
+        per_core = psutil.cpu_percent(interval=0.3, percpu=True)
+        freq = psutil.cpu_freq()
+        return {
+            'usage_percent': psutil.cpu_percent(interval=None),
+            'count': psutil.cpu_count(logical=True) or 0,
+            'per_core_usage': per_core,
+            'freq_current': getattr(freq, 'current', None),
+        }
+    except Exception as e:
         log.error(f"采集 CPU 指标失败: {e}")
         return None
 
 
 def collect_memory_metrics():
-    """采集内存使用率。"""
-    monitor_cls = _get_system_monitor()
-    if not monitor_cls:
-        return None
+    """采集内存使用率（使用 psutil）。"""
     try:
-        monitor = monitor_cls()
-        return monitor.get_memory_metrics()
-    except Exception as e:  # pragma: no cover
+        import psutil
+        vm = psutil.virtual_memory()
+        return {
+            'usage_percent': vm.percent,
+            'used': vm.used,
+            'total': vm.total,
+            'available': vm.available,
+        }
+    except Exception as e:
         log.error(f"采集内存指标失败: {e}")
         return None
 
 
 def collect_disk_metrics():
-    """采集磁盘使用率。"""
-    monitor_cls = _get_system_monitor()
-    if not monitor_cls:
-        return None
+    """采集磁盘使用率（使用 psutil）。"""
     try:
-        monitor = monitor_cls()
-        return monitor.get_disk_metrics()
-    except Exception as e:  # pragma: no cover
+        import psutil
+        disks = []
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except Exception:
+                continue
+            disks.append({
+                'device': part.device,
+                'mount_point': part.mountpoint,
+                'fs_type': part.fstype,
+                'usage_percent': usage.percent,
+                'used': usage.used,
+                'total': usage.total,
+                'free': usage.free,
+            })
+        return disks
+    except Exception as e:
         log.error(f"采集磁盘指标失败: {e}")
         return None
+
+
+def collect_metrics():
+    """采集系统资源信息（CPU/内存/磁盘）。"""
+    return {
+        'cpu': collect_cpu_metrics(),
+        'memory': collect_memory_metrics(),
+        'disks': collect_disk_metrics() or [],
+    }
 
 
 def get_metrics_history():
