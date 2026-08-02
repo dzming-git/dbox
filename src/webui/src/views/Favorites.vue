@@ -202,7 +202,14 @@ const showToast = (message: string) => {
             :key="item.type + ':' + item.hash"
             class="favorite-card-wrap"
           >
-            <MediaCard :item="item" :actions="['unfavorite', 'addCollection']" @action="onAction" />
+            <MediaCard :item="item" :actions="['addCollection']" @action="onAction" />
+            <!-- 取消收藏：放在卡片下方，避免缩略图上出现心形标记，与首页展示逻辑一致 -->
+            <button class="unfavorite-btn" @click.stop="onAction({ name: 'unfavorite', item })" title="取消收藏">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+              取消收藏
+            </button>
             <!-- 加入收藏夹 -->
             <div
               v-if="openMenuItem === item"
@@ -363,6 +370,27 @@ const showToast = (message: string) => {
   gap: 20px;
 }
 .favorite-card-wrap { position: relative; }
+.unfavorite-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.unfavorite-btn:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
 .collection-menu {
   position: absolute;
   top: 50px;
