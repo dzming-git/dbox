@@ -353,12 +353,12 @@ watch(
   display: flex;
   height: 100%;
   background: var(--bg-surface);
-  color: #eee;
+  color: var(--text-primary);
 }
 .sidebar {
   width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid #2a2a2a;
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
@@ -368,7 +368,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border-default);
 }
 .sidebar-header h2 { font-size: 18px; margin: 0; }
 .create-btn {
@@ -445,7 +445,7 @@ watch(
 .ci-edit-name, .ci-edit-desc {
   width: 100%;
   background: var(--bg-surface);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   color: var(--text-on-accent);
   border-radius: 6px;
   padding: 6px 8px;
@@ -458,7 +458,7 @@ watch(
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #bbb;
+  color: var(--text-secondary);
 }
 .ci-edit-actions { display: flex; gap: 8px; }
 .ci-edit-actions button {
@@ -471,10 +471,10 @@ watch(
 }
 .ci-save { background: var(--accent); color: var(--text-on-accent); }
 .ci-save:hover { background: var(--accent-active); }
-.ci-save:disabled { background: #555; cursor: not-allowed; }
+.ci-save:disabled { background: var(--border-strong); cursor: not-allowed; }
 .ci-cancel { background: var(--bg-surface-hover); color: var(--text-secondary); }
-.ci-cancel:hover { background: #4a4a4a; }
-.sidebar-empty { padding: 16px; color: #777; font-size: 13px; line-height: 1.6; }
+.ci-cancel:hover { background: var(--border-strong); }
+.sidebar-empty { padding: 16px; color: var(--text-tertiary); font-size: 13px; line-height: 1.6; }
 
 .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .content-header {
@@ -482,7 +482,7 @@ watch(
   align-items: center;
   gap: 14px;
   padding: 16px 20px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border-default);
 }
 .ch-cover {
   width: 64px;
@@ -514,7 +514,7 @@ watch(
   cursor: pointer;
 }
 .playall-btn:hover { background: #43a047; }
-.playall-btn:disabled { background: #555; cursor: not-allowed; }
+.playall-btn:disabled { background: var(--border-strong); cursor: not-allowed; }
 .items-grid {
   flex: 1;
   overflow-y: auto;
@@ -553,7 +553,7 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #777; }
+.empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); }
 
 .modal-overlay {
   position: fixed;
@@ -580,15 +580,15 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border-default);
 }
 .modal-header h3 { margin: 0; font-size: 16px; }
 .modal-header .close { background: none; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
-.modal-search { display: flex; gap: 8px; padding: 16px; border-bottom: 1px solid #2a2a2a; }
+.modal-search { display: flex; gap: 8px; padding: 16px; border-bottom: 1px solid var(--border-default); }
 .modal-search input {
   flex: 1;
   background: var(--bg-surface);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   color: var(--text-on-accent);
   border-radius: 6px;
   padding: 8px 10px;
@@ -622,7 +622,7 @@ watch(
 .rc-type { background: rgba(0, 0, 0, 0.6); color: var(--text-on-accent); font-size: 11px; padding: 2px 6px; border-radius: 4px; }
 .rc-title { font-size: 12px; color: var(--text-secondary); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-card:hover .rc-cover { outline: 2px solid #2196F3; }
-.modal-empty { padding: 24px; text-align: center; color: #777; }
+.modal-empty { padding: 24px; text-align: center; color: var(--text-tertiary); }
 
 .toast {
   position: fixed;
@@ -645,7 +645,7 @@ watch(
     width: 100%;
     max-height: 116px;
     border-right: none;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--border-default);
   }
   .sidebar-header { padding: 10px 12px; }
   .collection-list {

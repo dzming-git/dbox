@@ -260,7 +260,7 @@ const showToast = (message: string) => {
   border-bottom: 1px solid var(--border-default);
   margin-bottom: 8px;
   font-size: 14px;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 .add-collection-btn {
   width: 24px;
@@ -340,7 +340,7 @@ const showToast = (message: string) => {
   min-height: 400px;
   color: var(--text-tertiary);
 }
-.empty-icon { margin-bottom: 16px; color: #444; }
+.empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
 .browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
@@ -369,7 +369,7 @@ const showToast = (message: string) => {
   right: 8px;
   width: 180px;
   background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 6px;
   z-index: 10;
@@ -377,17 +377,17 @@ const showToast = (message: string) => {
 }
 .collection-menu-title {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
   padding: 4px 8px 8px;
   border-bottom: 1px solid var(--border-default);
   margin-bottom: 4px;
 }
-.collection-menu-empty { font-size: 12px; color: #777; padding: 6px 8px; }
+.collection-menu-empty { font-size: 12px; color: var(--text-tertiary); padding: 6px 8px; }
 .collection-menu-item {
   padding: 8px;
   border-radius: 6px;
   font-size: 13px;
-  color: #eee;
+  color: var(--text-primary);
   cursor: pointer;
 }
 .collection-menu-item:hover { background: var(--accent); color: var(--text-on-accent); }

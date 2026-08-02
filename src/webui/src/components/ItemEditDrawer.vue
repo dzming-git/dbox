@@ -196,30 +196,30 @@ const save = async () => {
   border-left: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.15);
 }
 .drawer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #2c2c2c;
+  border-bottom: 1px solid var(--border-default);
 }
 .drawer-header h3 {
   margin: 0;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 16px;
 }
 .drawer-close {
   background: transparent;
   border: none;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
 .drawer-close:hover {
-  color: var(--text-on-accent);
+  color: var(--text-primary);
 }
 .drawer-body {
   flex: 1;
@@ -235,7 +235,7 @@ const save = async () => {
   gap: 6px;
 }
 .field-label {
-  color: #bbb;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 .field-input {
@@ -243,8 +243,8 @@ const save = async () => {
   padding: 0 12px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-on-accent);
+  background: var(--bg-base);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -258,10 +258,10 @@ const save = async () => {
   flex-shrink: 0;
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #3a5a7a;
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
-  background: rgba(33, 150, 243, 0.12);
-  color: var(--text-secondary);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
@@ -276,8 +276,8 @@ const save = async () => {
   padding: 10px 12px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-on-accent);
+  background: var(--bg-base);
+  color: var(--text-primary);
   font-size: 14px;
   resize: vertical;
   font-family: inherit;
@@ -285,7 +285,7 @@ const save = async () => {
 .field-input:focus,
 .field-textarea:focus {
   outline: none;
-  border-color: #2196f3;
+  border-color: var(--accent);
 }
 .tag-edit-list {
   display: flex;
@@ -294,17 +294,17 @@ const save = async () => {
   padding: 8px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--bg-surface);
+  background: var(--bg-base);
 }
 .tag-edit-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 5px 10px;
-  background: rgba(33, 150, 243, 0.12);
-  border: 1px solid rgba(33, 150, 243, 0.3);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
-  color: var(--text-secondary);
+  color: var(--accent);
   font-size: 13px;
 }
 .tag-edit-remove {
@@ -324,7 +324,7 @@ const save = async () => {
   transition: all 0.15s;
 }
 .tag-edit-remove:hover {
-  background: #ef4444;
+  background: var(--danger);
   color: var(--text-on-accent);
 }
 .tag-edit-input {
@@ -332,7 +332,7 @@ const save = async () => {
   min-width: 140px;
   border: none;
   background: transparent;
-  color: var(--text-on-accent);
+  color: var(--text-primary);
   font-size: 13px;
   outline: none;
 }
@@ -346,7 +346,7 @@ const save = async () => {
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 20px;
-  border-top: 1px solid #2c2c2c;
+  border-top: 1px solid var(--border-default);
 }
 .drawer-btn {
   height: 38px;
@@ -359,6 +359,10 @@ const save = async () => {
 .drawer-btn.cancel {
   background: var(--bg-surface-hover);
   color: var(--text-secondary);
+}
+.drawer-btn.cancel:hover {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
 }
 .drawer-btn.save {
   background: var(--accent);

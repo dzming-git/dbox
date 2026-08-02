@@ -47,15 +47,15 @@ const onToggle = () => {
   gap: 6px;
   border: none;
   cursor: pointer;
-  color: #bbb;
-  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
   transition: color 0.15s, background 0.15s;
 }
 .watch-later-btn:hover {
-  color: var(--text-on-accent);
+  color: var(--accent);
 }
 .watch-later-btn.active {
-  color: #ffb300;
+  color: var(--warning);
 }
 /* 预览图角标样式 */
 .watch-later-btn.overlay {
@@ -76,7 +76,7 @@ const onToggle = () => {
   font-size: 14px;
 }
 .watch-later-btn.bar:hover {
-  background: #333;
+  background: var(--bg-surface-2);
 }
 .watch-later-btn.bar.active {
   background: rgba(255, 179, 0, 0.15);

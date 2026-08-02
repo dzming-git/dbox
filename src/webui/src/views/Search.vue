@@ -174,7 +174,7 @@ onMounted(search)
 .search-tab {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 14px; border-radius: 999px;
-  background: var(--bg-surface); color: #bbb; border: 1px solid var(--border-default);
+  background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-default);
   font-size: 14px; cursor: pointer; transition: all 0.2s;
 }
 .search-tab:hover { background: var(--bg-surface-hover); }

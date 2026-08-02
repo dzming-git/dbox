@@ -563,7 +563,7 @@ watch(
 .src-browser { background: rgba(33, 150, 243, 0.18); color: var(--accent); }
 .src-user { background: rgba(76, 175, 80, 0.18); color: #81c784; }
 .src-global { background: rgba(255, 152, 0, 0.18); color: #ffb74d; }
-.src-default { background: rgba(158, 158, 158, 0.18); color: #bdbdbd; }
+.src-default { background: rgba(158, 158, 158, 0.18); color: var(--text-tertiary); }
 
 .setting-control {
   flex-shrink: 0;
@@ -591,7 +591,7 @@ watch(
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #444;
+  background-color: var(--border-strong);
   transition: 0.3s;
   border-radius: 24px;
 }
@@ -625,7 +625,7 @@ input:disabled + .toggle-slider {
 .setting-select {
   padding: 8px 16px;
   background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -703,7 +703,7 @@ input:disabled + .toggle-slider {
 .reset-btn {
   padding: 12px 24px;
   background: transparent;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-tertiary);
   font-size: 14px;
@@ -712,7 +712,7 @@ input:disabled + .toggle-slider {
 }
 
 .reset-btn:hover:not(:disabled) {
-  background: #333;
+  background: var(--bg-surface-2);
   color: var(--text-on-accent);
 }
 

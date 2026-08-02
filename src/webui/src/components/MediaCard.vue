@@ -280,7 +280,7 @@ const onAction = (name: string, e: Event) => {
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.delete-btn:hover { background: rgba(255, 90, 106, 0.28); color: #ff7a88; }
+.delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
 @media (max-width: 768px) {
   .action-btn { opacity: 1; }
 }

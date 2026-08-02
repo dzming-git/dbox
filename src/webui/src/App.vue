@@ -624,7 +624,7 @@ body {
 
 .role-badge.admin {
   background: var(--warning);
-  color: #1a1a22;
+  color: var(--bg-surface-2);
 }
 
 .role-badge.root {

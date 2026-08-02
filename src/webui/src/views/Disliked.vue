@@ -121,7 +121,7 @@ const showToast = (message: string) => {
   min-height: 400px;
   color: var(--text-tertiary);
 }
-.empty-icon { margin-bottom: 16px; color: #444; }
+.empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
 .browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {
@@ -129,7 +129,7 @@ const showToast = (message: string) => {
   background: #ffd93d;
   border: none;
   border-radius: 8px;
-  color: #222;
+  color: var(--bg-surface-2);
   font-size: 14px;
   text-decoration: none;
   cursor: pointer;

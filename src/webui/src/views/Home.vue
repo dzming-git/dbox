@@ -962,7 +962,7 @@ const onListImgError = (e: Event) => {
   display: flex;
   gap: 20px;
   align-items: flex-start;
-  background: linear-gradient(135deg, #23252b, #1c1d22);
+  background: linear-gradient(135deg, var(--border-default), var(--bg-surface-2));
   border: 1px solid var(--border-default);
   border-radius: 14px;
   padding: 24px;
@@ -985,7 +985,7 @@ const onListImgError = (e: Event) => {
 }
 
 .ob-desc {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -1043,7 +1043,7 @@ const onListImgError = (e: Event) => {
   font-size: 14px;
   text-decoration: none;
   background: var(--bg-surface-hover);
-  color: #ddd;
+  color: var(--text-secondary);
   border: 1px solid var(--border-default);
   transition: background 0.2s;
 }
@@ -1093,7 +1093,7 @@ const onListImgError = (e: Event) => {
   padding: 8px 20px;
   border: none;
   background: transparent;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 15px;
   font-weight: 500;
   border-radius: 7px;
@@ -1179,7 +1179,7 @@ const onListImgError = (e: Event) => {
 }
 
 .breadcrumb-sep {
-  color: #555;
+  color: var(--border-strong);
 }
 
 .breadcrumb-item {
@@ -1197,7 +1197,7 @@ const onListImgError = (e: Event) => {
 }
 
 .nav-back-btn {
-  background: #333;
+  background: var(--bg-surface-2);
   border: none;
   color: var(--text-secondary);
   font-size: 13px;
@@ -1210,7 +1210,7 @@ const onListImgError = (e: Event) => {
 }
 
 .nav-back-btn:hover {
-  background: #444;
+  background: var(--border-strong);
   color: var(--text-on-accent);
 }
 
@@ -1234,8 +1234,8 @@ const onListImgError = (e: Event) => {
 }
 
 .tag-nav-item:hover {
-  background: #333;
-  border-color: #444;
+  background: var(--bg-surface-2);
+  border-color: var(--border-strong);
 }
 
 .tag-nav-item.active {
@@ -1244,7 +1244,7 @@ const onListImgError = (e: Event) => {
 }
 
 .tag-nav-item.all-tag {
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 /* 未标记（待整理）：灰色低调，与真实标签区分，不抢视觉 */
@@ -1256,8 +1256,8 @@ const onListImgError = (e: Event) => {
 
 .tag-nav-item.untagged-tag:hover {
   background: var(--bg-surface-hover);
-  border-color: #4a4a4a;
-  color: #aaa;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
 }
 
 .tag-nav-item.untagged-tag.active {
@@ -1272,11 +1272,11 @@ const onListImgError = (e: Event) => {
 
 .untagged-badge {
   background: var(--bg-surface-hover);
-  color: #777;
+  color: var(--text-tertiary);
 }
 
 .tag-nav-item.untagged-tag.active .untagged-badge {
-  background: #4a3a10;
+  background: var(--warning-soft);
   color: #ffca28;
 }
 
@@ -1330,7 +1330,7 @@ const onListImgError = (e: Event) => {
   background: var(--bg-surface-hover);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
   text-decoration: none;
@@ -1338,9 +1338,9 @@ const onListImgError = (e: Event) => {
 }
 
 .tags-toggle-btn:hover {
-  background: #333;
+  background: var(--bg-surface-2);
   color: var(--text-on-accent);
-  border-color: #444;
+  border-color: var(--border-strong);
 }
 
 .selected-tag-name {
@@ -1366,7 +1366,7 @@ const onListImgError = (e: Event) => {
 }
 
 .sort-label {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -1585,7 +1585,7 @@ const onListImgError = (e: Event) => {
   padding: 6px 12px;
   border: none;
   background: transparent;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 13px;
   border-radius: 6px;
   cursor: pointer;
@@ -1595,7 +1595,7 @@ const onListImgError = (e: Event) => {
 
 .view-toggle-btn:hover {
   color: var(--text-on-accent);
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 .view-toggle-btn.active {
@@ -1616,14 +1616,14 @@ const onListImgError = (e: Event) => {
   gap: 14px;
   padding: 8px;
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s;
 }
 
 .video-list-row:hover {
-  background: #222;
+  background: var(--bg-surface-2);
   border-color: var(--border-default);
 }
 
@@ -1707,7 +1707,7 @@ const onListImgError = (e: Event) => {
   background: var(--bg-surface-hover);
   border: none;
   border-radius: 50%;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1790,7 +1790,7 @@ const onListImgError = (e: Event) => {
   padding: 8px 14px;
   background: var(--bg-surface-hover);
   color: var(--text-secondary);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
@@ -1866,7 +1866,7 @@ const onListImgError = (e: Event) => {
   justify-content: space-between;
   padding: 10px 14px;
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
@@ -1885,7 +1885,7 @@ const onListImgError = (e: Event) => {
   font-size: 12px;
   text-align: center;
 }
-.chev { color: #aaa; transition: transform 0.2s ease; }
+.chev { color: var(--text-secondary); transition: transform 0.2s ease; }
 .chev.open { transform: rotate(90deg); }
 .continue-hint { color: var(--text-secondary); font-size: 13px; }
 .continue-more { margin: 10px 2px 0; color: var(--text-tertiary); font-size: 12px; }

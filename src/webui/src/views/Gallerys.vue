@@ -295,12 +295,12 @@ watch(() => route.query, async (newQuery) => {
 .sort-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .view-toggle { display: flex; gap: 4px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 8px; padding: 3px; margin-left: auto; }
-.view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: #aaa; font-size: 13px; border-radius: 6px; cursor: pointer; }
+.view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; border-radius: 6px; cursor: pointer; }
 .view-toggle-btn.active { background: var(--accent); color: var(--text-on-accent); }
 .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .gallery-list { display: flex; flex-direction: column; gap: 8px; }
-.gallery-list-row { display: flex; align-items: center; gap: 14px; padding: 8px; background: var(--bg-surface); border: 1px solid #2a2a2a; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
-.gallery-list-row:hover { background: #222; }
+.gallery-list-row { display: flex; align-items: center; gap: 14px; padding: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; transition: background 0.2s; }
+.gallery-list-row:hover { background: var(--bg-surface-2); }
 .list-thumb { position: relative; width: 120px; flex-shrink: 0; aspect-ratio: 3/4; overflow: hidden; border-radius: 8px; background: #000; }
 .list-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .list-pages { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.7); color: var(--text-on-accent); padding: 1px 6px; border-radius: 4px; font-size: 11px; }
@@ -308,7 +308,7 @@ watch(() => route.query, async (newQuery) => {
 .list-title { font-size: 14px; font-weight: 500; color: var(--text-on-accent); margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-meta { display: flex; gap: 14px; font-size: 12px; color: var(--text-tertiary); }
 .list-actions { display: flex; gap: 6px; }
-.list-action-btn { width: 34px; height: 34px; background: var(--bg-surface-hover); border: none; border-radius: 50%; color: #aaa; cursor: pointer; }
+.list-action-btn { width: 34px; height: 34px; background: var(--bg-surface-hover); border: none; border-radius: 50%; color: var(--text-secondary); cursor: pointer; }
 .list-action-btn.like.active { color: #ff4757; background: rgba(255,71,87,0.15); }
 .list-action-btn.favorite.active { color: #ffa502; background: rgba(255,165,2,0.15); }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; }
@@ -328,7 +328,7 @@ watch(() => route.query, async (newQuery) => {
 .list-action-btn.edit:hover { background: var(--accent); }
 .list-action-btn.delete { background: var(--bg-surface-hover); color: var(--danger); }
 .list-action-btn.delete:hover { background: rgba(255,107,107,0.18); color: #ff5252; }
-.page-btn { padding: 8px 14px; background: var(--bg-surface-hover); color: var(--text-secondary); border: 1px solid #444; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.page-btn { padding: 8px 14px; background: var(--bg-surface-hover); color: var(--text-secondary); border: 1px solid var(--border-strong); border-radius: 6px; cursor: pointer; font-size: 14px; }
 .page-btn:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--text-on-accent); }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
@@ -351,7 +351,7 @@ watch(() => route.query, async (newQuery) => {
   justify-content: space-between;
   padding: 10px 14px;
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
@@ -370,7 +370,7 @@ watch(() => route.query, async (newQuery) => {
   font-size: 12px;
   text-align: center;
 }
-.chev { color: #aaa; transition: transform 0.2s ease; }
+.chev { color: var(--text-secondary); transition: transform 0.2s ease; }
 .chev.open { transform: rotate(90deg); }
 .continue-hint { color: var(--text-secondary); font-size: 13px; }
 .continue-more { margin: 10px 2px 0; color: var(--text-tertiary); font-size: 12px; }

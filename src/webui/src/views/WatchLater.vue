@@ -92,7 +92,7 @@ onMounted(() => {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px 20px 60px;
-  color: #eee;
+  color: var(--text-primary);
 }
 .wl-header {
   display: flex;
@@ -116,7 +116,7 @@ onMounted(() => {
 }
 .wl-clear-btn {
   background: transparent;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   color: var(--danger);
   border-radius: 8px;
   padding: 7px 14px;
@@ -146,12 +146,12 @@ onMounted(() => {
   margin-top: 18px;
   padding: 14px 18px;
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   font-size: 13px;
   color: var(--text-tertiary);
 }
-.wl-empty-rel b { color: #ddd; }
+.wl-empty-rel b { color: var(--text-secondary); }
 
 .wl-grid {
   display: grid;
@@ -160,7 +160,7 @@ onMounted(() => {
 }
 .wl-card {
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -168,12 +168,12 @@ onMounted(() => {
 }
 .wl-card:hover {
   transform: translateY(-3px);
-  border-color: #4a4a4a;
+  border-color: var(--border-strong);
 }
 .wl-card-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
-  background: #222;
+  background: var(--bg-surface-2);
   overflow: hidden;
 }
 .wl-card-thumb img {
@@ -211,7 +211,7 @@ onMounted(() => {
   border: none;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
@@ -227,7 +227,7 @@ onMounted(() => {
 .wl-card-title {
   padding: 10px 12px;
   font-size: 14px;
-  color: #eee;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -10,6 +10,7 @@
   --bg-elevated: #ffffff;    /* 导航栏 / 悬浮层 */
   --bg-surface: #ffffff;     /* 卡片 / 容器 */
   --bg-surface-hover: #f0f1f4;
+  --bg-surface-2: #e9eaf0;
   --bg-input: #f1f2f5;
 
   --border-subtle: rgba(20, 20, 30, 0.06);

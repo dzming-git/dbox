@@ -135,7 +135,7 @@ const showToast = (message: string) => {
   gap: 6px;
   padding: 8px 16px;
   background: transparent;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-tertiary);
   font-size: 14px;
@@ -171,7 +171,7 @@ const showToast = (message: string) => {
   min-height: 400px;
   color: var(--text-tertiary);
 }
-.empty-icon { margin-bottom: 16px; color: #444; }
+.empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
 .browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .browse-link {

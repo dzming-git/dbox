@@ -129,16 +129,16 @@ const formatDate = (s?: string) => {
 .create-btn:hover { background: #43a047; }
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 16px; line-height: 1.5; }
 .hint code { background: var(--bg-surface-hover); padding: 1px 6px; border-radius: 4px; color: var(--text-secondary); }
-.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #aaa; }
+.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
 .spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: #4CAF50; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-box { color: var(--danger); padding: 12px; background: var(--danger-soft); border-radius: 8px; }
 .empty-state { color: var(--text-tertiary); text-align: center; padding: 60px 0; }
 .texts-list { display: flex; flex-direction: column; gap: 16px; }
-.text-card { background: var(--bg-surface); border: 1px solid #2a2a2a; border-radius: 14px; padding: 18px; cursor: pointer; }
+.text-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 18px; cursor: pointer; }
 .text-head { display: flex; align-items: center; gap: 12px; }
 .text-title { font-size: 17px; font-weight: 600; color: var(--text-on-accent); margin: 0; flex: 1; }
-.text-date { font-size: 12px; color: #777; }
+.text-date { font-size: 12px; color: var(--text-tertiary); }
 .text-ops { display: flex; gap: 8px; }
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }
 .op-btn:hover { color: var(--text-on-accent); }
@@ -148,7 +148,7 @@ const formatDate = (s?: string) => {
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
 .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; }
 .modal-title { color: var(--text-on-accent); margin: 0 0 16px; font-size: 18px; }
-.field-label { display: block; color: #aaa; font-size: 13px; margin: 14px 0 6px; }
+.field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-on-accent); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }
 .text-input:focus, .text-area:focus { outline: none; border-color: #4CAF50; }

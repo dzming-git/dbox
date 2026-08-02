@@ -226,7 +226,7 @@ onUnmounted(() => {
   max-width: 860px;
   margin: 0 auto;
   padding: 16px;
-  color: #e6e6e6;
+  color: var(--text-secondary);
 }
 .page-header {
   display: flex;
@@ -240,8 +240,8 @@ onUnmounted(() => {
 }
 .refresh-btn {
   background: var(--bg-surface-hover);
-  color: #e6e6e6;
-  border: 1px solid #3a3a4a;
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface-2);
   border-radius: 8px;
   padding: 6px 14px;
   cursor: pointer;
@@ -269,7 +269,7 @@ onUnmounted(() => {
 }
 .task-card {
   background: var(--bg-surface-hover);
-  border: 1px solid #2a2a38;
+  border: 1px solid var(--bg-surface-2);
   border-radius: 12px;
   padding: 14px 16px;
 }
@@ -322,7 +322,7 @@ onUnmounted(() => {
 }
 .st-cancelled {
   background: rgba(150, 150, 150, 0.15);
-  color: #aaa;
+  color: var(--text-secondary);
 }
 .task-progress {
   height: 6px;
@@ -349,11 +349,11 @@ onUnmounted(() => {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: #9aa;
+  color: var(--text-tertiary);
   margin-top: 6px;
 }
 .task-detail {
-  color: #778;
+  color: var(--text-tertiary);
 }
 .task-action {
   margin-top: 10px;
@@ -394,7 +394,7 @@ onUnmounted(() => {
 }
 .modal {
   background: var(--bg-surface);
-  border: 1px solid #3a3a4a;
+  border: 1px solid var(--bg-surface-2);
   border-radius: 14px;
   padding: 22px;
   width: 90%;
@@ -420,9 +420,9 @@ onUnmounted(() => {
   width: 100%;
   min-height: 64px;
   background: var(--bg-surface);
-  border: 1px solid #3a3a4a;
+  border: 1px solid var(--bg-surface-2);
   border-radius: 8px;
-  color: #e6e6e6;
+  color: var(--text-secondary);
   padding: 8px;
   resize: vertical;
   margin-bottom: 12px;
@@ -435,9 +435,9 @@ onUnmounted(() => {
 .modal-actions button {
   padding: 8px 18px;
   border-radius: 8px;
-  border: 1px solid #3a3a4a;
+  border: 1px solid var(--bg-surface-2);
   background: var(--bg-surface-hover);
-  color: #e6e6e6;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 .modal-actions .primary {

@@ -88,8 +88,8 @@ const goBack = () => {
 .text-detail { padding: 12px 16px 32px; max-width: 920px; margin: 0 auto; }
 .detail-bar {
   display: flex; align-items: center; gap: 12px;
-  position: sticky; top: 0; background: var(--bg, #fff);
-  padding: 10px 0; z-index: 5; border-bottom: 1px solid var(--border, #eee);
+  position: sticky; top: 0; background: var(--bg, var(--text-on-accent));
+  padding: 10px 0; z-index: 5; border-bottom: 1px solid var(--border, var(--text-primary));
 }
 .back-btn {
   border: none; background: transparent; color: var(--accent, #39f);
@@ -98,11 +98,11 @@ const goBack = () => {
 .detail-title { font-size: 20px; margin: 0; flex: 1; }
 .watchlater-detail-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--border, #ddd); background: var(--bg-elev, #f6f6f8);
+  border: 1px solid var(--border, var(--text-secondary)); background: var(--bg-elev, #f6f6f8);
   color: var(--text-tertiary); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px;
   white-space: nowrap;
 }
-.watchlater-detail-btn:hover { color: #333; }
+.watchlater-detail-btn:hover { color: var(--bg-surface-2); }
 .watchlater-detail-btn.active { color: #ff9f00; border-color: rgba(255,159,0,0.5); background: rgba(255,159,0,0.1); }
 .delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e0b4b4; background: #fff0f0; color: #d33; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px; white-space: nowrap; }
 .delete-detail-btn:hover { background: #ffe0e0; color: #b22; }
@@ -110,6 +110,6 @@ const goBack = () => {
 .text-summary { color: var(--text-tertiary); font-size: 14px; background: #f6f6f8; padding: 10px 14px; border-radius: 8px; }
 .text-content {
   margin-top: 16px; white-space: pre-wrap; word-break: break-word;
-  line-height: 1.8; font-size: 15px; color: #222;
+  line-height: 1.8; font-size: 15px; color: var(--bg-surface-2);
 }
 </style>

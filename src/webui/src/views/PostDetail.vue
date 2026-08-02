@@ -356,26 +356,26 @@ const removePost = async () => {
 .back-btn { background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
 .back-btn:hover { color: var(--text-on-accent); }
 .detail-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.watchlater-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: #bbb; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
-.watchlater-detail-btn:hover { color: var(--text-on-accent); background: #333; }
+.watchlater-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.watchlater-detail-btn:hover { color: var(--text-on-accent); background: var(--bg-surface-2); }
 .watchlater-detail-btn.active { color: #ffb300; border-color: rgba(255,179,0,0.4); background: rgba(255,179,0,0.12); }
-.delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #5a2a2a; background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--danger-soft); background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
 .delete-detail-btn:hover { background: var(--danger-soft); color: var(--danger); }
-.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #aaa; }
+.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
 .spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-box { color: var(--danger); padding: 12px; background: var(--danger-soft); border-radius: 8px; }
-.detail-card { background: var(--bg-surface); border: 1px solid #2a2a2a; border-radius: 14px; padding: 24px; }
+.detail-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; }
 .detail-title { font-size: 24px; font-weight: 700; color: var(--text-on-accent); margin: 0 0 8px; }
 .detail-meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; }
 .detail-source { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; color: var(--text-tertiary); }
 .src-label { color: var(--text-secondary); }
 .src-author { color: var(--accent); text-decoration: none; font-weight: 600; }
 .src-author:hover { color: #90caf9; text-decoration: underline; }
-.src-sep { color: #555; }
+.src-sep { color: var(--border-strong); }
 .src-link { color: var(--accent); text-decoration: none; }
 .src-link:hover { color: #90caf9; text-decoration: underline; }
-.detail-content { color: #ddd; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
+.detail-content { color: var(--text-secondary); font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
 .detail-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 16px; }
 .ref-block { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
 .ref-note { font-size: 12px; color: var(--text-secondary); background: var(--info-soft); border-radius: 6px; padding: 4px 8px; align-self: flex-start; }
@@ -385,9 +385,9 @@ const removePost = async () => {
 .ref-link:hover { color: #90caf9; }
 .inline-ref :deep(.media-card) { margin: 10px 0; max-width: 320px; }
 .inline-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; max-width: 640px; }
-.inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid #2a2a2a; transition: transform .15s; }
+.inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid var(--border-default); transition: transform .15s; }
 .inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
-.doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid #234; border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
+.doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid var(--bg-surface-2); border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
 .doc-card:hover { border-color: var(--accent); color: var(--text-on-accent); }
 .doc-icon { font-size: 22px; }
 .doc-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
@@ -398,13 +398,13 @@ const removePost = async () => {
 .lightbox-prev { left: 20px; }
 .lightbox-next { right: 20px; }
 .lightbox-close { position: absolute; top: 20px; right: 24px; background: none; border: none; color: var(--text-on-accent); font-size: 36px; cursor: pointer; }
-.lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #ddd; font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
+.lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: var(--text-secondary); font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
 .del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
 .del-card { width: 100%; max-width: 440px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 16px; padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .del-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .del-card-head h3 { margin: 0; font-size: 18px; color: var(--text-on-accent); }
 .del-icon { font-size: 22px; }
-.del-warn { color: #ddd; font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
+.del-warn { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
 .del-check-row { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; background: var(--bg-surface-hover); transition: border-color .15s, background .15s; }
 .del-check-row.on { border-color: rgba(255,179,0,.5); background: rgba(255,179,0,.08); }
 .del-check-row input { margin-top: 3px; width: 16px; height: 16px; accent-color: #ffb300; }
@@ -412,18 +412,18 @@ const removePost = async () => {
 .del-check-text strong { color: var(--text-on-accent); font-size: 14px; }
 .del-check-text small { color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
 .del-res-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
-.del-res-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid #2c2c2c; border-radius: 10px; cursor: pointer; background: var(--bg-surface); transition: border-color .15s; }
+.del-res-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; background: var(--bg-surface); transition: border-color .15s; }
 .del-res-item:hover { border-color: var(--border-default); }
 .del-res-item input { width: 16px; height: 16px; accent-color: #ffb300; }
 .del-res-cover { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: #000; flex-shrink: 0; }
 .del-res-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
-.del-res-title { color: #eee; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.del-res-title { color: var(--text-primary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .del-res-kind { color: var(--text-secondary); font-size: 11px; }
 .del-no-res { color: var(--text-secondary); font-size: 13px; margin: 12px 0 0; }
 .del-actions { display: flex; gap: 12px; margin-top: 20px; }
 .del-cancel, .del-confirm { flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; cursor: pointer; border: 1px solid transparent; }
-.del-cancel { background: var(--bg-surface-hover); border-color: #383838; color: var(--text-secondary); }
-.del-cancel:hover { background: #333; color: var(--text-on-accent); }
+.del-cancel { background: var(--bg-surface-hover); border-color: var(--border-default); color: var(--text-secondary); }
+.del-cancel:hover { background: var(--bg-surface-2); color: var(--text-on-accent); }
 .del-confirm { background: #b22; color: var(--text-on-accent); border-color: #d33; }
 .del-confirm:hover { background: #d22; }
 .del-confirm:disabled, .del-cancel:disabled { opacity: .55; cursor: not-allowed; }

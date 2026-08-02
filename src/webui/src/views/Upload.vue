@@ -777,7 +777,7 @@ const clearError = () => {
 
 .upload-zone:hover,
 .upload-zone.dragging {
-  background: linear-gradient(135deg, #1f1f3a 0%, #1a2748 100%);
+  background: linear-gradient(135deg, var(--bg-surface-2) 0%, #1a2748 100%);
   border-color: #764ba2;
   transform: translateY(-2px);
 }
@@ -892,7 +892,7 @@ const clearError = () => {
 
 .progress-bar {
   height: 8px;
-  background: #333;
+  background: var(--bg-surface-2);
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 16px;
@@ -1090,7 +1090,7 @@ const clearError = () => {
 .clear-btn {
   padding: 6px 16px;
   background: transparent;
-  border: 1px solid #666;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   color: var(--text-secondary);
   font-size: 13px;
@@ -1227,7 +1227,7 @@ const clearError = () => {
 /* 错误弹窗主体 */
 .error-modal {
   background: var(--bg-surface);
-  border: 1px solid #3a3a5c;
+  border: 1px solid var(--bg-surface-2);
   border-radius: 20px;
   width: 100%;
   max-width: 480px;
@@ -1277,7 +1277,7 @@ const clearError = () => {
 }
 
 .error-modal-body p {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.7;
   margin: 0;
@@ -1325,7 +1325,7 @@ const clearError = () => {
   padding: 12px;
   background: transparent;
   color: var(--text-secondary);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   font-size: 15px;
   cursor: pointer;

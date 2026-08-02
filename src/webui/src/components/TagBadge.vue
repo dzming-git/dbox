@@ -77,7 +77,7 @@ const formatCount = (count: number): string => {
   padding: 6px 10px;
   font-size: 14px;
   background: var(--bg-surface-hover);
-  color: #c9d1d9;
+  color: var(--text-secondary);
   border-radius: 6px;
   margin-right: 6px;
   margin-bottom: 6px;
@@ -92,7 +92,7 @@ const formatCount = (count: number): string => {
   padding: 4px 8px;
   font-size: 12px;
   background: var(--bg-surface-hover);
-  color: #a0a8b4;
+  color: var(--text-secondary);
   border-radius: 4px;
   margin-right: 4px;
   margin-bottom: 4px;
@@ -113,12 +113,12 @@ const formatCount = (count: number): string => {
 }
 
 .tag-level-2.active {
-  background: #424242;
+  background: var(--border-strong);
   color: white;
 }
 
 .tag-level-3.active {
-  background: #757575;
+  background: var(--text-tertiary);
   color: white;
 }
 

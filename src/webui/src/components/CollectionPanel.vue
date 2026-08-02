@@ -158,7 +158,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   transition: all 0.2s;
   white-space: nowrap;
 }
-.cp-trigger:hover { background: #333; color: var(--text-on-accent); }
+.cp-trigger:hover { background: var(--bg-surface-2); color: var(--accent); }
 .cp-icon { display: inline-flex; align-items: center; }
 .cp-icon svg { width: 16px; height: 16px; }
 .cp-badge {
@@ -178,17 +178,17 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 .cp-dropdown {
   position: fixed;
   z-index: 2001;
-  background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   padding: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   max-height: 70vh;
   overflow-y: auto;
 }
 .cp-label {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-tertiary);
   padding: 4px 6px;
   margin-bottom: 4px;
 }
@@ -203,13 +203,13 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   cursor: pointer;
 }
 .cp-chip:hover { background: var(--accent-active); }
-.cp-divider { height: 1px; background: var(--bg-surface-hover); margin: 6px 0; }
-.cp-empty { font-size: 12px; color: #777; padding: 6px; }
+.cp-divider { height: 1px; background: var(--border-default); margin: 6px 0; }
+.cp-empty { font-size: 12px; color: var(--text-tertiary); padding: 6px; }
 .cp-item {
   padding: 8px;
   border-radius: 6px;
   font-size: 13px;
-  color: #eee;
+  color: var(--text-primary);
   cursor: pointer;
 }
 .cp-item:hover { background: var(--accent); color: var(--text-on-accent); }
@@ -217,15 +217,15 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
   display: flex;
   gap: 6px;
   margin-top: 8px;
-  border-top: 1px solid #3a3a3a;
+  border-top: 1px solid var(--border-default);
   padding-top: 8px;
 }
 .cp-new input {
   flex: 1;
   min-width: 0;
-  background: var(--bg-surface);
-  border: 1px solid #444;
-  color: var(--text-on-accent);
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 13px;

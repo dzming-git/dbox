@@ -107,7 +107,7 @@ const sections = [
 }
 .guide-header h1 {
   font-size: 28px;
-  color: #e6e6e6;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 .guide-subtitle {
@@ -121,13 +121,13 @@ const sections = [
 }
 .guide-section {
   background: var(--bg-surface-hover);
-  border: 1px solid #2a2a38;
+  border: 1px solid var(--bg-surface-2);
   border-radius: 12px;
   padding: 24px;
 }
 .section-title {
   font-size: 18px;
-  color: #e6e6e6;
+  color: var(--text-secondary);
   margin-bottom: 16px;
   display: flex;
   align-items: center;
@@ -155,11 +155,11 @@ const sections = [
   line-height: 1.5;
 }
 .item-text {
-  color: #c9d1d9;
+  color: var(--text-secondary);
   white-space: pre-wrap;
 }
 .item-tip {
-  color: #6b7a8f;
+  color: var(--text-secondary);
   font-size: 12px;
   margin-left: auto;
   flex-shrink: 0;

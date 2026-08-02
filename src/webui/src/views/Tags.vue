@@ -833,7 +833,7 @@ const confirmMerge = async () => {
 .connector-line {
   width: 2px;
   height: 100%;
-  background: #444;
+  background: var(--border-strong);
 }
 
 .expand-btn {
@@ -890,7 +890,7 @@ const confirmMerge = async () => {
 .level-badge {
   font-size: 10px;
   color: var(--text-secondary);
-  background: #333;
+  background: var(--bg-surface-2);
   padding: 2px 6px;
   border-radius: 3px;
   flex-shrink: 0;
@@ -899,7 +899,7 @@ const confirmMerge = async () => {
 .tag-category {
   font-size: 12px;
   color: var(--text-secondary);
-  background: #333;
+  background: var(--bg-surface-2);
   padding: 2px 8px;
   border-radius: 4px;
   flex-shrink: 0;
@@ -944,7 +944,7 @@ const confirmMerge = async () => {
 }
 
 .action-icon-btn:hover {
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 .action-icon-btn.add-child:hover {
@@ -1035,7 +1035,7 @@ const confirmMerge = async () => {
   left: 0;
   right: 0;
   background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-top: none;
   border-radius: 0 0 8px 8px;
   max-height: 200px;
@@ -1069,7 +1069,7 @@ const confirmMerge = async () => {
 .suggestion-category {
   color: var(--text-secondary);
   font-size: 12px;
-  background: #444;
+  background: var(--border-strong);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -1088,7 +1088,7 @@ const confirmMerge = async () => {
 }
 
 .hint-text {
-  color: #8b949e;
+  color: var(--text-secondary);
   font-size: 12px;
   margin: 6px 0 0 0;
   line-height: 1.5;
@@ -1110,7 +1110,7 @@ const confirmMerge = async () => {
 .btn-secondary {
   padding: 10px 20px;
   background: transparent;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -1119,7 +1119,7 @@ const confirmMerge = async () => {
 }
 
 .btn-secondary:hover {
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 .btn-primary {
@@ -1212,8 +1212,8 @@ const confirmMerge = async () => {
 
 .batch-toggle-btn {
   padding: 12px 20px;
-  background: #333;
-  border: 1px solid #444;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -1248,7 +1248,7 @@ const confirmMerge = async () => {
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: #ddd;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -1260,7 +1260,7 @@ const confirmMerge = async () => {
 
 .batch-btn {
   padding: 9px 16px;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--bg-surface-hover);
   color: var(--text-on-accent);

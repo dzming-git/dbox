@@ -2364,14 +2364,14 @@ const handleDelete = async () => {
   background: var(--bg-surface-hover);
   border: 1px solid var(--border-default);
   border-radius: 6px;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .shuffle-btn:hover:not(:disabled) {
-  background: #333;
+  background: var(--bg-surface-2);
   color: var(--text-on-accent);
 }
 
@@ -2448,7 +2448,7 @@ const handleDelete = async () => {
   flex-shrink: 0;
   border-radius: 6px;
   overflow: hidden;
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 .rec-thumbnail {
@@ -2504,7 +2504,7 @@ const handleDelete = async () => {
   gap: 12px;
   flex-wrap: wrap;
   background: var(--accent-soft);
-  border: 1px solid #2c3a5e;
+  border: 1px solid var(--info-soft);
   border-radius: 10px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -2564,7 +2564,7 @@ const handleDelete = async () => {
   margin-left: -5px;
   transform: translateY(-50%);
   background: #ff4d6d;
-  border: 2px solid #fff;
+  border: 2px solid var(--text-on-accent);
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.15s;
@@ -2632,7 +2632,7 @@ const handleDelete = async () => {
 }
 
 .ac-count {
-  color: #bbb;
+  color: var(--text-secondary);
   font-size: 13px;
   margin-bottom: 16px;
 }
@@ -2653,12 +2653,12 @@ const handleDelete = async () => {
 }
 
 .ac-cancel {
-  background: #333;
-  color: #ddd;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
 }
 
 .ac-cancel:hover {
-  background: #444;
+  background: var(--border-strong);
 }
 
 .ac-now {
@@ -2708,9 +2708,9 @@ const handleDelete = async () => {
   flex-shrink: 0;
   padding: 7px 14px;
   border-radius: 8px;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   background: var(--bg-surface-hover);
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -2745,7 +2745,7 @@ const handleDelete = async () => {
   text-align: left;
   background: transparent;
   border: none;
-  color: #ddd;
+  color: var(--text-secondary);
   font-size: 13px;
   padding: 9px 10px;
   border-radius: 7px;
@@ -2784,7 +2784,7 @@ const handleDelete = async () => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: #333;
+  background: var(--bg-surface-2);
   border-radius: 16px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -2804,7 +2804,7 @@ const handleDelete = async () => {
   gap: 6px;
   padding: 6px 14px;
   border-radius: 8px;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   background: var(--bg-surface);
   color: var(--text-secondary);
   font-size: 13px;
@@ -2913,7 +2913,7 @@ const handleDelete = async () => {
 
 .interact-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
+  color: var(--text-secondary);
   transform: scale(1.05);
 }
 
@@ -3049,7 +3049,7 @@ const handleDelete = async () => {
 
 .action-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
+  color: var(--text-secondary);
   transform: scale(1.05);
 }
 
@@ -3205,7 +3205,7 @@ const handleDelete = async () => {
   left: 0;
   right: 0;
   background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-top: none;
   border-radius: 0 0 8px 8px;
   max-height: 200px;
@@ -3256,8 +3256,8 @@ const handleDelete = async () => {
   justify-content: center;
   width: 28px;
   height: 28px;
-  background: #333;
-  border: 1px dashed #555;
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border-strong);
   border-radius: 50%;
   color: var(--text-secondary);
   cursor: pointer;
@@ -3266,7 +3266,7 @@ const handleDelete = async () => {
 }
 
 .tag-add-btn:hover {
-  background: #444;
+  background: var(--border-strong);
   border-color: var(--text-tertiary);
   color: var(--text-on-accent);
 }
@@ -3404,7 +3404,7 @@ const handleDelete = async () => {
   gap: 4px;
   font-size: 11px;
   color: var(--text-tertiary);
-  background: #333;
+  background: var(--bg-surface-2);
   padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
@@ -3446,7 +3446,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-sep {
-  color: #555;
+  color: var(--border-strong);
   flex-shrink: 0;
 }
 
@@ -3471,7 +3471,7 @@ const handleDelete = async () => {
 
 .breadcrumb-back {
   margin-left: auto;
-  background: #333;
+  background: var(--bg-surface-2);
   border: none;
   color: var(--text-secondary);
   font-size: 18px;
@@ -3486,7 +3486,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-back:hover {
-  background: #444;
+  background: var(--border-strong);
   color: var(--text-on-accent);
 }
 
@@ -3526,7 +3526,7 @@ const handleDelete = async () => {
 }
 
 .path-placeholder {
-  color: #555;
+  color: var(--border-strong);
 }
 
 /* 输入框包装 */
@@ -3544,8 +3544,8 @@ const handleDelete = async () => {
 .slash-btn {
   width: 36px;
   height: 40px;
-  background: #333;
-  border: 1px dashed #555;
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border-strong);
   border-radius: 8px;
   color: var(--text-secondary);
   font-size: 18px;
@@ -3556,7 +3556,7 @@ const handleDelete = async () => {
 }
 
 .slash-btn:hover {
-  background: #444;
+  background: var(--border-strong);
   border-color: var(--text-tertiary);
   color: var(--text-on-accent);
 }
@@ -3628,7 +3628,7 @@ const handleDelete = async () => {
   flex: 1;
   padding: 8px 12px;
   background: var(--bg-surface);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -3661,7 +3661,7 @@ const handleDelete = async () => {
 
 .clear-filter {
   background: none;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   color: var(--text-secondary);
   padding: 4px 10px;
   border-radius: 4px;
@@ -3671,9 +3671,9 @@ const handleDelete = async () => {
 }
 
 .clear-filter:hover {
-  background: #333;
+  background: var(--bg-surface-2);
   color: var(--text-on-accent);
-  border-color: #555;
+  border-color: var(--border-strong);
 }
 
 /* 扁平标签列表（过滤状态） */
@@ -3691,7 +3691,7 @@ const handleDelete = async () => {
 
 .tag-flat-item:hover {
   background: var(--bg-surface-hover);
-  border-color: #444;
+  border-color: var(--border-strong);
 }
 
 .tag-flat-item.active {
@@ -3743,7 +3743,7 @@ const handleDelete = async () => {
   flex: 1;
   padding: 10px 12px;
   background: var(--bg-surface);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -3776,7 +3776,7 @@ const handleDelete = async () => {
 }
 
 .tag-editor-dialog .btn-icon:hover {
-  background: #333;
+  background: var(--bg-surface-2);
   color: var(--text-on-accent);
 }
 
@@ -3799,7 +3799,7 @@ const handleDelete = async () => {
 .form-group textarea {
   width: 100%;
   padding: 12px;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-surface);
   color: var(--text-on-accent);
@@ -3827,7 +3827,7 @@ const handleDelete = async () => {
 .btn-secondary {
   padding: 10px 24px;
   background: transparent;
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-on-accent);
   font-size: 14px;
@@ -3836,7 +3836,7 @@ const handleDelete = async () => {
 }
 
 .btn-secondary:hover {
-  background: #333;
+  background: var(--bg-surface-2);
 }
 
 .btn-primary {
@@ -3970,7 +3970,7 @@ const handleDelete = async () => {
   flex: 1;
   padding: 10px 12px;
   background: var(--bg-surface-hover);
-  border: 1px solid #444;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-on-accent);
   font-size: 13px;
@@ -4269,7 +4269,7 @@ const handleDelete = async () => {
   margin: 16px 0;
   padding: 14px 16px;
   background: var(--bg-surface);
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border-default);
   border-radius: 10px;
 }
 .markers-header {
@@ -4286,7 +4286,7 @@ const handleDelete = async () => {
 }
 .markers-add-btn {
   padding: 6px 12px;
-  border: 1px solid #3a5a7a;
+  border: 1px solid var(--info-soft);
   border-radius: 8px;
   background: rgba(33, 150, 243, 0.12);
   color: var(--text-secondary);
@@ -4323,8 +4323,8 @@ const handleDelete = async () => {
   height: 36px;
   border-radius: 8px;
   border: 1px solid var(--border-default);
-  background: #222;
-  color: #ddd;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
 }
@@ -4347,14 +4347,14 @@ const handleDelete = async () => {
   gap: 10px;
   padding: 8px 12px;
   background: var(--bg-surface);
-  border: 1px solid #262626;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
 }
 .marker-item:hover {
   background: var(--bg-surface-hover);
-  border-color: #3a5a7a;
+  border-color: var(--info-soft);
 }
 .marker-time {
   font-variant-numeric: tabular-nums;
@@ -4365,7 +4365,7 @@ const handleDelete = async () => {
 }
 .marker-note {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--text-tertiary);
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4479,6 +4479,6 @@ const handleDelete = async () => {
 }
 .qualifier-add-btn:hover {
   background: #69dbff;
-  color: #0b1220;
+  color: var(--bg-surface-2);
 }
 </style>

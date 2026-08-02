@@ -145,7 +145,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: 100%;
   max-width: 480px;
   min-width: 320px;
-  background: #ffffff;
+  background: var(--text-on-accent);
   border-radius: 16px;
   padding: 48px 40px;
   box-shadow: 0 20px 60px rgba(20, 20, 30, 0.12);
