@@ -371,11 +371,12 @@ class ResourceLibraryWatcher:
                         continue
                     h = Video.generate_hash(p)
                     by_hash = Video.query.filter_by(hash=h).first()
-                if by_hash and by_hash.local_path != p:
-                    # 同一内容出现在新路径 -> 视为重命名
-                    self.rename_video(by_hash.local_path, p)
-                else:
-                    self.upsert_video(p, lib_id)
+                    if by_hash and by_hash.local_path != p:
+                        # 同一内容出现在新路径 -> 视为重命名
+                        # 必须在 app_context 内访问 by_hash.local_path（property 触发 resource_index 懒加载）
+                        self.rename_video(by_hash.local_path, p)
+                    else:
+                        self.upsert_video(p, lib_id)
 
             # 删除：DB 中 local_path 位于任一监控 root 下，但磁盘已不存在
             roots_norm = [os.path.normcase(os.path.abspath(r)) for r, _ in targets]
@@ -540,6 +541,8 @@ class ResourceLibraryWatcher:
         try:
             from core.models import db, Video
             v.file_name = new_name
+            # 同步真实磁盘路径（resource_index.location），否则播放路径仍指向旧文件名导致 404
+            v.local_path = path
             try:
                 v.hash = Video.generate_hash(path)
             except Exception as e:
