@@ -139,8 +139,8 @@ const closeUserDropdown = (event: MouseEvent) => {
             <path d="M100 38 L60 58 L60 102 L100 82 Z" fill="#f97316" opacity="0.7"/>
             <!-- 盒子开口描边 -->
             <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#logoGrad)" stroke-width="3" stroke-linejoin="round"/>
-            <!-- 正面 D 字（向右开口，居中于盒子正面） -->
-            <path d="M44 66 H58 A14 14 0 0 1 58 94 H44 Z" fill="#fff" opacity="0.95"/>
+            <!-- 正面 D 字（向右开口，居中于盒子正面，圆润现代） -->
+            <path d="M46 34h18a20 20 0 010 40H46V34zm11 10v20a6 6 0 000-12z" fill="#fff" opacity="0.95"/>
             <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
           </svg>
           <span class="logo-text">DBox</span>
