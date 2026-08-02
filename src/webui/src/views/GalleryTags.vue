@@ -70,7 +70,7 @@ onMounted(loadTags)
 .tag-node { border-bottom: 1px solid var(--bg-surface-2); }
 .tag-node:last-child { border-bottom: none; }
 .tag-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
-.tag-name { flex: 1; color: var(--text-on-accent); font-size: 15px; }
+.tag-name { flex: 1; color: var(--text-primary); font-size: 15px; }
 .tag-count { color: var(--text-secondary); font-size: 13px; min-width: 32px; text-align: right; }
 .tag-view-btn { padding: 6px 14px; background: var(--accent); border: none; border-radius: 6px; color: var(--text-on-accent); font-size: 13px; cursor: pointer; }
 .tag-view-btn:disabled { background: var(--bg-surface-2); color: var(--text-tertiary); cursor: not-allowed; }
