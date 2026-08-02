@@ -153,6 +153,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '管理后台', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/scripts',
+    name: 'Scripts',
+    component: () => import('../views/Scripts.vue'),
+    meta: { title: '拓展脚本', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFound.vue'),
