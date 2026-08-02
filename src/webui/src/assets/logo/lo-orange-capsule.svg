@@ -1,0 +1,12 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="og5" x1="20" y1="24" x2="100" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-8 60 60)">
+    <rect x="14" y="34" width="92" height="52" rx="26" fill="url(#og5)"/>
+    <text x="60" y="60" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="64" text-anchor="middle" dominant-baseline="central" fill="#fff">D</text>
+  </g>
+</svg>

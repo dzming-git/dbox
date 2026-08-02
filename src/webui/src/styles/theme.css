@@ -1,44 +1,44 @@
 /* ============================================================
-   统一设计系统 - Midnight 暗色主题
+   统一设计系统 - Daylight 浅色主题（落日橙 Sunset Orange）
    集中管理颜色 / 圆角 / 阴影 / 间距 token，取代散落在各组件中的硬编码值。
    业务组件应通过 var(--xxx) 引用，避免再次出现多套配色混用。
    ============================================================ */
 
 :root {
-  /* —— 中性灰阶（暗色）—— */
-  --bg-base: #0d0d10;        /* 页面最底层背景 */
-  --bg-elevated: #16161c;    /* 导航栏 / 悬浮层 */
-  --bg-surface: #1a1a22;     /* 卡片 / 容器 */
-  --bg-surface-hover: #20202a;
-  --bg-input: #15151b;
+  /* —— 中性灰阶（浅色）—— */
+  --bg-base: #f5f6f8;        /* 页面最底层背景（白偏灰） */
+  --bg-elevated: #ffffff;    /* 导航栏 / 悬浮层 */
+  --bg-surface: #ffffff;     /* 卡片 / 容器 */
+  --bg-surface-hover: #f0f1f4;
+  --bg-input: #f1f2f5;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(20, 20, 30, 0.06);
+  --border-default: rgba(20, 20, 30, 0.10);
+  --border-strong: rgba(20, 20, 30, 0.16);
 
   /* —— 文本 —— */
-  --text-primary: #f4f4f7;
-  --text-secondary: #b8b8c4;
-  --text-tertiary: #80808f;
+  --text-primary: #1c1e26;
+  --text-secondary: #5a5e6b;
+  --text-tertiary: #9398a5;
   --text-on-accent: #ffffff;
 
-  /* —— 品牌强调色 —— */
-  --accent: #7c5cff;           /* 主强调（紫罗兰） */
-  --accent-hover: #8f73ff;
-  --accent-active: #6a48f0;
-  --accent-soft: rgba(124, 92, 255, 0.14);
-  --accent-soft-hover: rgba(124, 92, 255, 0.22);
-  --accent-border: rgba(124, 92, 255, 0.45);
+  /* —— 品牌强调色（落日橙）—— */
+  --accent: #ea580c;           /* 主强调（落日橙） */
+  --accent-hover: #f97316;
+  --accent-active: #c2410c;
+  --accent-soft: rgba(234, 88, 12, 0.10);
+  --accent-soft-hover: rgba(234, 88, 12, 0.16);
+  --accent-border: rgba(234, 88, 12, 0.42);
 
   /* —— 语义色 —— */
-  --danger: #ff5a6a;
-  --danger-soft: rgba(255, 90, 106, 0.14);
-  --warning: #ffb454;
-  --warning-soft: rgba(255, 180, 84, 0.14);
-  --success: #4ec98e;
-  --success-soft: rgba(78, 201, 142, 0.14);
-  --info: #56b6f0;
-  --info-soft: rgba(86, 182, 240, 0.14);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.12);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.12);
+  --info: #2563eb;
+  --info-soft: rgba(37, 99, 235, 0.12);
 
   /* —— 圆角 —— */
   --radius-sm: 6px;
@@ -47,10 +47,10 @@
   --radius-xl: 22px;
   --radius-pill: 999px;
 
-  /* —— 阴影层级 —— */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* —— 阴影层级（浅色背景用更柔和的投影）—— */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 20, 30, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 20, 30, 0.12);
 
   /* —— 间距尺度 —— */
   --space-1: 4px;
@@ -81,12 +81,12 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(20, 20, 30, 0.16);
   border-radius: var(--radius-pill);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(20, 20, 30, 0.28);
   background-clip: padding-box;
 }

@@ -137,7 +137,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #fef3ea 0%, #f1f3f7 100%);
   padding: 20px;
 }
 
@@ -145,10 +145,11 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: 100%;
   max-width: 480px;
   min-width: 320px;
-  background: #1e1e2f;
+  background: #ffffff;
   border-radius: 16px;
   padding: 48px 40px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(20, 20, 30, 0.12);
+  border: 1px solid var(--border-subtle);
 }
 
 .login-header {
@@ -159,9 +160,9 @@ const handleKeydown = (e: KeyboardEvent) => {
 .login-title {
   font-size: 28px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -169,7 +170,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 .login-subtitle {
   font-size: 16px;
-  color: #888;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -188,29 +189,29 @@ const handleKeydown = (e: KeyboardEvent) => {
 .form-label {
   font-size: 14px;
   font-weight: 500;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .form-input {
   width: 100%;
   height: 48px;
   padding: 0 16px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #2a2a3f;
-  color: #fff;
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: 15px;
   transition: all 0.2s ease;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .form-input::placeholder {
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .form-input:disabled {
@@ -258,7 +259,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: 100%;
   height: 48px;
   margin-top: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   border: none;
   border-radius: 8px;
   color: #fff;

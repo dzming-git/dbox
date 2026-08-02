@@ -115,7 +115,20 @@ const closeUserDropdown = (event: MouseEvent) => {
     <!-- 登录页面不显示导航栏 -->
     <nav class="nav" v-if="!isLoginPage" ref="navEl">
       <div class="nav-left">
-        <RouterLink to="/" class="logo">DPlayer</RouterLink>
+        <RouterLink to="/" class="logo">
+          <svg class="logo-mark" width="30" height="30" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <linearGradient id="logoGrad" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#f97316"/>
+                <stop offset="1" stop-color="#ea580c"/>
+              </linearGradient>
+            </defs>
+            <path d="M42 92 V28 A32 32 0 0 1 42 92 Z" fill="none" stroke="url(#logoGrad)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="92" cy="32" r="6" fill="#f97316"/>
+            <path d="M28 94 c9 -4 17 -3 25 2" fill="none" stroke="#f97316" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+          </svg>
+          <span class="logo-text">DPlayer</span>
+        </RouterLink>
         <RouterLink to="/tags" class="nav-link">标签</RouterLink>
         <RouterLink to="/collections" class="nav-link" title="合集">合集</RouterLink>
         <div class="nav-search">
@@ -300,7 +313,7 @@ body {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  background: rgba(22, 22, 28, 0.72);
+  background: rgba(255, 255, 255, 0.82);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--border-subtle);
@@ -311,6 +324,7 @@ body {
   z-index: 100;
   padding: 8px 24px;
   gap: 8px;
+  box-shadow: 0 1px 0 var(--border-subtle);
 }
 
 .nav-left, .nav-right {
@@ -320,14 +334,23 @@ body {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text-primary);
+}
+
+.logo-mark {
+  flex-shrink: 0;
+  display: block;
+}
+
+.logo-text {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  background: linear-gradient(135deg, var(--accent) 0%, #b08cff 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-decoration: none;
+  color: var(--text-primary);
 }
 
 /* 导航栏搜索框 */
@@ -495,7 +518,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent) 0%, #b08cff 100%);
+  background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
   display: flex;
   align-items: center;
   justify-content: center;

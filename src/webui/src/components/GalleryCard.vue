@@ -153,7 +153,7 @@ const handleClick = () => {
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-pill);
-  color: #b08cff;
+  color: var(--accent);
   font-size: 11px;
   cursor: pointer;
   transition: background var(--transition-fast);
