@@ -807,6 +807,47 @@ class WatchLater(db.Model):
         return f'<WatchLater {self.user_key} {self.item_type}:{self.item_id}>'
 
 
+class WatchHistory(db.Model):
+    """观看历史：记录用户观看/阅读的进度（视频/图集）。
+
+    身份键 user_key 采用与 WatchLater/UserInteraction 一致的策略：
+    登录用户为 u{user_id}（跨设备一致），未登录游客为随机会话（仅当前设备有效）。
+    后端作为唯一数据源，取代原先分散在 localStorage 的观看记录。
+    """
+    __tablename__ = 'watch_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_key = db.Column(db.String(100), nullable=False, index=True)
+    item_type = db.Column(db.String(20), nullable=False)  # video / gallery
+    item_id = db.Column(db.String(255), nullable=False)    # 视频/图集用 hash
+    title = db.Column(db.String(500))
+    thumbnail = db.Column(db.String(1000))
+    progress = db.Column(db.Float, default=0.0)            # 0~1 观看进度
+    duration = db.Column(db.Float, default=0.0)            # 媒体时长（秒）
+    watched_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_key', 'item_type', 'item_id', name='_watch_history_uc'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'userKey': self.user_key,
+            'itemType': self.item_type,
+            'itemId': self.item_id,
+            'title': self.title,
+            'thumbnail': self.thumbnail,
+            'progress': self.progress,
+            'duration': self.duration,
+            'watchedAt': self.watched_at.isoformat() if self.watched_at else None,
+        }
+
+    def __repr__(self):
+        return f'<WatchHistory {self.user_key} {self.item_type}:{self.item_id}>'
+
+
 class VideoMarker(db.Model):
     """用户标记的精彩片段时间戳（按个人会话区分，不覆盖文件名/标题）。"""
     __tablename__ = 'video_markers'

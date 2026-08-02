@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { tagApi, videoApi, collectionSetApi, resourceApi } from '../api'
+import { tagApi, videoApi, collectionSetApi, resourceApi, historyApi } from '../api'
 import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
@@ -408,30 +408,23 @@ const saveDislikeStatus = () => {
   localStorage.setItem('dislikedVideos', JSON.stringify(dislikedVideos))
 }
 
-// 添加到观看历史
-const addToHistory = () => {
+// 上报观看进度到后端（后端为唯一数据源，登录账号跨设备一致）
+const reportHistory = async (progress: number) => {
   if (!video.value) return
-  const history = JSON.parse(localStorage.getItem('watchHistory') || '[]')
-  const existingIndex = history.findIndex((h: any) => h.hash === video.value!.hash)
-  
-  const historyItem = {
-    hash: video.value.hash,
-    title: video.value.title,
-    thumbnail: video.value.thumbnail,
-    duration: video.value.duration,
-    progress: 0,
-    watched_at: new Date().toISOString()
+  const dur = Number(video.value.duration) || 0
+  try {
+    await historyApi.addHistory('video', video.value.hash, progress, dur, {
+      title: video.value.title,
+      thumbnail: video.value.thumbnail,
+    })
+  } catch (e) {
+    // 历史上报失败不影响播放，静默忽略
   }
-  
-  if (existingIndex > -1) {
-    history.splice(existingIndex, 1)
-  }
-  history.unshift(historyItem)
-  
-  // 限制历史记录数量
-  if (history.length > 100) history.pop()
-  
-  localStorage.setItem('watchHistory', JSON.stringify(history))
+}
+
+// 添加到观看历史（进入播放页时记录一次，进度为 0）
+const addToHistory = async () => {
+  await reportHistory(0)
 }
 
 // 增加观看次数
@@ -1027,8 +1020,16 @@ const deleteMarker = async (id: number) => {
   }
 }
 
+let lastReportTime = 0
 const onTimeUpdate = () => {
   if (videoPlayer.value) currentTime.value = videoPlayer.value.currentTime
+  // 每 10 秒上报一次观看进度（节流，避免频繁请求）
+  const now = Date.now()
+  if (now - lastReportTime > 10000 && videoDuration.value > 0) {
+    lastReportTime = now
+    const p = currentTime.value / videoDuration.value
+    reportHistory(Math.min(1, Math.max(0, p)))
+  }
 }
 
 // ============ 标签编辑器 ============

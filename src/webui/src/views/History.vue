@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchHistory, type MediaItem } from '../utils/media'
-import { galleryApi } from '../api'
+import { historyApi } from '../api'
 import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
@@ -21,50 +21,36 @@ onMounted(async () => {
   }
 })
 
-// 视频历史存于 localStorage；图集历史存于后端。删除仅对视频生效。
+// 视频与图集历史均以后端为唯一数据源，删除/清空走后端接口。
 const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload
   if (name === 'continue') {
     if (item.type === 'video') {
-      router.push({ path: `/video/${item.hash}`, query: { t: Math.floor(item.raw?.progress || 0) } })
+      const seconds = Math.floor((item.progress || 0) * (item.duration || 0))
+      router.push({ path: `/video/${item.hash}`, query: { t: seconds } })
     } else {
       router.push(`/gallery/${item.hash}`)
     }
   } else if (name === 'delete') {
-    if (item.type === 'video') {
-      const arr = JSON.parse(localStorage.getItem('watchHistory') || '[]') as any[]
-      localStorage.setItem('watchHistory', JSON.stringify(arr.filter(h => h.hash !== item.hash)))
-      history.value = history.value.filter(it => !(it.type === 'video' && it.hash === item.hash))
+    try {
+      await historyApi.removeHistory(item.type, item.hash)
+      history.value = history.value.filter(it => !(it.type === item.type && it.hash === item.hash))
       showToast('已删除观看记录')
-    } else if (item.type === 'gallery') {
-      // 图集删除 = 阅读进度归零，移出历史（后端按 progress>0 过滤）
-      try {
-        await galleryApi.saveProgress(item.hash, 0, 0)
-      } catch (e) {
-        console.error('清空图集历史失败:', e)
-      }
-      history.value = history.value.filter(it => !(it.type === 'gallery' && it.hash === item.hash))
-      showToast('已删除观看记录')
+    } catch (e) {
+      console.error('删除历史失败:', e)
     }
   }
 }
 
 const clearAllHistory = async () => {
   if (confirm('确定要清空观看历史吗？（视频记录与图集阅读进度都会清空）')) {
-    localStorage.setItem('watchHistory', '[]')
-    // 将图集阅读进度归零，移出历史
     try {
-      const res = await galleryApi.getHistory() as any
-      if (res?.success && Array.isArray(res.galleries)) {
-        for (const g of res.galleries) {
-          try { await galleryApi.saveProgress(g.hash, 0, 0) } catch (e) { /* ignore */ }
-        }
-      }
+      await historyApi.clearHistory()
+      history.value = []
+      showToast('已清空观看历史')
     } catch (e) {
-      console.error('清空图集历史失败:', e)
+      console.error('清空历史失败:', e)
     }
-    history.value = []
-    showToast('已清空观看历史')
   }
 }
 

@@ -1,6 +1,6 @@
 // 视频与图集的归一化层：把两类资源统一为 MediaItem，使收藏/点赞/不喜欢/历史
 // 等「我的」页面可以平等地合并展示，而不再只认视频。
-import { videoApi, galleryApi } from '../api'
+import { videoApi, galleryApi, historyApi } from '../api'
 import { useUserStore } from '../stores/userStore'
 
 /**
@@ -104,35 +104,22 @@ export async function fetchDisliked(): Promise<MediaItem[]> {
   return sortByDateDesc(items)
 }
 
-// 历史：视频来自 localStorage（watchHistory），图集来自后端 /api/galleries/history
+// 历史：视频与图集均以后端 /api/history 为唯一数据源（登录账号跨设备一致）
 export async function fetchHistory(): Promise<MediaItem[]> {
-  const videoItems: MediaItem[] = []
-  try {
-    const stored = localStorage.getItem('watchHistory')
-    if (stored) {
-      const arr = JSON.parse(stored) as any[]
-      for (const v of arr) {
-        const dur = v.duration || 0
-        videoItems.push({
-          type: 'video',
-          hash: v.hash,
-          title: v.title,
-          cover: v.thumbnail || '',
-          thumbnail: v.thumbnail,
-          duration: dur,
-          progress: dur > 0 && v.progress ? v.progress / dur : 0,
-          date: v.watched_at,
-          raw: v
-        })
-      }
-    }
-  } catch (e) {
-    console.error('读取视频历史失败:', e)
-  }
-  const c = (await galleryApi.getHistory()) as any
-  const galleryItems: MediaItem[] =
-    c?.success && Array.isArray(c.galleries) ? c.galleries.map(normalizeGallery) : []
-  return sortByDateDesc([...videoItems, ...galleryItems])
+  const res = (await historyApi.getHistory()) as any
+  if (!res?.success || !Array.isArray(res.items)) return []
+  const items: MediaItem[] = res.items.map((h: any) => ({
+    type: h.itemType,
+    hash: h.itemId,
+    title: h.title,
+    cover: h.thumbnail || '',
+    thumbnail: h.thumbnail,
+    duration: h.duration || 0,
+    progress: h.progress || 0,
+    date: h.watchedAt,
+    _historySource: h.itemType,
+  }))
+  return sortByDateDesc(items)
 }
 
 // 帖子（混排）模式：把视频与图集两类资源按时间聚合为统一信息流。
