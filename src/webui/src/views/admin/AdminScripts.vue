@@ -44,7 +44,9 @@
           <div v-if="selected && selected.id === sc.id" class="run-form">
             <div class="run-form-title">运行参数</div>
             <div v-for="p in sc.params" :key="p.name" class="form-row">
-              <label>{{ p.label || p.name }} <span v-if="p.required" class="req">*</span></label>
+              <label>{{ p.label || p.name }} <span v-if="p.required" class="req">*</span>
+                <span v-if="p.user_defaultable" class="defaultable-tag">可设默认</span>
+              </label>
 
               <select v-if="p.type === 'library_select'" v-model="form[p.name]">
                 <option value="">请选择资源库</option>
@@ -94,7 +96,9 @@
             <div class="run-buttons">
               <button class="action-btn primary" :disabled="running" @click="runSelected">开始运行</button>
               <button class="action-btn" v-if="running" @click="cancelRun">取消</button>
+              <button class="action-btn" :disabled="running" @click="saveDefaults">保存当前值为默认</button>
             </div>
+            <div v-if="defaultHint" class="default-hint">{{ defaultHint }}</div>
 
             <!-- 进度 -->
             <div v-if="runningJob" class="job-progress">
@@ -221,6 +225,7 @@ const ckForm = reactive<{ name: string; domain: string; format: string; value: s
 
 const running = ref(false)
 const runningJob = ref<ScriptJob | null>(null)
+const defaultHint = ref('')
 let pollTimer: any = null
 
 // 脚本分阶段交互态
@@ -296,6 +301,44 @@ function selectScript(sc: ScriptInfo) {
     }
   }
   runningJob.value = null
+  defaultHint.value = ''
+  // 载入当前管理员的个人默认值，覆盖 manifest 默认值
+  loadDefaults(sc.id)
+}
+
+async function loadDefaults(scriptId: string) {
+  try {
+    const res: any = await scriptApi.getDefaults(scriptId)
+    const d = res.defaults || {}
+    for (const p of selected.value?.params || []) {
+      if (p.name in d) {
+        if (p.type === 'multi_enum' && !Array.isArray(d[p.name])) {
+          form[p.name] = d[p.name] != null && d[p.name] !== '' ? [d[p.name]] : []
+        } else {
+          form[p.name] = d[p.name]
+        }
+      }
+    }
+  } catch (e) {
+    // 默认值加载失败不影响正常运行
+  }
+}
+
+async function saveDefaults() {
+  if (!selected.value) return
+  // 仅收集 manifest 标记 user_defaultable 的参数
+  const defaults: Record<string, any> = {}
+  for (const p of selected.value.params) {
+    if (p.user_defaultable && p.name in form) {
+      defaults[p.name] = form[p.name]
+    }
+  }
+  try {
+    await scriptApi.saveDefaults(selected.value.id, defaults)
+    defaultHint.value = '已保存为你的默认值，下次运行将自动填入'
+  } catch (e) {
+    defaultHint.value = '保存默认值失败'
+  }
 }
 
 // 多选参数：把用户手填的自定义值追加进数组（去重）
@@ -483,6 +526,16 @@ onUnmounted(() => {
 .form-row > label { font-size: 13px; color: #ccc; text-align: right; padding-top: 9px; }
 .form-row > input[type="checkbox"] { justify-self: start; margin-top: 9px; width: 16px; height: 16px; accent-color: var(--accent, #4f8cff); }
 .req { color: #ff8080; }
+.defaultable-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #6cb6ff;
+  border: 1px solid #2d4a66;
+  border-radius: 8px;
+  background: rgba(108, 182, 255, 0.08);
+}
+.default-hint { margin-top: 8px; color: #7ec699; font-size: 12px; }
 .param-hint { grid-column: 2; color: #888; font-size: 12px; }
 .multi-enum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .checkbox-inline {

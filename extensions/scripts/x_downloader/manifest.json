@@ -37,6 +37,7 @@
       "label": "目标资源库",
       "media_type": "video",
       "required": true,
+      "user_defaultable": true,
       "description": "下载的视频将移动并入库到该资源库；图片也会暂存到该资源库目录"
     },
     {
@@ -44,6 +45,7 @@
       "type": "bool",
       "label": "隐藏资源（默认勾选）",
       "default": true,
+      "user_defaultable": true,
       "description": "勾选后，下载的视频/图片只出现在帖子流中，不进入视频库/图集库列表（默认隐藏，避免污染资源库）。取消勾选则资源正常进入对应资源库。"
     },
     {

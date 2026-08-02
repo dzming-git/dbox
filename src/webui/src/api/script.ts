@@ -10,6 +10,7 @@ export interface ScriptParam {
   media_type?: string
   description?: string
   domain_filter?: string
+  user_defaultable?: boolean
 }
 
 export interface ScriptInfo {
@@ -91,4 +92,9 @@ export const scriptApi = {
   updateCookie: (id: string, data: { name?: string; domain?: string; format?: string; value?: string }) =>
     api.put(`/api/admin/cookies/${id}`, data),
   deleteCookie: (id: string) => api.delete(`/api/admin/cookies/${id}`),
+
+  // 脚本参数用户默认值（管理员）
+  getDefaults: (id: string) => api.get(`/api/admin/scripts/${id}/defaults`),
+  saveDefaults: (id: string, defaults: Record<string, any>) =>
+    api.put(`/api/admin/scripts/${id}/defaults`, { defaults }),
 }

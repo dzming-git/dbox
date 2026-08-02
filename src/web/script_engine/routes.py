@@ -207,6 +207,33 @@ def reload_scripts():
     return jsonify({'success': True, 'count': count})
 
 
+# ---------- 管理员：脚本参数用户默认值 ----------
+@script_bp.route('/api/admin/scripts/<script_id>/defaults', methods=['GET'])
+@admin_required
+def get_script_defaults(script_id):
+    """读取当前管理员对该脚本参数的个人默认值。"""
+    if script_id not in mgr.scripts:
+        return jsonify({'success': False, 'message': '脚本不存在'}), 404
+    defaults = mgr.get_param_defaults(script_id, g.user_id)
+    return jsonify({'success': True, 'defaults': defaults})
+
+
+@script_bp.route('/api/admin/scripts/<script_id>/defaults', methods=['PUT'])
+@admin_required
+def put_script_defaults(script_id):
+    """保存当前管理员对该脚本参数的个人默认值。"""
+    if script_id not in mgr.scripts:
+        return jsonify({'success': False, 'message': '脚本不存在'}), 404
+    data = request.get_json(silent=True) or {}
+    defaults = data.get('defaults', {})
+    if not isinstance(defaults, dict):
+        return jsonify({'success': False, 'message': 'defaults 必须为对象'}), 400
+    ok = mgr.save_param_defaults(script_id, g.user_id, defaults)
+    if not ok:
+        return jsonify({'success': False, 'message': '保存失败'}), 500
+    return jsonify({'success': True})
+
+
 # ---------- 管理员：Cookie 保险库 ----------
 # cookie 是网站登录凭证，仅管理员可读写；落盘加密，列表不回传 value。
 @script_bp.route('/api/admin/cookies', methods=['GET'])

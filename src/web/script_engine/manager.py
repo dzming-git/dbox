@@ -112,6 +112,16 @@ class ScriptJobManager:
                 level TEXT,
                 message TEXT
             )''')
+            # 用户对脚本参数的个人默认值（按脚本+参数名+用户隔离）
+            self._db.execute('''CREATE TABLE IF NOT EXISTS script_param_defaults (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                script_id TEXT,
+                param_name TEXT,
+                owner_id INTEGER,
+                value TEXT,
+                updated_at TEXT,
+                UNIQUE(script_id, param_name, owner_id)
+            )''')
             self._db.commit()
             # 迁移：交互式输入相关字段（老库可能没有）
             for col, ctype in (('awaiting', 'INTEGER DEFAULT 0'),
@@ -132,6 +142,67 @@ class ScriptJobManager:
                 if sid in saved:
                     sc['enabled'] = bool(saved[sid])
         return len(self.scripts)
+
+    # ---------- 脚本参数用户默认值 ----------
+    def get_param_defaults(self, script_id: str, owner_id: int) -> dict:
+        """读取某用户对某脚本所有参数的个人默认值 {param_name: value}。"""
+        try:
+            with self._lock:
+                rows = self._db.execute(
+                    'SELECT param_name, value FROM script_param_defaults '
+                    'WHERE script_id=? AND owner_id=?',
+                    (script_id, owner_id),
+                ).fetchall()
+        except Exception:
+            return {}
+        out = {}
+        for name, value in rows:
+            try:
+                out[name] = json.loads(value)
+            except Exception:
+                out[name] = value
+        return out
+
+    def save_param_defaults(self, script_id: str, owner_id: int,
+                            defaults: dict) -> bool:
+        """保存某用户对某脚本参数的个人默认值。
+
+        defaults: {param_name: value}，仅持久化声明了 user_defaultable 的参数。
+        值为 None 或空串的键表示从默认集中移除。
+        """
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        sc = self.scripts.get(script_id)
+        if not sc:
+            return False
+        allowed = {p.get('name') for p in sc.get('params', [])
+                   if p.get('user_defaultable')}
+        try:
+            with self._lock:
+                for name, value in defaults.items():
+                    if name not in allowed:
+                        continue
+                    if value is None or value == '':
+                        self._db.execute(
+                            'DELETE FROM script_param_defaults '
+                            'WHERE script_id=? AND param_name=? AND owner_id=?',
+                            (script_id, name, owner_id),
+                        )
+                    else:
+                        self._db.execute(
+                            'INSERT INTO script_param_defaults '
+                            '(script_id, param_name, owner_id, value, updated_at) '
+                            'VALUES (?,?,?,?,?) '
+                            'ON CONFLICT(script_id, param_name, owner_id) '
+                            'DO UPDATE SET value=excluded.value, '
+                            'updated_at=excluded.updated_at',
+                            (script_id, name, owner_id,
+                             json.dumps(value, ensure_ascii=False), now),
+                        )
+                self._db.commit()
+            return True
+        except Exception as e:
+            print(f'[script_engine] 保存参数默认值失败: {e}')
+            return False
 
     def _load_state(self):
         if not self._state_path or not os.path.isfile(self._state_path):
