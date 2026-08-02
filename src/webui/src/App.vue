@@ -60,7 +60,7 @@ function applyStartupTheme() {
   applyThemeById(getEffectiveSettings().theme || DEFAULT_THEME_ID)
 }
 
-onMounted(() => {
+onMounted(async () => {
   applyStartupTheme()
   document.addEventListener('click', closeUserDropdown)
   updateNavHeight()
@@ -69,7 +69,9 @@ onMounted(() => {
   watchLaterStore.init()
   // 已登录则拉取后端分层设置（用户层 + 全局层），供默认排序等生效
   if (userStore.isLoggedIn) {
-    fetchServerSettings()
+    // 等待后端设置（含主题）返回后再应用，否则首屏会回落到默认值导致「主题不保存」
+    await fetchServerSettings()
+    applyStartupTheme()
     loadTaskCount()
     setInterval(loadTaskCount, 20000)
   }
@@ -91,9 +93,10 @@ watch(
 // 登录态变化：登录后拉取后端设置，登出后清空（回落到浏览器层 + 默认值）
 watch(
   () => userStore.isLoggedIn,
-  (logged) => {
+  async (logged) => {
     if (logged) {
-      fetchServerSettings()
+      // 等待后端设置（含主题）返回后再应用，否则会回落到默认值
+      await fetchServerSettings()
       watchLaterStore.init()
       loadTaskCount()
     } else {
