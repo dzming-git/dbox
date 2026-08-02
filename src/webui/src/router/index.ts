@@ -135,6 +135,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '任务管理器', requiresAuth: true }
   },
   {
+    path: '/guide',
+    name: 'Guide',
+    component: () => import('../views/Guide.vue'),
+    meta: { title: '功能指引', requiresAuth: true }
+  },
+  {
     path: '/feedback/:id',
     name: 'FeedbackDetail',
     component: () => import('../views/Feedback.vue'),
