@@ -415,6 +415,6 @@ const showToast = (message: string) => {
   .favorites-layout { flex-direction: column; }
   .collections-sidebar { width: 100%; position: static; }
   .page-title { font-size: 22px; }
-  .favorites-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .favorites-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 }
 </style>
