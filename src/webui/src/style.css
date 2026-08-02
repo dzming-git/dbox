@@ -274,3 +274,65 @@ code {
     border-right-color: var(--border);
   }
 }
+
+/* ============================================================
+   全站圆角统一兜底：覆盖散落在各页面、未显式声明圆角的「框」容器，
+   统一使用设计系统的圆角变量，避免直角框与整体风格不一致。
+   仅针对语义上的卡片/面板/弹窗/输入框类，不影响进度条等元件。
+   ============================================================ */
+[class$="card"],
+[class*="-card"],
+[class*="card-"],
+.modal,
+.modal-mask > div,
+.dialog,
+.dialog-overlay > div,
+.panel,
+.subpanel,
+.box,
+[class$="-box"],
+[class*="-box"],
+.tag-tree-panel,
+.tag-input-panel,
+.share-url-box,
+.error-modal,
+.library-card,
+.ac-card,
+.wl-card,
+.task-card,
+.script-card,
+.trash-card,
+.dislike-card,
+.resource-card,
+.section-block {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.search-box,
+.filter-bar,
+.toolbar,
+.modal-title,
+.dialog-header,
+.dialog-actions,
+.panel-toolbar,
+.tag-tree-container,
+.checkbox-inline,
+.error-box,
+.share-box {
+  border-radius: var(--radius-md);
+}
+
+select,
+textarea {
+  border-radius: var(--radius-md);
+}
+
+/* 弹窗类本身不应被 overflow:hidden 裁剪（内部可能有阴影/描边） */
+.modal,
+.dialog,
+.dialog-overlay > div,
+.modal-mask > div,
+.error-modal {
+  overflow: visible;
+}
