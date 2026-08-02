@@ -346,68 +346,6 @@ const handleRecommendationClick = (targetVideo: Video) => {
   router.push({ name: 'Video', params: { hash: targetVideo.hash }, query: fromQuery })
 }
 
-// 保存点赞状态到localStorage
-const saveLikeStatus = () => {
-  if (!video.value) return
-  const likedVideos = JSON.parse(localStorage.getItem('likedVideos') || '[]')
-  if (isLiked.value) {
-    if (!likedVideos.includes(video.value.hash)) {
-      likedVideos.push(video.value.hash)
-    }
-  } else {
-    const index = likedVideos.indexOf(video.value.hash)
-    if (index > -1) likedVideos.splice(index, 1)
-  }
-  localStorage.setItem('likedVideos', JSON.stringify(likedVideos))
-}
-
-// 保存收藏状态到localStorage
-const saveFavoriteStatus = () => {
-  if (!video.value) return
-  const favoritedVideos = JSON.parse(localStorage.getItem('favoritedVideos') || '[]')
-  const favorites = JSON.parse(localStorage.getItem('favorites') || '[]')
-  
-  if (isFavorited.value) {
-    if (!favoritedVideos.includes(video.value.hash)) {
-      favoritedVideos.push(video.value.hash)
-    }
-    // 添加到收藏列表
-    if (!favorites.find((f: any) => f.hash === video.value!.hash)) {
-      favorites.push({
-        hash: video.value.hash,
-        title: video.value.title,
-        thumbnail: video.value.thumbnail,
-        duration: video.value.duration,
-        favorited_at: new Date().toISOString()
-      })
-    }
-  } else {
-    const index = favoritedVideos.indexOf(video.value.hash)
-    if (index > -1) favoritedVideos.splice(index, 1)
-    // 从收藏列表移除
-    const favIndex = favorites.findIndex((f: any) => f.hash === video.value!.hash)
-    if (favIndex > -1) favorites.splice(favIndex, 1)
-  }
-  
-  localStorage.setItem('favoritedVideos', JSON.stringify(favoritedVideos))
-  localStorage.setItem('favorites', JSON.stringify(favorites))
-}
-
-// 保存踩状态到localStorage
-const saveDislikeStatus = () => {
-  if (!video.value) return
-  const dislikedVideos = JSON.parse(localStorage.getItem('dislikedVideos') || '[]')
-  if (isDisliked.value) {
-    if (!dislikedVideos.includes(video.value.hash)) {
-      dislikedVideos.push(video.value.hash)
-    }
-  } else {
-    const index = dislikedVideos.indexOf(video.value.hash)
-    if (index > -1) dislikedVideos.splice(index, 1)
-  }
-  localStorage.setItem('dislikedVideos', JSON.stringify(dislikedVideos))
-}
-
 // 上报观看进度到后端（后端为唯一数据源，登录账号跨设备一致）
 const reportHistory = async (progress: number) => {
   if (!video.value) return
@@ -448,7 +386,6 @@ const handleLike = async () => {
   if (response && response.like_count !== undefined) {
     video.value.like_count = response.like_count
     isLiked.value = response.liked
-    saveLikeStatus()
   }
 }
 
@@ -458,7 +395,6 @@ const handleFavorite = async () => {
   if (response && response.favorite_count !== undefined) {
     video.value.favorite_count = response.favorite_count
     isFavorited.value = response.favorited
-    saveFavoriteStatus()
   }
   // 显示提示
   const message = isFavorited.value ? '已添加到收藏' : '已取消收藏'
@@ -481,7 +417,6 @@ const handleDislike = async () => {
     // 请求失败则仅本地切换兜底
     isDisliked.value = !isDisliked.value
   }
-  saveDislikeStatus()
   // 显示提示
   const message = isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽'
   showToast(message)
