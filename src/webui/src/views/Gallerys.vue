@@ -35,7 +35,6 @@ const galleryListMeta = (g: Gallery): string[] => {
   if (g.like_count > 0) meta.push(`♥ ${g.like_count}`)
   return meta
 }
-}
 
 // 当前是否作为首页（Home）内嵌的图集 tab 存在。
 // 内嵌时需在当前路径 '/' 上更新 query（保留 mode 等首页参数，避免整页跳转到 /galleries 导致切换 tab 消失）；
