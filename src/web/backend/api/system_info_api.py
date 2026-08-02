@@ -151,8 +151,10 @@ def collect_cpu_metrics():
         import psutil
         per_core = psutil.cpu_percent(interval=0.3, percpu=True)
         freq = psutil.cpu_freq()
+        # 直接复用刚采集到的每核心值求平均，避免紧接 interval=None 取 0 间隔增量导致恒为 0
+        usage_percent = round(sum(per_core) / len(per_core), 1) if per_core else 0.0
         return {
-            'usage_percent': psutil.cpu_percent(interval=None),
+            'usage_percent': usage_percent,
             'count': psutil.cpu_count(logical=True) or 0,
             'per_core_usage': per_core,
             'freq_current': getattr(freq, 'current', None),
