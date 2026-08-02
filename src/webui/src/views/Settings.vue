@@ -19,6 +19,7 @@ import {
   type SettingsData,
   type SettingScope,
 } from '../utils/settings'
+import { interactionApi } from '../api'
 import { systemApi } from '../api/index'
 
 const videoStore = useVideoStore()
@@ -188,16 +189,17 @@ async function resetLayer() {
   showToast('已重置本层设置，回落到下一层')
 }
 
-// 清除所有本地数据
-function clearAllData() {
-  if (confirm('确定要清除所有本地数据吗？这将删除您的收藏、观看历史等数据。')) {
-    localStorage.removeItem('favorites')
-    localStorage.removeItem('favoritedVideos')
-    localStorage.removeItem('likedVideos')
-    localStorage.removeItem('dislikedVideos')
-    localStorage.removeItem('watchHistory')
+// 清除所有互动数据（账号级，后端为唯一数据源）
+async function clearAllData() {
+  if (confirm('确定要清除所有互动数据吗？这将删除您的收藏、点赞、踩、观看历史和稍后再看（账号云端数据，不可恢复）。')) {
+    try {
+      await interactionApi.clearAll()
+    } catch (e) {
+      console.error('清空互动数据失败:', e)
+    }
+    // 同时清理浏览器本地缓存（播放设置等）
     localStorage.removeItem('dplayer_browser_settings')
-    showToast('所有本地数据已清除')
+    showToast('所有互动数据已清除')
     loadTab(activeTab.value)
   }
 }

@@ -31,6 +31,7 @@ def register_domain_blueprints(app: Flask) -> None:
     from backend.api.collection_api import bp as collection_api_bp
     from backend.api.watch_later_api import bp as watch_later_api_bp
     from backend.api.history_api import bp as history_api_bp
+    from backend.api.interaction_api import bp as interaction_api_bp
     from backend.api.library_api import bp as library_api_bp
     from backend.api.thumbnail_api import bp as thumbnail_api_bp
     from backend.api.system_api import bp as system_api_bp
@@ -43,6 +44,7 @@ def register_domain_blueprints(app: Flask) -> None:
     app.register_blueprint(collection_api_bp)
     app.register_blueprint(watch_later_api_bp)
     app.register_blueprint(history_api_bp)
+    app.register_blueprint(interaction_api_bp)
     app.register_blueprint(library_api_bp)
     app.register_blueprint(thumbnail_api_bp)
     app.register_blueprint(system_api_bp)
