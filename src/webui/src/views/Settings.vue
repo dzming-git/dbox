@@ -512,21 +512,22 @@ watch(
         </div>
       </section>
 
-      <!-- 操作按钮 -->
-      <div class="actions">
-        <button class="reset-btn" @click="resetLayer" :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)">
-          重置本层
-        </button>
-        <button
-          class="save-btn"
-          @click="saveSettings"
-          :disabled="loading || tabReadOnly || (activeTab === 'user' && !userEditable) || !isDirty"
-          data-testid="save-settings-button"
-        >
-          {{ loading ? '保存中...' : (activeTab === 'global' ? '保存全局默认' : activeTab === 'browser' ? '保存到此浏览器' : '保存我的设置') }}
-        </button>
       </div>
-      </div>
+    </div>
+
+    <!-- 吸底操作条：固定在视口底部，跳转任意分组改完即可立即保存 -->
+    <div class="action-bar" :class="{ visible: isDirty && !tabReadOnly && !(activeTab === 'user' && !userEditable) }">
+      <button class="reset-btn" @click="resetLayer" :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)">
+        重置本层
+      </button>
+      <button
+        class="save-btn"
+        @click="saveSettings"
+        :disabled="loading || tabReadOnly || (activeTab === 'user' && !userEditable) || !isDirty"
+        data-testid="save-settings-button"
+      >
+        {{ loading ? '保存中...' : (activeTab === 'global' ? '保存全局默认' : activeTab === 'browser' ? '保存到此浏览器' : '保存我的设置') }}
+      </button>
     </div>
 
     <div v-if="saved" class="toast success" data-testid="save-success">设置已保存</div>
@@ -536,7 +537,7 @@ watch(
 
 <style scoped>
 .settings-page {
-  padding: 24px;
+  padding: 24px 24px 88px 24px;
   max-width: 1040px;
   margin: 0 auto;
   min-height: 100vh;
@@ -893,11 +894,25 @@ input:disabled + .toggle-slider {
   background: rgba(244, 67, 54, 0.1);
 }
 
-.actions {
+/* 吸底操作条：固定在视口底部，跳转任意分组改完即可立即保存，无需滚回底部 */
+.action-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
   display: flex;
-  justify-content: flex-end;
   gap: 12px;
-  padding-top: 16px;
+  padding: 10px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  z-index: 100;
+}
+
+/* 为吸底条预留底部空间，避免最后一组内容被遮 */
+.settings-page {
+  padding-bottom: 88px;
 }
 
 .reset-btn {
@@ -1007,8 +1022,10 @@ input:disabled + .toggle-slider {
     gap: 8px;
   }
 
-  .actions {
+  .action-bar {
     flex-direction: column;
+    width: calc(100% - 32px);
+    max-width: 400px;
   }
 
   .reset-btn,
