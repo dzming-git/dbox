@@ -12,7 +12,7 @@ from functools import wraps
 import random
 
 from core.models import (
-    db, User, UserRole, Video, ResourceLibrary, LibraryPermission,
+    db, User, UserRole, Video, Gallery, ResourceLibrary, LibraryPermission,
     LibraryUserGroupMember, Post, PostRef, ResourceIndex,
     parse_post_content_tokens,
 )
@@ -158,6 +158,105 @@ def apply_video_visibility(query, allowed_ids=None):
         # 无任何可见库时强制返回空（避免 NULL/全量越权泄露）
         query = query.filter(Video.library_id == -1)
     return query
+
+
+def apply_gallery_visibility(query, allowed_ids=None):
+    """在图集查询上叠加「库已激活 + 未删除 + 未隐藏」可见性过滤。
+
+    与 apply_video_visibility 同源同口径，避免图集侧出现独立的放行分支。
+    """
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    query = query.filter(Gallery.in_trash == False)
+    query = query.filter(~Gallery.resource_index.has(ResourceIndex.hidden == True))
+    if allowed_ids:
+        query = query.filter(Gallery.library_id.in_(allowed_ids))
+    else:
+        query = query.filter(Gallery.library_id == -1)
+    return query
+
+
+def is_video_visible(video, allowed_ids=None):
+    """判断单个视频对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。"""
+    if not video:
+        return False
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    if getattr(video, 'in_trash', False):
+        return False
+    ri = getattr(video, 'resource_index', None)
+    if ri is not None and getattr(ri, 'hidden', False):
+        return False
+    return video.library_id in set(allowed_ids)
+
+
+def is_gallery_visible(gallery, allowed_ids=None):
+    """判断单个图集对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。"""
+    if not gallery:
+        return False
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    if getattr(gallery, 'in_trash', False):
+        return False
+    ri = getattr(gallery, 'resource_index', None)
+    if ri is not None and getattr(ri, 'hidden', False):
+        return False
+    return gallery.library_id in set(allowed_ids)
+
+
+def visible_item_ids(item_type, item_ids, allowed_ids=None):
+    """把一组 (type, hash) 条目过滤成「当前可见」的 hash 集合。
+
+    用于 WatchHistory / WatchLater 这类**快照型**记录：它们冗余存储了
+    title/thumbnail 且不含 library_id，无法自证归属，必须回源到 Video/Gallery
+    校验所属资源库是否仍处于激活状态，否则库停用后历史/稍后再看仍会泄露资源。
+    """
+    ids = [str(i) for i in item_ids if i]
+    if not ids:
+        return set()
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    if item_type == 'video':
+        q = apply_video_visibility(
+            Video.query.filter(Video.hash.in_(ids)), allowed_ids)
+        return {row.hash for row in q.all()}
+    if item_type == 'gallery':
+        q = apply_gallery_visibility(
+            Gallery.query.filter(Gallery.hash.in_(ids)), allowed_ids)
+        return {row.hash for row in q.all()}
+    # 未知类型（post/text 等无独立库归属）默认不放行资源型条目
+    return set()
+
+
+def filter_visible_snapshots(rows, type_attr='item_type', id_attr='item_id',
+                             allowed_ids=None, passthrough_types=()):
+    """过滤快照型记录列表（WatchHistory / WatchLater），只保留资源仍可见的行。
+
+    - rows: ORM 行列表
+    - passthrough_types: 不受资源库管控的类型（如 post/text），原样保留
+    统一在此收敛，确保「资源库停用 => 历史/稍后再看同步不可见」。
+    """
+    if not rows:
+        return []
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    buckets = {}
+    for r in rows:
+        buckets.setdefault(getattr(r, type_attr), []).append(getattr(r, id_attr))
+    visible = {}
+    for t, ids in buckets.items():
+        if t in passthrough_types:
+            continue
+        visible[t] = visible_item_ids(t, ids, allowed_ids)
+    out = []
+    for r in rows:
+        t = getattr(r, type_attr)
+        if t in passthrough_types:
+            out.append(r)
+            continue
+        if str(getattr(r, id_attr)) in visible.get(t, set()):
+            out.append(r)
+    return out
 
 
 def _post_library_ids(post):

@@ -1,6 +1,6 @@
 """Auto-split blueprint: watch_later_api (moved from main.py)."""
 from core.models import WatchLater
-from backend.access import current_interaction_key
+from backend.access import current_interaction_key, filter_visible_snapshots
 from core.models import db
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
@@ -10,10 +10,15 @@ bp = Blueprint('watch_later_api', __name__)
 
 @bp.route('/api/watch-later', methods=['GET'])
 def get_watch_later():
-    """获取当前用户的「稍后再看」列表（后端为唯一数据源，登录账号跨设备一致）。"""
+    """获取当前用户的「稍后再看」列表（后端为唯一数据源，登录账号跨设备一致）。
+
+    与观看历史同理，条目为快照型记录，需回源资源库校验可见性；
+    post/text 无独立资源库归属，按原样透传（其自身接口另有权限收敛）。
+    """
     try:
         key = current_interaction_key()
         rows = WatchLater.query.filter_by(user_key=key).order_by(WatchLater.added_at.desc()).all()
+        rows = filter_visible_snapshots(rows, passthrough_types=('post', 'text'))
         items = [r.to_dict() for r in rows]
         return jsonify({'success': True, 'items': items, 'total': len(items)})
     except Exception as e:

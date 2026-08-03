@@ -1,6 +1,6 @@
 """观看历史接口：视频/图集观看进度统一后端存储，取代 localStorage 分散记录。"""
 from core.models import WatchHistory, Video, Gallery
-from backend.access import current_interaction_key
+from backend.access import current_interaction_key, filter_visible_snapshots
 from core.models import db
 from datetime import datetime
 from flask import Blueprint, request, jsonify
@@ -25,11 +25,16 @@ def _item_title_thumb(item_type, item_id):
 
 @bp.route('/api/history', methods=['GET'])
 def get_history():
-    """获取当前用户的观看历史（视频+图集），按观看时间倒序。"""
+    """获取当前用户的观看历史（视频+图集），按观看时间倒序。
+
+    历史为快照型记录（冗余存 title/thumbnail 且无 library_id），必须回源
+    资源库校验：所属库取消激活后，对应历史条目一并不可见。
+    """
     try:
         key = current_interaction_key()
         rows = WatchHistory.query.filter_by(user_key=key).order_by(
             WatchHistory.watched_at.desc()).all()
+        rows = filter_visible_snapshots(rows)
         items = [r.to_dict() for r in rows]
         return jsonify({'success': True, 'items': items, 'total': len(items)})
     except Exception as e:

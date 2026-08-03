@@ -472,6 +472,8 @@ def set_gallery_continue(gallery_hash):
 def _gallery_interaction_rows(key, itype, date_field, with_size=False):
     """返回某用户某类型交互对应的图集列表（带交互时间）。
     with_size=True 时，对管理员额外计算文件夹总大小（磁盘遍历）。
+
+    收藏/点赞/不喜欢均须经资源库可见性收敛：所属库取消激活后不再对外输出。
     """
     include_size = False
     if with_size:
@@ -483,10 +485,13 @@ def _gallery_interaction_rows(key, itype, date_field, with_size=False):
     rows = GalleryInteraction.query.filter_by(
         user_session=key, interaction_type=itype
     ).order_by(GalleryInteraction.created_at.desc()).all()
+    allowed_libs = set(_allowed_library_ids())
     items = []
     for row in rows:
         c = Gallery.query.get(row.gallery_id)
         if not c or c.in_trash:
+            continue
+        if c.library_id not in allowed_libs:
             continue
         d = c.to_dict()
         d['cover_url'] = c.cover_url or _gallery_url(c.cover_path)
@@ -699,13 +704,12 @@ def list_gallery_tags():
         tree = request.args.get('tree') == 'true'
         library_id = request.args.get('library_id', type=int)
         allowed_libs = _allowed_library_ids()
+        # 主库已统一归入「主资源库」，不再有 library_id 为 NULL 的例外放行；
+        # 无可见库时标签计数应为空，避免通过标签树反推被停用库的资源规模。
         allowed_gallery_ids = set()
         if allowed_libs:
             for cid in db.session.query(Gallery.id).filter(
-                (Gallery.library_id == None) | (Gallery.library_id.in_(allowed_libs))).all():
-                allowed_gallery_ids.add(cid[0])
-        else:
-            for cid in db.session.query(Gallery.id).filter(Gallery.library_id == None).all():
+                    Gallery.library_id.in_(allowed_libs)).all():
                 allowed_gallery_ids.add(cid[0])
 
         rows = db.session.query(GalleryTag.tag_id, GalleryTag.gallery_id).all()
