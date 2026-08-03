@@ -67,14 +67,23 @@ const showToast = (message: string) => {
     </div>
 
     <div v-else class="likes-grid">
-      <MediaCard
+      <div
         v-for="item in likes"
         :key="item.type + ':' + item.hash"
-        :item="item"
-        :actions="['unlike']"
-        @action="onAction"
-        data-testid="video-card"
-      />
+        class="like-card-wrap"
+      >
+        <MediaCard
+          :item="item"
+          :show-type-badge="false"
+          data-testid="video-card"
+        />
+        <button class="unlike-btn" @click.stop="onAction({ name: 'unlike', item })" title="取消点赞">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+          </svg>
+          取消点赞
+        </button>
+      </div>
     </div>
 
     <div v-if="showToastFlag" class="toast" data-testid="unlike-success">
@@ -139,6 +148,28 @@ const showToast = (message: string) => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+}
+.like-card-wrap { position: relative; }
+.unlike-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.unlike-btn:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .toast {
   position: fixed;
