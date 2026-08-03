@@ -14,6 +14,7 @@ from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
 from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_action_required,
+    delete_task,
 )
 
 bp = Blueprint('task', __name__)
@@ -82,3 +83,36 @@ def task_detail(task_id):
     if not is_admin and task.get('owner_id') not in (None, user_id):
         return jsonify({'success': False, 'message': '无权查看该任务'}), 403
     return jsonify({'success': True, 'task': task})
+
+
+@bp.route('/api/tasks/<path:task_id>', methods=['DELETE'])
+@auth_required
+def delete_task_route(task_id):
+    """删除一条已结束的任务。进行中的任务不允许删除。
+
+    - 普通用户：仅可删除自己发起的任务；
+    - 管理员：可删除任意已结束任务。
+    """
+    user_id, role = resolve_identity()
+    is_admin = _is_admin(role)
+
+    try:
+        from backend.paths import DATA_DIR
+        init_task_manager(DATA_DIR)
+    except Exception:
+        pass
+
+    result = delete_task(task_id, is_admin=is_admin, owner_id=user_id)
+    if result is True:
+        return jsonify({'success': True})
+    if result is False:
+        # 区分「任务不存在」与「无权删除」，便于前端提示
+        task = get_task(task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        return jsonify({'success': False, 'message': '无权删除该任务'}), 403
+    # result is None：任务仍处于进行中
+    return jsonify({
+        'success': False,
+        'message': '任务进行中，无法删除；等待完成后再操作',
+    }), 409

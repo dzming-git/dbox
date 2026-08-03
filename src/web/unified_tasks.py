@@ -270,3 +270,30 @@ def prune_old(keep_days=7):
                    WHERE status IN (?, ?, ?) AND updated_at < ?''',
                 (STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED, cutoff),
             )
+
+
+# 允许用户主动删除的「终态」状态：进行中的任务不允许被前端直接删，避免误删
+_DELETABLE_STATUSES = frozenset({STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED})
+
+
+def delete_task(task_id, is_admin=False, owner_id=None):
+    """删除一条任务记录。
+
+    - 普通用户（is_admin=False）：仅允许删除自己发起的、且处于终态的任务；
+    - 管理员（is_admin=True）：可删除任意任务（仍仅限终态，保护进行中的任务）。
+    - 返回值：True 表示成功删除；False 表示任务不存在或无权删除；
+            None 表示任务仍处于进行中，不允许删除。
+    """
+    task = get_task(task_id)
+    if not task:
+        return False
+    status = task.get('status')
+    if status not in _DELETABLE_STATUSES:
+        # 进行中（含等待处理）的任务不允许删除，防止误删仍在执行的任务
+        return None
+    if not is_admin and task.get('owner_id') not in (None, owner_id):
+        return False
+    with _lock:
+        with _conn() as conn:
+            conn.execute('DELETE FROM tasks WHERE task_id=?', (task_id,))
+    return True

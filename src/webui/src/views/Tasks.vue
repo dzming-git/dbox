@@ -2,7 +2,18 @@
   <div class="tasks-page">
     <div class="page-header">
       <h2>任务管理器</h2>
-      <button class="refresh-btn" @click="refresh" :disabled="loading">刷新</button>
+      <div class="header-actions">
+        <button
+          v-if="tasks.some(isFinished)"
+          class="refresh-btn"
+          :disabled="clearing"
+          @click="clearFinished"
+          title="删除所有已结束的任务"
+        >
+          {{ clearing ? '清理中…' : '清理已完成' }}
+        </button>
+        <button class="refresh-btn" @click="refresh" :disabled="loading">刷新</button>
+      </div>
     </div>
 
     <div v-if="actionCount > 0" class="action-banner">
@@ -19,6 +30,16 @@
           <span class="task-kind" :class="'kind-' + t.kind">{{ kindLabel(t.kind) }}</span>
           <span class="task-title">{{ t.title }}</span>
           <span class="task-status" :class="'st-' + t.status">{{ statusLabel(t.status) }}</span>
+          <!-- 已结束的任务可单条删除（进行中不允许，避免误删） -->
+          <button
+            v-if="isFinished(t)"
+            class="task-delete-btn"
+            :disabled="deletingId === t.task_id"
+            :title="'删除任务：' + t.title"
+            @click="deleteOne(t)"
+          >
+            {{ deletingId === t.task_id ? '删除中…' : '删除' }}
+          </button>
         </div>
 
         <div class="task-progress">
@@ -88,6 +109,9 @@ const router = useRouter()
 const tasks = ref<Task[]>([])
 const actionCount = ref(0)
 const loading = ref(false)
+// 删除相关状态：deletingId 标记正在单条删除中的任务；clearing 用于批量清理按钮的 loading
+const deletingId = ref<string | null>(null)
+const clearing = ref(false)
 
 let pollTimer: any = null
 
@@ -135,6 +159,52 @@ async function refresh() {
   } finally {
     loading.value = false
   }
+}
+
+// 是否处于「已结束」终态：仅这些状态可被删除
+const FINISHED_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+function isFinished(t: Task): boolean {
+  return FINISHED_STATUSES.has(t.status as any)
+}
+
+async function deleteOne(t: Task) {
+  if (!isFinished(t) || deletingId.value) return
+  if (!confirm(`确定要删除任务「${t.title}」吗？该操作不可撤销。`)) return
+  deletingId.value = t.task_id
+  try {
+    await taskApi.delete(t.task_id)
+    // 直接从本地列表移除，避免再发请求
+    tasks.value = tasks.value.filter((x) => x.task_id !== t.task_id)
+  } catch (e: any) {
+    alert('删除失败：' + (e?.message || e))
+  } finally {
+    deletingId.value = null
+  }
+}
+
+async function clearFinished() {
+  if (clearing.value) return
+  const finished = tasks.value.filter(isFinished)
+  if (!finished.length) return
+  if (!confirm(`确定要删除全部 ${finished.length} 个已结束的任务吗？该操作不可撤销。`)) return
+  clearing.value = true
+  let failed = 0
+  // 并发删除，逐条处理失败不影响其他
+  await Promise.all(
+    finished.map(async (t) => {
+      try {
+        await taskApi.delete(t.task_id)
+      } catch (e) {
+        failed += 1
+      }
+    })
+  )
+  clearing.value = false
+  if (failed > 0) {
+    alert(`已清理 ${finished.length - failed} 个任务，${failed} 个删除失败，请稍后重试`)
+  }
+  // 重新拉取，避免本地状态与远端不一致
+  await refresh()
 }
 
 async function handleTask(t: Task) {
@@ -238,6 +308,11 @@ onUnmounted(() => {
   font-size: 20px;
   margin: 0;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .refresh-btn {
   background: var(--bg-surface-hover);
   color: var(--text-secondary);
@@ -245,6 +320,25 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 6px 14px;
   cursor: pointer;
+}
+.task-delete-btn {
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.task-delete-btn:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(255, 90, 106, 0.08);
+}
+.task-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 .action-banner {
   display: flex;

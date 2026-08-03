@@ -36,4 +36,6 @@ export const taskApi = {
   actionCount: () => api.get('/api/tasks/action-count'),
   // 任务详情
   detail: (taskId: string) => api.get(`/api/tasks/${taskId}`),
+  // 删除一条已结束的任务（进行中不允许）
+  delete: (taskId: string) => api.delete(`/api/tasks/${taskId}`),
 }
