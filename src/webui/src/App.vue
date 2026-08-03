@@ -46,6 +46,8 @@ const handleNavSearch = () => {
 
 // 用户下拉菜单状态
 const showUserDropdown = ref(false)
+// 手机端「更多」面板状态：收纳点赞/收藏/历史等次频入口，避免顶部图标过多挤出任务按钮
+const showMobileMore = ref(false)
 
 // 导航栏实际高度，用于动态设置内容区顶部内边距（避免导航换行后遮挡搜索框）
 const navEl = ref<HTMLElement | null>(null)
@@ -120,6 +122,9 @@ const closeUserDropdown = (event: MouseEvent) => {
   if (!target.closest('.user-avatar-wrapper')) {
     showUserDropdown.value = false
   }
+  if (!target.closest('.mobile-more-wrapper')) {
+    showMobileMore.value = false
+  }
 }
 </script>
 
@@ -164,19 +169,19 @@ const closeUserDropdown = (event: MouseEvent) => {
         <!-- 已登录状态 -->
         <template v-else>
           <!-- 常用功能直接放在导航栏，避免下拉菜单不便 -->
-          <RouterLink to="/likes" class="nav-link nav-icon-link" title="点赞">
+          <RouterLink to="/likes" class="nav-link nav-icon-link more-only" title="点赞">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
             </svg>
             <span>点赞</span>
           </RouterLink>
-          <RouterLink to="/favorites" class="nav-link nav-icon-link" title="收藏">
+          <RouterLink to="/favorites" class="nav-link nav-icon-link more-only" title="收藏">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
             </svg>
             <span>收藏</span>
           </RouterLink>
-          <RouterLink to="/history" class="nav-link nav-icon-link" title="历史">
+          <RouterLink to="/history" class="nav-link nav-icon-link more-only" title="历史">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
             </svg>
@@ -200,6 +205,35 @@ const closeUserDropdown = (event: MouseEvent) => {
             </span>
             <span>任务</span>
           </RouterLink>
+
+          <!-- 手机端「更多」按钮：收纳点赞/收藏/历史等次频入口，确保任务按钮不被挤掉 -->
+          <div class="nav-link nav-icon-link mobile-more-wrapper mobile-only" @click.stop="showMobileMore = !showMobileMore" title="更多">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+            </svg>
+            <span>更多</span>
+            <!-- 手机端「更多」抽屉面板：与 nav 中的对应入口一一对应，点击后自动关闭 -->
+            <div v-if="showMobileMore" class="mobile-more-drawer" @click.stop>
+              <RouterLink to="/likes" class="mobile-more-item" @click="showMobileMore = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                </svg>
+                <span>我的点赞</span>
+              </RouterLink>
+              <RouterLink to="/favorites" class="mobile-more-item" @click="showMobileMore = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+                <span>我的收藏</span>
+              </RouterLink>
+              <RouterLink to="/history" class="mobile-more-item" @click="showMobileMore = false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+                </svg>
+                <span>观看历史</span>
+              </RouterLink>
+            </div>
+          </div>
 
           <!-- 用户头像下拉菜单 -->
           <div class="user-avatar-wrapper">
@@ -493,6 +527,57 @@ body {
   box-shadow: 0 0 6px rgba(255, 90, 106, 0.6);
 }
 
+/* 手机端专属入口：默认在桌面端隐藏，仅在窄屏可见（用于收纳点赞/收藏/历史等次频入口） */
+.mobile-only {
+  display: none;
+}
+
+.mobile-more-wrapper {
+  position: relative;
+  cursor: pointer;
+}
+
+.mobile-more-drawer {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 320;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: dropdownFadeIn 0.18s ease;
+}
+
+.mobile-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background var(--transition-fast);
+}
+
+.mobile-more-item:hover,
+.mobile-more-item:focus {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.mobile-more-item.active,
+.mobile-more-item.router-link-active {
+  background: var(--bg-surface-hover);
+  color: var(--accent);
+}
+
 .login-link {
   background: var(--accent);
   color: var(--text-on-accent) !important;
@@ -766,6 +851,18 @@ body.reader-active .main-content {
 
   .nav-icon-link {
     padding: 8px;
+  }
+
+  /* 收纳点赞/收藏/历史到「更多」抽屉，确保任务按钮不被挤出视口 */
+  .nav-icon-link.more-only {
+    display: none;
+  }
+  .mobile-only {
+    display: inline-flex;
+  }
+  /* 任务按钮始终保持可见，避免被挤掉 */
+  .task-nav-link {
+    display: inline-flex !important;
   }
   
   .logo {
