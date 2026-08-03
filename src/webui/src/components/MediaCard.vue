@@ -4,10 +4,13 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import type { MediaItem } from '../utils/media'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   item: MediaItem
   actions?: string[]   // 'unfavorite' | 'unlike' | 'restore' | 'continue' | 'delete' | 'addCollection'
-}>()
+  showTypeBadge?: boolean
+}>(), {
+  showTypeBadge: true
+})
 const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
   (e: 'action', payload: { name: string; item: MediaItem }): void
@@ -66,7 +69,7 @@ const onAction = (name: string, e: Event) => {
   <div class="media-card" :class="item.type" @click="onOpen" data-testid="media-card">
     <div class="thumbnail-wrapper">
       <img :src="coverUrl" :alt="item.title" class="thumbnail" @error="(e:any)=>e.target.src='/default-thumb.jpg'" />
-      <span class="type-badge" :class="item.type">{{ typeLabel }}</span>
+      <span v-if="showTypeBadge" class="type-badge" :class="item.type">{{ typeLabel }}</span>
       <span v-if="subBadge" class="sub-badge">{{ subBadge }}</span>
 
       <button

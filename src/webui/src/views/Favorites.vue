@@ -202,14 +202,22 @@ const showToast = (message: string) => {
             :key="item.type + ':' + item.hash"
             class="favorite-card-wrap"
           >
-            <MediaCard :item="item" :actions="['addCollection']" @action="onAction" />
-            <!-- 取消收藏：放在卡片下方，避免缩略图上出现心形标记，与首页展示逻辑一致 -->
-            <button class="unfavorite-btn" @click.stop="onAction({ name: 'unfavorite', item })" title="取消收藏">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-              </svg>
-              取消收藏
-            </button>
+            <MediaCard :item="item" :show-type-badge="false" />
+            <!-- 操作栏：放在卡片下方，避免缩略图上出现操作按钮，与首页展示逻辑一致 -->
+            <div class="card-actions-row">
+              <button class="action-text-btn unfavorite" @click.stop="onAction({ name: 'unfavorite', item })" title="取消收藏">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+                取消收藏
+              </button>
+              <button class="action-text-btn add-collection" @click.stop="onAction({ name: 'addCollection', item })" title="加入收藏夹">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                </svg>
+                加入收藏夹
+              </button>
+            </div>
             <!-- 加入收藏夹 -->
             <div
               v-if="openMenuItem === item"
@@ -370,26 +378,38 @@ const showToast = (message: string) => {
   gap: 20px;
 }
 .favorite-card-wrap { position: relative; }
-.unfavorite-btn {
+.card-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.action-text-btn {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 8px;
-  padding: 7px 0;
+  gap: 5px;
+  padding: 6px 0;
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-surface);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
-.unfavorite-btn:hover {
+.action-text-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+.action-text-btn.unfavorite:hover {
   background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger);
+}
+.action-text-btn.add-collection:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .collection-menu {
   position: absolute;
