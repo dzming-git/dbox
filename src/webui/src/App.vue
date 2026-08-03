@@ -311,7 +311,9 @@ body {
   display: flex;
   flex-direction: column;
   max-width: 100vw;
-  overflow-x: hidden;
+  /* 用 clip 而非 hidden：同样裁剪横向溢出，但不会创建滚动容器，
+     因此不会锁死内部 position: sticky（设置页左侧分组导航吸顶需要）。 */
+  overflow-x: clip;
 }
 
 .nav {

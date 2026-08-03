@@ -379,7 +379,7 @@ watch(
     </nav>
 
     <div class="settings-body">
-      <!-- 左侧分组导航（PC 端 sticky） -->
+      <!-- 左侧分组导航：文档流中的普通列，sticky 跟随滚动，不遮挡内容 -->
       <aside class="group-sidebar">
         <button
           v-for="g in navGroups"
@@ -576,22 +576,23 @@ watch(
   color: var(--text-on-accent);
 }
 
-/* 两栏布局：侧边分组导航(fixed) + 内容。
-   侧边栏用 position: fixed 而非 sticky，因为祖先 .main-content / .app-container
-   带有 overflow-x: hidden，会把内部 sticky 的滚动上下文锁住导致吸顶失效。
-   内容区左移 184px(160 侧栏 + 24 间距)给 fixed 侧栏留位。 */
+/* 两栏布局：侧边分组导航（文档流中的普通列）+ 内容。
+   不再使用 position: fixed 浮层（会遮挡按钮），改为 sticky 跟随滚动。
+   祖先 .app-container 已改为 overflow-x: clip（非滚动容器），sticky 可正常生效。 */
 .settings-body {
-  display: block;
-  padding-left: 184px;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
 }
 
 .group-sidebar {
-  position: fixed;
-  /* 紧贴全局导航下方，避免被固定导航栏遮挡 */
-  top: calc(var(--nav-height, 60px) + 24px);
-  /* 与居中内容区(.settings-page max-width:1040 + padding:24)左边缘对齐，再左移 184px */
-  left: max(12px, calc((100vw - 1040px) / 2 + 24px - 184px));
+  /* 在文档流中占据固定宽度，不浮出，不遮挡任何内容 */
+  flex: 0 0 160px;
   width: 160px;
+  position: sticky;
+  /* 紧贴全局导航下方，随页面滚动跟随 */
+  top: calc(var(--nav-height, 60px) + 24px);
+  align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -600,7 +601,7 @@ watch(
   padding: 12px 8px;
   background: var(--bg-surface-hover);
   border-radius: 12px;
-  z-index: 50;
+  z-index: 1;
 }
 
 .group-sidebar-btn {
@@ -964,8 +965,9 @@ input:disabled + .toggle-slider {
 
 @media (max-width: 900px) {
   .settings-body {
-    display: block;
-    padding-left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   .group-sidebar {
