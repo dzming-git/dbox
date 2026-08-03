@@ -67,8 +67,10 @@ def create_post():
 @bp.route('/api/posts/<int:did>', methods=['GET'])
 def get_post(did):
     d = Post.query.get(did)
-    # 统一按「不存在」响应，不透露帖子及其引用资源的存在性
-    if not d or not _user_can_read_post(d, get_allowed_library_ids()):
+    # 统一按「不存在」响应，不透露帖子及其引用资源的存在性。
+    # 回收站内的帖子、或引用了未激活/未归类库的帖子，对外均不可见。
+    if (not d or d.in_trash
+            or not _user_can_read_post(d, get_allowed_library_ids())):
         return jsonify({'success': False, 'message': '资源不存在', 'code': 404}), 404
     return jsonify(d.to_dict(resolve=True))
 

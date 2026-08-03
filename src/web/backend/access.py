@@ -352,20 +352,21 @@ def guard_location(location, allowed_ids=None):
 def _post_library_ids(post):
     """收集帖子涉及的所有资源库 ID（含帖子自身、引用资源、正文内联资源）。
 
-    返回 set；元素为 int 库 ID 或 None（主库/公共可见）。
+    返回 set；元素为 int 库 ID 或 None。None 表示「未归类到任何库」，
+    同样需要落在 allowed_libs 内才可见（不再当作默认公开）。
     """
     libs = set()
-    if post.library_id is not None:
-        libs.add(post.library_id)
+    # 帖子自身归属库（None 也纳入，交由调用方统一判定）
+    libs.add(post.library_id)
     # 引用资源
     for r in post.refs:
         ri = r.resource_index
-        if ri and ri.library_id is not None:
+        if ri is not None:
             libs.add(ri.library_id)
     # 正文内联资源标记 [文字](res:ID:mode)
     for tok in parse_post_content_tokens(post.content):
         ri = ResourceIndex.query.get(tok['resource_index_id'])
-        if ri and ri.library_id is not None:
+        if ri is not None:
             libs.add(ri.library_id)
     return libs
 
@@ -374,10 +375,13 @@ def _user_can_read_post(post, allowed_libs):
     """帖子 read 权限 = 其引用的全部资源的权限取交集。
 
     用户必须对帖子的每一个资源库都有访问权限（库 ID ∈ allowed_libs），
-    主库（library_id=None）视为所有人可访问。任一受限库无权限则不可读。
+    包括「未归类库」(library_id=None)。任一库不在 allowed_libs（含未激活库、
+    未归类库）则整个帖子对外不可读——即「帖子和帖子内引用资源都有权限看到时，
+    才对外显示」。
     """
+    allowed_set = set(allowed_libs)
     for lib in _post_library_ids(post):
-        if lib is not None and lib not in allowed_libs:
+        if lib not in allowed_set:
             return False
     return True
 
