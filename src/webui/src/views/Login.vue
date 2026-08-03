@@ -74,18 +74,10 @@ const handleKeydown = (e: KeyboardEvent) => {
       <div class="login-header">
         <div class="login-brand">
           <svg class="login-logo-mark" width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <defs>
-              <linearGradient id="loginLogoGrad" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
-                <stop offset="0" style="stop-color: var(--accent)"/>
-                <stop offset="1" style="stop-color: var(--accent-active)"/>
-              </linearGradient>
-            </defs>
-            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="url(#loginLogoGrad)" opacity="0.85"/>
-            <path d="M20 38 L60 58 L60 102 L20 82 Z" style="fill: var(--accent-active)" opacity="0.55"/>
-            <path d="M100 38 L60 58 L60 102 L100 82 Z" style="fill: var(--accent)" opacity="0.7"/>
-            <path d="M60 18 L100 38 L60 58 L20 38 Z" fill="none" stroke="url(#loginLogoGrad)" stroke-width="3" stroke-linejoin="round"/>
-            <path d="M44 66 H58 A14 14 0 0 1 58 94 H44 Z" fill="#fff" opacity="0.95"/>
-            <circle cx="76" cy="80" r="4" fill="#fff" opacity="0.95"/>
+            <!-- B 款：等距立方体盒子 + 内部圆角 D -->
+            <polygon points="60,20 96,38 60,56 24,38" style="fill: var(--accent)"/>
+            <polygon points="60,56 96,38 96,76 60,94" style="fill: var(--accent-active)"/>
+            <path fill-rule="evenodd" d="M24 38 L60 56 L60 94 L24 76 Z M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z" style="fill: var(--accent)"/>
           </svg>
           <span class="login-brand-text">DBox</span>
         </div>

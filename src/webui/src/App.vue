@@ -130,20 +130,10 @@ const closeUserDropdown = (event: MouseEvent) => {
       <div class="nav-left">
         <RouterLink to="/" class="logo">
           <svg class="logo-mark" width="30" height="30" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <defs>
-              <linearGradient id="logoGrad" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="#f97316"/>
-                <stop offset="1" stop-color="#ea580c"/>
-              </linearGradient>
-            </defs>
-            <!-- 盒子：3D 等距立方体，露出三个面（顶面 + 左面 + 右面） -->
-            <polygon points="50,30 90,50 50,70 10,50" fill="url(#logoGrad)"/>
-            <polygon points="10,50 50,70 50,104 10,84" fill="#ea580c"/>
-            <polygon points="90,50 50,70 50,104 90,84" fill="#f97316"/>
-            <!-- 正面（左面）写 D，靠左 -->
-            <path d="M24 58 h16 a16 16 0 0 1 0 32 H24 V58 z M33 68 v12 a6 6 0 0 0 0 -12 z" fill="#fff"/>
-            <!-- 右侧一个点 -->
-            <circle cx="76" cy="92" r="5" fill="#fff"/>
+            <!-- B 款：等距立方体盒子 + 内部圆角 D -->
+            <polygon points="60,20 96,38 60,56 24,38" fill="var(--accent)"/>
+            <polygon points="60,56 96,38 96,76 60,94" fill="var(--accent-active)"/>
+            <path fill-rule="evenodd" d="M24 38 L60 56 L60 94 L24 76 Z M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z" fill="var(--accent)"/>
           </svg>
           <span class="logo-text">DBox</span>
         </RouterLink>

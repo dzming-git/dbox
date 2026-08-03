@@ -1,12 +1,5 @@
-<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="og6" x1="14" y1="20" x2="106" y2="100" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f97316"/>
-      <stop offset="1" stop-color="#ea580c"/>
-    </linearGradient>
-  </defs>
-  <rect width="120" height="120" rx="26" fill="#ffffff"/>
-  <path d="M42 92 V28 A32 32 0 0 1 42 92 Z" fill="none" stroke="url(#og6)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="92" cy="32" r="6" fill="#f97316"/>
-  <path d="M28 94 c9 -4 17 -3 25 2" fill="none" stroke="#f97316" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <polygon points="60,20 96,38 60,56 24,38" fill="#f97316"/>
+  <polygon points="60,56 96,38 96,76 60,94" fill="#ea580c"/>
+  <path fill-rule="evenodd" d="M24 38 L60 56 L60 94 L24 76 Z M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z" fill="#f97316"/>
 </svg>
