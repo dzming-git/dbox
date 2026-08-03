@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D 盒子 Logo · D 替换左侧面</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0b0d12; color:#e8e8f4; font-family:-apple-system,"Segoe UI","Microsoft YaHei",monospace; padding:24px; }
+  h1 { font-size:20px; letter-spacing:2px; margin-bottom:4px; }
+  .sub { color:#888; font-size:12px; margin-bottom:18px; line-height:1.6; }
+  .theme-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  .chip { padding:5px 12px; border-radius:999px; border:1px solid #2a2a3a; cursor:pointer; font-size:12px; background:#16161f; }
+  .chip.active { border-color:#5a5aff; color:#fff; background:#1f1f33; }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
+  .card { background:#14141d; border:1px solid #24243a; border-radius:10px; padding:14px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .logo-wrap { background:#0a0a10; border-radius:8px; padding:14px; }
+  .name { font-size:12.5px; font-weight:bold; color:#cfcfff; }
+  .desc { font-size:10.5px; color:#777; text-align:center; line-height:1.5; }
+  .tag { display:inline-block; font-size:10px; color:#0a0a10; background:#5a5aff; padding:1px 7px; border-radius:4px; margin-top:3px; }
+  #stage { border-radius:14px; padding:16px; background:#0a0a10; }
+  body.theme-light { background:#f5f6f8; color:#1a1a24; }
+  body.theme-light .card { background:#fff; border-color:#e2e4ea; }
+  body.theme-light .logo-wrap { background:#eef0f4; }
+  body.theme-light .sub { color:#555; }
+  body.theme-light .name { color:#1a1a24; }
+</style>
+</head>
+<body>
+<h1>D 盒子 · D 替换左侧面</h1>
+<div class="sub">顶面 + 右侧面保留；<b style="color:#cfcfff">左侧面整个被 D 字母取代</b>（左面 4 边消失）。<br>D 的外轮廓 = 原左侧面四边形，与顶面左半边、前棱左半边、底面左半边、盒子左棱严丝合缝。</div>
+
+<div class="theme-row" id="themes"></div>
+<div id="stage"><div class="grid" id="grid"></div></div>
+
+<script>
+const THEMES = [
+  { id:'sunset-dark',  label:'落日橙·深', accent:'#f97316', mode:'dark',  bg:'#0a0a10' },
+  { id:'sunset-light', label:'落日橙·浅', accent:'#ea580c', mode:'light', bg:'#f0f1f4' },
+  { id:'midnight',     label:'午夜蓝',     accent:'#3b82f6', mode:'dark',  bg:'#0b1020' },
+  { id:'forest',       label:'森野绿',     accent:'#22c55e', mode:'dark',  bg:'#0e1512' },
+  { id:'rose',         label:'蔷薇粉',     accent:'#e11d8f', mode:'light', bg:'#fbf3f5' },
+];
+function mix(hex,amt){
+  let h=hex.replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join('');
+  let n=parseInt(h,16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  if(amt>=0){ r+=(255-r)*amt; g+=(255-g)*amt; b+=(255-b)*amt; } else { r*=(1+amt); g*=(1+amt); b*=(1+amt); }
+  const c=v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0');
+  return '#'+c(r)+c(g)+c(b);
+}
+
+/* 等距盒子几何 (viewBox 0 0 120 120)
+   顶面:  (60,20) (96,38) (60,56) (24,38)
+   右侧面: (60,56) (96,38) (96,76) (60,94)
+   左侧面被 D 取代，D 外轮廓 = 原左侧面四边形:
+     (24,38) -> (60,56) -> (60,94) -> (24,76) -> 闭合
+   内孔（镂空）完全在左侧面内部，刻画出 D 字形。
+*/
+
+// 变体 A: 直线 bowl，几何最整
+function svgA(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40);
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  const inner = "M30 48 L54 60 L54 86 L30 74 Z"; // 竖笔与碗厚均为 6px，左右对称
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", top) +
+    poly("60,56 96,38 96,76 60,94", right) +
+    '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="'+ac+'"/>'
+  );
+}
+
+// 变体 B: 圆润 bowl，更像字母 D，右缘收到 x=56 不碰前棱
+function svgB(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40);
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  const inner = "M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", top) +
+    poly("60,56 96,38 96,76 60,94", right) +
+    '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="'+ac+'"/>'
+  );
+}
+
+// 变体 C: 线框（顶+右描边，D 也描边）
+function svgC(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40); const sw=4.5;
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  const inner = "M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", "none", top, sw) +
+    poly("60,56 96,38 96,76 60,94", "none", right, sw) +
+    '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="'+ac+'" stroke="'+ac+'" stroke-width="'+sw+'" stroke-linejoin="round"/>'
+  );
+}
+
+// 变体 D: D 白色，盒体主题色
+function svgD(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40);
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  const inner = "M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", top) +
+    poly("60,56 96,38 96,76 60,94", right) +
+    '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="#eef0ff"/>'
+  );
+}
+
+/* 像素风格渐变（离散 posterize 渐变）：用线性渐变铺满整个 D，
+   但只取有限档位、相邻档同 offset 硬跳变，形成斜向离散色阶（无间隙），
+   既有连续覆盖感又有明显 step；再叠细小噪点体现颗粒。 */
+let UID=0;
+function pixelD(ac, inner, sgn, steps, grain){
+  const id='pxg'+(UID++);
+  const outer="M24 38 L60 56 L60 94 L24 76 Z";
+  const stops=[];
+  for(let i=0;i<steps;i++){
+    const t=Math.pow(i/(steps-1), 2.4);
+    const amt = sgn>=0 ? -0.22 + 0.92*t : -0.55*t;
+    const col = mix(ac, amt);
+    const off=(i/(steps-1));
+    stops.push('<stop offset="'+off.toFixed(3)+'" stop-color="'+col+'"/>');
+    if(i<steps-1){ // 同 offset 硬跳下一档颜色 → 硬边阶梯
+      const t2=Math.pow((i+1)/(steps-1), 2.4);
+      const col2 = mix(ac, sgn>=0 ? -0.22 + 0.92*t2 : -0.55*t2);
+      stops.push('<stop offset="'+off.toFixed(3)+'" stop-color="'+col2+'"/>');
+    }
+  }
+  const defs='<defs><linearGradient id="'+id+'" x1="24" y1="38" x2="60" y2="94" gradientUnits="userSpaceOnUse">'
+           + stops.join('') + '</linearGradient></defs>';
+  let s = defs + '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="url(#'+id+')"/>';
+  // 细微噪点：增强颗粒感，不破坏渐变连续
+  if(grain){
+    let g='';
+    const rnd = mulberry(ac);
+    for(let k=0;k<grain;k++){
+      const u=0.14+rnd()*0.68, v=0.12+rnd()*0.76;
+      const x=24+36*u, y=38+18*u+38*v;
+      const sz=(2.0+rnd()*1.6).toFixed(1);
+      const dark=rnd()>0.80;
+      g += '<rect x="'+(x-sz/2).toFixed(2)+'" y="'+(y-sz/2).toFixed(2)+'" width="'+sz+'" height="'+sz+'" fill="'+(dark?'#000':'#fff')+'" opacity="'+(0.16+rnd()*0.16).toFixed(2)+'"/>';
+    }
+    s += g;
+  }
+  return s;
+}
+// 确定性伪随机（按主题色 seed）
+function mulberry(seed){
+  let h=seed.replace('#',''); let n=0; for(let i=0;i<h.length;i++) n=(n*31+h.charCodeAt(i))>>>0;
+  let a=n||1; return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+}
+
+// 变体 E: 像素阶梯渐变实心 D（直线 bowl）
+function svgE(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40);
+  const inner = "M30 48 L54 60 L54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", top) +
+    poly("60,56 96,38 96,76 60,94", right) +
+    pixelD(ac, inner, +1, 6, 26)
+  );
+}
+
+// 变体 F: 像素阶梯渐变 D（圆润 bowl）
+function svgF(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40);
+  const inner = "M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", top) +
+    poly("60,56 96,38 96,76 60,94", right) +
+    pixelD(ac, inner, +1, 6, 26)
+  );
+}
+
+// 变体 G: 像素线框（顶+右描边，D 像素渐变描边）
+function svgG(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40); const sw=4.5;
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  const inner = "M30 48 L54 60 C56 67 56 81 54 86 L30 74 Z";
+  return svgWrap(
+    poly("60,20 96,38 60,56 24,38", "none", top, sw) +
+    poly("60,56 96,38 96,76 60,94", "none", right, sw) +
+    '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="none" stroke="'+ac+'" stroke-width="'+sw+'" stroke-linejoin="round"/>' +
+    pixelD(ac, inner, +1, 5, 22)
+  );
+}
+
+// 生成圆角四边形路径：corners=[[x,y],...] 顺时针，r=圆角半径
+function roundQuad(pts, r){
+  const n=pts.length; let d='';
+  for(let i=0;i<n;i++){
+    const p=pts[i], pv=pts[(i-1+n)%n], nx=pts[(i+1)%n];
+    // 入角前一点方向，出角后一点方向
+    const v1=[p[0]-pv[0], p[1]-pv[1]], v2=[nx[0]-p[0], nx[1]-p[1]];
+    const l1=Math.hypot(v1[0],v1[1]), l2=Math.hypot(v2[0],v2[1]);
+    const rr=Math.min(r, l1/2, l2/2);
+    const a=[p[0]-v1[0]/l1*rr, p[1]-v1[1]/l1*rr];
+    const b=[p[0]+v2[0]/l2*rr, p[1]+v2[1]/l2*rr];
+    if(i===0) d += 'M'+a[0].toFixed(2)+' '+a[1].toFixed(2);
+    else d += ' L'+a[0].toFixed(2)+' '+a[1].toFixed(2);
+    d += ' Q'+p[0].toFixed(2)+' '+p[1].toFixed(2)+' '+b[0].toFixed(2)+' '+b[1].toFixed(2);
+  }
+  return d+' Z';
+}
+
+// 每个顶点单独指定圆角半径：radii 与 pts 一一对应（顺时针）
+function roundQuadR(pts, radii){
+  const n=pts.length; let d='';
+  for(let i=0;i<n;i++){
+    const p=pts[i], pv=pts[(i-1+n)%n], nx=pts[(i+1)%n];
+    const v1=[p[0]-pv[0], p[1]-pv[1]], v2=[nx[0]-p[0], nx[1]-p[1]];
+    const l1=Math.hypot(v1[0],v1[1]), l2=Math.hypot(v2[0],v2[1]);
+    const rr=Math.min(radii[i]||0, l1/2, l2/2);
+    const a=[p[0]-v1[0]/l1*rr, p[1]-v1[1]/l1*rr];
+    const b=[p[0]+v2[0]/l2*rr, p[1]+v2[1]/l2*rr];
+    if(i===0) d += 'M'+a[0].toFixed(2)+' '+a[1].toFixed(2);
+    else d += ' L'+a[0].toFixed(2)+' '+a[1].toFixed(2);
+    if(rr>0.01) d += ' Q'+p[0].toFixed(2)+' '+p[1].toFixed(2)+' '+b[0].toFixed(2)+' '+b[1].toFixed(2);
+    else d += ' L'+b[0].toFixed(2)+' '+b[1].toFixed(2);
+  }
+  return d+' Z';
+}
+
+// 变体 H: 像素对角流动渐变 D（更斜的渐变方向 + 更陡加速，强调流动，盒子圆角更灵动）
+function svgH(ac){
+  const top=mix(ac,0.34), right=mix(ac,-0.40), left=mix(ac,-0.03);
+  // 盒子三个面统一小圆角，左侧面也做成圆角，风格一致
+  const topBox = roundQuad([[60,20],[96,38],[60,56],[24,38]], 4);
+  const rightBox = roundQuad([[60,56],[96,38],[96,76],[60,94]], 4);
+  const leftBox = roundQuad([[24,38],[60,56],[60,94],[24,76]], 4);
+  // 外框直角（盒子感），内部 D 碗口：左侧竖直、右侧鼓出弧线，形似字母 D
+  const outer = "M24 38 L60 56 L60 94 L24 76 Z";
+  // 内部 D 右侧内缩，避免贴边：右顶点左移到 50、rx 收到 3，与左面留出均衡间距
+  const inner = "M28 50 L50 62 A 3 12 0 0 1 50 84 L28 76 Z";
+  const id='pxg'+(UID++);
+  const steps=8;
+  const stops=[];
+  for(let i=0;i<steps;i++){
+    const t=Math.pow(i/(steps-1), 3.0); // 更陡加速
+    const amt = -0.25 + 1.02*t;
+    const col = mix(ac, amt);
+    const off=(i/(steps-1));
+    stops.push('<stop offset="'+off.toFixed(3)+'" stop-color="'+col+'"/>');
+    if(i<steps-1){
+      const t2=Math.pow((i+1)/(steps-1), 3.0);
+      const col2 = mix(ac, -0.25 + 1.02*t2);
+      stops.push('<stop offset="'+off.toFixed(3)+'" stop-color="'+col2+'"/>');
+    }
+  }
+  // 渐变方向更斜（从上到下偏右），形成对角流动
+  const defs='<defs><linearGradient id="'+id+'" x1="30" y1="44" x2="56" y2="92" gradientUnits="userSpaceOnUse">'
+           + stops.join('') + '</linearGradient></defs>';
+  const s = defs + '<path fill-rule="evenodd" d="'+outer+' '+inner+'" fill="url(#'+id+')" stroke="'+mix(ac,-0.55)+'" stroke-width="1.6" stroke-linejoin="round"/>';
+  return svgWrap(
+    '<path d="'+leftBox+'" fill="'+left+'"/>' +
+    '<path d="'+topBox+'" fill="'+top+'"/>' +
+    '<path d="'+rightBox+'" fill="'+right+'"/>' +
+    s
+  );
+}
+
+function poly(pts,fill,stroke,sw){
+  if(stroke) return '<polygon points="'+pts+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" stroke-linejoin="round"/>';
+  return '<polygon points="'+pts+'" fill="'+fill+'"/>';
+}
+function svgWrap(inner){ return '<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">'+inner+'</svg>'; }
+
+const logos = [
+  ['A','D 实心(直)','外轮廓=左侧面四边形，直线 bowl',ac=>svgA(ac)],
+  ['B','D 实心(圆)','外轮廓贴合盒界，圆润 bowl',ac=>svgB(ac)],
+  ['C','线框描边','顶+右描边，D 实心描边',ac=>svgC(ac)],
+  ['D','D 白色','D 跳白，盒体主题色',ac=>svgD(ac)],
+];
+// —— 像素渐变系列（加速渐变 + 颗粒感）——
+const pixelLogos = [
+  ['E','像素渐变 D(直)','加速阶梯渐变 + 像素颗粒',ac=>svgE(ac)],
+  ['F','像素渐变 D(圆)','圆润 bowl 加速渐变 + 颗粒',ac=>svgF(ac)],
+  ['G','像素线框','描边盒 + 像素渐变 D',ac=>svgG(ac)],
+  ['H','像素流动 D','对角加速流动渐变',ac=>svgH(ac)],
+];
+
+let current = THEMES[0];
+function renderLogos(){
+  const grid=document.getElementById('grid'); grid.innerHTML='';
+  const all = [...logos, ...pixelLogos];
+  // 两组之间插入分隔标题
+  let insertedGap=false;
+  all.forEach((row,idx)=>{
+    if(idx===logos.length && !insertedGap){
+      const sep=document.createElement('div');
+      sep.style.gridColumn='1 / -1';
+      sep.style.fontSize='13px'; sep.style.color='#9a9aff'; sep.style.letterSpacing='1px';
+      sep.style.padding='6px 2px 0'; sep.style.borderTop='1px dashed #2a2a3a'; sep.style.marginTop='6px';
+      sep.textContent='▾ 像素渐变系列（加速渐变 + 颗粒感）';
+      grid.appendChild(sep); insertedGap=true;
+    }
+    const [id,name,desc,fn]=row;
+    const card=document.createElement('div'); card.className='card';
+    const wrap=document.createElement('div'); wrap.className='logo-wrap';
+    const dv=document.createElement('div'); dv.innerHTML=fn(current.accent); wrap.appendChild(dv);
+    const nm=document.createElement('div'); nm.className='name'; nm.textContent=name+' #'+id;
+    const ds=document.createElement('div'); ds.className='desc'; ds.innerHTML=desc+'<br><span class="tag">'+current.label+'</span>';
+    card.appendChild(wrap); card.appendChild(nm); card.appendChild(ds); grid.appendChild(card);
+  });
+}
+function renderThemes(){
+  const box=document.getElementById('themes'); box.innerHTML='';
+  THEMES.forEach(t=>{
+    const c=document.createElement('div'); c.className='chip'+(t.id===current.id?' active':'');
+    c.innerHTML='<span class="swatch" style="background:'+t.accent+'"></span>'+t.label;
+    c.onclick=()=>{
+      current=t;
+      const stage=document.getElementById('stage');
+      stage.style.background = t.mode==='dark'? '#0a0a10':'#f0f1f4';
+      if(t.mode==='light') document.body.classList.add('theme-light');
+      else document.body.classList.remove('theme-light');
+      renderThemes(); renderLogos();
+    };
+    box.appendChild(c);
+  });
+}
+document.getElementById('stage').style.background = current.bg;
+renderThemes(); renderLogos();
+</script>
+</body></html>
