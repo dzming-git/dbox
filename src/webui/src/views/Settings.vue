@@ -544,13 +544,17 @@ watch(
   color: var(--text-primary);
 }
 
-/* 分组导航：顶部横向（移动端默认显示） */
+/* 分组导航：顶部横向（移动端默认显示，吸顶跟随） */
 .group-nav {
   display: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 10px;
+  padding: 4px 0 10px 0;
   margin-bottom: 8px;
+  background: var(--bg-surface);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -572,23 +576,27 @@ watch(
   color: var(--text-on-accent);
 }
 
-/* 两栏布局：侧边分组导航 + 内容 */
+/* 两栏布局：侧边分组导航 + 内容（用 grid 让侧边栏 sticky 可靠生效） */
 .settings-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: 160px 1fr;
   gap: 24px;
-  align-items: flex-start;
+  align-items: start;
 }
 
 .group-sidebar {
   position: sticky;
   top: 24px;
-  flex: 0 0 160px;
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   padding: 12px 8px;
   background: var(--bg-surface-hover);
   border-radius: 12px;
+  z-index: 5;
 }
 
 .group-sidebar-btn {
