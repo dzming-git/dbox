@@ -730,25 +730,21 @@ body.reader-active .main-content {
     align-items: center;
   }
   
-  .nav-left {
-    flex: 1 1 auto;
-    min-width: 0;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  
-  /* 手机端：导航图标脱离文档流，固定钉在右上角（头像左侧），
-     避免与搜索框竞争空间导致换行遮挡搜索框 */
+  /* 手机端：导航图标 + 头像整体固定在右上角，与下方搜索框互不干扰 */
   .nav-right {
     position: fixed;
     top: 10px;
-    right: 52px;
+    right: 12px;
     z-index: 300;
-    gap: 2px;
+    flex: 0 0 auto;
     flex-wrap: nowrap;
+    gap: 4px;
+    align-items: center;
     justify-content: flex-end;
-    align-self: flex-start;
+  }
+  /* 头像在窄屏下不再单独 fixed（已并入 nav-right 一起固定） */
+  .user-avatar-wrapper {
+    position: static;
   }
   
   /* 移动端搜索框独占整行，避免与图标挤在一起溢出 */
@@ -757,9 +753,18 @@ body.reader-active .main-content {
     order: 5;
     margin-top: 4px;
   }
-  
+
   .nav-search-input {
     width: 100%;
+  }
+
+  /* nav-left 在窄屏只展示 logo + 标签，不参与空间抢占 */
+  .nav-left {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
   }
   
   /* 移动端导航只显示图标，避免换行挤占两行遮挡搜索框。
@@ -824,14 +829,6 @@ body.reader-active .main-content {
   .dropdown-item {
     padding: 8px 12px;
     font-size: 13px;
-  }
-
-  /* 手机端：头像固定钉在右上角，不受导航换行影响 */
-  .user-avatar-wrapper {
-    position: fixed;
-    top: 10px;
-    right: 12px;
-    z-index: 300;
   }
 
 }
