@@ -27,6 +27,7 @@ from backend.trash import purge_trash
 from backend.runtime import runtime
 from backend.access import (
     resolve_identity, get_allowed_library_ids, apply_video_visibility,
+    is_video_visible, deny_missing, default_library_id,
 )
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
@@ -181,60 +182,15 @@ def get_videos():
 def get_video(video_hash):
     """获取单个视频详情 - 需要检查资源库权限"""
     try:
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
-        
-        # ============ 权限检查 ============
-        # 检查视频是否属于某个资源库
-        if video.library_id:
-            # 获取用户ID和角色
-            user_id = None
-            user_role = 0
-            auth_header = request.headers.get('Authorization', '')
-            if auth_header.startswith('Bearer '):
-                try:
-                    from authlib.jose import jwt as _jwt
-                    _secret = 'dbox-jwt-secret-key-change-in-production-2024'
-                    _payload = _jwt.decode(auth_header[7:], _secret)
-                    user_id = _payload.get('user_id')
-                    user_role = _payload.get('role', 0)
-                except Exception:
-                    pass
-            user_id, user_role = resolve_identity()
+        video = Video.query.filter_by(hash=video_hash).first()
 
-            # 管理员和ROOT可以访问所有视频
-            if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
-                # 资源库已取消激活时，外界完全不可见（含详情页）
-                _lib = ResourceLibrary.query.get(video.library_id)
-                if not _lib or not _lib.is_active:
-                    return jsonify({
-                        'success': False,
-                        'message': '该视频所属资源库已停用',
-                        'code': 404
-                    }), 404
-                # 检查用户权限
-                user_perm = LibraryPermission.query.filter_by(
-                    library_id=video.library_id, user_id=user_id
-                ).first()
-                
-                # 检查用户组权限
-                has_access = bool(user_perm)
-                if not has_access:
-                    user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
-                    for ugm in user_groups:
-                        group_perm = LibraryPermission.query.filter_by(
-                            library_id=video.library_id, group_id=ugm.group_id
-                        ).first()
-                        if group_perm:
-                            has_access = True
-                            break
-                
-                if not has_access:
-                    return jsonify({
-                        'success': False,
-                        'message': '无权访问此视频',
-                        'code': 403
-                    }), 403
-        
+        # ============ 权限检查（统一收敛点）============
+        # 一律以资源库可见性为准，不再为管理员开后门：
+        # 资源库未激活即等同不存在。响应与「资源真的不存在」完全一致，
+        # 避免通过状态码或文案差异探测资源是否存在。
+        if not is_video_visible(video):
+            return deny_missing()
+
         video_dict = video.to_dict()
         # 注入当前用户对视频的交互状态（以后端为准，登录用户绑定账号，跨设备一致）
         key = current_interaction_key()
@@ -259,7 +215,9 @@ def get_videos_by_hashes():
         if not isinstance(hashes, list) or len(hashes) == 0 or len(hashes) > 300:
             return jsonify({'success': True, 'videos': []})
 
-        videos = Video.query.filter(Video.hash.in_(hashes), Video.in_trash == False).all()
+        # 走统一可见性收敛：未激活资源库的视频不得通过 hash 批量反查出来
+        videos = apply_video_visibility(
+            Video.query.filter(Video.hash.in_(hashes))).all()
         result = [{
             'hash': v.hash,
             'title': v.title,
@@ -275,7 +233,9 @@ def get_videos_by_hashes():
 @bp.route('/api/video/<video_hash>/like', methods=['POST'])
 def like_video(video_hash):
     try:
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not is_video_visible(video):
+            return deny_missing()
         user_session = current_interaction_key()
 
         interaction = UserInteraction.query.filter_by(
@@ -310,7 +270,9 @@ def like_video(video_hash):
 @bp.route('/api/video/<video_hash>/favorite', methods=['POST'])
 def toggle_favorite(video_hash):
     try:
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not is_video_visible(video):
+            return deny_missing()
         user_session = current_interaction_key()
         
         interaction = UserInteraction.query.filter_by(
@@ -444,9 +406,11 @@ def batch_interact():
         user_session = current_interaction_key()
         score_map = {'like': 2.0, 'favorite': 5.0, 'dislike': -1.0}
         affected = 0
+        _allowed = get_allowed_library_ids()
         for h in hashes:
             video = Video.query.filter_by(hash=h).first()
-            if not video:
+            # 不可见资源不得被互动（否则可借批量接口探测其存在）
+            if not is_video_visible(video, _allowed):
                 continue
             _ensure_interaction(video, user_session, action, score_map[action])
             # 同步计数
@@ -468,7 +432,9 @@ def batch_interact():
 def toggle_dislike(video_hash):
     """标记/取消标记不喜欢（踩），默认在列表中屏蔽该视频"""
     try:
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not is_video_visible(video):
+            return deny_missing()
         user_session = current_interaction_key()
 
         interaction = UserInteraction.query.filter_by(
@@ -528,7 +494,9 @@ def delete_video(video_hash):
 def increment_view_count(video_hash):
     """增加视频观看次数"""
     try:
-        video = Video.query.filter_by(hash=video_hash).first_or_404()
+        video = Video.query.filter_by(hash=video_hash).first()
+        if not is_video_visible(video):
+            return deny_missing()
         video.view_count = (video.view_count or 0) + 1
         db.session.commit()
         return jsonify({'success': True, 'view_count': video.view_count})
@@ -801,13 +769,24 @@ def upload_video():
         description = request.form.get('description', '').strip()
         library_id = request.form.get('library_id')
 
+        # 所有资源必须有归属，且只能上传到「已激活且有权限」的资源库。
+        # 未激活的库对外不可见，自然也不可作为上传目标。
+        _allowed = get_allowed_library_ids()
+        try:
+            library_id = int(library_id) if library_id else None
+        except (TypeError, ValueError):
+            library_id = None
+        if library_id is None:
+            library_id = default_library_id()
+        if library_id is None or library_id not in _allowed:
+            return jsonify({'success': False, 'message': '资源不存在', 'code': 404}), 404
+
         # 确定上传目录
         upload_dir = os.path.join(DATA_DIR, 'uploads')  # 默认上传目录
 
-        # 如果指定了 library_id，尝试获取该库的默认上传路径
+        # 获取该库的默认上传路径
         if library_id:
             try:
-                library_id = int(library_id)
                 # 使用 resource.db 中的库 ID
                 res_lib_id = _resolve_resource_library_id(library_id)
                 # 通过总线查询 resourced 服务的默认路径

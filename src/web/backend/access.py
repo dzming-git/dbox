@@ -259,6 +259,96 @@ def filter_visible_snapshots(rows, type_attr='item_type', id_attr='item_id',
     return out
 
 
+def default_library_id():
+    """返回默认归属资源库（主资源库）ID，用于「所有资源必须有归属」的兜底。
+
+    找不到主资源库时退回任一激活库；再找不到返回 None（调用方据此拒绝写入）。
+    """
+    from core.models import MAIN_LIBRARY_NAME
+    lib = ResourceLibrary.query.filter_by(name=MAIN_LIBRARY_NAME).first()
+    if lib:
+        return lib.id
+    lib = ResourceLibrary.query.filter_by(is_active=True).first()
+    return lib.id if lib else None
+
+
+def resource_index_visible(ri, allowed_ids=None):
+    """判断资源索引本身是否对当前用户可见（库已激活且有权限）。
+
+    这是「实际访问」层的统一判定：任何吐字节流的接口（视频串流、原文件、
+    缩略图、封面、图集单页、文档下载）都必须先过这一关。
+    资源索引是所有实体（视频/图集/文本/帖子引用）的共同底座，
+    在此收敛可保证不存在绕过实体层直接拿文件的路径。
+    """
+    if ri is None:
+        return False
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    return ri.library_id in set(allowed_ids)
+
+
+def deny_missing():
+    """统一的「资源不存在」响应。
+
+    安全要求：外界不得感知资源的存在性。无论是「真的没有」还是
+    「存在但无权访问 / 所属资源库未激活」，一律返回 404 且文案一致，
+    不得出现「权限不足」「未授权」等可用于探测资源存在的措辞。
+    """
+    return jsonify({'success': False, 'message': '资源不存在', 'code': 404}), 404
+
+
+def abort_missing():
+    """文件流接口用的「资源不存在」中断（等价于 deny_missing 的 abort 版）。"""
+    from flask import abort as _abort
+    _abort(404)
+
+
+def guard_resource_index(ri, allowed_ids=None):
+    """文件流接口守卫：资源索引不可见时直接 404（不泄露存在性）。"""
+    if not resource_index_visible(ri, allowed_ids):
+        abort_missing()
+    return ri
+
+
+def guard_location(location, allowed_ids=None):
+    """按磁盘路径反查资源索引并校验可见性，不可见则 404。
+
+    用于 /local_video/<path> 与 /gallery-page/<path> 这类「URL 直接带磁盘
+    路径」的历史接口：它们原先只做路径白名单，任何人拿到路径即可取到文件，
+    与资源库激活状态完全脱钩。此处强制回源到资源索引做权限判定。
+    """
+    if not location:
+        abort_missing()
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    import os as _os
+    norm = _os.path.normcase(_os.path.abspath(location))
+    ri = ResourceIndex.query.filter(ResourceIndex.location == location).first()
+    if ri is None:
+        # 兜底：统一分隔符与大小写后比较（仍基于完整路径，文件名不作为身份）
+        for cand in ResourceIndex.query.filter(ResourceIndex.location.isnot(None)).all():
+            try:
+                if _os.path.normcase(_os.path.abspath(cand.location)) == norm:
+                    ri = cand
+                    break
+            except Exception:
+                continue
+    # 图集单页等位于资源目录内部的文件：向上匹配所属资源目录
+    if ri is None:
+        for cand in ResourceIndex.query.filter(
+                ResourceIndex.kind == 'gallery_folder').all():
+            try:
+                root = _os.path.normcase(_os.path.abspath(cand.location))
+                if norm == root or norm.startswith(root + _os.sep):
+                    ri = cand
+                    break
+            except Exception:
+                continue
+    if not resource_index_visible(ri, allowed_ids):
+        abort_missing()
+    return ri
+
+
 def _post_library_ids(post):
     """收集帖子涉及的所有资源库 ID（含帖子自身、引用资源、正文内联资源）。
 

@@ -24,6 +24,10 @@ from core.models import (
     GalleryTag, GalleryPlaylist, GalleryPlaylistItem, Tag,
 )
 from backend.trash import move_to_trash, purge_trash
+from backend.access import (
+    get_allowed_library_ids, guard_location, guard_resource_index,
+    is_gallery_visible,
+)
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
 
@@ -102,38 +106,12 @@ _MIME_MAP = {
 
 
 def _allowed_library_ids():
-    """返回当前用户可访问的资源库ID列表（与 main.get_allowed_library_ids 对齐）。
+    """返回当前用户可访问的资源库ID列表。
 
-    图集复用 resource_libraries 表，权限模型与视频一致：
-    - 管理员/ROOT：返回全部「激活」资源库ID；
-    - 登录普通用户：自身直接权限 + 所属用户组权限 + 通用权限(user_id=None)；
-    - 游客：仅通用权限。
-    返回永远是 list（可能为空）。调用方据此过滤 Gallery.library_id。
+    统一委托给 backend.access 的唯一实现，避免图集侧维护第二份权限口径
+    （两份实现一旦漂移就会形成绕过通道）。保留本函数名仅为兼容既有调用点。
     """
-    uid, role = _resolve_identity()
-    allowed = []
-    if role in (UserRole.ADMIN, UserRole.ROOT):
-        libs = ResourceLibrary.query.filter_by(is_active=True).all()
-        return [lib.id for lib in libs]
-    if uid:
-        perms = LibraryPermission.query.filter_by(user_id=uid).all()
-        for p in perms:
-            lib = ResourceLibrary.query.get(p.library_id)
-            if lib and getattr(lib, 'is_active', True):
-                allowed.append(p.library_id)
-        groups = LibraryUserGroupMember.query.filter_by(user_id=uid).all()
-        for ugm in groups:
-            gperms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
-            for p in gperms:
-                lib = ResourceLibrary.query.get(p.library_id)
-                if lib and getattr(lib, 'is_active', True) and p.library_id not in allowed:
-                    allowed.append(p.library_id)
-    general = LibraryPermission.query.filter_by(user_id=None).all()
-    for p in general:
-        lib = ResourceLibrary.query.get(p.library_id)
-        if lib and getattr(lib, 'is_active', True) and p.library_id not in allowed:
-            allowed.append(p.library_id)
-    return allowed
+    return get_allowed_library_ids()
 
 
 def _ensure_tag_path(path, library_id):
@@ -577,8 +555,9 @@ def serve_gallery_page(page_path):
             page_path = page_path.replace('//', '/')
         page_path = page_path.replace('/', os.sep)
 
-        if not _allowed_image_path(page_path):
-            abort(403)
+        # 回源资源索引校验所属资源库是否激活：
+        # 仅凭磁盘路径白名单放行会绕过资源库管控，使未激活库的图片仍可直取。
+        guard_location(page_path)
         if not os.path.isfile(page_path):
             abort(404)
         return send_file(page_path, mimetype=_image_mimetype(page_path))
@@ -605,6 +584,7 @@ def _gallery_folder_images(ri):
 def serve_resource_file(rid, idx):
     try:
         ri = ResourceIndex.query.get_or_404(rid)
+        guard_resource_index(ri)
         if ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
             abort(404)
         files = _gallery_folder_images(ri)
@@ -628,6 +608,7 @@ def serve_resource_document(rid):
     """提供帖子专属文档附件（PDF / Office 等）下载。"""
     try:
         ri = ResourceIndex.query.get_or_404(rid)
+        guard_resource_index(ri)
         if ri.kind != 'document_file' or not ri.location or not os.path.isfile(ri.location):
             abort(404)
         return send_file(ri.location, as_attachment=True,
@@ -642,7 +623,8 @@ def serve_resource_document(rid):
 def serve_gallery_cover(gallery_hash):
     try:
         c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
-
+        if not is_gallery_visible(c):
+            abort(404)
         if not c.cover_path or not os.path.isfile(c.cover_path):
             abort(404)
         return send_file(c.cover_path, mimetype=_image_mimetype(c.cover_path))

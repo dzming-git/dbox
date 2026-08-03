@@ -5,7 +5,7 @@ from core.models import Video
 from core.models import UserRole
 from backend.thumbnail_helpers import _save_thumb_config
 import threading
-from backend.access import resolve_identity
+from backend.access import resolve_identity, is_video_visible
 from backend.thumbnail_helpers import _generate_missing_thumbnails
 from backend.thumbnail_helpers import _thumb_auto_stop_event
 from backend.thumbnail_helpers import _start_auto_generate
@@ -25,7 +25,13 @@ def get_thumbnail(video_hash):
     """获取缩略图，支持懒加载生成 - 需要检查资源库权限"""
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
 
-    # 先尝试查找已存在的文件
+    # 权限必须先于文件读取：缩略图缓存文件以 hash 命名且长期驻留磁盘，
+    # 若先返回文件再校验，未激活资源库的封面仍可被直接取走。
+    video = Video.query.filter_by(hash=video_hash).first()
+    if not is_video_visible(video):
+        abort(404)
+
+    # 已存在缓存则直接返回
     for ext in ['gif', 'jpg', 'png']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
@@ -35,73 +41,8 @@ def get_thumbnail(video_hash):
 
     # 文件不存在，尝试懒加载生成
     try:
-        # 查找视频的本地路径
-        video = Video.query.filter_by(hash=video_hash).first()
-        if not video or not video.local_path:
-            # 没有视频记录或本地路径，返回404
+        if not video.local_path:
             abort(404)
-
-        # ============ 权限检查 ============
-        # 检查视频是否属于某个资源库
-        if video.library_id:
-            # 获取用户ID和角色
-            user_id = None
-            user_role = 0
-
-            # 方式1: 从 Authorization header 获取 token
-            auth_header = request.headers.get('Authorization', '')
-            if auth_header.startswith('Bearer '):
-                try:
-                    from authlib.jose import jwt as _jwt
-                    _secret = 'dbox-jwt-secret-key-change-in-production-2024'
-                    _payload = _jwt.decode(auth_header[7:], _secret)
-                    user_id = _payload.get('user_id')
-                    user_role = _payload.get('role', 0)
-                except Exception:
-                    pass
-
-            # 方式2: 从查询参数 token 获取（用于 <img> 标签）
-            if not user_id:
-                query_token = request.args.get('token', '')
-                if query_token:
-                    try:
-                        from authlib.jose import jwt as _jwt
-                        _secret = 'dbox-jwt-secret-key-change-in-production-2024'
-                        _payload = _jwt.decode(query_token, _secret)
-                        user_id = _payload.get('user_id')
-                        user_role = _payload.get('role', 0)
-                    except Exception:
-                        pass
-
-            # 方式3: 从 session 获取
-            user_id, user_role = resolve_identity()
-
-            # 管理员和ROOT可以访问所有缩略图
-            if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
-                # 检查用户权限
-                user_perm = LibraryPermission.query.filter_by(
-                    library_id=video.library_id, user_id=user_id
-                ).first()
-                
-                # 检查通用权限（user_id=NULL 表示所有人都可以访问）
-                general_perm = LibraryPermission.query.filter_by(
-                    library_id=video.library_id, user_id=None
-                ).first()
-
-                # 检查用户组权限
-                has_access = bool(user_perm) or bool(general_perm)
-                if not has_access:
-                    user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
-                    for ugm in user_groups:
-                        group_perm = LibraryPermission.query.filter_by(
-                            library_id=video.library_id, group_id=ugm.group_id
-                        ).first()
-                        if group_perm:
-                            has_access = True
-                            break
-
-                if not has_access:
-                    abort(403)
 
         # 调用缩略图服务异步生成（后台线程，不阻塞当前请求）
         if thumbnail_bus:

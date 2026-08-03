@@ -19,6 +19,7 @@ from core.models import UserRole
 from core.models import Video
 from datetime import datetime, timedelta
 from backend.access import get_allowed_library_ids
+from backend.access import resource_index_visible, default_library_id
 import json
 from backend.access import resolve_identity
 from backend.access import auth_required
@@ -65,9 +66,10 @@ def create_post():
 
 @bp.route('/api/posts/<int:did>', methods=['GET'])
 def get_post(did):
-    d = Post.query.get_or_404(did)
-    if not _user_can_read_post(d, get_allowed_library_ids()):
-        return jsonify({'success': False, 'message': '无权访问该帖子（引用了您无权限的资源）'}), 403
+    d = Post.query.get(did)
+    # 统一按「不存在」响应，不透露帖子及其引用资源的存在性
+    if not d or not _user_can_read_post(d, get_allowed_library_ids()):
+        return jsonify({'success': False, 'message': '资源不存在', 'code': 404}), 404
     return jsonify(d.to_dict(resolve=True))
 
 @bp.route('/api/posts/<int:did>', methods=['PUT'])
@@ -195,6 +197,12 @@ def resource_index_pool():
     kind = request.args.get('kind')
     search = request.args.get('search', '').strip()
     q = ResourceIndex.query
+    # 资源池是所有实体的底座，必须先过资源库可见性，否则可绕过各实体列表直接枚举
+    allowed = get_allowed_library_ids()
+    if allowed:
+        q = q.filter(ResourceIndex.library_id.in_(allowed))
+    else:
+        q = q.filter(ResourceIndex.library_id == -1)
     if library_id is not None:
         q = q.filter_by(library_id=library_id)
     if kind:
@@ -270,9 +278,15 @@ def texts_api():
         library_id = request.args.get('library_id', type=int)
         search = request.args.get('search', '').strip()
         sub = db.session.query(ResourceModeMembership.resource_index_id).filter_by(mode=ResourceMode.TEXT)
-        q = Text.query.filter(Text.resource_index_id.in_(sub))
+        q = Text.query.filter(Text.resource_index_id.in_(sub)).join(ResourceIndex)
+        # 文本同样归属资源库：所属库未激活时对外不可见
+        allowed = get_allowed_library_ids()
+        if allowed:
+            q = q.filter(ResourceIndex.library_id.in_(allowed))
+        else:
+            q = q.filter(ResourceIndex.library_id == -1)
         if library_id is not None:
-            q = q.join(ResourceIndex).filter(ResourceIndex.library_id == library_id)
+            q = q.filter(ResourceIndex.library_id == library_id)
         items = q.all()
         if search:
             items = [t for t in items
@@ -284,8 +298,15 @@ def texts_api():
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
     title = data.get('title') or '未命名文本'
+    # 所有资源都必须有归属：未指定时落到主资源库，且只能写入已激活且有权限的库
+    target_lib = data.get('library_id')
+    allowed = get_allowed_library_ids()
+    if target_lib is None:
+        target_lib = default_library_id()
+    if target_lib is None or target_lib not in allowed:
+        return jsonify({'error': '资源不存在', 'code': 404}), 404
     ri = ResourceIndex(kind='text', location=data.get('location') or '',
-                       library_id=data.get('library_id'),
+                       library_id=target_lib,
                        meta=json.dumps({'title': title, 'summary': data.get('summary', '')}, ensure_ascii=False))
     db.session.add(ri)
     db.session.flush()
@@ -297,7 +318,10 @@ def texts_api():
 
 @bp.route('/api/texts/<int:tid>', methods=['GET', 'PUT', 'DELETE'])
 def text_item_api(tid):
-    t = Text.query.get_or_404(tid)
+    t = Text.query.get(tid)
+    # 文本详情同样受资源库管控，不可见即视为不存在
+    if not t or not resource_index_visible(t.resource_index):
+        return jsonify({'error': '资源不存在', 'code': 404}), 404
     if request.method == 'GET':
         return jsonify(t.to_dict())
     user = resolve_user()

@@ -2,10 +2,12 @@
 from urllib.parse import quote, unquote
 from core.models import Video
 from core.models import ResourceIndex
+from backend.access import guard_location
 from datetime import datetime, timedelta
 from backend.runtime import runtime
 import os
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
+from werkzeug.exceptions import HTTPException
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
 
@@ -24,38 +26,22 @@ def serve_local_video(video_path):
 
         log.runtime('INFO', f"[serve_local_video] 原始请求: {request.path}, 解析后: {video_path}")
 
-        # 获取扫描目录白名单
-        scan_dirs = [cfg['path'].replace('\\', '/') for cfg in runtime.app_config.get('scan_directories', [])]
+        # 权限收敛：一律回源资源索引校验所属资源库是否激活。
+        # 原先「路径落在扫描目录内即放行」的白名单会绕过资源库管控，
+        # 使未激活资源库的视频仍可被直接串流，故不再作为放行依据。
+        guard_location(video_path)
 
-        # 白名单检查：1. 扫描目录 2. 数据库中已有视频的 local_path（精确匹配，绝不用文件名）
-        allowed = any(video_path.startswith(d.replace('/', os.sep)) for d in scan_dirs)
-
-        # 如果不在扫描目录，检查是否在数据库中（基于完整 local_path 精确匹配，文件名不作为身份）
-        if not allowed:
-            existing_video = Video.query.join(ResourceIndex).filter(
-                ResourceIndex.location == video_path).first()
-            if not existing_video:
-                # 兜底：统一分隔符与大小写后比较，仍基于完整路径而非文件名
-                norm_req = os.path.normcase(os.path.abspath(video_path))
-                for ev in Video.query.join(ResourceIndex).filter(
-                        ResourceIndex.location.isnot(None)).all():
-                    if os.path.normcase(os.path.abspath(ev.local_path)) == norm_req:
-                        existing_video = ev
-                        break
-            if existing_video:
-                allowed = True
-                log.runtime('INFO', f"[serve_local_video] 路径在数据库中找到: {video_path}")
-
-        if not allowed:
-            log.debug('WARN', f"[serve_local_video] 路径未通过白名单: {video_path}")
-            abort(403)
         if not os.path.exists(video_path):
-            log.debug('WARN', f"[serve_local_video] 文件不存在: {video_path}")
-            abort(403)
+            # 不区分「文件缺失」与「无权访问」，统一按不存在处理
+            abort(404)
         return send_file(video_path, mimetype='video/mp4')
+    except HTTPException:
+        # abort(404) 抛出的是 HTTPException，不能被下面的兜底吞成 500，
+        # 否则「无权访问」与「服务异常」状态码不同，可被用于探测资源存在性。
+        raise
     except Exception as e:
         log.debug('ERROR', f"[serve_local_video] 错误: {str(e)}, 路径: {video_path if 'video_path' in dir() else 'unknown'}")
-        abort(500)
+        abort(404)
 
 @bp.route('/health')
 def health():
