@@ -303,6 +303,11 @@ onMounted(async () => {
   await fetchServerSettings()
   if (!userStore.isLoggedIn) activeTab.value = 'browser'
   loadTab(activeTab.value)
+  // 关闭浏览器滚动恢复，避免上次停留在「通知」分组时再次进入仍停在底部
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+  window.scrollTo(0, 0)
+  // 默认高亮第一个分组（播放），避免 observer 初始触发时误判
+  activeGroup.value = navGroups.value[0]?.id || 'playback'
   // 滚动时高亮当前分组
   const ids = navGroups.value.map((g) => 'group-' + g.id)
   groupObserver = new IntersectionObserver(

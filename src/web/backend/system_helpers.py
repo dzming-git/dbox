@@ -22,13 +22,24 @@ from backend.runtime import runtime
 # ============ 分层设置（用户 / 全局 / 浏览器） ============
 # 合并优先级（高 -> 低）：browser > user > global > defaults
 SETTINGS_DEFAULTS = {
+    # 播放
     'autoplay': False,
     'defaultQuality': 'auto',
+    'subtitleLanguage': 'off',
+    'autoContinue': True,
     'volume': 80,
     'loop': False,
     'playbackRate': 1.0,
     'subtitleFontSize': 24,
     'subtitleColor': '#ffffff',
+    # 外观
+    'theme': 'sunset-dark',
+    'language': 'zh-CN',
+    # 列表与展示
+    'blockDisliked': False,
+    'defaultSort': 'recommended',
+    'defaultOrder': 'desc',
+    # 弹幕（后端保留，前端暂未开放编辑）
     'danmakuOpacity': 1.0,
     'danmakuSpeed': 1.0,
     'danmakuFont': 24,
