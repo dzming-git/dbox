@@ -125,7 +125,15 @@ function scrollToGroup(id: string) {
   activeGroup.value = id
   clickScrollingLock.value = true
   const el = document.getElementById('group-' + id)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (el) {
+    // 计算元素相对文档顶部的位置，并预留全局导航栏高度 + 间距，
+    // 避免跳转后标题被 fixed 导航栏遮挡
+    const navH = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue('--nav-height')
+    ) || 60
+    const top = window.scrollY + el.getBoundingClientRect().top - navH - 20
+    window.scrollTo({ top, behavior: 'smooth' })
+  }
   // scrollend 后解锁；不支持该事件的浏览器用兜底定时器
   const unlock = () => {
     clickScrollingLock.value = false
