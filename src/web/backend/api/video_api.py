@@ -1015,11 +1015,11 @@ def stats_overview():
 
         # 最热视频（点赞最多 / 收藏最多），仅可见视频
         top_liked = [v.to_dict() for v in apply_video_visibility(
-            Video.query.order_by(Video.like_count.desc()).limit(10)
-        ).options(joinedload(Video.resource_index)).all()]
+            Video.query.order_by(Video.like_count.desc())
+        ).options(joinedload(Video.resource_index)).limit(10).all()]
         top_favorited = [v.to_dict() for v in apply_video_visibility(
-            Video.query.order_by(Video.favorite_count.desc()).limit(10)
-        ).options(joinedload(Video.resource_index)).all()]
+            Video.query.order_by(Video.favorite_count.desc())
+        ).options(joinedload(Video.resource_index)).limit(10).all()]
 
         # 标签总数与用户总数（用于后台仪表盘概览卡片）
         total_tags = Tag.query.count()
