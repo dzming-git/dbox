@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
@@ -13,11 +13,15 @@ const texts = ref<TextResource[]>([])
 const loading = ref(false)
 const error = ref('')
 
+const searchQuery = ref('')
+
 const fetchTexts = async () => {
   loading.value = true
   error.value = ''
   try {
-    const res: any = await textApi.list()
+    const params: any = {}
+    if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
+    const res: any = await textApi.list(params)
     texts.value = res.texts || []
   } catch (e: any) {
     error.value = e?.message || '加载文本失败'
@@ -27,6 +31,12 @@ const fetchTexts = async () => {
 }
 
 onMounted(fetchTexts)
+
+let searchTimer: number | null = null
+watch(searchQuery, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => fetchTexts(), 500)
+})
 
 // ============ 新建 / 编辑 ============
 const dialogVisible = ref(false)
@@ -80,6 +90,12 @@ const formatDate = (s?: string) => {
       <h2 class="section-title">文本</h2>
       <button class="create-btn" @click="openCreate">新建文本</button>
     </div>
+    <div class="search-box">
+      <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input v-model="searchQuery" type="text" placeholder="搜索文本标题或内容..." class="search-input" />
+    </div>
 
     <p class="hint">文本是未来的内容管理模式，复用同一套资源索引机制（ResourceIndex + 模式归属）。可在此直接撰写，或由下载脚本以 <code>kind='text'</code> 入库。</p>
 
@@ -125,6 +141,10 @@ const formatDate = (s?: string) => {
 <style scoped>
 .texts-container { padding: 20px; max-width: 1000px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .texts-header { display: flex; align-items: center; justify-content: space-between; }
+.search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px; }
+.search-icon { color: var(--text-tertiary); flex-shrink: 0; }
+.search-input { background: transparent; border: none; color: var(--text-primary); font-size: 14px; outline: none; width: 100%; }
+.search-input::placeholder { color: var(--text-tertiary); }
 .section-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .create-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 8px; background: var(--accent); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .create-btn:hover { background: var(--accent-active); }
