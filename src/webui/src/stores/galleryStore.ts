@@ -18,7 +18,7 @@ export const useGalleryStore = defineStore('gallery', () => {
   const sortOrder = ref(getDefaultSort().order)
   const viewMode = ref<'grid' | 'list'>(
     (localStorage.getItem('dbox_gallery_view_mode') as 'grid' | 'list') ||
-    (localStorage.getItem('dplayer_gallery_view_mode') as 'grid' | 'list') ||
+    (localStorage.getItem('dbox_gallery_view_mode') as 'grid' | 'list') ||
     'grid'
   )
 

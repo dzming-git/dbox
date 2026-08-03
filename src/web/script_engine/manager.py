@@ -79,7 +79,7 @@ class ScriptJobManager:
             print(f'[script_engine] 镜像任务失败 job={job_id}: {e}')
 
     def _data_dir(self):
-        env = os.environ.get('DPLAYER_DATA_DIR')
+        env = os.environ.get('DBOX_DATA_DIR')
         if env:
             return env
         pkg_dir = os.path.dirname(os.path.abspath(__file__))    # src/web/script_engine

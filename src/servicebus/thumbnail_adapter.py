@@ -6,9 +6,9 @@ BusThumbnailAdapter - 封面生成器（thumbnaild）的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.thumbnaild
-  Interface:      com.dplayer.Thumbnaild
-  Object Path:    /com/dplayer/thumbnaild
+  Service:        com.dbox.thumbnaild
+  Interface:      com.dbox.Thumbnaild
+  Object Path:    /com/dbox/thumbnaild
 
   Methods:
     Generate(video_path, video_hash, output_format)
@@ -54,9 +54,9 @@ class BusThumbnailAdapter(BaseDBusService):
     将 TaskManager 的任务队列能力暴露到服务总线上。
     """
 
-    BUS_NAME = 'com.dplayer.thumbnaild'
-    INTERFACES = ['com.dplayer.Thumbnaild']
-    OBJECT_PATH = '/com/dplayer/thumbnaild'
+    BUS_NAME = 'com.dbox.thumbnaild'
+    INTERFACES = ['com.dbox.Thumbnaild']
+    OBJECT_PATH = '/com/dbox/thumbnaild'
 
     def __init__(self, task_manager,
                  host: str = '127.0.0.1',
@@ -104,7 +104,7 @@ class BusThumbnailAdapter(BaseDBusService):
 
         # 发信号：任务已创建
         self.emit_signal(
-            'com.dplayer.Thumbnaild',
+            'com.dbox.Thumbnaild',
             'TaskCreated',
             {
                 'video_hash': video_hash,

@@ -29,7 +29,7 @@ export const useVideoStore = defineStore('video', () => {
   const sortOrder = ref(getDefaultSort().order)  // 排序方向: asc, desc
   const viewMode = ref<'grid' | 'list'>(
     (localStorage.getItem('dbox_view_mode') as 'grid' | 'list') ||
-    (localStorage.getItem('dplayer_view_mode') as 'grid' | 'list') ||
+    (localStorage.getItem('dbox_view_mode') as 'grid' | 'list') ||
     'grid'
   )  // 显示模式: grid=缩略图, list=列表
 

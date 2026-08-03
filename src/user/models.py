@@ -24,9 +24,9 @@ class UserRole(int, Enum):
     GUEST = 3     # 访客
 
 
-# 数据库路径（主数据库 - 复用 dplayer.db）
+# 数据库路径（主数据库 - 复用 dbox.db）
 _DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'databases')
-_DB_PATH = os.path.join(_DB_DIR, 'dplayer.db')
+_DB_PATH = os.path.join(_DB_DIR, 'dbox.db')
 
 
 def _ensure_db_dir():
@@ -148,7 +148,7 @@ class UserDB:
 
     @staticmethod
     def init_table():
-        """确保 users 表存在（从 dplayer.db 复用）"""
+        """确保 users 表存在（从 dbox.db 复用）"""
         with Database.get_cursor() as cursor:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (

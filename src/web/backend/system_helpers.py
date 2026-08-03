@@ -15,7 +15,7 @@ import subprocess
 
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 from backend.runtime import runtime
 
 
@@ -182,39 +182,39 @@ def _do_windows_shutdown(seconds=0):
 # ============ 服务管理 ============
 # 服务元信息映射（nssm service name -> 服务描述）
 _SERVICE_META = {
-    'dplayer-web': {
-        'display_name': 'DPlayer Web服务',
+    'dbox-web': {
+        'display_name': 'Dbox Web服务',
         'description': 'Web API 服务 - 视频管理、用户认证等',
         'health_url': None,
         'port': 8080,
     },
-    'dplayer-bus': {
-        'display_name': 'DPlayer 服务总线',
+    'dbox-bus': {
+        'display_name': 'Dbox 服务总线',
         'description': '服务总线代理，所有内部服务通信中枢',
         'health_url': None,
         'port': None,
     },
-    'dplayer-servicemgr': {
-        'display_name': 'DPlayer 服务管理',
-        'description': '服务管理守护进程，定期扫描 dplayer-* 服务状态',
+    'dbox-servicemgr': {
+        'display_name': 'Dbox 服务管理',
+        'description': '服务管理守护进程，定期扫描 dbox-* 服务状态',
         'health_url': None,
         'port': None,
     },
-    'dplayer-thumbnail': {
-        'display_name': 'DPlayer 缩略图服务',
+    'dbox-thumbnail': {
+        'display_name': 'Dbox 缩略图服务',
         'description': '视频缩略图生成微服务（通过服务总线）',
         'health_url': None,
         'port': None,
     },
-    'dplayer-webui': {
-        'display_name': 'DPlayer WebUI服务',
+    'dbox-webui': {
+        'display_name': 'Dbox WebUI服务',
         'description': 'Vue3 前端界面',
         'health_url': 'http://localhost:5173',
         'port': 5173,
         'health_check_json': False,
     },
-    'dplayer-downloader': {
-        'display_name': 'DPlayer 资源下载器',
+    'dbox-downloader': {
+        'display_name': 'Dbox 资源下载器',
         'description': '独立进程：外部脚本 / 下载器服务（与主服务解耦，崩溃不影响主服务）',
         'health_url': 'http://127.0.0.1:8092/api/health',
         'port': 8092,
@@ -243,7 +243,7 @@ def _open_scm():
 
 
 def _scan_services() -> list:
-    """扫描 dplayer- 前缀的 Windows 服务。"""
+    """扫描 dbox- 前缀的 Windows 服务。"""
     try:
         import win32service
 
@@ -252,7 +252,7 @@ def _scan_services() -> list:
             services = win32service.EnumServicesStatus(
                 scm, win32service.SERVICE_WIN32, win32service.SERVICE_STATE_ALL
             )
-            return [s[0] for s in services if s[0].startswith('dplayer-')]
+            return [s[0] for s in services if s[0].startswith('dbox-')]
         finally:
             win32service.CloseServiceHandle(scm)
     except Exception as e:
@@ -264,23 +264,23 @@ def _scan_services() -> list:
             capture_output=True, text=True, timeout=30, shell=True
         )
         if result.returncode == 0:
-            dplayer_svcs = []
+            dbox_svcs = []
             for line in result.stdout.splitlines():
                 line = line.strip()
                 if line.startswith('SERVICE_NAME:'):
                     svc_name = line.split(':', 1)[1].strip()
-                    if svc_name.startswith('dplayer-'):
-                        dplayer_svcs.append(svc_name)
-            if dplayer_svcs:
-                return dplayer_svcs
+                    if svc_name.startswith('dbox-'):
+                        dbox_svcs.append(svc_name)
+            if dbox_svcs:
+                return dbox_svcs
     except Exception as e2:
         log.debug('DEBUG', f'[服务管理] sc query fallback 也失败: {type(e2).__name__}: {e2}')
 
     known_services = [
-        'dplayer-web', 'dplayer-bus', 'dplayer-servicemgr', 'dplayer-thumbnail',
-        'dplayer-webui', 'dplayer-resource', 'dplayer-userd', 'dplayer-systemd',
-        'dplayer-historyd', 'dplayer-collectiond', 'dplayer-searchd',
-        'dplayer-downloader',
+        'dbox-web', 'dbox-bus', 'dbox-servicemgr', 'dbox-thumbnail',
+        'dbox-webui', 'dbox-resource', 'dbox-userd', 'dbox-systemd',
+        'dbox-historyd', 'dbox-collectiond', 'dbox-searchd',
+        'dbox-downloader',
     ]
     verified = []
     try:
@@ -350,7 +350,7 @@ def _get_service_status(service_name: str) -> dict:
                     if proc.info['name'] and proc.info['name'].lower() == app_name.lower():
                         cmdline = proc.info.get('cmdline') or []
                         cmdline_str = ' '.join(cmdline).lower()
-                        if 'dplayer' in cmdline_str and service_name.replace('dplayer-', '') in cmdline_str:
+                        if 'dbox' in cmdline_str and service_name.replace('dbox-', '') in cmdline_str:
                             info['pid'] = proc.info['pid']
                             break
                 except (psutil.NoSuchProcess, psutil.AccessDenied):

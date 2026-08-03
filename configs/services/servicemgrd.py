@@ -3,7 +3,7 @@
 """
 servicemgrd - 服务管理守护进程
 
-定期扫描 Windows NSSM dplayer-* 服务，缓存状态，
+定期扫描 Windows NSSM dbox-* 服务，缓存状态，
 通过服务总线对外提供查询接口。
 
 使用方式：

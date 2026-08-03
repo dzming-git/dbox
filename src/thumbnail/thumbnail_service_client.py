@@ -16,7 +16,7 @@ import time
 from liblog import get_service_logger
 from datetime import datetime
 
-log = get_service_logger('dplayer-thumbnail')
+log = get_service_logger('dbox-thumbnail')
 
 
 class ThumbnailServiceClient:

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-统一日志接口库 - Dplayer日志系统
+统一日志接口库 - Dbox日志系统
 
 提供线程安全的日志记录功能，支持四种日志分类：
 - 维护日志 (maintenance): 关键操作、状态变更（禁止刷屏）
@@ -26,7 +26,7 @@ from typing import Optional
 # ========== 配置 ==========
 # 日志根目录：通过环境变量或默认路径配置
 LOG_BASE_DIR = os.environ.get(
-    'DPLAYER_LOG_DIR',
+    'DBOX_LOG_DIR',
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'logs')
 )
 
@@ -199,7 +199,7 @@ class UnifiedLogger:
         参数:
             category: 日志分类 (maintenance|runtime|debug|operation)
             level: 日志等级 (FATAL|ERROR|WARN|INFO|DEBUG)
-            service: 服务名（如 'dplayer-web'，为 None 时自动获取或使用注册的服务名）
+            service: 服务名（如 'dbox-web'，为 None 时自动获取或使用注册的服务名）
             content: 日志内容
             source_ip: 来源IP，仅操作日志有效
         
@@ -269,7 +269,7 @@ def register_service(name: str) -> str:
     注册当前进程的服务名（供日志使用）
     
     Args:
-        name: 服务名，如 'dplayer-web', 'dplayer-thumbnail' 等
+        name: 服务名，如 'dbox-web', 'dbox-thumbnail' 等
         
     Returns:
         注册的服务名
@@ -298,7 +298,7 @@ class ServiceLogger:
         log.maintenance('INFO', '服务启动成功')
         
         # 方式二：显式指定服务名
-        log = get_service_logger('dplayer-web')
+        log = get_service_logger('dbox-web')
         log.maintenance('INFO', '服务启动成功')
     """
     
@@ -343,17 +343,17 @@ def get_service_logger(service_name: str = None) -> ServiceLogger:
     创建绑定服务名的日志器（推荐方式）
     
     Args:
-        service_name: 服务名，如 'dplayer-web'。如果为 None，自动使用注册的服务名。
+        service_name: 服务名，如 'dbox-web'。如果为 None，自动使用注册的服务名。
         
     用法:
         from liblog import get_service_logger, register_service
         
         # 方式一：在服务入口注册服务名（推荐）
-        register_service('dplayer-web')
-        log = get_service_logger()  # 自动使用 'dplayer-web'
+        register_service('dbox-web')
+        log = get_service_logger()  # 自动使用 'dbox-web'
         
         # 方式二：直接指定服务名
-        log = get_service_logger('dplayer-thumbnail')
+        log = get_service_logger('dbox-thumbnail')
     """
     if service_name is None:
         service_name = get_registered_service() or 'unknown'

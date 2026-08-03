@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer - 路径配置模块
+Dbox - 路径配置模块
 
 提供运行目录的动态解析，确保服务可以在任何位置运行，不依赖硬编码路径。
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 def get_runtime_dir() -> Path:
     """
     获取运行目录，优先级：
-    1. 环境变量 DPLAYER_RUNTIME
+    1. 环境变量 DBOX_RUNTIME
     2. 当前文件所在目录的上一级（即项目根目录）
     3. 从 install.json 读取（如果存在）
     
@@ -22,7 +22,7 @@ def get_runtime_dir() -> Path:
         Path: 运行目录的绝对路径
     """
     # 1. 环境变量优先级最高
-    if env_dir := os.environ.get('DPLAYER_RUNTIME'):
+    if env_dir := os.environ.get('DBOX_RUNTIME'):
         path = Path(env_dir).resolve()
         if path.exists():
             return path
@@ -73,7 +73,7 @@ def get_source_dir() -> Path | None:
 RUNTIME_DIR = get_runtime_dir()
 
 # 所有路径均基于 RUNTIME_DIR
-DATABASE_PATH = RUNTIME_DIR / 'data' / 'databases' / 'dplayer.db'
+DATABASE_PATH = RUNTIME_DIR / 'data' / 'databases' / 'dbox.db'
 UPLOAD_DIR = RUNTIME_DIR / 'data' / 'uploads'
 LOG_DIR = RUNTIME_DIR / 'data' / 'logs'
 STATIC_DIR = RUNTIME_DIR / 'static'
@@ -121,7 +121,7 @@ def get_install_info() -> dict | None:
 
 if __name__ == '__main__':
     # 测试模式
-    print('DPlayer 路径配置')
+    print('Dbox 路径配置')
     print('=' * 60)
     print(f'运行目录: {RUNTIME_DIR}')
     print(f'源码目录: {get_source_dir() or "N/A (未安装)"}')

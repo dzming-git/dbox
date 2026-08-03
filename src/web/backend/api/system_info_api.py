@@ -35,9 +35,9 @@ except Exception:  # pragma: no cover - 运行时由 main 注入
 # 不兼容标准 logging 导致 /api/system/metrics 等接口 500（TypeError）。
 import logging as _logging
 
-_log = get_service_logger('dplayer-web')
+_log = get_service_logger('dbox-web')
 if not isinstance(_log, _logging.Logger):
-    _log = _logging.getLogger('dplayer-web')
+    _log = _logging.getLogger('dbox-web')
     if not _log.handlers:
         _log.addHandler(_logging.NullHandler())
 log = _log

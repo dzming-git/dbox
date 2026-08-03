@@ -18,12 +18,12 @@ LibLog - 统一日志接口库
     from liblog import get_service_logger, register_service
 
     # 在服务入口注册服务名
-    register_service('dplayer-web')
+    register_service('dbox-web')
     log = get_service_logger()
     log.maintenance('INFO', '服务启动成功')
 
     # 或直接指定服务名
-    log = get_service_logger('dplayer-thumbnail')
+    log = get_service_logger('dbox-thumbnail')
 
     # 方式二：便捷函数
     from liblog import log_maintenance, log_runtime, log_debug, log_operation

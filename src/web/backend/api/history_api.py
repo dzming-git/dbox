@@ -5,7 +5,7 @@ from core.models import db
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('history_api', __name__)
 

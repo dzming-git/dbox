@@ -11,7 +11,7 @@ import sys
 from backend.runtime import runtime
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 
 def _make_bus(name, src_dir):

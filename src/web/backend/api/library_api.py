@@ -38,7 +38,7 @@ from backend.helpers import _resolve_resource_library_id
 from backend.access import admin_required, library_admin_required, resource_manager_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('library_api', __name__)
 
@@ -139,7 +139,7 @@ def create_library():
         if not os.path.exists(db_full_path):
             # 从现有数据库复制结构
             import shutil
-            template_db = os.path.join(DATA_DIR, 'databases', 'dplayer.db')
+            template_db = os.path.join(DATA_DIR, 'databases', 'dbox.db')
             if os.path.exists(template_db):
                 shutil.copy2(template_db, db_full_path)
             else:
@@ -156,8 +156,8 @@ def create_library():
                 # 库路径默认为空，用户可以后续添加文件夹
                 default_path = data.get('path', '')
                 result = resource_bus.call_method(
-                    'com.dplayer.resourced',
-                    'com.dplayer.Resourced',
+                    'com.dbox.resourced',
+                    'com.dbox.Resourced',
                     'AddLibrary',
                     {
                         'name': name,
@@ -275,12 +275,12 @@ def get_library_folders(library_id):
         if not resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        # 使用 resource.db 中的库 ID（可能与 dplayer.db 的 ID 不同）
+        # 使用 resource.db 中的库 ID（可能与 dbox.db 的 ID 不同）
         res_lib_id = _resolve_resource_library_id(library_id)
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'ListFolders',
             {'library_id': res_lib_id},
             timeout=3000
@@ -304,8 +304,8 @@ def test_add_folder():
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'AddFolder',
             data,
             timeout=5000
@@ -337,12 +337,12 @@ def add_library_folder(library_id):
         if not path:
             return jsonify({'success': False, 'message': '路径不能为空'}), 400
 
-        # 使用 resource.db 中的库 ID（可能与 dplayer.db 的 ID 不同）
+        # 使用 resource.db 中的库 ID（可能与 dbox.db 的 ID 不同）
         res_lib_id = _resolve_resource_library_id(library_id)
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'AddFolder',
             {
                 'library_id': res_lib_id,
@@ -375,8 +375,8 @@ def update_folder(folder_id):
         data = request.get_json()
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'UpdateFolder',
             {'folder_id': folder_id, **data},
             timeout=3000
@@ -399,8 +399,8 @@ def delete_folder(folder_id):
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'RemoveFolder',
             {'folder_id': folder_id},
             timeout=3000
@@ -423,8 +423,8 @@ def set_default_folder(folder_id):
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
-            'com.dplayer.resourced',
-            'com.dplayer.Resourced',
+            'com.dbox.resourced',
+            'com.dbox.Resourced',
             'SetDefaultFolder',
             {'folder_id': folder_id},
             timeout=3000
@@ -1130,7 +1130,7 @@ def get_user_libraries():
         if auth_header.startswith('Bearer '):
             try:
                 from authlib.jose import jwt as _jwt
-                _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
                 user_role = _payload.get('role', 0)
@@ -1223,7 +1223,7 @@ def switch_user_library():
         if auth_header.startswith('Bearer '):
             try:
                 from authlib.jose import jwt as _jwt
-                _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = payload.get('user_id')
                 user_role = payload.get('role', 0)

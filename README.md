@@ -251,7 +251,7 @@ extensions/scripts/demo_download/
 
 **后端**
 ```bat
-set DPLAYER_DEV_MODE=1
+set DBOX_DEV_MODE=1
 python src\web\main.py
 ```
 

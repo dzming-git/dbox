@@ -12,7 +12,7 @@
     python scripts/feedback_list.py --csv      # 以 CSV 格式输出
 
 数据文件定位优先级：
-    1. 环境变量 DPLAYER_RUNTIME 指向的目录
+    1. 环境变量 DBOX_RUNTIME 指向的目录
     2. 脚本所在目录向上查找含 data/issues.json 或 install.json 的目录
     3. 当前工作目录
 """
@@ -26,7 +26,7 @@ from datetime import datetime
 
 def find_runtime_dir() -> str:
     """定位运行目录（与后端 api.system_api.get_runtime_dir 保持一致的优先级）"""
-    env = os.environ.get('DPLAYER_RUNTIME')
+    env = os.environ.get('DBOX_RUNTIME')
     if env and os.path.isdir(env):
         return env
 

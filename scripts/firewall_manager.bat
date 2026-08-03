@@ -60,8 +60,8 @@ echo.
 echo 正在为端口 %PORT% 添加防火墙规则...
 echo.
 
-set INBOUND_RULE=dplayer_%PORT%_inbound
-set OUTBOUND_RULE=dplayer_%PORT%_outbound
+set INBOUND_RULE=dbox_%PORT%_inbound
+set OUTBOUND_RULE=dbox_%PORT%_outbound
 
 REM 检查规则是否已存在
 netsh advfirewall firewall show rule name="%INBOUND_RULE%" >nul 2>&1
@@ -98,8 +98,8 @@ echo.
 echo 正在删除端口 %PORT% 的防火墙规则...
 echo.
 
-set INBOUND_RULE=dplayer_%PORT%_inbound
-set OUTBOUND_RULE=dplayer_%PORT%_outbound
+set INBOUND_RULE=dbox_%PORT%_inbound
+set OUTBOUND_RULE=dbox_%PORT%_outbound
 
 set REMOVED_COUNT=0
 
@@ -145,8 +145,8 @@ echo.
 echo 正在查询端口 %PORT% 的防火墙规则...
 echo.
 
-set INBOUND_RULE=dplayer_%PORT%_inbound
-set OUTBOUND_RULE=dplayer_%PORT%_outbound
+set INBOUND_RULE=dbox_%PORT%_inbound
+set OUTBOUND_RULE=dbox_%PORT%_outbound
 
 set FOUND=0
 
@@ -174,7 +174,7 @@ exit /b 0
 
 :help
 echo.
-echo Dplayer 防火墙规则管理脚本
+echo Dbox 防火墙规则管理脚本
 echo.
 echo 用法:
 echo     firewall_manager.bat PORT [ACTION]
@@ -194,7 +194,7 @@ echo     firewall_manager.bat 8080 list         # 查看端口 8080 的规则
 echo.
 echo 注意:
 echo     - 脚本需要管理员权限运行
-echo     - 规则命名格式: dplayer_PORT_inbound/outbound
+echo     - 规则命名格式: dbox_PORT_inbound/outbound
 echo     - 会同时创建入站和出站规则
 echo.
 pause

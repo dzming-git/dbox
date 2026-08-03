@@ -21,8 +21,8 @@ ServiceBus - 模拟 OpenBMC D-Bus 的内部服务总线
     from servicebus import BaseDBusService, ServiceBus
 
     class ThumbnailService(BaseDBusService):
-        BUS_NAME = 'com.dplayer.thumbnail'
-        INTERFACES = ['com.dplayer.Thumbnail']
+        BUS_NAME = 'com.dbox.thumbnail'
+        INTERFACES = ['com.dbox.Thumbnail']
 
         def on_method_generate(self, params):
             # 处理方法调用
@@ -37,8 +37,8 @@ ServiceBus - 模拟 OpenBMC D-Bus 的内部服务总线
 
     client = BusClient()
     result = client.call_method(
-        service='com.dplayer.thumbnail',
-        interface='com.dplayer.Thumbnail',
+        service='com.dbox.thumbnail',
+        interface='com.dbox.Thumbnail',
         method='Generate',
         params={'video_path': '/path/to/video', 'video_hash': 'abc'}
     )

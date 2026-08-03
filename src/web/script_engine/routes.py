@@ -11,15 +11,15 @@ from core.models import UserRole
 
 import os
 
-# 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DPLAYER_JWT_SECRET，回退内置默认密钥。
+# 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DBOX_JWT_SECRET，回退内置默认密钥。
 # 直接读取环境变量（而非依赖模块导入），避免在不同进程 / 导入顺序下拿到错误的密钥，
 # 从而导致脚本接口 401 把用户踢出登录。
-_DEFAULT_JWT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
+_DEFAULT_JWT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
 
 
 def _resolve_jwt_secrets():
     secrets = []
-    env_secret = os.environ.get('DPLAYER_JWT_SECRET')
+    env_secret = os.environ.get('DBOX_JWT_SECRET')
     if env_secret:
         secrets.append(env_secret)
     if _DEFAULT_JWT_SECRET not in secrets:

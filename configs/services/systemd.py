@@ -50,7 +50,7 @@ def install_service():
     """安装 systemd 服务"""
     python = get_python()
     run_nssm([
-        'install', 'dplayer-systemd',
+        'install', 'dbox-systemd',
         python,
         _SERVICE_ENTRY,
         '--rpc-port', '15555',
@@ -58,28 +58,28 @@ def install_service():
         '--interval', '2.0',
     ])
     # 设置显示名和描述
-    run_nssm(['set', 'dplayer-systemd', 'DisplayName', 'DPlayer System Monitor'])
-    run_nssm(['set', 'dplayer-systemd', 'Description', 'DPlayer 系统监控服务 - 监控 CPU、内存、磁盘等系统资源'])
+    run_nssm(['set', 'dbox-systemd', 'DisplayName', 'Dbox System Monitor'])
+    run_nssm(['set', 'dbox-systemd', 'Description', 'Dbox 系统监控服务 - 监控 CPU、内存、磁盘等系统资源'])
     # 设置启动类型
-    run_nssm(['set', 'dplayer-systemd', 'Start', 'AUTOMATIC'])
+    run_nssm(['set', 'dbox-systemd', 'Start', 'AUTOMATIC'])
     # 设置工作目录
-    run_nssm(['set', 'dplayer-systemd', 'AppDirectory', _PROJECT_ROOT])
-    print("服务安装完成: dplayer-systemd")
+    run_nssm(['set', 'dbox-systemd', 'AppDirectory', _PROJECT_ROOT])
+    print("服务安装完成: dbox-systemd")
 
 
 def start_service():
     """启动服务"""
-    run_nssm(['start', 'dplayer-systemd'])
+    run_nssm(['start', 'dbox-systemd'])
 
 
 def stop_service():
     """停止服务"""
-    run_nssm(['stop', 'dplayer-systemd'])
+    run_nssm(['stop', 'dbox-systemd'])
 
 
 def remove_service():
     """删除服务"""
-    run_nssm(['remove', 'dplayer-systemd', 'confirm'])
+    run_nssm(['remove', 'dbox-systemd', 'confirm'])
 
 
 if __name__ == '__main__':

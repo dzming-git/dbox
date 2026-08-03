@@ -31,7 +31,7 @@ except ImportError:
 def main():
     """主函数"""
     print("=" * 50)
-    print("DPlayer 播放历史服务 (historyd)")
+    print("Dbox 播放历史服务 (historyd)")
     print("=" * 50)
     print(f"RPC 端口: {DEFAULT_RPC_PORT}")
     print(f"PUB 端口: {DEFAULT_PUB_PORT}")

@@ -1,5 +1,5 @@
 """
-DPlayer Thumbnail Service - Windows Service
+Dbox Thumbnail Service - Windows Service
 
 使用 waitress WSGI 服务器作为 Windows 服务运行
 """
@@ -37,9 +37,9 @@ PORT = config.get('ports', {}).get('thumbnail', 5001)
 class ThumbnailService(win32serviceutil.ServiceFramework):
     """Thumbnail Service Windows 服务"""
 
-    _svc_name_ = "DPlayer-Thumbnail"
-    _svc_display_name_ = "DPlayer Thumbnail Service"
-    _svc_description_ = f"DPlayer Thumbnail Microservice, Port {PORT}"
+    _svc_name_ = "Dbox-Thumbnail"
+    _svc_display_name_ = "Dbox Thumbnail Service"
+    _svc_description_ = f"Dbox Thumbnail Microservice, Port {PORT}"
 
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)

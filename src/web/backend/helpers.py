@@ -13,7 +13,7 @@ from core.models import (
 )
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 
 def _json_response(payload):
@@ -78,7 +78,7 @@ def _do_update_tag(tag_id):
 
 
 # ---------------------------------------------------------------------------
-# 资源库 ID 映射（dplayer.db <-> resource.db）
+# 资源库 ID 映射（dbox.db <-> resource.db）
 # ---------------------------------------------------------------------------
 try:
     from resource.models import ResourceLibraryDB, ResourceFolderDB
@@ -87,24 +87,24 @@ except Exception:
     _HAS_RESOURCE_DB = False
 
 
-def _resolve_resource_library_id(dplayer_library_id: int) -> int:
-    """将 dplayer.db 的资源库 ID 映射为 resource.db 的资源库 ID（按名称匹配）。"""
+def _resolve_resource_library_id(dbox_library_id: int) -> int:
+    """将 dbox.db 的资源库 ID 映射为 resource.db 的资源库 ID（按名称匹配）。"""
     if not _HAS_RESOURCE_DB:
-        return dplayer_library_id
+        return dbox_library_id
 
-    library = ResourceLibrary.query.get(dplayer_library_id)
+    library = ResourceLibrary.query.get(dbox_library_id)
     if not library:
-        return dplayer_library_id
+        return dbox_library_id
 
     all_resources = ResourceLibraryDB.get_all()
     for res_lib in all_resources:
         if res_lib.name == library.name:
             return res_lib.id
-    return dplayer_library_id
+    return dbox_library_id
 
 
-def _resolve_dplayer_library_id_by_folder(folder_id):
-    """folder_id 为 resourced 的文件夹 id，反查对应的 dplayer 资源库 id。"""
+def _resolve_dbox_library_id_by_folder(folder_id):
+    """folder_id 为 resourced 的文件夹 id，反查对应的 dbox 资源库 id。"""
     if not _HAS_RESOURCE_DB:
         return None
     try:

@@ -1,5 +1,5 @@
 """
-DPlayer - 缩略图服务
+Dbox - 缩略图服务
 独立的微服务，负责视频缩略图的生成
 
 目录结构：
@@ -24,7 +24,7 @@ for _p in [_THIS_DIR, _SRC_DIR, os.path.join(_CONFIGS_DIR, 'services')]:
         sys.path.insert(0, _p)
 
 from launcher_guard import check_service_launch
-check_service_launch('DPlayer Thumbnail Service', 'src/thumbnail/main.py')
+check_service_launch('Dbox Thumbnail Service', 'src/thumbnail/main.py')
 
 import json
 import time
@@ -54,7 +54,7 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 # ============ 日志（使用 liblog 统一日志） ============
 from liblog import get_service_logger
-log = get_service_logger('dplayer-thumbnail')
+log = get_service_logger('dbox-thumbnail')
 log.maintenance('INFO', '缩略图服务日志系统初始化完成')
 
 # ============ 任务管理 ============

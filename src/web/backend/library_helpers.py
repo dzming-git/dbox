@@ -11,7 +11,7 @@ import re as _re
 
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 from backend.runtime import runtime
 
 

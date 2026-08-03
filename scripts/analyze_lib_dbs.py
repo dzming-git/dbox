@@ -4,7 +4,7 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIBRARIES_DIR = os.path.join(BASE_DIR, 'data', 'libraries')
-MAIN_DB = os.path.join(BASE_DIR, 'data', 'databases', 'dplayer.db')
+MAIN_DB = os.path.join(BASE_DIR, 'data', 'databases', 'dbox.db')
 
 for fname in sorted(os.listdir(LIBRARIES_DIR)):
     if not fname.endswith('.db'):

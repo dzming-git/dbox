@@ -4,9 +4,9 @@ BusHistoryAdapter - 播放历史服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.historyd
-  Interface:      com.dplayer.Historyd
-  Object Path:    /com/dplayer/historyd
+  Service:        com.dbox.historyd
+  Interface:      com.dbox.Historyd
+  Object Path:    /com/dbox/historyd
 
   Methods:
     RecordProgress(video_hash, user_id, progress, duration)
@@ -58,9 +58,9 @@ class BusHistoryAdapter(BaseDBusService):
     播放历史服务总线适配器
     """
 
-    BUS_NAME = 'com.dplayer.historyd'
-    INTERFACES = ['com.dplayer.Historyd']
-    OBJECT_PATH = '/com/dplayer/historyd'
+    BUS_NAME = 'com.dbox.historyd'
+    INTERFACES = ['com.dbox.Historyd']
+    OBJECT_PATH = '/com/dbox/historyd'
 
     def __init__(self, host: str = '127.0.0.1', rpc_port: int = 15555, pub_port: int = 15556):
         super().__init__(host, rpc_port, pub_port)

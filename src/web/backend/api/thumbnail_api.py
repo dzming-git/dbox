@@ -16,7 +16,7 @@ from backend.access import admin_required
 from backend.paths import DATA_DIR
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('thumbnail_api', __name__)
 
@@ -53,7 +53,7 @@ def get_thumbnail(video_hash):
             if auth_header.startswith('Bearer '):
                 try:
                     from authlib.jose import jwt as _jwt
-                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                    _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                     _payload = _jwt.decode(auth_header[7:], _secret)
                     user_id = _payload.get('user_id')
                     user_role = _payload.get('role', 0)
@@ -66,7 +66,7 @@ def get_thumbnail(video_hash):
                 if query_token:
                     try:
                         from authlib.jose import jwt as _jwt
-                        _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                        _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                         _payload = _jwt.decode(query_token, _secret)
                         user_id = _payload.get('user_id')
                         user_role = _payload.get('role', 0)
@@ -111,8 +111,8 @@ def get_thumbnail(video_hash):
             def _async_generate(vp, vh):
                 try:
                     thumbnail_bus.call_method(
-                        service='com.dplayer.thumbnaild',
-                        interface='com.dplayer.Thumbnaild',
+                        service='com.dbox.thumbnaild',
+                        interface='com.dbox.Thumbnaild',
                         method='Generate',
                         params={'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
                     )
@@ -204,8 +204,8 @@ def regenerate_thumbnail(video_hash):
     if thumbnail_bus:
         try:
             result = thumbnail_bus.call_method(
-                service='com.dplayer.thumbnaild',
-                interface='com.dplayer.Thumbnaild',
+                service='com.dbox.thumbnaild',
+                interface='com.dbox.Thumbnaild',
                 method='Generate',
                 params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'gif'}
             )
@@ -256,8 +256,8 @@ def get_thumbnail_config():
         if thumbnail_bus:
             try:
                 thumb_service_stats = thumbnail_bus.call_method(
-                    service='com.dplayer.thumbnaild',
-                    interface='com.dplayer.Thumbnaild',
+                    service='com.dbox.thumbnaild',
+                    interface='com.dbox.Thumbnaild',
                     method='GetMetrics',
                     params={}
                 )

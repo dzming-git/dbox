@@ -18,7 +18,7 @@ This module embeds the "actor" into the content segment; parse_log_line
 from flask import request, g
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 # Role id -> English role name (for log display only)
 _ROLE_NAMES = {0: 'guest', 1: 'user', 2: 'admin', 3: 'super_admin'}

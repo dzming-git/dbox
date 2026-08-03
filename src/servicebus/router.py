@@ -216,7 +216,7 @@ class BusRouter:
                 type=MessageType.DISCOVER_REPLY,
                 id=msg.id,
                 service=msg.sender,
-                sender="com.dplayer.bus",
+                sender="com.dbox.bus",
                 result={"services": services}
             )
             self._router.send_multipart([

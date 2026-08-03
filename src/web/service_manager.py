@@ -1,5 +1,5 @@
 """
-DPlayer统一服务管理器
+Dbox统一服务管理器
 提供通用的服务启动/停止/重启接口,供admin_app.py和service_controller.py共同使用
 """
 import os
@@ -36,7 +36,7 @@ BASEDIR = str(PROJECT_DIR)
 LOG_DIR = os.path.join(BASEDIR, 'logs')
 
 # 配置日志（使用 liblog 统一日志）
-log = get_service_logger('dplayer-servicemgr')
+log = get_service_logger('dbox-servicemgr')
 
 
 # ============================================================
@@ -59,55 +59,55 @@ config = load_config()
 # 服务定义 - Legacy version for migration
 SERVICES = {
     'admin': {
-        'name': 'DPlayer-Admin (旧版 - 待迁移)',
+        'name': 'Dbox-Admin (旧版 - 待迁移)',
         'display_name': 'Admin Application (Legacy)',
         'port': config.get('ports', {}).get('admin_app', 8080),
         'script': os.path.join(BASEDIR, 'admin_app.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'admin_app.pid'),
-        'service_name': 'DPlayer-Admin',  # Windows服务名
+        'service_name': 'dbox-admin',  # Windows服务名
         'status': 'migrating',  # 标记为迁移中
         'description': '旧版后台服务 (端口 8080)，计划迁移到新架构',
     },
     'main': {
-        'name': 'DPlayer-Main',
+        'name': 'Dbox-Main',
         'display_name': 'Main Application',
         'port': config.get('ports', {}).get('main_app', 8081),
         'script': os.path.join(BASEDIR, 'app.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'main_app.pid'),
-        'service_name': 'DPlayer-Main',  # Windows服务名
+        'service_name': 'dbox-main',  # Windows服务名
     },
     'thumbnail': {
-        'name': 'DPlayer-Thumbnail',
+        'name': 'Dbox-Thumbnail',
         'display_name': 'Thumbnail Service',
         'port': None,  # 无 HTTP 端口，纯总线通信
         'script': os.path.join(BASEDIR, 'services', 'thumbnaild.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'thumbnail_app.pid'),
-        'service_name': 'DPlayer-Thumbnail',  # Windows服务名
+        'service_name': 'dbox-thumbnail',  # Windows服务名
     },
     'bus': {
-        'name': 'DPlayer-Bus',
+        'name': 'Dbox-Bus',
         'display_name': 'Bus Service',
         'port': None,  # 无 HTTP 端口，纯总线通信
         'script': os.path.join(BASEDIR, 'services', 'busbroker.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'busbroker.pid'),
-        'service_name': 'DPlayer-Bus',  # Windows服务名
+        'service_name': 'dbox-bus',  # Windows服务名
     },
     'servicemgr': {
-        'name': 'DPlayer-ServiceMgr',
+        'name': 'Dbox-ServiceMgr',
         'display_name': 'Service Manager',
         'port': None,  # 无 HTTP 端口，纯总线通信
         'script': os.path.join(BASEDIR, 'services', 'servicemgrd.py'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'servicemgr.pid'),
-        'service_name': 'DPlayer-ServiceMgr',  # Windows服务名
+        'service_name': 'dbox-servicemgr',  # Windows服务名
     },
     'webui': {
-        'name': 'DPlayer-WebUI (Vue3)',
+        'name': 'Dbox-WebUI (Vue3)',
         'display_name': 'WebUI Frontend Service',
         'port': 5173,
         'script': 'npm run dev',
         'workdir': os.path.join(BASEDIR, '..', 'frontend', 'src', 'webui'),
         'pid_file': os.path.join(BASEDIR, 'instance', 'webui.pid'),
-        'service_name': 'DPlayer-WebUI',  # Windows服务名
+        'service_name': 'dbox-webui',  # Windows服务名
         'description': 'Vue3 前端开发服务 (Vite, 端口 5173)',
         'service_type': 'node',  # 标记为 Node 服务
     }

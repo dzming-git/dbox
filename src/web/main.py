@@ -1,5 +1,5 @@
 """
-DPlayer - 纯后端 Web 服务
+Dbox - 纯后端 Web 服务
 提供视频管理、标签管理、缩略图等 API 接口
 
 目录结构：
@@ -51,7 +51,7 @@ from backend.utils.media import extract_mp4_duration
 
 import threading
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 import time
 import hashlib
 import random
@@ -84,8 +84,8 @@ from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_tr
 
 # ============ 配置 ============
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'dplayer2-secret-key-change-in-production'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_DATA_DIR, 'databases', 'dplayer.db')
+app.config['SECRET_KEY'] = 'dbox2-secret-key-change-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_DATA_DIR, 'databases', 'dbox.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 
@@ -96,7 +96,7 @@ CORS(app, resources={
 })
 
 # ============ 日志（使用 liblog 统一日志） ============
-log.maintenance('INFO', 'DPlayer Web 服务日志系统初始化完成')
+log.maintenance('INFO', 'Dbox Web 服务日志系统初始化完成')
 
 # ============ 数据库初始化 ============
 db.init_app(app)
@@ -187,7 +187,7 @@ from backend.system_helpers import (
     _SHUTDOWN_CANCEL, _SHUTDOWN_LOCK, _shutdown_threading, _apply_setting,
 )
 from backend.helpers import (
-    _resolve_dplayer_library_id_by_folder, _resolve_resource_library_id,
+    _resolve_dbox_library_id_by_folder, _resolve_resource_library_id,
     _build_tag_tree, _ensure_interaction, record_interaction,
     get_or_create_tag_by_path, _resolve_post_refs, _build_post_refs,
 )
@@ -237,7 +237,7 @@ from backend.access import (
 
 # ============ 静态文件服务 ============
 # 注意：8080端口仅提供API服务，不提供前端静态文件
-# 前端由 dplayer-webui 服务独立提供（5173端口）
+# 前端由 dbox-webui 服务独立提供（5173端口）
 # 以下静态文件路由已禁用，如需启用请注释掉
 
 # ============ API 路由 ============
@@ -493,22 +493,22 @@ if __name__ == '__main__':
     # 启动守卫：生产模式必须通过 NSSM 启动，开发模式允许直接运行。
     # 注意：守卫放在 __main__ 块内（而非模块导入期），避免 import web.main 时
     # 误触发 sys.exit，从而让本模块可被测试与静态分析。
-    check_service_launch('DPlayer Web Service', 'src/web/main.py')
+    check_service_launch('Dbox Web Service', 'src/web/main.py')
 
     # 检查是否为开发模式
-    is_dev_mode = os.environ.get('DPLAYER_DEV_MODE') == '1'
+    is_dev_mode = os.environ.get('DBOX_DEV_MODE') == '1'
     
     port = app_config.get('ports', {}).get('web', 8080)
     
     if is_dev_mode:
-        print(f"[DEV MODE] Starting DPlayer Web service on port {port}")
+        print(f"[DEV MODE] Starting Dbox Web service on port {port}")
         print(f"[DEV MODE] Access at: http://localhost:{port}")
-        log.runtime('INFO', f'DPlayer Web 服务（开发模式）启动于端口 {port}')
+        log.runtime('INFO', f'Dbox Web 服务（开发模式）启动于端口 {port}')
         # 注意：禁用 use_reloader，因为 zmq socket 与 Flask reloader 不兼容
         # 代码变化后需要手动重启服务
         app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False, threaded=True)
     else:
-        print(f"[PRODUCTION] Starting DPlayer Web service on port {port}")
-        log.runtime('INFO', f'DPlayer Web 服务启动于端口 {port}')
+        print(f"[PRODUCTION] Starting Dbox Web service on port {port}")
+        log.runtime('INFO', f'Dbox Web 服务启动于端口 {port}')
         # 生产模式：不启用 debug
         app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

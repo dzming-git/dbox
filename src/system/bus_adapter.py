@@ -6,9 +6,9 @@ BusSystemAdapter - 系统监控服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.systemd
-  Interface:      com.dplayer.Systemd
-  Object Path:    /com/dplayer/systemd
+  Service:        com.dbox.systemd
+  Interface:      com.dbox.Systemd
+  Object Path:    /com/dbox/systemd
 
   Methods:
     GetMetrics()           → SystemMetrics
@@ -43,9 +43,9 @@ class BusSystemAdapter(BaseDBusService):
     将 SystemMonitor 的监控能力暴露到服务总线上。
     """
 
-    BUS_NAME = 'com.dplayer.systemd'
-    INTERFACES = ['com.dplayer.Systemd']
-    OBJECT_PATH = '/com/dplayer/systemd'
+    BUS_NAME = 'com.dbox.systemd'
+    INTERFACES = ['com.dbox.Systemd']
+    OBJECT_PATH = '/com/dbox/systemd'
 
     def __init__(self, system_monitor,
                  host: str = '127.0.0.1',

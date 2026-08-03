@@ -2,8 +2,8 @@
 """
 搜索服务
 
-Service: com.dplayer.searchd
-Interface: com.dplayer.Searchd
+Service: com.dbox.searchd
+Interface: com.dbox.Searchd
 """
 
 from .models import SearchIndex, SearchDB

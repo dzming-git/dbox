@@ -18,7 +18,7 @@ import socket
 import platform
 
 # 创建日志记录器
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 
 class SystemOptimizer:
@@ -59,7 +59,7 @@ class SystemOptimizer:
             return True  # Linux/Unix不需要防火墙规则
 
         try:
-            rule_name = f"DPlayer {service_name} 端口{port}"
+            rule_name = f"Dbox {service_name} 端口{port}"
 
             # 删除旧规则
             subprocess.run(

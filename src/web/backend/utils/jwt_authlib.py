@@ -7,13 +7,13 @@ from functools import wraps
 from flask import request, jsonify, g
 from typing import Optional, Dict, Any
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
-# JWT配置 - 从环境变量读取，生产环境必须设置 DPLAYER_JWT_SECRET
-_DEFAULT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
-SECRET_KEY = os.environ.get('DPLAYER_JWT_SECRET', _DEFAULT_SECRET)
+# JWT配置 - 从环境变量读取，生产环境必须设置 DBOX_JWT_SECRET
+_DEFAULT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
+SECRET_KEY = os.environ.get('DBOX_JWT_SECRET', _DEFAULT_SECRET)
 if SECRET_KEY == _DEFAULT_SECRET:
-    log.debug('WARN', '[安全警告] 正在使用默认 JWT SECRET_KEY，生产环境请设置 DPLAYER_JWT_SECRET 环境变量')
+    log.debug('WARN', '[安全警告] 正在使用默认 JWT SECRET_KEY，生产环境请设置 DBOX_JWT_SECRET 环境变量')
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 REFRESH_TOKEN_EXPIRE_DAYS = 7

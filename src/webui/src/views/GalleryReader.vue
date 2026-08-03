@@ -20,14 +20,14 @@ const gallery = ref<Gallery | null>(null)
 const loading = ref(true)
 const error = ref('')
 
-const mode = ref<'scroll' | 'page'>((localStorage.getItem('dbox_gallery_mode') as any) || (localStorage.getItem('dplayer_gallery_mode') as any) || 'scroll')
-const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dbox_gallery_fit') as any) || (localStorage.getItem('dplayer_gallery_fit') as any) || 'width')
+const mode = ref<'scroll' | 'page'>((localStorage.getItem('dbox_gallery_mode') as any) || 'scroll')
+const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dbox_gallery_fit') as any) || 'width')
 const currentPage = ref(1)
 const showThumbs = ref(false)
 const isInContinue = ref(false)   // 是否已在「继续阅读」列表（用户主动加入）
 
 // 沉浸全屏阅读模式
-const immersive = ref(localStorage.getItem('dbox_gallery_immersive') === '1' || localStorage.getItem('dplayer_gallery_immersive') === '1')
+const immersive = ref(localStorage.getItem('dbox_gallery_immersive') === '1')
 const controlsVisible = ref(true) // 沉浸式下控件是否可见（点击屏幕切换）
 const readerEl = ref<HTMLElement | null>(null)
 

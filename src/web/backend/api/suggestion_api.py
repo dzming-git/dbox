@@ -159,7 +159,7 @@ def _auth():
         if auth_header.startswith('Bearer '):
             try:
                 from authlib.jose import jwt as _jwt
-                for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+                for _secret in (JWT_SECRET_KEY, 'dbox-jwt-secret-key-change-in-production-2024'):
                     try:
                         _p = _jwt.decode(auth_header[7:], _secret)
                         if _p.get('type') == 'access':

@@ -4,9 +4,9 @@ BusUserAdapter - 用户管理服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.userd
-  Interface:      com.dplayer.Userd
-  Object Path:    /com/dplayer/userd
+  Service:        com.dbox.userd
+  Interface:      com.dbox.Userd
+  Object Path:    /com/dbox/userd
 
   Methods:
     ListUsers() → {users: [...]}
@@ -58,9 +58,9 @@ class BusUserAdapter(BaseDBusService):
     用户管理服务总线适配器
     """
 
-    BUS_NAME = 'com.dplayer.userd'
-    INTERFACES = ['com.dplayer.Userd']
-    OBJECT_PATH = '/com/dplayer/userd'
+    BUS_NAME = 'com.dbox.userd'
+    INTERFACES = ['com.dbox.Userd']
+    OBJECT_PATH = '/com/dbox/userd'
 
     def __init__(self, host: str = '127.0.0.1', rpc_port: int = 15555, pub_port: int = 15556):
         super().__init__(host, rpc_port, pub_port)

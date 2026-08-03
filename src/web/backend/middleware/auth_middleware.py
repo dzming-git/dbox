@@ -4,7 +4,7 @@
 
 from flask import request, jsonify, g
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 # ──────────────────────────────────────────────
 # 白名单：匹配这些前缀/路径的请求直接放行，不需要鉴权

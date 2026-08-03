@@ -9,18 +9,18 @@ bmcweb 不继承 BaseDBusService，它只是一个普通的 D-Bus 客户端。
 
     from servicebus import BusClient
 
-    client = BusClient('com.dplayer.web')
+    client = BusClient('com.dbox.web')
 
     # 同步方法调用
     result = client.call_method(
-        service='com.dplayer.thumbnail',
-        interface='com.dplayer.Thumbnail',
+        service='com.dbox.thumbnail',
+        interface='com.dbox.Thumbnail',
         method='Generate',
         params={'video_path': '/path/to/video.mp4', 'video_hash': 'abc123'}
     )
 
     # 订阅信号
-    client.on_signal('com.dplayer.Thumbnail', 'ThumbnailGenerated',
+    client.on_signal('com.dbox.Thumbnail', 'ThumbnailGenerated',
                      on_thumbnail_generated)
 
     def on_thumbnail_generated(signal_data, msg):
@@ -61,8 +61,8 @@ class BusClient:
         调用远程服务方法
 
         Args:
-            service: 目标服务名，如 'com.dplayer.thumbnail'
-            interface: 接口名，如 'com.dplayer.Thumbnail'
+            service: 目标服务名，如 'com.dbox.thumbnail'
+            interface: 接口名，如 'com.dbox.Thumbnail'
             method: 方法名，如 'Generate'
             params: 方法参数
             timeout: 超时（毫秒）

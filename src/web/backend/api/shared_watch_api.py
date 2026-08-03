@@ -12,7 +12,7 @@ from functools import wraps
 from core.models import db, Video, User, SharedWatchSession, UserRole
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 shared_watch_bp = Blueprint('shared_watch', __name__)
 
@@ -29,7 +29,7 @@ def require_auth(f):
         if token:
             try:
                 from authlib.jose import jwt
-                SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
+                SECRET_KEY = 'dbox-jwt-secret-key-change-in-production-2024'
                 payload = jwt.decode(token, SECRET_KEY)
 
                 if payload.get('type') != 'access':

@@ -2,8 +2,8 @@
 """
 播放历史服务
 
-Service: com.dplayer.historyd
-Interface: com.dplayer.Historyd
+Service: com.dbox.historyd
+Interface: com.dbox.Historyd
 """
 
 from .models import WatchHistory, WatchHistoryDB

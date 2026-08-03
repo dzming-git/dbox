@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer WebUI 服务启动器
+Dbox WebUI 服务启动器
 
 通过 Python 包装器启动前端 Vite 开发服务器，使其可以被 NSSM 管理。
 """
@@ -24,15 +24,15 @@ for _p in [_SRC_DIR, _CONFIGS_DIR]:
 
 from liblog import get_service_logger, register_service
 from launcher_guard import check_service_launch
-check_service_launch('DPlayer WebUI Service', 'configs/services/webui_service.py')
+check_service_launch('Dbox WebUI Service', 'configs/services/webui_service.py')
 
 # 注册服务
-register_service('dplayer-webui')
+register_service('dbox-webui')
 
 # 配置日志
 LOG_DIR = os.path.join(_DATA_DIR, 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
-log = get_service_logger('dplayer-webui')
+log = get_service_logger('dbox-webui')
 
 # 前端目录
 FRONTEND_DIR = os.path.join(_SRC_DIR, 'webui')
@@ -72,7 +72,7 @@ def find_npm():
 def start_webui():
     """启动 WebUI 服务"""
     log.runtime('INFO', "=" * 60)
-    log.runtime('INFO', "DPlayer WebUI 服务启动")
+    log.runtime('INFO', "Dbox WebUI 服务启动")
     log.runtime('INFO', "=" * 60)
     log.runtime('INFO', f"工作目录: {FRONTEND_DIR}")
     log.runtime('INFO', f"服务地址: http://0.0.0.0:5173")

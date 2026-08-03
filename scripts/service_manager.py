@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer - 服务管理脚本
+Dbox - 服务管理脚本
 
 功能：
   1. 通过 Python API 管理服务（不直接调用 Windows 命令）
@@ -37,27 +37,27 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 # 服务定义
 SERVICES = {
     'web': {
-        'service_name': 'dplayer-web',
-        'display_name': 'DPlayer Web服务',
-        'description': 'DPlayer Web API服务',
+        'service_name': 'dbox-web',
+        'display_name': 'Dbox Web服务',
+        'description': 'Dbox Web API服务',
         'port': 8080,
     },
     'thumbnail': {
-        'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 缩略图服务',
-        'description': 'DPlayer 缩略图微服务',
+        'service_name': 'dbox-thumbnail',
+        'display_name': 'Dbox 缩略图服务',
+        'description': 'Dbox 缩略图微服务',
         'port': 5001,
     },
     'webui': {
-        'service_name': 'dplayer-webui',
-        'display_name': 'DPlayer WebUI服务',
-        'description': 'DPlayer Vue3前端界面',
+        'service_name': 'dbox-webui',
+        'display_name': 'Dbox WebUI服务',
+        'description': 'Dbox Vue3前端界面',
         'port': 5173,
     },
     'downloader': {
-        'service_name': 'dplayer-downloader',
-        'display_name': 'DPlayer 资源下载器',
-        'description': 'DPlayer 独立下载器服务（外部脚本，与主服务解耦）',
+        'service_name': 'dbox-downloader',
+        'display_name': 'Dbox 资源下载器',
+        'description': 'Dbox 独立下载器服务（外部脚本，与主服务解耦）',
         'port': 8092,
     },
 }
@@ -468,7 +468,7 @@ def cmd_restart(manager: NSSMServiceManager, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 服务管理脚本',
+        description='Dbox 服务管理脚本',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:

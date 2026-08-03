@@ -1,4 +1,4 @@
-"""入库：把脚本产出文件登记成 DPlayer 资源，并按指定「模式（modes）」归属。
+"""入库：把脚本产出文件登记成 Dbox 资源，并按指定「模式（modes）」归属。
 
 设计（见 docs/multi_mode_resource_management.md）：
 - ResourceIndex 是通用资产；kind: video_file / gallery_folder / text。

@@ -4,9 +4,9 @@ BusSearchAdapter - 搜索服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.searchd
-  Interface:      com.dplayer.Searchd
-  Object Path:    /com/dplayer/searchd
+  Service:        com.dbox.searchd
+  Interface:      com.dbox.Searchd
+  Object Path:    /com/dbox/searchd
 
   Methods:
     IndexVideo(video_hash, title, description, tags, duration, library_id, path)
@@ -58,9 +58,9 @@ class BusSearchAdapter(BaseDBusService):
     搜索服务总线适配器
     """
 
-    BUS_NAME = 'com.dplayer.searchd'
-    INTERFACES = ['com.dplayer.Searchd']
-    OBJECT_PATH = '/com/dplayer/searchd'
+    BUS_NAME = 'com.dbox.searchd'
+    INTERFACES = ['com.dbox.Searchd']
+    OBJECT_PATH = '/com/dbox/searchd'
 
     def __init__(self, host: str = '127.0.0.1', rpc_port: int = 15555, pub_port: int = 15556):
         super().__init__(host, rpc_port, pub_port)

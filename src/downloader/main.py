@@ -7,9 +7,9 @@
   - 下载器以独立进程运行在 8092 端口，即使它崩溃 / 卡死 / 被脚本拖垮，
     也绝不会影响主 Web 服务（8080）及其他服务。
   - 对外暴露 /api/scripts/* 接口，鉴权方式与主服务完全一致（JWT Bearer），
-    密钥直接读取与主服务相同的 DPLAYER_JWT_SECRET 环境变量 / 默认密钥。
+    密钥直接读取与主服务相同的 DBOX_JWT_SECRET 环境变量 / 默认密钥。
   - 复用主服务的脚本引擎（script_engine）、Cookie 保险库、任务入库逻辑，
-    通过共享的 DATA_DIR / dplayer.db 与主服务协同：下载产出文件经 upsert 自动入库。
+    通过共享的 DATA_DIR / dbox.db 与主服务协同：下载产出文件经 upsert 自动入库。
 
 注意：本文件是独立服务的入口，故意放在 src/downloader/（而非 src/web/），
 避免与主 Web 服务耦合。其依赖的脚本引擎等共享模块位于 src/web，
@@ -36,9 +36,9 @@ for _p in (_WEB_DIR, _CONFIGS_DIR, _SERVICES_DIR, _ROOT_DIR):
 # configs/services 已在 sys.path，可直接导入启动守卫
 from launcher_guard import check_service_launch
 
-# 启动守卫：生产环境要求经由 NSSM 启动；开发环境（DPLAYER_DEV_MODE=1）才允许直接运行
+# 启动守卫：生产环境要求经由 NSSM 启动；开发环境（DBOX_DEV_MODE=1）才允许直接运行
 try:
-    check_service_launch('DPlayer Resource Downloader', 'src/downloader/main.py')
+    check_service_launch('Dbox Resource Downloader', 'src/downloader/main.py')
 except SystemExit:
     raise
 
@@ -48,17 +48,17 @@ from flask_cors import CORS
 from script_engine.routes import script_bp, init_script_engine, mgr
 from core.models import db
 
-_DEFAULT_SECRET = 'dplayer-jwt-secret-key-change-in-production-2024'
+_DEFAULT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 app.register_blueprint(script_bp)  # 通用外部脚本 / 下载器接口（/api/scripts, /api/admin/scripts, /api/admin/cookies）
 
 # ---- 与主服务一致的配置（确保共享 DB / 保险库 / 缩略图）----
-_data_dir = os.environ.get('DPLAYER_DATA_DIR', os.path.join(_ROOT_DIR, 'data'))
+_data_dir = os.environ.get('DBOX_DATA_DIR', os.path.join(_ROOT_DIR, 'data'))
 app.config['DATA_DIR'] = _data_dir
-app.config['SECRET_KEY'] = os.environ.get('DPLAYER_JWT_SECRET', _DEFAULT_SECRET)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_data_dir, 'databases', 'dplayer.db')
+app.config['SECRET_KEY'] = os.environ.get('DBOX_JWT_SECRET', _DEFAULT_SECRET)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_data_dir, 'databases', 'dbox.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['ENABLE_EXTERNAL_SCRIPTS'] = True
 
@@ -84,7 +84,7 @@ with app.app_context():
 def health():
     return jsonify({
         'success': True,
-        'service': 'dplayer-downloader',
+        'service': 'dbox-downloader',
         'scripts': len(mgr.scripts),
     })
 

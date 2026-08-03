@@ -7,7 +7,7 @@ from flask import session, request, g
 from core.models import db, User, UserSession, UserRole
 import secrets
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 # 会话配置
 SESSION_LIFETIME = timedelta(days=7)  # 会话有效期7天

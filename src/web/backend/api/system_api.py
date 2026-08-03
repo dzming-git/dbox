@@ -27,7 +27,7 @@ from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('system_api', __name__)
 
@@ -224,7 +224,7 @@ def status():
 @admin_required
 def get_services():
     """
-    获取所有 dplayer 服务的状态。
+    获取所有 dbox 服务的状态。
 
     架构说明：
     - 优先通过总线向 servicemgrd 查询缓存的服务状态
@@ -246,8 +246,8 @@ def get_services():
             pub_port=15556
         )
         result = _svc_bus.call_method(
-            'com.dplayer.servicemgr',
-            'com.dplayer.ServiceMgr',
+            'com.dbox.servicemgr',
+            'com.dbox.ServiceMgr',
             'ListServices',
             {},
             timeout=3000  # 3秒超时，给 servicemgrd 足够的响应时间
@@ -318,9 +318,9 @@ def control_service(service_name):
         if action not in ('start', 'stop', 'restart'):
             return jsonify({'success': False, 'message': f'无效操作: {action}'}), 400
 
-        # 安全检查：只允许操作 dplayer- 前缀的服务
-        if not service_name.startswith('dplayer-'):
-            return jsonify({'success': False, 'message': '只允许操作 dplayer- 前缀的服务'}), 403
+        # 安全检查：只允许操作 dbox- 前缀的服务
+        if not service_name.startswith('dbox-'):
+            return jsonify({'success': False, 'message': '只允许操作 dbox- 前缀的服务'}), 403
 
         # 防并发锁
         if service_name not in _svc_control_locks:
@@ -338,8 +338,8 @@ def control_service(service_name):
                 try:
                     method_name = f'{action.capitalize()}Service'
                     result = svc_mgr_bus.call_method(
-                        'com.dplayer.servicemgr',
-                        'com.dplayer.ServiceMgr',
+                        'com.dbox.servicemgr',
+                        'com.dbox.ServiceMgr',
                         method_name,
                         {'name': service_name}
                     )
@@ -409,7 +409,7 @@ def get_system_logs():
 
     参数:
     - type:    日志类型 (maintenance/runtime/debug/operation)，默认 maintenance
-    - service: 模块/服务名筛选（可选），如 'dplayer-web'
+    - service: 模块/服务名筛选（可选），如 'dbox-web'
     - level:   日志等级筛选（可选，仅对非 operation 类型有效），如 INFO/WARN/ERROR
     - user:    操作人筛选（可选，仅对 operation 类型有效），模糊匹配
     - keyword: 关键字筛选（可选），匹配 content（大小写不敏感）

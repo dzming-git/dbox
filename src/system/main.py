@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer System Monitor Service - 系统监控服务
+Dbox System Monitor Service - 系统监控服务
 
 独立的微服务，负责监控系统资源（CPU、内存、磁盘等）。
 
@@ -32,7 +32,7 @@ DEFAULT_PUB_PORT = 15556
 
 
 def main():
-    parser = argparse.ArgumentParser(description='DPlayer System Monitor Service')
+    parser = argparse.ArgumentParser(description='Dbox System Monitor Service')
     parser.add_argument('--host', default='127.0.0.1', help='总线地址')
     parser.add_argument('--rpc-port', type=int, default=DEFAULT_RPC_PORT, help=f'RPC 端口 (默认: {DEFAULT_RPC_PORT})')
     parser.add_argument('--pub-port', type=int, default=DEFAULT_PUB_PORT, help=f'PUB 端口 (默认: {DEFAULT_PUB_PORT})')

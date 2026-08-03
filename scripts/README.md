@@ -1,4 +1,4 @@
-# Dplayer 脚本目录说明
+# Dbox 脚本目录说明
 
 本目录下的脚本体分为三类：**部署启动**、**运维/工具**、**数据恢复与迁移**。
 所有脚本均基于项目根目录推导路径，可直接随文件夹移动，无需固定安装位置。
@@ -29,8 +29,8 @@ python scripts/launcher.py --status   # 仅检查路径/venv/端口，不启动
 
 ### `install.py` — 注册 NSSM 服务（生产）
 ```bash
-python scripts/install.py --dev        # 开发模式（热加载，设 DPLAYER_DEV_MODE=1）
-python scripts/install.py --prod       # 生产模式（设 DPLAYER_SERVICE_MODE=1）
+python scripts/install.py --dev        # 开发模式（热加载，设 DBOX_DEV_MODE=1）
+python scripts/install.py --prod       # 生产模式（设 DBOX_SERVICE_MODE=1）
 python scripts/install.py --update     # 更新服务配置
 python scripts/install.py --uninstall  # 卸载所有服务
 python scripts/install.py --services web --dev   # 只安装指定服务
@@ -87,7 +87,7 @@ python scripts/init_root.py
 ```
 
 ### `restore_users.py` — 从资源库 DB 恢复丢失用户到主库
-扫描 `data/libraries/*.db`，将缺失用户去重后写入 `data/databases/dplayer.db`。
+扫描 `data/libraries/*.db`，将缺失用户去重后写入 `data/databases/dbox.db`。
 
 ### `restore_libraries.py` — 修正资源库注册
 按文件名 `{库名}_{时间戳}.db` 推断真实库名并修正主库中的库注册记录。
@@ -112,5 +112,5 @@ python scripts/migrate_unify_index.py   # 迁移前建议先停掉 resourced 服
 - `check_lib_mapping.py` — 冗余诊断（硬编码路径，功能与 `analyze_lib_dbs.py` 重复）
 - `restart_webui.py` / `restart_webui.bat` — 启停 webui，已被 `service_manager.py restart webui` 覆盖
 - `dev_start.bat` / `dev_stop.bat` — 开发启停，已被 `launcher.py` + 根目录 `start.bat`/`stop.bat` 覆盖
-- `init_library_db.py` — 过时脚本（硬编码旧 `instance/dplayer.db` 路径，项目已改用 `data/databases`）
+- `init_library_db.py` — 过时脚本（硬编码旧 `instance/dbox.db` 路径，项目已改用 `data/databases`）
 - `migrate_videos_to_main_db.py` — 一次性、硬编码特定库名的内容迁移

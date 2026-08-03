@@ -108,11 +108,11 @@ class TestHelperPureFunctions(unittest.TestCase):
     def test_parse_log_line(self):
         """system_helpers.parse_log_line 解析格式稳定。"""
         from backend import system_helpers as sh
-        line = '[2026-08-01 12:00:00] | [INFO] | [dplayer-web] | [扫描完成]'
+        line = '[2026-08-01 12:00:00] | [INFO] | [dbox-web] | [扫描完成]'
         parsed = sh.parse_log_line(line, 'maintenance')
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed['level'], 'INFO')
-        self.assertEqual(parsed['service'], 'dplayer-web')
+        self.assertEqual(parsed['service'], 'dbox-web')
         self.assertEqual(parsed['content'], '扫描完成')
         self.assertEqual(parsed['timestamp'], '2026-08-01 12:00:00')
 

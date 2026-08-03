@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X（原 Twitter）媒体下载脚本，适配 DPlayer 外部脚本引擎。
+"""X（原 Twitter）媒体下载脚本，适配 Dbox 外部脚本引擎。
 
 纯爬虫实现，不依赖 yt-dlp：
   - 图片：从推文页面 / 接口解析 pbs.twimg.com 原图直链，urllib 直连下载。

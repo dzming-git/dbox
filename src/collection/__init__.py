@@ -2,8 +2,8 @@
 """
 收藏夹服务
 
-Service: com.dplayer.collectiond
-Interface: com.dplayer.Collectiond
+Service: com.dbox.collectiond
+Interface: com.dbox.Collectiond
 """
 
 from .models import Collection, CollectionItem, CollectionDB

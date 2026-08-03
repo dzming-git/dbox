@@ -4,7 +4,7 @@ from backend.access import current_interaction_key
 from core.models import db
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('watch_later_api', __name__)
 

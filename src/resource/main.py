@@ -33,7 +33,7 @@ PUB_PORT = 15556
 
 
 def main():
-    parser = argparse.ArgumentParser(description='DPlayer 资源管理服务')
+    parser = argparse.ArgumentParser(description='Dbox 资源管理服务')
     parser.add_argument('--host', default='127.0.0.1', help='总线地址')
     parser.add_argument('--rpc-port', type=int, default=RPC_PORT, help='RPC 端口')
     parser.add_argument('--pub-port', type=int, default=PUB_PORT, help='PUB 端口')

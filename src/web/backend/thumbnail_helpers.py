@@ -12,7 +12,7 @@ import threading
 
 from liblog import get_service_logger
 
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 from backend.runtime import runtime
 
 from backend.paths import DATA_DIR, THUMB_CONFIG_FILE
@@ -115,8 +115,8 @@ def _generate_missing_thumbnails(config=None):
         def _submit_one(video):
             try:
                 runtime.thumbnail_bus.call_method(
-                    service='com.dplayer.thumbnaild',
-                    interface='com.dplayer.Thumbnaild',
+                    service='com.dbox.thumbnaild',
+                    interface='com.dbox.Thumbnaild',
                     method='Generate',
                     params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'gif'}
                 )

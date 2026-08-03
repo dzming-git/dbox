@@ -32,7 +32,7 @@ from liblog import get_service_logger
 from thumbnail.thumbnail_service_client import get_thumbnail_client
 from unified_tasks import init_task_manager as _init_tm, create_task, update_task
 import threading
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('video_api', __name__)
 
@@ -240,7 +240,7 @@ def get_video(video_hash):
             if auth_header.startswith('Bearer '):
                 try:
                     from authlib.jose import jwt as _jwt
-                    _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                    _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                     _payload = _jwt.decode(auth_header[7:], _secret)
                     user_id = _payload.get('user_id')
                     user_role = _payload.get('role', 0)
@@ -834,8 +834,8 @@ def upload_video():
                 # 通过总线查询 resourced 服务的默认路径
                 if resource_bus:
                     result = resource_bus.call_method(
-                        'com.dplayer.resourced',
-                        'com.dplayer.Resourced',
+                        'com.dbox.resourced',
+                        'com.dbox.Resourced',
                         'GetDefaultUploadPath',
                         {'library_id': res_lib_id},
                         timeout=3000
@@ -1229,7 +1229,7 @@ def get_tags():
         if auth_header.startswith('Bearer '):
             try:
                 from authlib.jose import jwt as _jwt
-                _secret = 'dplayer-jwt-secret-key-change-in-production-2024'
+                _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
                 user_role = _payload.get('role', 0)

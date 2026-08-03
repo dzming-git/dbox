@@ -18,7 +18,7 @@ from core.models import (
 )
 from auth_service import AuthService
 from backend.utils.jwt_authlib import SECRET_KEY as JWT_SECRET_KEY
-from backend.helpers import _resolve_dplayer_library_id_by_folder
+from backend.helpers import _resolve_dbox_library_id_by_folder
 
 
 def get_user_session():
@@ -41,7 +41,7 @@ def resolve_identity():
         try:
             from authlib.jose import jwt as _jwt
             _payload = None
-            for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+            for _secret in (JWT_SECRET_KEY, 'dbox-jwt-secret-key-change-in-production-2024'):
                 try:
                     _payload = _jwt.decode(_token, _secret)
                     break
@@ -197,7 +197,7 @@ def _is_library_admin(user_id, library_id):
 
 
 def _user_library_admin_ids(user_id):
-    """返回用户可作为 'admin' 管理的 dplayer 资源库 id 集合（含用户组授权）。"""
+    """返回用户可作为 'admin' 管理的 dbox 资源库 id 集合（含用户组授权）。"""
     ids = set()
     for p in LibraryPermission.query.filter_by(user_id=user_id, role='admin').all():
         ids.add(p.library_id)
@@ -224,7 +224,7 @@ def auth_required(f):
             return f(*args, **kwargs)
         token = request.args.get('token')
         if token:
-            for _secret in (JWT_SECRET_KEY, 'dplayer-jwt-secret-key-change-in-production-2024'):
+            for _secret in (JWT_SECRET_KEY, 'dbox-jwt-secret-key-change-in-production-2024'):
                 try:
                     from authlib.jose import jwt as _jwt
                     payload = _jwt.decode(token, _secret)
@@ -268,7 +268,7 @@ def library_admin_required(param='library_id'):
                 return f(*args, **kwargs)
             lid = kwargs.get(param)
             if param == 'folder_id':
-                lid = _resolve_dplayer_library_id_by_folder(lid)
+                lid = _resolve_dbox_library_id_by_folder(lid)
             if lid is None or not _is_library_admin(user_id, lid):
                 return jsonify({'success': False, 'message': '需要该资源库管理员权限', 'code': 403}), 403
             return f(*args, **kwargs)

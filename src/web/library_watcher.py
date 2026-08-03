@@ -137,7 +137,7 @@ class ResourceLibraryWatcher:
             if self._resource_bus:
                 try:
                     res = self._resource_bus.call_method(
-                        'com.dplayer.resourced', 'com.dplayer.Resourced',
+                        'com.dbox.resourced', 'com.dbox.Resourced',
                         'ListLibraries', {}, timeout=5000)
                     if res and res.get('success'):
                         res_libs = {rl['id']: rl for rl in res.get('libraries', [])}
@@ -157,7 +157,7 @@ class ResourceLibraryWatcher:
                     # 查询该库的文件夹
                     try:
                         fr = self._resource_bus.call_method(
-                            'com.dplayer.resourced', 'com.dplayer.Resourced',
+                            'com.dbox.resourced', 'com.dbox.Resourced',
                             'ListFolders', {'library_id': rid}, timeout=5000)
                         if fr and fr.get('success'):
                             for f in fr.get('folders', []):
@@ -205,7 +205,7 @@ class ResourceLibraryWatcher:
             if self._resource_bus:
                 try:
                     res = self._resource_bus.call_method(
-                        'com.dplayer.resourced', 'com.dplayer.Resourced',
+                        'com.dbox.resourced', 'com.dbox.Resourced',
                         'ListLibraries', {}, timeout=5000)
                     if res and res.get('success'):
                         res_libs = {rl['name']: rl for rl in res.get('libraries', [])}
@@ -219,7 +219,7 @@ class ResourceLibraryWatcher:
                     paths.append(rl['path'])
                 try:
                     fr = self._resource_bus.call_method(
-                        'com.dplayer.resourced', 'com.dplayer.Resourced',
+                        'com.dbox.resourced', 'com.dbox.Resourced',
                         'ListFolders', {'library_id': rl['id']}, timeout=5000)
                     if fr and fr.get('success'):
                         for f in fr.get('folders', []):
@@ -510,7 +510,7 @@ class ResourceLibraryWatcher:
                 if is_new and self._thumbnail_bus:
                     try:
                         self._thumbnail_bus.call_method(
-                            'com.dplayer.thumbnaild', 'com.dplayer.Thumbnaild', 'Generate',
+                            'com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'Generate',
                             {'video_path': path, 'video_hash': vhash, 'output_format': 'gif'})
                     except Exception:
                         pass

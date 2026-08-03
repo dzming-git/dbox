@@ -82,17 +82,17 @@ def test_thumbnaild_lifecycle():
     # 验证：服务发现
     services = router.list_services()
     print(f"  [4] 总线上的服务: {services}")
-    assert 'com.dplayer.thumbnaild' in services, "thumbnaild 未注册"
+    assert 'com.dbox.thumbnaild' in services, "thumbnaild 未注册"
     print("  [OK] 服务发现正常")
 
     # 验证：健康检查
-    health = client.call_method('com.dplayer.thumbnaild', 'com.dplayer.Thumbnaild', 'HealthCheck', {})
+    health = client.call_method('com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'HealthCheck', {})
     print(f"  [5] 健康检查: {health}")
     assert health and health.get('status') == 'healthy', f"健康检查失败: {health}"
     print("  [OK] 健康检查通过")
 
     # 验证：获取指标
-    metrics = client.call_method('com.dplayer.thumbnaild', 'com.dplayer.Thumbnaild', 'GetMetrics', {})
+    metrics = client.call_method('com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'GetMetrics', {})
     print(f"  [6] 服务指标: {metrics}")
     assert metrics is not None, "获取指标失败"
     print("  [OK] GetMetrics 正常")
@@ -125,7 +125,7 @@ def test_generate_no_file():
     client = BusClient('test-web', host='127.0.0.1',
                        rpc_port=rpc_port, pub_port=pub_port)
 
-    result = client.call_method('com.dplayer.thumbnaild', 'com.dplayer.Thumbnaild', 'Generate', {
+    result = client.call_method('com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'Generate', {
         'video_path': 'C:/not_exist.mp4',
         'video_hash': 'test_no_file',
         'output_format': 'gif'

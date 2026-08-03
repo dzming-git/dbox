@@ -6,9 +6,9 @@ BusResourceAdapter - 资源管理服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.resourced
-  Interface:      com.dplayer.Resourced
-  Object Path:    /com/dplayer/resourced
+  Service:        com.dbox.resourced
+  Interface:      com.dbox.Resourced
+  Object Path:    /com/dbox/resourced
 
   Methods:
     ListLibraries()
@@ -84,9 +84,9 @@ class BusResourceAdapter(BaseDBusService):
     资源管理服务总线适配器
     """
 
-    BUS_NAME = 'com.dplayer.resourced'
-    INTERFACES = ['com.dplayer.Resourced']
-    OBJECT_PATH = '/com/dplayer/resourced'
+    BUS_NAME = 'com.dbox.resourced'
+    INTERFACES = ['com.dbox.Resourced']
+    OBJECT_PATH = '/com/dbox/resourced'
 
     def __init__(self, host: str = '127.0.0.1', rpc_port: int = 15555, pub_port: int = 15556):
         super().__init__(host, rpc_port, pub_port)
@@ -630,7 +630,7 @@ class BusResourceAdapter(BaseDBusService):
         """根据 hash 获取资源（已废弃：ResourceItem 于 2026-07-12 移除，索引权威源为 web 的 Video 表）"""
         return {
             'success': False,
-            'error': '资源索引已迁移至 web 的 Video 表（com.dplayer.web），resourced 不再提供文件级资源查询',
+            'error': '资源索引已迁移至 web 的 Video 表（com.dbox.web），resourced 不再提供文件级资源查询',
         }
 
     def on_method_get_resources_by_library(self, params: Dict[str, Any]) -> Dict:

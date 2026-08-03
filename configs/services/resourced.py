@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DPlayer 资源管理服务 (resourced) NSSM 包装脚本
+Dbox 资源管理服务 (resourced) NSSM 包装脚本
 
 用于通过 NSSM 将 Python 服务安装为 Windows 服务。
 
@@ -19,9 +19,9 @@ import subprocess
 import shutil
 
 # 路径配置
-SERVICE_NAME = 'dplayer-resourced'
-DISPLAY_NAME = 'DPlayer 资源管理服务'
-DESCRIPTION = 'DPlayer 资源管理服务 - 负责资源库扫描和文件监控'
+SERVICE_NAME = 'dbox-resourced'
+DISPLAY_NAME = 'Dbox 资源管理服务'
+DESCRIPTION = 'Dbox 资源管理服务 - 负责资源库扫描和文件监控'
 
 # 入口脚本
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))

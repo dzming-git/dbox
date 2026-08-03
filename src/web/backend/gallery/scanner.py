@@ -65,7 +65,7 @@ def _resolve_gallery_targets(library_id, app=None):
     try:
         from servicebus import BusClient
         bus = BusClient(f'gallery-scan-{os.getpid()}', host='127.0.0.1', rpc_port=15555, pub_port=15556)
-        res = bus.call_method('com.dplayer.resourced', 'com.dplayer.Resourced', 'ListLibraries', {}, timeout=5000)
+        res = bus.call_method('com.dbox.resourced', 'com.dbox.Resourced', 'ListLibraries', {}, timeout=5000)
         if res and res.get('success'):
             name = None
             if app:
@@ -79,7 +79,7 @@ def _resolve_gallery_targets(library_id, app=None):
                 if rl.get('path') and os.path.isdir(rl['path']):
                     paths.append(rl['path'])
                 try:
-                    fr = bus.call_method('com.dplayer.resourced', 'com.dplayer.Resourced', 'ListFolders',
+                    fr = bus.call_method('com.dbox.resourced', 'com.dbox.Resourced', 'ListFolders',
                                          {'library_id': rl['id']}, timeout=5000)
                     if fr and fr.get('success'):
                         for f in fr.get('folders', []) or []:

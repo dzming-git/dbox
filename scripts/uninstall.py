@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 服务卸载脚本
+Dbox 服务卸载脚本
 
 功能：
   1. 停止并移除 NSSM 注册的 Windows 服务
@@ -13,7 +13,7 @@ DPlayer 服务卸载脚本
   python scripts/uninstall.py                         # 仅卸载服务注册，保留运行目录文件
   python scripts/uninstall.py --purge                 # 卸载服务 + 删除运行目录
   python scripts/uninstall.py --services web          # 只卸载 web 服务
-  python scripts/uninstall.py --dest D:\\DPlayer       # 指定运行目录
+  python scripts/uninstall.py --dest D:\\Dbox       # 指定运行目录
   python scripts/uninstall.py --service-only          # 只停止/移除服务，不动文件
 """
 
@@ -31,17 +31,17 @@ from pathlib import Path
 # ============================================================
 
 # 默认运行目录（与 install.py 保持一致）
-DEFAULT_DEST = r'C:\DPlayer\runtime'
+DEFAULT_DEST = r'C:\Dbox\runtime'
 
 # 服务定义（与 install.py 保持一致）
 NSSM_SERVICES = {
     'web': {
-        'service_name': 'dplayer-web',
-        'display_name': 'DPlayer Web服务',
+        'service_name': 'dbox-web',
+        'display_name': 'Dbox Web服务',
     },
     'thumbnail': {
-        'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 缩略图服务',
+        'service_name': 'dbox-thumbnail',
+        'display_name': 'Dbox 缩略图服务',
     },
 }
 
@@ -199,7 +199,7 @@ def purge_runtime(dest_dir: Path, force: bool = False) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 服务卸载脚本',
+        description='Dbox 服务卸载脚本',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -207,7 +207,7 @@ def main():
   python scripts/uninstall.py --purge                 移除服务 + 删除运行目录
   python scripts/uninstall.py --purge --force         强制删除，不询问确认
   python scripts/uninstall.py --services web          只卸载 web 服务
-  python scripts/uninstall.py --dest D:\\DPlayer        指定运行目录
+  python scripts/uninstall.py --dest D:\\Dbox        指定运行目录
         """
     )
     parser.add_argument(
@@ -237,7 +237,7 @@ def main():
     force       = args.force
 
     print('=' * 60)
-    print('  DPlayer 服务卸载程序')
+    print('  Dbox 服务卸载程序')
     print('=' * 60)
     print(f'  运行目录 : {dest_dir}')
     print(f'  操作     : {"移除服务 + 删除运行目录" if purge else "仅移除服务注册"}')

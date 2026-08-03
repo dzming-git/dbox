@@ -6,7 +6,7 @@
 2. context.cookies 是管理器按 required_cookies / cookie_select 物化到 working_dir 的
    cookie 文件路径，例如 {".bilibili.com": {"path": ".../cookies.txt", "format": "netscape"}}
 3. 通过 stdout 逐行输出 JSON 上报进度 / 日志
-4. 通过 context.notify 回调通知 DPlayer 新资源入库（最终移动与入库由管理器统一完成）
+4. 通过 context.notify 回调通知 Dbox 新资源入库（最终移动与入库由管理器统一完成）
 """
 import sys
 import os

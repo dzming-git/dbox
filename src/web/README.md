@@ -1,4 +1,4 @@
-# DPlayer
+# Dbox
 
 视频播放器后端服务 - 纯API架构
 
@@ -9,7 +9,7 @@ Dplayer2.0/
 ├── config/
 │   └── config.json          # 配置文件
 ├── instance/
-│   └── dplayer.db           # SQLite数据库
+│   └── dbox.db           # SQLite数据库
 ├── libs/                    # 共享库
 ├── logs/                    # 日志目录
 ├── msa-web/                # Web服务核心代码
@@ -20,8 +20,8 @@ Dplayer2.0/
 ├── msa-thumb/              # 缩略图服务代码
 ├── services/                # 服务配置
 │   ├── service_manager.py   # 服务管理器
-│   ├── dplayer-web.json     # Web服务NSSM配置
-│   └── dplayer-thumbnail.json # 缩略图服务NSSM配置
+│   ├── dbox-web.json     # Web服务NSSM配置
+│   └── dbox-thumbnail.json # 缩略图服务NSSM配置
 ├── static/
 │   └── thumbnails/          # 缩略图存储
 ├── web.py                   # Web服务入口
@@ -45,26 +45,26 @@ Dplayer2.0/
 
 ```bash
 # 安装Web服务
-nssm install dplayer-web "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\web.py"
-nssm set dplayer-web AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
-nssm set dplayer-web DisplayName "DPlayer Web服务"
-nssm set dplayer-web Start SERVICE_AUTO_START
+nssm install dbox-web "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\web.py"
+nssm set dbox-web AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
+nssm set dbox-web DisplayName "Dbox Web服务"
+nssm set dbox-web Start SERVICE_AUTO_START
 
 # 安装缩略图服务（通过 ServiceBus 总线）
-nssm install dplayer-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\thumbnaild.py"
-nssm set dplayer-thumbnail AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
-nssm set dplayer-thumbnail DisplayName "DPlayer 缩略图服务"
-nssm set dplayer-thumbnail Start SERVICE_AUTO_START
+nssm install dbox-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\thumbnaild.py"
+nssm set dbox-thumbnail AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
+nssm set dbox-thumbnail DisplayName "Dbox 缩略图服务"
+nssm set dbox-thumbnail Start SERVICE_AUTO_START
 
 # 安装服务总线代理
-nssm install dplayer-bus "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\busbroker.py"
-nssm set dplayer-bus AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
-nssm set dplayer-bus DisplayName "DPlayer 服务总线"
-nssm set dplayer-bus Start SERVICE_AUTO_START
+nssm install dbox-bus "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\Dplayer2.0\configs\services\busbroker.py"
+nssm set dbox-bus AppDirectory "C:\Users\<用户>\<工作目录>\Dplayer2.0"
+nssm set dbox-bus DisplayName "Dbox 服务总线"
+nssm set dbox-bus Start SERVICE_AUTO_START
 
 # 启动服务
-nssm start dplayer-web
-nssm start dplayer-thumbnail
+nssm start dbox-web
+nssm start dbox-thumbnail
 ```
 
 ## API测试

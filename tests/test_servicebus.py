@@ -53,9 +53,9 @@ def _free_ports(n=2):
 class MockThumbnailService(BaseDBusService):
     """模拟 phosphor-thumbnail 服务（不需要真实 HTTP 后端）"""
 
-    BUS_NAME = 'com.dplayer.thumbnail'
-    INTERFACES = ['com.dplayer.Thumbnail']
-    OBJECT_PATH = '/com/dplayer/thumbnail'
+    BUS_NAME = 'com.dbox.thumbnail'
+    INTERFACES = ['com.dbox.Thumbnail']
+    OBJECT_PATH = '/com/dbox/thumbnail'
 
     def on_method_generate(self, params):
         """处理 Generate 方法调用"""
@@ -71,7 +71,7 @@ class MockThumbnailService(BaseDBusService):
 
         # 发出信号
         self.emit_signal(
-            'com.dplayer.Thumbnail',
+            'com.dbox.Thumbnail',
             'TaskCreated',
             {'video_hash': video_hash, 'task_id': result['task_id']}
         )
@@ -96,11 +96,11 @@ class MockThumbnailService(BaseDBusService):
 
 
 class MockWebService(BaseDBusService):
-    """模拟 com.dplayer.web 服务（作为信号接收方）"""
+    """模拟 com.dbox.web 服务（作为信号接收方）"""
 
-    BUS_NAME = 'com.dplayer.web'
-    INTERFACES = ['com.dplayer.Web']
-    OBJECT_PATH = '/com/dplayer/web'
+    BUS_NAME = 'com.dbox.web'
+    INTERFACES = ['com.dbox.Web']
+    OBJECT_PATH = '/com/dbox/web'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -128,8 +128,8 @@ def test_protocol():
     print("-" * 40)
 
     msg = BusMessage.method_call(
-        service='com.dplayer.thumbnail',
-        interface='com.dplayer.Thumbnail',
+        service='com.dbox.thumbnail',
+        interface='com.dbox.Thumbnail',
         member='Generate',
         params={'video_hash': 'abc123', 'video_path': '/test.mp4'}
     )
@@ -141,7 +141,7 @@ def test_protocol():
     # 反序列化
     restored = BusMessage.from_json(json_bytes)
     assert restored.type == MessageType.METHOD_CALL
-    assert restored.service == 'com.dplayer.thumbnail'
+    assert restored.service == 'com.dbox.thumbnail'
     assert restored.member == 'Generate'
     assert restored.params['video_hash'] == 'abc123'
     print(f"  反序列化: OK")
@@ -160,10 +160,10 @@ def test_protocol():
     print(f"  错误消息: OK")
 
     # 信号消息
-    sig = BusMessage.signal('com.dplayer.thumbnail', 'com.dplayer.Thumbnail',
+    sig = BusMessage.signal('com.dbox.thumbnail', 'com.dbox.Thumbnail',
                             'TaskCreated', signal_data={'task_id': 't1'})
     assert sig.type == MessageType.SIGNAL
-    assert sig.sender == 'com.dplayer.thumbnail'
+    assert sig.sender == 'com.dbox.thumbnail'
     print(f"  信号消息: OK")
 
     print("  [OK] 协议测试通过")
@@ -198,14 +198,14 @@ def test_method_call():
                 # 确认服务已注册
                 services = router.list_services()
                 print(f"  已注册服务: {services}")
-                assert 'com.dplayer.thumbnail' in services
-                assert 'com.dplayer.web' in services
+                assert 'com.dbox.thumbnail' in services
+                assert 'com.dbox.web' in services
 
                 # 测试方法调用
                 print("  调用 HealthCheck...")
                 result = web_svc.call_method(
-                    'com.dplayer.thumbnail',
-                    'com.dplayer.Thumbnail',
+                    'com.dbox.thumbnail',
+                    'com.dbox.Thumbnail',
                     'HealthCheck'
                 )
                 assert result is not None
@@ -215,8 +215,8 @@ def test_method_call():
                 # 测试 Generate 方法
                 print("  调用 Generate...")
                 result = web_svc.call_method(
-                    'com.dplayer.thumbnail',
-                    'com.dplayer.Thumbnail',
+                    'com.dbox.thumbnail',
+                    'com.dbox.Thumbnail',
                     'Generate',
                     params={'video_hash': 'test123', 'video_path': '/test/video.mp4'}
                 )
@@ -228,8 +228,8 @@ def test_method_call():
                 # 测试 GetStatus
                 print("  调用 GetStatus...")
                 result = web_svc.call_method(
-                    'com.dplayer.thumbnail',
-                    'com.dplayer.Thumbnail',
+                    'com.dbox.thumbnail',
+                    'com.dbox.Thumbnail',
                     'GetStatus',
                     params={'video_hash': 'test123'}
                 )
@@ -279,8 +279,8 @@ def test_signal_broadcast():
                 # 通过方法调用触发信号（Generate 内部会 emit_signal）
                 print("  触发 Generate（会发出 TaskCreated 信号）...")
                 result = thumbnail_svc.call_method(
-                    'com.dplayer.thumbnail',
-                    'com.dplayer.Thumbnail',
+                    'com.dbox.thumbnail',
+                    'com.dbox.Thumbnail',
                     'Generate',
                     params={'video_hash': 'sig_test'}
                 )
@@ -327,16 +327,16 @@ def test_service_registration():
         try:
             services = router.list_services()
             print(f"  已注册服务: {services}")
-            assert 'com.dplayer.thumbnail' in services
-            assert 'com.dplayer.web' in services
+            assert 'com.dbox.thumbnail' in services
+            assert 'com.dbox.web' in services
             print(f"  服务数量: {len(services)}")
 
             # 调用不存在的服务
             print("  调用不存在的服务...")
             try:
                 result = svc2.call_method(
-                    'com.dplayer.nonexist',
-                    'com.dplayer.Foo',
+                    'com.dbox.nonexist',
+                    'com.dbox.Foo',
                     'Bar'
                 )
                 assert False, "应该抛出异常"
@@ -357,8 +357,8 @@ def test_error_handling():
     print("-" * 40)
 
     class BrokenService(BaseDBusService):
-        BUS_NAME = 'com.dplayer.broken'
-        INTERFACES = ['com.dplayer.Broken']
+        BUS_NAME = 'com.dbox.broken'
+        INTERFACES = ['com.dbox.Broken']
 
         def on_method_test(self, params):
             raise ValueError("模拟的业务错误")
@@ -382,7 +382,7 @@ def test_error_handling():
 
             try:
                 result = client.call_method(
-                    'com.dplayer.broken', 'com.dplayer.Broken', 'Test')
+                    'com.dbox.broken', 'com.dbox.Broken', 'Test')
                 assert False, "应该抛出异常"
             except RuntimeError as e:
                 assert '模拟的业务错误' in str(e)

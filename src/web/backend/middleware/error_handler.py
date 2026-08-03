@@ -2,7 +2,7 @@
 from flask import jsonify
 import traceback
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 def setup_error_handlers(app):
     """配置错误处理"""

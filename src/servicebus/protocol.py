@@ -13,20 +13,20 @@ D-Bus 消息类型映射：
   - HEARTBEAT    → 心跳检测
 
 D-Bus 地址映射：
-  - com.dplayer.web        → Web 服务
-  - com.dplayer.thumbnail  → 缩略图服务
-  - com.dplayer.webui      → WebUI 服务（未来）
-  - com.dplayer.*          → 未来扩展
+  - com.dbox.web        → Web 服务
+  - com.dbox.thumbnail  → 缩略图服务
+  - com.dbox.webui      → WebUI 服务（未来）
+  - com.dbox.*          → 未来扩展
 
 消息格式（JSON）：
   {
     "type": "method_call|method_reply|signal|error|hello|heartbeat",
     "id": "uuid-string",                    // 消息唯一 ID
     "timestamp": "2026-03-27T01:00:00",    // 时间戳
-    "service": "com.dplayer.thumbnail",     // 目标服务名（method_call）
-    "sender": "com.dplayer.web",           // 发送者服务名（reply/signal）
-    "interface": "com.dplayer.Thumbnail",  // D-Bus 接口名
-    "path": "/com/dplayer/thumbnail",      // D-Bus 对象路径
+    "service": "com.dbox.thumbnail",     // 目标服务名（method_call）
+    "sender": "com.dbox.web",           // 发送者服务名（reply/signal）
+    "interface": "com.dbox.Thumbnail",  // D-Bus 接口名
+    "path": "/com/dbox/thumbnail",      // D-Bus 对象路径
     "member": "Generate",                   // 方法名或信号名
     "params": { ... },                      // 方法参数
     "result": { ... },                      // 方法返回值（reply）

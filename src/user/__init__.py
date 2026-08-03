@@ -4,7 +4,7 @@
 
 提供用户增删改查的独立服务，通过 ServiceBus 与其他服务通信。
 
-服务: com.dplayer.userd
+服务: com.dbox.userd
 """
 
 from .models import User, UserDB, UserRole, hash_password, verify_password

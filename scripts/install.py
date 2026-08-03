@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer 服务安装脚本（简化版）
+Dbox 服务安装脚本（简化版）
 
 功能：
   1. 直接在源码目录注册 NSSM 服务（支持热加载）
@@ -9,8 +9,8 @@ DPlayer 服务安装脚本（简化版）
   3. 支持 --dev 模式（开发模式）和 --prod 模式（生产模式）
 
 用法：
-  python scripts/install.py --dev          # 开发模式：启用热加载，设置 DPLAYER_DEV_MODE=1
-  python scripts/install.py --prod         # 生产模式：不启用热加载，设置 DPLAYER_SERVICE_MODE=1
+  python scripts/install.py --dev          # 开发模式：启用热加载，设置 DBOX_DEV_MODE=1
+  python scripts/install.py --prod         # 生产模式：不启用热加载，设置 DBOX_SERVICE_MODE=1
   python scripts/install.py --update       # 更新服务配置
   python scripts/install.py --uninstall    # 卸载服务
 """
@@ -34,97 +34,97 @@ SOURCE_DIR = Path(__file__).parent.parent.resolve()
 # 服务定义
 NSSM_SERVICES = {
     'web': {
-        'service_name': 'dplayer-web',
-        'display_name': 'DPlayer Web服务',
-        'description': 'DPlayer Web API服务 - 提供视频管理、标签管理等API接口',
+        'service_name': 'dbox-web',
+        'display_name': 'Dbox Web服务',
+        'description': 'Dbox Web API服务 - 提供视频管理、标签管理等API接口',
         'entry': 'src/web/main.py',
         'port': 8080,
         'log_prefix': 'web',
     },
     'downloader': {
-        'service_name': 'dplayer-downloader',
-        'display_name': 'DPlayer 资源下载器',
-        'description': 'DPlayer 独立下载器服务 - 外部脚本执行（与主服务解耦，崩溃不影响主服务）',
+        'service_name': 'dbox-downloader',
+        'display_name': 'Dbox 资源下载器',
+        'description': 'Dbox 独立下载器服务 - 外部脚本执行（与主服务解耦，崩溃不影响主服务）',
         'entry': 'src/downloader/main.py',
         'port': 8092,
         'log_prefix': 'downloader',
     },
     'bus': {
-        'service_name': 'dplayer-bus',
-        'display_name': 'DPlayer 服务总线',
-        'description': 'DPlayer 服务总线代理 - 所有内部服务通信中枢',
+        'service_name': 'dbox-bus',
+        'display_name': 'Dbox 服务总线',
+        'description': 'Dbox 服务总线代理 - 所有内部服务通信中枢',
         'entry': 'configs/services/busbroker.py',
         'port': None,
         'log_prefix': 'bus',
     },
     'servicemgr': {
-        'service_name': 'dplayer-servicemgr',
-        'display_name': 'DPlayer 服务管理',
-        'description': 'DPlayer 服务管理守护进程 - 定期扫描和监控 dplayer-* 服务状态',
+        'service_name': 'dbox-servicemgr',
+        'display_name': 'Dbox 服务管理',
+        'description': 'Dbox 服务管理守护进程 - 定期扫描和监控 dbox-* 服务状态',
         'entry': 'configs/services/servicemgrd.py',
         'port': None,
         'log_prefix': 'servicemgr',
     },
     'thumbnail': {
-        'service_name': 'dplayer-thumbnail',
-        'display_name': 'DPlayer 缩略图服务',
-        'description': 'DPlayer 缩略图微服务 - 封面生成器守护进程（通过服务总线）',
+        'service_name': 'dbox-thumbnail',
+        'display_name': 'Dbox 缩略图服务',
+        'description': 'Dbox 缩略图微服务 - 封面生成器守护进程（通过服务总线）',
         'entry': 'configs/services/thumbnaild.py',
         'port': None,
         'log_prefix': 'thumbnail',
     },
     'webui': {
-        'service_name': 'dplayer-webui',
-        'display_name': 'DPlayer WebUI服务',
-        'description': 'DPlayer WebUI前端服务 - 提供Vue3前端界面',
+        'service_name': 'dbox-webui',
+        'display_name': 'Dbox WebUI服务',
+        'description': 'Dbox WebUI前端服务 - 提供Vue3前端界面',
         'entry': 'configs/services/webui_service.py',
         'port': 5173,
         'log_prefix': 'webui',
     },
     'resource': {
-        'service_name': 'dplayer-resource',
-        'display_name': 'DPlayer 资源管理服务',
-        'description': 'DPlayer 资源管理微服务 - 负责资源库扫描、文件监控、索引管理',
+        'service_name': 'dbox-resource',
+        'display_name': 'Dbox 资源管理服务',
+        'description': 'Dbox 资源管理微服务 - 负责资源库扫描、文件监控、索引管理',
         'entry': 'src/resource/main.py',
         'port': None,
         'log_prefix': 'resource',
     },
     'user': {
-        'service_name': 'dplayer-userd',
-        'display_name': 'DPlayer 用户管理服务',
-        'description': 'DPlayer 用户管理微服务 - 负责用户增删改查和认证',
+        'service_name': 'dbox-userd',
+        'display_name': 'Dbox 用户管理服务',
+        'description': 'Dbox 用户管理微服务 - 负责用户增删改查和认证',
         'entry': 'src/user/main.py',
         'port': None,
         'log_prefix': 'user',
     },
     'system': {
-        'service_name': 'dplayer-systemd',
-        'display_name': 'DPlayer 系统监控服务',
-        'description': 'DPlayer 系统监控服务 - 监控 CPU、内存、磁盘等系统资源',
+        'service_name': 'dbox-systemd',
+        'display_name': 'Dbox 系统监控服务',
+        'description': 'Dbox 系统监控服务 - 监控 CPU、内存、磁盘等系统资源',
         'entry': 'src/system/main.py',
         'port': None,
         'log_prefix': 'system',
     },
     'history': {
-        'service_name': 'dplayer-historyd',
-        'display_name': 'DPlayer 播放历史服务',
-        'description': 'DPlayer 播放历史服务 - 记录播放进度、支持断点续播',
+        'service_name': 'dbox-historyd',
+        'display_name': 'Dbox 播放历史服务',
+        'description': 'Dbox 播放历史服务 - 记录播放进度、支持断点续播',
         'entry': 'src/history/main.py',
         'port': None,
         'log_prefix': 'history',
     },
     'collection': {
-        'service_name': 'dplayer-collectiond',
-        'display_name': 'DPlayer 收藏夹服务',
-        'description': 'DPlayer 收藏夹服务 - 用户收藏视频、组织播放列表',
+        'service_name': 'dbox-collectiond',
+        'display_name': 'Dbox 收藏夹服务',
+        'description': 'Dbox 收藏夹服务 - 用户收藏视频、组织播放列表',
         'entry': 'src/collection/main.py',
         'port': None,
         'log_prefix': 'collection',
     },
     'search': {
-        'service_name': 'dplayer-searchd',
-        'display_name': 'DPlayer 搜索服务',
-        'description': 'DPlayer 搜索服务 - 全文搜索、视频标签和描述检索',
+        'service_name': 'dbox-searchd',
+        'display_name': 'Dbox 搜索服务',
+        'description': 'Dbox 搜索服务 - 全文搜索、视频标签和描述检索',
         'entry': 'src/search/main.py',
         'port': None,
         'log_prefix': 'search',
@@ -253,9 +253,9 @@ def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, serv
 
         # 设置环境变量：开发模式 vs 生产模式
         if dev_mode:
-            env_extra = 'DPLAYER_DEV_MODE=1'
+            env_extra = 'DBOX_DEV_MODE=1'
         else:
-            env_extra = 'DPLAYER_SERVICE_MODE=1'
+            env_extra = 'DBOX_SERVICE_MODE=1'
 
         # 配置服务参数
         nssm_sets = [
@@ -316,7 +316,7 @@ def uninstall_services(nssm_exe: str, services: list[str] | None = None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='DPlayer 服务安装脚本（源码直接运行，支持热加载）',
+        description='Dbox 服务安装脚本（源码直接运行，支持热加载）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -329,11 +329,11 @@ def main():
     )
     parser.add_argument(
         '--dev', action='store_true',
-        help='开发模式：启用热加载，设置 DPLAYER_DEV_MODE=1'
+        help='开发模式：启用热加载，设置 DBOX_DEV_MODE=1'
     )
     parser.add_argument(
         '--prod', action='store_true',
-        help='生产模式：不启用热加载，设置 DPLAYER_SERVICE_MODE=1'
+        help='生产模式：不启用热加载，设置 DBOX_SERVICE_MODE=1'
     )
     parser.add_argument(
         '--update', action='store_true',
@@ -361,7 +361,7 @@ def main():
     dev_mode = args.dev or (args.update and not args.prod)
     
     print('=' * 60)
-    print('  DPlayer Installer (Source Mode)')
+    print('  Dbox Installer (Source Mode)')
     print('=' * 60)
     print(f'  源码目录: {SOURCE_DIR}')
     print(f'  模式    : {"开发模式（热加载）" if dev_mode else "生产模式"}')
@@ -372,7 +372,7 @@ def main():
     if nssm_exe is None:
         log.error('\n[ERROR] nssm.exe 未找到，无法注册服务')
         log.error('  下载 NSSM: https://nssm.cc/download')
-        log.error('  或手动安装: nssm install dplayer-web ...')
+        log.error('  或手动安装: nssm install dbox-web ...')
         sys.exit(1)
 
     # 卸载模式
@@ -418,10 +418,10 @@ def main():
         print('  生产模式:')
         print('    - 代码修改后需要重启服务才能生效')
     print('\n常用命令:')
-    print('  启动服务: nssm start dplayer-web')
-    print('  停止服务: nssm stop dplayer-web')
-    print('  重启服务: nssm restart dplayer-web')
-    print('  查看状态: nssm status dplayer-web')
+    print('  启动服务: nssm start dbox-web')
+    print('  停止服务: nssm stop dbox-web')
+    print('  重启服务: nssm restart dbox-web')
+    print('  查看状态: nssm status dbox-web')
     print('  卸载服务: python scripts/install.py --uninstall')
 
 

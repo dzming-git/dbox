@@ -1143,7 +1143,7 @@ class ResourceLibrary(db.Model):
         """获取完整的数据库文件绝对路径（运行时动态拼接，不依赖存储的绝对路径）"""
         import os
         # 优先从环境变量获取 data 目录
-        data_dir = os.environ.get('DPLAYER_DATA_DIR')
+        data_dir = os.environ.get('DBOX_DATA_DIR')
         if not data_dir:
             # 兼容旧数据：db_path 可能是绝对路径
             # db_path = 'C:\\...' 表示旧数据，直接使用

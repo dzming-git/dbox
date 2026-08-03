@@ -7,7 +7,7 @@ from authlib.common.security import generate_token
 import datetime
 from liblog import get_service_logger
 from backend.audit import log_operation
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 auth_v2_bp = Blueprint('auth_v2', __name__, url_prefix='/api/v2/auth')
 

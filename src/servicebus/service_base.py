@@ -26,9 +26,9 @@ D-Bus 对应关系：
 使用方式：
 
     class ThumbnailService(BaseDBusService):
-        BUS_NAME = 'com.dplayer.thumbnail'
-        INTERFACES = ['com.dplayer.Thumbnail']
-        OBJECT_PATH = '/com/dplayer/thumbnail'
+        BUS_NAME = 'com.dbox.thumbnail'
+        INTERFACES = ['com.dbox.Thumbnail']
+        OBJECT_PATH = '/com/dbox/thumbnail'
 
         def on_method_generate(self, params):
             # 处理 Generate 方法调用
@@ -71,9 +71,9 @@ class BaseDBusService:
     """
 
     # 子类必须定义
-    BUS_NAME: str = ""            # D-Bus 服务名，如 'com.dplayer.thumbnail'
+    BUS_NAME: str = ""            # D-Bus 服务名，如 'com.dbox.thumbnail'
     INTERFACES: List[str] = []   # 支持的接口列表
-    OBJECT_PATH: str = ""        # D-Bus 对象路径，如 '/com/dplayer/thumbnail'
+    OBJECT_PATH: str = ""        # D-Bus 对象路径，如 '/com/dbox/thumbnail'
 
     def __init__(self, host: str = DEFAULT_HOST,
                  rpc_port: int = DEFAULT_RPC_PORT,
@@ -190,10 +190,10 @@ class BaseDBusService:
         发出信号 — 模拟 D-Bus 的 emit_signal()
 
         类似 phosphor-* 服务中的：
-          emit_property_changed(sdbusplus::com::dplayer::Thumbnail::Thumbnails::taskStatus(), newStatus)
+          emit_property_changed(sdbusplus::com::dbox::Thumbnail::Thumbnails::taskStatus(), newStatus)
 
         示例：
-          self.emit_signal('com.dplayer.Thumbnail', 'ThumbnailGenerated',
+          self.emit_signal('com.dbox.Thumbnail', 'ThumbnailGenerated',
                           {'video_hash': 'abc123', 'path': '/data/thumbnails/abc123.gif'})
         """
         if not self._publisher:

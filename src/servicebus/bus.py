@@ -31,10 +31,10 @@ from .protocol import BusMessage, MessageType
 
 
 # ============ 默认配置 ============
-DEFAULT_RPC_PORT = int(os.getenv('DPLAYER_BUS_RPC_PORT', '15555'))
-DEFAULT_PUB_PORT = int(os.getenv('DPLAYER_BUS_PUB_PORT', '15556'))
-DEFAULT_HOST = os.getenv('DPLAYER_BUS_HOST', '127.0.0.1')
-RPC_TIMEOUT = int(os.getenv('DPLAYER_BUS_TIMEOUT', '5000'))  # ms
+DEFAULT_RPC_PORT = int(os.getenv('DBOX_BUS_RPC_PORT', '15555'))
+DEFAULT_PUB_PORT = int(os.getenv('DBOX_BUS_PUB_PORT', '15556'))
+DEFAULT_HOST = os.getenv('DBOX_BUS_HOST', '127.0.0.1')
+RPC_TIMEOUT = int(os.getenv('DBOX_BUS_TIMEOUT', '5000'))  # ms
 
 
 class ServiceRegistry:
@@ -143,7 +143,7 @@ class ServiceBus:
         模拟 D-Bus 的 bus.request_name()。
 
         Args:
-            service_name: 服务名，如 'com.dplayer.thumbnail'
+            service_name: 服务名，如 'com.dbox.thumbnail'
             interfaces: 支持的接口列表
             host: 总线地址
             rpc_port: RPC 端口
@@ -246,8 +246,8 @@ class BusEndpoint:
         类似 OpenBMC 中 bmcweb 调用 phosphor-* 服务的 D-Bus 方法。
 
         Args:
-            service: 目标服务名，如 'com.dplayer.thumbnail'
-            interface: 接口名，如 'com.dplayer.Thumbnail'
+            service: 目标服务名，如 'com.dbox.thumbnail'
+            interface: 接口名，如 'com.dbox.Thumbnail'
             method: 方法名，如 'Generate'
             params: 方法参数
             timeout: 超时（毫秒）
@@ -283,7 +283,7 @@ class BusEndpoint:
         类似 OpenBMC 中服务发出 PropertiesChanged 信号。
 
         Args:
-            interface: 接口名，如 'com.dplayer.Thumbnail'
+            interface: 接口名，如 'com.dbox.Thumbnail'
             signal_name: 信号名，如 'ThumbnailGenerated'
             signal_data: 信号数据
             path: 对象路径

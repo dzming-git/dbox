@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DPlayer 用户管理服务 (userd) NSSM 包装脚本
+Dbox 用户管理服务 (userd) NSSM 包装脚本
 
 用于通过 NSSM 将 Python 服务安装为 Windows 服务。
 
@@ -17,9 +17,9 @@ import sys
 import subprocess
 
 # 路径配置
-SERVICE_NAME = 'dplayer-userd'
-DISPLAY_NAME = 'DPlayer 用户管理服务'
-DESCRIPTION = 'DPlayer 用户管理服务 - 负责用户增删改查和认证'
+SERVICE_NAME = 'dbox-userd'
+DISPLAY_NAME = 'Dbox 用户管理服务'
+DESCRIPTION = 'Dbox 用户管理服务 - 负责用户增删改查和认证'
 
 # 入口脚本
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))

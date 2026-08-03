@@ -44,9 +44,9 @@ router.start()  # 后台运行
 from servicebus import BaseDBusService
 
 class ThumbnailService(BaseDBusService):
-    BUS_NAME = 'com.dplayer.thumbnail'
-    INTERFACES = ['com.dplayer.Thumbnail']
-    OBJECT_PATH = '/com/dplayer/thumbnail'
+    BUS_NAME = 'com.dbox.thumbnail'
+    INTERFACES = ['com.dbox.Thumbnail']
+    OBJECT_PATH = '/com/dbox/thumbnail'
 
     def on_method_generate(self, params):
         video_hash = params.get('video_hash')
@@ -65,13 +65,13 @@ svc.start()
 ```python
 from servicebus import BusClient
 
-client = BusClient('com.dplayer.web')
+client = BusClient('com.dbox.web')
 client.connect()
 
 # 同步方法调用
 result = client.call_method(
-    service='com.dplayer.thumbnail',
-    interface='com.dplayer.Thumbnail',
+    service='com.dbox.thumbnail',
+    interface='com.dbox.Thumbnail',
     method='Generate',
     params={'video_hash': 'abc123', 'video_path': '/video.mp4'}
 )
@@ -83,14 +83,14 @@ print(result)  # {'success': True, 'task_id': 'xxx'}
 ```python
 # 发送信号（类似 phosphor-* 的 emit_property_changed）
 svc.emit_signal(
-    'com.dplayer.Thumbnail',
+    'com.dbox.Thumbnail',
     'ThumbnailGenerated',
     {'video_hash': 'abc123', 'path': '/data/thumbnails/abc123.gif'}
 )
 
 # 接收信号
 client.on_signal(
-    'com.dplayer.Thumbnail',
+    'com.dbox.Thumbnail',
     'ThumbnailGenerated',
     lambda data, msg: print(f"收到信号: {data}")
 )
@@ -105,10 +105,10 @@ client.on_signal(
   "type": "method_call | method_reply | signal | error | hello",
   "id": "msg-uuid",
   "timestamp": "2026-03-27T01:00:00",
-  "service": "com.dplayer.thumbnail",
-  "sender": "com.dplayer.web",
-  "interface": "com.dplayer.Thumbnail",
-  "path": "/com/dplayer/thumbnail",
+  "service": "com.dbox.thumbnail",
+  "sender": "com.dbox.web",
+  "interface": "com.dbox.Thumbnail",
+  "path": "/com/dbox/thumbnail",
   "member": "Generate",
   "params": {"video_hash": "abc123"},
   "result": {"success": true, "task_id": "xxx"},
@@ -126,8 +126,8 @@ client.on_signal(
 
 可通过环境变量覆盖：
 ```bash
-set DPLAYER_BUS_RPC_PORT=15555
-set DPLAYER_BUS_PUB_PORT=15556
+set DBOX_BUS_RPC_PORT=15555
+set DBOX_BUS_PUB_PORT=15556
 ```
 
 ## ZeroMQ 帧格式

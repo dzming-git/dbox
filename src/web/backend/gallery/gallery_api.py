@@ -25,11 +25,11 @@ from core.models import (
 )
 from backend.trash import move_to_trash, purge_trash
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 gallery_bp = Blueprint('gallery', __name__, url_prefix='')
 
-JWT_SECRET_KEY = 'dplayer-jwt-secret-key-change-in-production-2024'
+JWT_SECRET_KEY = 'dbox-jwt-secret-key-change-in-production-2024'
 
 # 各库的图集扫描进度（内存态，重启即清空，不影响数据）
 _gallery_scan_progress = {}

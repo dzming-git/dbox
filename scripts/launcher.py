@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DPlayer - 免安装绿色启动器（开发/热重载模式）
+Dbox - 免安装绿色启动器（开发/热重载模式）
 
 特点：
   1. 不依赖 NSSM、不写注册表、不需要管理员权限。
   2. 所有路径基于本文件推导，移动整个目录后直接运行即可。
-  3. 后端服务以子进程方式运行，启动时注入 DPLAYER_DEV_MODE=1（开发模式）。
+  3. 后端服务以子进程方式运行，启动时注入 DBOX_DEV_MODE=1（开发模式）。
   4. 看门狗监控源码 .py 改动，自动重启对应服务（绕开 zmq 与 Flask reloader 的冲突）。
   5. 前端（Vite）自带 HMR，无需重启。
 
@@ -106,7 +106,7 @@ def launch(key: str) -> subprocess.Popen:
         _log(f'  [WARN] 入口脚本不存在，跳过 {key}: {entry}')
         return None
     env = os.environ.copy()
-    env['DPLAYER_DEV_MODE'] = '1'          # 开发模式：绕过 NSSM 守卫 + 开启 debug
+    env['DBOX_DEV_MODE'] = '1'          # 开发模式：绕过 NSSM 守卫 + 开启 debug
     logf = _open_log(key)
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if IS_WINDOWS else 0
     proc = subprocess.Popen(
@@ -227,7 +227,7 @@ def _detect_changes(prev: dict) -> list:
 # ============================================================
 def cmd_status():
     print('=' * 60)
-    print('  DPlayer 绿色启动器 - 状态检查')
+    print('  Dbox 绿色启动器 - 状态检查')
     print('=' * 60)
     print(f'  项目根目录 : {ROOT}')
     print(f'  Python     : {_venv_python()}')
@@ -266,7 +266,7 @@ def cmd_stop():
 
 def cmd_run():
     print('=' * 60)
-    print('  DPlayer 绿色启动器（开发/热重载模式）')
+    print('  Dbox 绿色启动器（开发/热重载模式）')
     print('=' * 60)
     print(f'  项目根目录 : {ROOT}')
     print(f'  Python     : {_venv_python()}')

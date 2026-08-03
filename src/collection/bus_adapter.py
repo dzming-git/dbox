@@ -4,9 +4,9 @@ BusCollectionAdapter - 收藏夹服务的总线适配器
 
 总线服务定义：
 
-  Service:        com.dplayer.collectiond
-  Interface:      com.dplayer.Collectiond
-  Object Path:    /com/dplayer/collectiond
+  Service:        com.dbox.collectiond
+  Interface:      com.dbox.Collectiond
+  Object Path:    /com/dbox/collectiond
 
   Methods:
     CreateCollection(name, description, user_id, is_public)
@@ -70,9 +70,9 @@ class BusCollectionAdapter(BaseDBusService):
     收藏夹服务总线适配器
     """
 
-    BUS_NAME = 'com.dplayer.collectiond'
-    INTERFACES = ['com.dplayer.Collectiond']
-    OBJECT_PATH = '/com/dplayer/collectiond'
+    BUS_NAME = 'com.dbox.collectiond'
+    INTERFACES = ['com.dbox.Collectiond']
+    OBJECT_PATH = '/com/dbox/collectiond'
 
     def __init__(self, host: str = '127.0.0.1', rpc_port: int = 15555, pub_port: int = 15556):
         super().__init__(host, rpc_port, pub_port)

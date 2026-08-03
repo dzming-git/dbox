@@ -8,7 +8,7 @@ from core.models import db, UserInteraction, GalleryInteraction, WatchLater, Wat
 from backend.access import current_interaction_key
 from flask import Blueprint, jsonify
 from liblog import get_service_logger
-log = get_service_logger('dplayer-web')
+log = get_service_logger('dbox-web')
 
 bp = Blueprint('interaction_api', __name__)
 
