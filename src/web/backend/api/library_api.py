@@ -53,8 +53,20 @@ def get_libraries():
             lib_dict = lib.to_dict(include_stats=True)
             try:
                 lib_dict['video_count'] = Video.query.filter_by(library_id=lib.id).count()
+                lib_dict['gallery_count'] = Gallery.query.filter_by(library_id=lib.id).count()
+                lib_dict['post_count'] = Post.query.join(
+                    PostRef, PostRef.post_id == Post.id
+                ).join(
+                    ResourceIndex, ResourceIndex.id == PostRef.resource_index_id
+                ).filter(ResourceIndex.library_id == lib.id).distinct(Post.id).count()
+                lib_dict['text_count'] = Text.query.join(
+                    ResourceIndex, ResourceIndex.id == Text.resource_index_id
+                ).filter(ResourceIndex.library_id == lib.id).count()
             except Exception:
-                lib_dict['video_count'] = 0
+                lib_dict.setdefault('video_count', 0)
+                lib_dict.setdefault('gallery_count', 0)
+                lib_dict.setdefault('post_count', 0)
+                lib_dict.setdefault('text_count', 0)
             result.append(lib_dict)
         return jsonify({'success': True, 'data': result})
     except Exception as e:
@@ -84,8 +96,20 @@ def get_my_libraries():
             lib_dict = lib.to_dict(include_stats=True)
             try:
                 lib_dict['video_count'] = Video.query.filter_by(library_id=lib.id).count()
+                lib_dict['gallery_count'] = Gallery.query.filter_by(library_id=lib.id).count()
+                lib_dict['post_count'] = Post.query.join(
+                    PostRef, PostRef.post_id == Post.id
+                ).join(
+                    ResourceIndex, ResourceIndex.id == PostRef.resource_index_id
+                ).filter(ResourceIndex.library_id == lib.id).distinct(Post.id).count()
+                lib_dict['text_count'] = Text.query.join(
+                    ResourceIndex, ResourceIndex.id == Text.resource_index_id
+                ).filter(ResourceIndex.library_id == lib.id).count()
             except Exception:
-                lib_dict['video_count'] = 0
+                lib_dict.setdefault('video_count', 0)
+                lib_dict.setdefault('gallery_count', 0)
+                lib_dict.setdefault('post_count', 0)
+                lib_dict.setdefault('text_count', 0)
             result.append(lib_dict)
         return jsonify({'success': True, 'data': result})
     except Exception as e:

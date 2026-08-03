@@ -130,6 +130,20 @@ const serviceControlLoading = ref<string | null>(null)  // 当前正在操作的
 
 // 资源库管理
 const libraries = ref<any[]>([])
+const resourceViewer = ref({
+  open: false,
+  libId: null as number | null,
+  libName: '',
+  activeType: 'video',
+  types: [
+    { key: 'video', label: '视频', count: 0 },
+    { key: 'gallery', label: '图集', count: 0 },
+    { key: 'post', label: '帖子', count: 0 },
+    { key: 'text', label: '文本', count: 0 },
+  ],
+  items: [] as any[],
+  loading: false,
+})
 const showLibraryModal = ref(false)
 const showPermissionModal = ref(false)
 const editingLibrary = ref<any>(null)
@@ -715,6 +729,50 @@ const editResource = (item: any) => {
     editingResource.value = r
     showResourceEditModal.value = true
   }
+}
+
+const openResourceViewer = (lib: any) => {
+  resourceViewer.value.libId = lib.id
+  resourceViewer.value.libName = lib.name
+  resourceViewer.value.activeType = 'video'
+  resourceViewer.value.types = [
+    { key: 'video', label: '视频', count: lib.video_count || 0 },
+    { key: 'gallery', label: '图集', count: lib.gallery_count || 0 },
+    { key: 'post', label: '帖子', count: lib.post_count || 0 },
+    { key: 'text', label: '文本', count: lib.text_count || 0 },
+  ]
+  resourceViewer.value.open = true
+  loadLibraryResources()
+}
+
+const closeResourceViewer = () => {
+  resourceViewer.value.open = false
+  resourceViewer.value.libId = null
+  resourceViewer.value.items = []
+}
+
+const loadLibraryResources = async () => {
+  const rv = resourceViewer.value
+  if (rv.libId == null) return
+  rv.loading = true
+  try {
+    const params: any = { rtype: rv.activeType, library_id: rv.libId, limit: 200, show_hidden: 'true' }
+    const res = await api.get('/api/admin/resources', { params }) as any
+    if (res.success) {
+      rv.items = res.items || []
+    } else {
+      rv.items = []
+    }
+  } catch (e) {
+    console.error('加载库资源失败:', e)
+    rv.items = []
+  } finally {
+    rv.loading = false
+  }
+}
+
+const editResourceFromViewer = (item: any) => {
+  editResource(item)
 }
 
 const saveResourceEdit = async () => {
@@ -2766,8 +2824,13 @@ onUnmounted(() => {
               <p class="library-desc">{{ lib.description || '暂无描述' }}</p>
               <div class="library-stats">
                 <span class="stat-pill">📄 视频 {{ lib.video_count || 0 }}</span>
-                <span class="stat-pill">👥 用户 {{ lib.user_count || 0 }}</span>
+                <span class="stat-pill">🖼️ 图集 {{ lib.gallery_count || 0 }}</span>
+                <span class="stat-pill">📝 帖子 {{ lib.post_count || 0 }}</span>
+                <span class="stat-pill">📄 文本 {{ lib.text_count || 0 }}</span>
               </div>
+              <button class="view-resources-btn" @click="openResourceViewer(lib)">
+                查看资源（{{ Number(lib.video_count || 0) + Number(lib.gallery_count || 0) + Number(lib.post_count || 0) + Number(lib.text_count || 0) }}）
+              </button>
               <p class="library-path">{{ lib.db_path }}/{{ lib.db_file }}</p>
             </div>
             <div class="library-card-actions">
@@ -3025,6 +3088,40 @@ onUnmounted(() => {
         <div class="modal-footer">
           <button class="action-btn" @click="showResourceEditModal = false">取消</button>
           <button class="action-btn primary" @click="saveResourceEdit">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 资源库资源查看弹窗 -->
+    <div v-if="resourceViewer.open" class="modal-overlay" @click="closeResourceViewer()">
+      <div class="modal-content modal-large" @click.stop>
+        <div class="modal-header">
+          <h3>{{ resourceViewer.libName }} · 资源列表</h3>
+          <button class="close-btn" @click="closeResourceViewer()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="resource-viewer-tabs">
+            <button
+              v-for="t in resourceViewer.types"
+              :key="t.key"
+              :class="['rv-tab', { active: resourceViewer.activeType === t.key }]"
+              @click="resourceViewer.activeType = t.key; loadLibraryResources()"
+            >
+              {{ t.label }} ({{ t.count }})
+            </button>
+          </div>
+          <div v-if="resourceViewer.loading" class="empty-tip">加载中…</div>
+          <div v-else-if="resourceViewer.items.length === 0" class="empty-tip">该分类下暂无资源</div>
+          <ul v-else class="resource-viewer-list">
+            <li v-for="item in resourceViewer.items" :key="item.type + '-' + item.id" class="rv-item">
+              <span class="rv-type" :class="'rv-type-' + item.type">{{ typeLabel(item.type) }}</span>
+              <span class="rv-title" :title="item.title">{{ item.title || '未命名' }}</span>
+              <button class="action-btn small" @click="editResourceFromViewer(item)">编辑</button>
+            </li>
+          </ul>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" @click="closeResourceViewer()">关闭</button>
         </div>
       </div>
     </div>
@@ -6322,6 +6419,79 @@ input:checked + .slider:before {
 
   margin-bottom: 14px;
 
+}
+
+.view-resources-btn {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--accent-color, #4f7cff);
+  background: var(--accent-soft, rgba(79, 124, 255, 0.1));
+  border: 1px solid var(--accent-border, rgba(79, 124, 255, 0.3));
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.view-resources-btn:hover {
+  background: var(--accent-soft-hover, rgba(79, 124, 255, 0.18));
+}
+
+/* 资源查看弹窗 */
+.resource-viewer-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.rv-tab {
+  padding: 6px 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary, #4a5568);
+}
+.rv-tab.active {
+  background: var(--accent-color, #4f7cff);
+  color: #fff;
+  border-color: var(--accent-color, #4f7cff);
+}
+.resource-viewer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.rv-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color, #eef1f5);
+}
+.rv-item:hover {
+  background: var(--bg-secondary, #f8fafc);
+}
+.rv-type {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+}
+.rv-type-video { background: #4f7cff; }
+.rv-type-gallery { background: #f59e0b; }
+.rv-type-post { background: #10b981; }
+.rv-type-text { background: #8b5cf6; }
+.rv-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
 }
 
 
