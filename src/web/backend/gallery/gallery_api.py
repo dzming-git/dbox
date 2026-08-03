@@ -213,16 +213,16 @@ def list_galleries():
             ~Gallery.resource_index.has(ResourceIndex.hidden == True)
         )
 
-        # ============ 资源库权限过滤（与视频 /api/videos 对齐）============
+        # ============ 资源库可见性（统一收敛点，与视频 /api/videos 对齐）============
+        # 仅激活库 + 未删除 + 未隐藏的图集对外可见；取消所有库激活后返回空。
+        # 主库（library_id 为 NULL）已通过 migrate_main_library 归入「主资源库」，
+        # 因此不再有 NULL 例外。
         allowed_libs = _allowed_library_ids()
         if allowed_libs:
-            query = query.filter(
-                (Gallery.library_id == None) |
-                (Gallery.library_id.in_(allowed_libs))
-            )
+            query = query.filter(Gallery.library_id.in_(allowed_libs))
         else:
-            # 无权限用户只能看到主数据库（library_id 为 NULL）的图集
-            query = query.filter(Gallery.library_id == None)
+            # 无可见库时强制返回空（避免 NULL/全量越权泄露）
+            query = query.filter(Gallery.library_id == -1)
 
         if library_id is not None:
             if _is_admin() or library_id in allowed_libs:
@@ -308,6 +308,10 @@ def get_gallery(gallery_hash):
         if c.library_id:
             _uid, _role = _resolve_identity()
             if _role not in (UserRole.ADMIN, UserRole.ROOT):
+                # 资源库已取消激活时，外界完全不可见（含详情页）
+                _lib = ResourceLibrary.query.get(c.library_id)
+                if not _lib or not _lib.is_active:
+                    return jsonify({'success': False, 'message': '该图集所属资源库已停用', 'code': 404}), 404
                 if c.library_id not in _allowed_library_ids():
                     return jsonify({'success': False, 'message': '无权访问该图集所在的资源库', 'code': 403}), 403
         key = current_interaction_key()

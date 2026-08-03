@@ -2501,6 +2501,64 @@ def migrate_post_group_key():
         print(f'[WARN] post group_key 列迁移跳过: {e}')
 
 
+MAIN_LIBRARY_NAME = '主资源库'
+
+
+def migrate_main_library():
+    """将「无归属主库」的资源统一归入一个受 is_active 管控的「主资源库」。
+
+    背景：早期视频/图集的 library_id 允许为 NULL（视为「主数据库」），但这些资源
+    对 is_active 过滤免疫——取消所有资源库激活后仍会对外可见，造成越权泄露。
+    本迁移创建「主资源库」（priority=0, is_active=True），并给其附加通用权限
+    (user_id=NULL) 以保持既有「未登录用户也能看主库」的语义；随后把 library_id
+    为 NULL 的 videos / galleries 回填到主库，使所有资源都归属某个库，NULL 语义消亡。
+
+    幂等：已存在「主资源库」则复用；已回填的资源不会重复处理。
+    """
+    try:
+        main_lib = ResourceLibrary.query.filter_by(name=MAIN_LIBRARY_NAME).first()
+        if not main_lib:
+            main_lib = ResourceLibrary(
+                name=MAIN_LIBRARY_NAME,
+                description='系统主资源库，承载未指定归属的视频与图集',
+                db_path='libraries',
+                db_file='main.db',
+                is_active=True,
+            )
+            db.session.add(main_lib)
+            db.session.flush()
+            # 默认通用权限：所有用户（含未登录游客）均可访问主库，维持历史可见性语义
+            if not LibraryPermission.query.filter_by(
+                library_id=main_lib.id, user_id=None
+            ).first():
+                db.session.add(LibraryPermission(
+                    library_id=main_lib.id, user_id=None,
+                    role='user', access_level='full',
+                    permissions={'browse': True, 'play': True, 'download': True,
+                                 'upload': True, 'edit': True, 'delete': True},
+                ))
+            print(f'[MIGRATE] 创建主资源库 id={main_lib.id}')
+
+        # 回填 NULL 归属资源到主库
+        for table in ('videos', 'galleries'):
+            try:
+                n = db.session.execute(
+                    db.text(
+                        f"UPDATE {table} SET library_id = :lid "
+                        f"WHERE library_id IS NULL"
+                    ),
+                    {'lid': main_lib.id},
+                ).rowcount
+                if n:
+                    print(f'[MIGRATE] {table}: {n} 条 NULL 归属资源已归入主资源库')
+            except Exception as e:
+                print(f'[WARN] {table} 回填主库跳过: {e}')
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f'[WARN] 主资源库迁移跳过: {e}')
+
 
 
 

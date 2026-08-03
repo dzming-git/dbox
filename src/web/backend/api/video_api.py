@@ -25,7 +25,9 @@ from core.models import UserRole
 import re
 from backend.trash import purge_trash
 from backend.runtime import runtime
-from backend.access import resolve_identity
+from backend.access import (
+    resolve_identity, get_allowed_library_ids, apply_video_visibility,
+)
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
@@ -52,63 +54,14 @@ def get_videos():
         only_liked = request.args.get('only_liked', '').lower() == 'true'
         only_favorited = request.args.get('only_favorited', '').lower() == 'true'
 
-        query = Video.query.filter(Video.in_trash == False).options(joinedload(Video.resource_index))
+        query = Video.query.options(joinedload(Video.resource_index))
 
-        # 过滤被隐藏的资源（hidden=True 仅在帖子流可见，不出现在视频库列表）
-        query = query.filter(
-            ~Video.resource_index.has(ResourceIndex.hidden == True)
-        )
-
-        # ============ 过滤被禁用的资源库 ============
-        # 获取当前用户可访问的激活资源库ID列表
-        allowed_library_ids = []
-
-        # 检查 Video 模型是否有 library_id 属性
-        has_library_id = hasattr(Video, 'library_id')
-
-        if has_library_id:
-            # 获取用户ID和角色（通过 auth_token 正确解析登录态）
-            user_id, user_role = resolve_identity()
-
-            # 管理员和ROOT可以访问所有激活的库
-            if user_role in [UserRole.ADMIN, UserRole.ROOT]:
-                all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
-                allowed_library_ids = [lib.id for lib in all_active_libs]
-            elif user_id:
-                # 已登录的普通用户：查询用户直接权限 + 用户组权限
-                # 1. 获取用户直接权限的库
-                user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
-                for perm in user_perms:
-                    lib = ResourceLibrary.query.get(perm.library_id)
-                    if lib and lib.is_active:
-                        allowed_library_ids.append(perm.library_id)
-
-                # 2. 获取用户组权限的库
-                user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
-                for ugm in user_groups:
-                    group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
-                    for perm in group_perms:
-                        lib = ResourceLibrary.query.get(perm.library_id)
-                        if lib and lib.is_active and perm.library_id not in allowed_library_ids:
-                            allowed_library_ids.append(perm.library_id)
-            
-            # 3. 获取通用权限（user_id=NULL，表示所有人都可以访问）
-            # 这个在用户没有特定权限时也生效
-            general_perms = LibraryPermission.query.filter_by(user_id=None).all()
-            for perm in general_perms:
-                lib = ResourceLibrary.query.get(perm.library_id)
-                if lib and lib.is_active and perm.library_id not in allowed_library_ids:
-                    allowed_library_ids.append(perm.library_id)
-
-            # 过滤条件：library_id 为 NULL（主数据库的视频）或在允许的资源库中
-            if allowed_library_ids:
-                query = query.filter(
-                    (Video.library_id == None) |
-                    (Video.library_id.in_(allowed_library_ids))
-                )
-            else:
-                # 未登录或无权限用户只能看到主数据库的视频
-                query = query.filter(Video.library_id == None)
+        # ============ 资源库可见性（统一收敛点）============
+        # 仅激活库 + 未删除 + 未隐藏的资源对外可见；取消所有库激活后返回空。
+        # 主库（library_id 为 NULL）已通过 migrate_main_library 归入「主资源库」，
+        # 因此不再有 NULL 例外。
+        allowed_library_ids = get_allowed_library_ids()
+        query = apply_video_visibility(query, allowed_library_ids)
 
         # 如果调用方指定了 library_id（按库精确筛选），需要校验权限：
         # 管理员/ROOT 可筛选任意库；普通用户只能筛选其有权限访问的库，否则返回空
@@ -250,6 +203,14 @@ def get_video(video_hash):
 
             # 管理员和ROOT可以访问所有视频
             if user_role not in [UserRole.ADMIN, UserRole.ROOT]:
+                # 资源库已取消激活时，外界完全不可见（含详情页）
+                _lib = ResourceLibrary.query.get(video.library_id)
+                if not _lib or not _lib.is_active:
+                    return jsonify({
+                        'success': False,
+                        'message': '该视频所属资源库已停用',
+                        'code': 404
+                    }), 404
                 # 检查用户权限
                 user_perm = LibraryPermission.query.filter_by(
                     library_id=video.library_id, user_id=user_id
@@ -383,8 +344,12 @@ def toggle_favorite(video_hash):
 
 @bp.route('/api/favorites', methods=['GET'])
 def get_favorites():
-    """获取当前用户的收藏列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）"""
+    """获取当前用户的收藏列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）
+
+    仅返回当前用户可见（资源库已激活）的视频；库已取消激活的资源从收藏列表隐藏。
+    """
     try:
+        allowed = set(get_allowed_library_ids())
         key = current_interaction_key()
         rows = UserInteraction.query.filter_by(
             user_session=key, interaction_type='favorite'
@@ -394,6 +359,8 @@ def get_favorites():
         for row in rows:
             video = Video.query.get(row.video_id)
             if not video or video.in_trash:
+                continue
+            if video.library_id not in allowed:
                 continue
             v = video.to_dict()
             v['favorited_at'] = row.created_at.isoformat() if row.created_at else None
@@ -406,8 +373,12 @@ def get_favorites():
 
 @bp.route('/api/likes', methods=['GET'])
 def get_likes():
-    """获取当前用户点赞过的视频列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）"""
+    """获取当前用户点赞过的视频列表（以后端为唯一数据源，登录用户绑定账号，跨设备一致）
+
+    仅返回当前用户可见（资源库已激活）的视频；库已取消激活的资源从点赞列表隐藏。
+    """
     try:
+        allowed = set(get_allowed_library_ids())
         key = current_interaction_key()
         rows = UserInteraction.query.filter_by(
             user_session=key, interaction_type='like'
@@ -417,6 +388,8 @@ def get_likes():
         for row in rows:
             video = Video.query.get(row.video_id)
             if not video or video.in_trash:
+                continue
+            if video.library_id not in allowed:
                 continue
             v = video.to_dict()
             v['liked_at'] = row.created_at.isoformat() if row.created_at else None
@@ -429,8 +402,12 @@ def get_likes():
 
 @bp.route('/api/disliked', methods=['GET'])
 def get_disliked():
-    """获取当前用户标记为不喜欢的视频列表（用于查看/撤销屏蔽）"""
+    """获取当前用户标记为不喜欢的视频列表（用于查看/撤销屏蔽）
+
+    仅返回当前用户可见（资源库已激活）的视频；库已取消激活的资源从不喜欢列表隐藏。
+    """
     try:
+        allowed = set(get_allowed_library_ids())
         key = current_interaction_key()
         rows = UserInteraction.query.filter_by(
             user_session=key, interaction_type='dislike'
@@ -440,6 +417,8 @@ def get_disliked():
         for row in rows:
             video = Video.query.get(row.video_id)
             if not video or video.in_trash:
+                continue
+            if video.library_id not in allowed:
                 continue
             v = video.to_dict()
             v['disliked_at'] = row.created_at.isoformat() if row.created_at else None
@@ -1025,25 +1004,43 @@ def batch_delete_videos():
 
 @bp.route('/api/stats/overview', methods=['GET'])
 def stats_overview():
-    """统计概览：视频总数、各资源库数量、按标签视频数 Top、最热视频"""
+    """统计概览：视频总数、各资源库数量、按标签视频数 Top、最热视频
+
+    所有计数均经 apply_video_visibility 收敛，仅统计「当前用户可见（库已激活 +
+    未删除 + 未隐藏）」的资源，确保取消资源库激活后统计数字同步下降、外界不可见。
+    """
     try:
-        total = Video.query.count()
+        # 可见视频总数
+        total = apply_video_visibility(Video.query).count()
+
         by_library = []
         for lib in ResourceLibrary.query.filter_by(is_active=True).all():
-            cnt = Video.query.filter_by(library_id=lib.id).count()
+            cnt = apply_video_visibility(
+                Video.query.filter_by(library_id=lib.id)
+            ).count()
             by_library.append({'id': lib.id, 'name': lib.name, 'count': cnt})
 
-        # 按标签视频数 Top 10
+        # 按标签视频数 Top 10（仅可见视频的标签）
         tag_counts = db.session.query(
             Tag.name, db.func.count(VideoTag.tag_id)
-        ).join(VideoTag, Tag.id == VideoTag.tag_id).group_by(Tag.id).order_by(
+        ).join(VideoTag, Tag.id == VideoTag.tag_id).join(
+            Video, Video.id == VideoTag.video_id
+        ).filter(
+            Video.library_id.in_(get_allowed_library_ids()),
+            Video.in_trash == False,
+            ~Video.resource_index.has(ResourceIndex.hidden == True),
+        ).group_by(Tag.id).order_by(
             db.func.count(VideoTag.tag_id).desc()
         ).limit(10).all()
         top_tags = [{'name': t[0], 'count': t[1]} for t in tag_counts]
 
-        # 最热视频（点赞最多 / 收藏最多）
-        top_liked = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.like_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
-        top_favorited = [v.to_dict() for v in Video.query.filter(Video.in_trash == False).order_by(Video.favorite_count.desc()).limit(10).options(joinedload(Video.resource_index)).all()]
+        # 最热视频（点赞最多 / 收藏最多），仅可见视频
+        top_liked = [v.to_dict() for v in apply_video_visibility(
+            Video.query.order_by(Video.like_count.desc()).limit(10)
+        ).options(joinedload(Video.resource_index)).all()]
+        top_favorited = [v.to_dict() for v in apply_video_visibility(
+            Video.query.order_by(Video.favorite_count.desc()).limit(10)
+        ).options(joinedload(Video.resource_index)).all()]
 
         # 标签总数与用户总数（用于后台仪表盘概览卡片）
         total_tags = Tag.query.count()

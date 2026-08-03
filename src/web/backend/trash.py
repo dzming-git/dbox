@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 
 from core.models import (
-    db, User, Video, Gallery,
+    db, User, Video, Gallery, ResourceLibrary,
     UserInteraction, VideoTag,
     GalleryPage, GalleryInteraction, GalleryProgress, GalleryTag,
 )
@@ -144,11 +144,26 @@ def get_trash_obj(kind: str, hash_value: str):
     return None
 
 
-def get_trash_list():
-    """返回回收站中所有资源（视频 + 图集），按删除时间倒序。"""
+def _library_is_active(library_id):
+    """资源所属库是否处于激活状态（已停用的库其资源对外不可见）。"""
+    if library_id is None:
+        return False
+    lib = ResourceLibrary.query.get(library_id)
+    return bool(lib and lib.is_active)
+
+
+def get_trash_list(only_active_library=True):
+    """返回回收站中所有资源（视频 + 图集），按删除时间倒序。
+
+    only_active_library=True（默认）：仅返回归属「已激活资源库」的已删资源，
+    未激活库的资源连同其回收站条目一并对外不可见（资源库管理模块完整收敛）。
+    管理员如需查看全部（含已停用库的资源），传 only_active_library=False。
+    """
     items = []
 
     for v in Video.query.filter_by(in_trash=True).all():
+        if only_active_library and not _library_is_active(v.library_id):
+            continue
         owner = None
         if v.owner_id:
             u = db.session.get(User, v.owner_id)
@@ -164,6 +179,8 @@ def get_trash_list():
         })
 
     for c in Gallery.query.filter_by(in_trash=True).all():
+        if only_active_library and not _library_is_active(c.library_id):
+            continue
         owner = None
         if c.owner_id:
             u = db.session.get(User, c.owner_id)

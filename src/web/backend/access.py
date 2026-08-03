@@ -134,6 +134,32 @@ def get_allowed_library_ids():
     return allowed_library_ids
 
 
+def apply_video_visibility(query, allowed_ids=None):
+    """在视频查询上叠加「库已激活 + 未删除 + 未隐藏」三层对外可见性过滤。
+
+    这是资源库可见性的唯一收敛点：外界（首页列表、统计、收藏/点赞/不喜欢、
+    回收站等）统一通过本函数约束，避免各处散落 `library_id == NULL` 等放行逻辑
+    导致「取消资源库激活后资源仍对外可见」的越权泄露。
+
+    - 主库（library_id 为 NULL）已通过 migrate_main_library 统一归入「主资源库」，
+      因此不再存在 NULL 例外：可见资源必须归属某个 is_active 库。
+    - allowed_ids 为空（未登录无通用权限 / 所有库均取消激活）时返回空结果。
+
+    调用方仍需自行叠加 search / sort / 精确 library_id 筛选与分页。
+    """
+    if allowed_ids is None:
+        allowed_ids = get_allowed_library_ids()
+    query = query.filter(Video.in_trash == False)
+    # 排除隐藏资源（hidden=True 仅在帖子流可见，不出现在资源库列表）
+    query = query.filter(~Video.resource_index.has(ResourceIndex.hidden == True))
+    if allowed_ids:
+        query = query.filter(Video.library_id.in_(allowed_ids))
+    else:
+        # 无任何可见库时强制返回空（避免 NULL/全量越权泄露）
+        query = query.filter(Video.library_id == -1)
+    return query
+
+
 def _post_library_ids(post):
     """收集帖子涉及的所有资源库 ID（含帖子自身、引用资源、正文内联资源）。
 
