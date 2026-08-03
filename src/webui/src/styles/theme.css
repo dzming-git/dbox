@@ -17,12 +17,14 @@
   --bg-base: #0f1115;
   --bg-elevated: #1c1f26;
   --bg-surface: #1a1d24;
+  --card-bg: #1a1d24;
   --bg-surface-hover: #242832;
   --bg-surface-2: #2a2f3a;
   --bg-input: #242832;
 
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.10);
+  --border-color: rgba(255, 255, 255, 0.10);
   --border-strong: rgba(255, 255, 255, 0.18);
 
   /* —— 文本 —— */

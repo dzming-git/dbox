@@ -104,6 +104,7 @@ function buildTokens(mode: ThemeMode, base: ThemeBase, extra?: ThemeTokens): The
     'bg-base': base.bgBase,
     'bg-elevated': base.bgElevated,
     'bg-surface': base.bgSurface,
+    'card-bg': base.bgSurface,
     'bg-surface-hover': base.bgSurfaceHover,
     'bg-surface-2': base.bgSurface2,
     'bg-input': base.bgInput,
@@ -111,6 +112,7 @@ function buildTokens(mode: ThemeMode, base: ThemeBase, extra?: ThemeTokens): The
     /* —— 边框 —— */
     'border-subtle': dark ? 'rgba(255,255,255,0.06)' : 'rgba(20,20,30,0.06)',
     'border-default': withAlpha(dark ? '#ffffff' : '#14141e', borderAlpha),
+    'border-color': withAlpha(dark ? '#ffffff' : '#14141e', borderAlpha),
     'border-strong': withAlpha(dark ? '#ffffff' : '#14141e', borderStrongAlpha),
 
     /* —— 文本 —— */
