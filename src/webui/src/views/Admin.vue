@@ -638,6 +638,25 @@ const resourceColspan = computed(() => {
   return base
 })
 
+const resourceTotalPages = computed(() => Math.ceil(resourceTotal.value / RESOURCE_PAGE_SIZE) || 1)
+
+const resourcePageRange = computed(() => {
+  const cur = resourcePage.value
+  const total = resourceTotalPages.value
+  const range: (number | null)[] = []
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) range.push(i)
+  } else {
+    range.push(1)
+    const start = Math.max(2, cur - 1), end = Math.min(total - 1, cur + 1)
+    if (start > 2) range.push(null)
+    for (let i = start; i <= end; i++) range.push(i)
+    if (end < total - 1) range.push(null)
+    range.push(total)
+  }
+  return range
+})
+
 const fetchResources = async (resetPage = true) => {
   if (resetPage) resourcePage.value = 1
   resourceLoading.value = true
@@ -2251,14 +2270,22 @@ onUnmounted(() => {
               <option value="">全部资源库</option>
               <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
             </select>
-            <input
-              v-model="resourceSearch"
-              @keyup.enter="fetchResources()"
-              type="text"
-              placeholder="搜索标题..."
-              class="search-input"
-            />
-            <button class="action-btn" @click="fetchResources()">搜索</button>
+            <div class="search-box-inline">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+              </svg>
+              <input
+                v-model="resourceSearch"
+                @keyup.enter="fetchResources()"
+                type="text"
+                placeholder="搜索标题..."
+                class="search-input"
+              />
+            </div>
+            <button class="action-btn" @click="fetchResources()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              搜索
+            </button>
           </div>
         </div>
 
@@ -2273,22 +2300,34 @@ onUnmounted(() => {
             class="subtab-btn"
             :class="{ active: resourceTypeFilter === 'video' }"
             @click="resourceTypeFilter = 'video'; fetchResources()"
-          >🎬 视频</button>
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>
+            视频
+          </button>
           <button
             class="subtab-btn"
             :class="{ active: resourceTypeFilter === 'gallery' }"
             @click="resourceTypeFilter = 'gallery'; fetchResources()"
-          >🖼️ 图集</button>
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            图集
+          </button>
           <button
             class="subtab-btn"
             :class="{ active: resourceTypeFilter === 'post' }"
             @click="resourceTypeFilter = 'post'; fetchResources()"
-          >📝 帖子</button>
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+            帖子
+          </button>
           <button
             class="subtab-btn"
             :class="{ active: resourceTypeFilter === 'text' }"
             @click="resourceTypeFilter = 'text'; fetchResources()"
-          >📄 文本</button>
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+            文本
+          </button>
         </div>
 
         <!-- 显示隐藏资源开关（公共层属性 resource_index.hidden） -->
@@ -2351,9 +2390,16 @@ onUnmounted(() => {
                   @click="toggleResourceHidden(r)"
                   :title="r.hidden ? '已隐藏，点击显示' : '点击隐藏'"
                   :disabled="togglingHidden === r.resource_index_id"
-                >{{ r.hidden ? '👁️' : '🙈' }}</button>
-                <button class="icon-btn" @click="editResource(r)" title="编辑">✏️</button>
-                <button class="icon-btn danger" @click="deleteResource(r)" title="删除">🗑️</button>
+                >
+                  <svg v-if="r.hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+                <button class="icon-btn" @click="editResource(r)" title="编辑">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="icon-btn danger" @click="deleteResource(r)" title="删除">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
               </td>
             </tr>
             <tr v-if="resources.length === 0"><td :colspan="resourceColspan" class="empty">暂无资源</td></tr>
@@ -2362,9 +2408,15 @@ onUnmounted(() => {
         </div>
 
         <div v-if="resourceTotal > RESOURCE_PAGE_SIZE" class="pagination">
-          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage--; fetchResources(false)">上一页</button>
-          <span class="page-info">第 {{ resourcePage }} / {{ Math.ceil(resourceTotal / RESOURCE_PAGE_SIZE) }} 页（共 {{ resourceTotal }} 条）</span>
-          <button class="page-btn" :disabled="resourcePage >= Math.ceil(resourceTotal / RESOURCE_PAGE_SIZE)" @click="resourcePage++; fetchResources(false)">下一页</button>
+          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage = 1; fetchResources(false)">首页</button>
+          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage--; fetchResources(false)">‹ 上一页</button>
+          <template v-for="p in resourcePageRange" :key="p">
+            <button v-if="p" class="page-btn" :class="{ active: p === resourcePage }" @click="resourcePage = p; fetchResources(false)">{{ p }}</button>
+            <span v-else class="page-ellipsis">...</span>
+          </template>
+          <button class="page-btn" :disabled="resourcePage >= resourceTotalPages" @click="resourcePage++; fetchResources(false)">下一页 ›</button>
+          <button class="page-btn" :disabled="resourcePage >= resourceTotalPages" @click="resourcePage = resourceTotalPages; fetchResources(false)">末页</button>
+          <span class="page-info">第 {{ resourcePage }} / {{ resourceTotalPages }} 页（共 {{ resourceTotal }} 条）</span>
         </div>
       </div>
 
@@ -3915,6 +3967,30 @@ onUnmounted(() => {
   border-radius: 8px;
   font-size: 14px;
   width: 240px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.search-box-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+.search-box-inline .search-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.search-box-inline .search-input {
+  border: none;
+  background: transparent;
+  width: 180px;
+  padding: 8px 0;
 }
 
 .search-select {
@@ -4069,6 +4145,14 @@ onUnmounted(() => {
 }
 
 /* 资源管理标签页 */
+.resource-table-wrap {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
 .type-badge {
   display: inline-block;
   padding: 2px 10px;
@@ -4266,6 +4350,18 @@ onUnmounted(() => {
   color: var(--text-secondary);
   border-color: var(--border-default);
   cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.page-btn.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
+.page-ellipsis {
+  color: var(--text-tertiary);
+  padding: 0 4px;
 }
 
 /* 资源管理：类型过滤标签组 */
@@ -4437,21 +4533,36 @@ onUnmounted(() => {
 }
 
 .icon-btn {
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   background: transparent;
-  border: none;
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 16px;
-  transition: all 0.3s ease;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
 }
 
 .icon-btn:hover {
   background: var(--bg-surface-hover);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .icon-btn.danger:hover {
   background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* 角色标签 */
