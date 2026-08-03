@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import {
@@ -38,48 +38,90 @@ interface FieldDef {
   testid?: string
 }
 
-const fields: FieldDef[] = [
-  { key: 'autoplay', label: '自动播放', desc: '打开视频时自动开始播放', type: 'toggle', testid: 'autoplay-toggle' },
+// 设置项按功能分组，分组导航便于快速定位
+interface FieldGroup {
+  id: string
+  title: string
+  desc: string
+  fields: FieldDef[]
+}
+
+const groups: FieldGroup[] = [
   {
-    key: 'defaultQuality', label: '默认画质', desc: '选择视频默认播放画质', type: 'select', testid: 'default-quality-select',
-    options: [
-      { v: 'auto', t: '自动' }, { v: '1080p', t: '1080p' }, { v: '720p', t: '720p' },
-      { v: '480p', t: '480p' }, { v: '360p', t: '360p' },
+    id: 'playback', title: '播放', desc: '视频与图集的播放行为',
+    fields: [
+      { key: 'autoplay', label: '自动播放', desc: '打开视频时自动开始播放', type: 'toggle', testid: 'autoplay-toggle' },
+      {
+        key: 'defaultQuality', label: '默认画质', desc: '选择视频默认播放画质', type: 'select', testid: 'default-quality-select',
+        options: [
+          { v: 'auto', t: '自动' }, { v: '1080p', t: '1080p' }, { v: '720p', t: '720p' },
+          { v: '480p', t: '480p' }, { v: '360p', t: '360p' },
+        ],
+      },
+      {
+        key: 'subtitleLanguage', label: '字幕语言', desc: '选择默认字幕语言', type: 'select', testid: 'subtitle-language-select',
+        options: [
+          { v: 'off', t: '关闭' }, { v: 'zh', t: '中文' }, { v: 'en', t: 'English' },
+          { v: 'ja', t: '日本語' }, { v: 'ko', t: '한국어' },
+        ],
+      },
+      { key: 'autoContinue', label: '自动续播', desc: '视频播放结束后，自动跳转至合集下一集或推荐视频', type: 'toggle', testid: 'auto-continue-toggle' },
     ],
   },
   {
-    key: 'subtitleLanguage', label: '字幕语言', desc: '选择默认字幕语言', type: 'select', testid: 'subtitle-language-select',
-    options: [
-      { v: 'off', t: '关闭' }, { v: 'zh', t: '中文' }, { v: 'en', t: 'English' },
-      { v: 'ja', t: '日本語' }, { v: 'ko', t: '한국어' },
+    id: 'appearance', title: '外观', desc: '主题与界面语言',
+    fields: [
+      {
+        key: 'theme', label: '主题皮肤', desc: '选择界面主题皮肤，颜色由统一主题引擎计算生成', type: 'radio', testid: 'theme-skin-radio',
+        options: getThemeOptions(),
+      },
+      {
+        key: 'language', label: '界面语言', desc: '选择界面显示语言', type: 'select', testid: 'interface-language-select',
+        options: [
+          { v: 'zh-CN', t: '简体中文' }, { v: 'zh-TW', t: '繁體中文' },
+          { v: 'en-US', t: 'English' }, { v: 'ja-JP', t: '日本語' },
+        ],
+      },
     ],
   },
   {
-    key: 'theme', label: '主题皮肤', desc: '选择界面主题皮肤，颜色由统一主题引擎计算生成', type: 'radio', testid: 'theme-skin-radio',
-    options: getThemeOptions(),
-  },
-  {
-    key: 'language', label: '界面语言', desc: '选择界面显示语言', type: 'select', testid: 'interface-language-select',
-    options: [
-      { v: 'zh-CN', t: '简体中文' }, { v: 'zh-TW', t: '繁體中文' },
-      { v: 'en-US', t: 'English' }, { v: 'ja-JP', t: '日本語' },
+    id: 'list', title: '列表与展示', desc: '首页与列表的排序、过滤',
+    fields: [
+      { key: 'blockDisliked', label: '屏蔽不喜欢的视频', desc: '开启后，标记为"不喜欢"的视频不会出现在列表中', type: 'toggle', testid: 'block-disliked-toggle' },
+      {
+        key: 'defaultSort', label: '默认排序方式', desc: '视频 / 图集列表首页的默认排序，未单独指定时生效', type: 'select', testid: 'default-sort-select',
+        options: [
+          { v: 'recommended', t: '推荐' }, { v: 'name', t: '名称' }, { v: 'created_at', t: '文件时间' },
+        ],
+      },
+      {
+        key: 'defaultOrder', label: '默认排序顺序', desc: '与排序方式搭配', type: 'select', testid: 'default-order-select',
+        options: [{ v: 'desc', t: '倒序' }, { v: 'asc', t: '正序' }],
+      },
     ],
   },
-  { key: 'blockDisliked', label: '屏蔽不喜欢的视频', desc: '开启后，标记为"不喜欢"的视频不会出现在列表中', type: 'toggle', testid: 'block-disliked-toggle' },
   {
-    key: 'defaultSort', label: '默认排序方式', desc: '视频 / 图集列表首页的默认排序，未单独指定时生效', type: 'select', testid: 'default-sort-select',
-    options: [
-      { v: 'recommended', t: '推荐' }, { v: 'name', t: '名称' }, { v: 'created_at', t: '文件时间' },
+    id: 'notification', title: '通知', desc: '应用内通知提醒',
+    fields: [
+      { key: 'enableNotifications', label: '启用通知', desc: '接收应用内通知', type: 'toggle' },
+      { key: 'notifyOnNewVideos', label: '新视频提醒', desc: '有新视频时通知我', type: 'toggle', showIf: 'enableNotifications' },
     ],
   },
-  {
-    key: 'defaultOrder', label: '默认排序顺序', desc: '与排序方式搭配', type: 'select', testid: 'default-order-select',
-    options: [{ v: 'desc', t: '倒序' }, { v: 'asc', t: '正序' }],
-  },
-  { key: 'enableNotifications', label: '启用通知', desc: '接收应用内通知', type: 'toggle' },
-  { key: 'notifyOnNewVideos', label: '新视频提醒', desc: '有新视频时通知我', type: 'toggle', showIf: 'enableNotifications' },
-  { key: 'autoContinue', label: '自动续播', desc: '视频播放结束后，自动跳转至合集下一集或推荐视频', type: 'toggle', testid: 'auto-continue-toggle' },
 ]
+
+// 分组导航（含数据管理、系统控制两个独立分区）
+const navGroups = computed(() => {
+  const base = groups.map((g) => ({ id: g.id, title: g.title }))
+  const extra = [{ id: 'data', title: '数据管理' }]
+  if (isAdmin.value) extra.push({ id: 'system', title: '系统控制' })
+  return base.concat(extra)
+})
+const activeGroup = ref('playback')
+function scrollToGroup(id: string) {
+  activeGroup.value = id
+  const el = document.getElementById('group-' + id)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const tabs: { scope: SettingScope; label: string; desc: string }[] = [
   { scope: 'user', label: '我的设置', desc: '跟随你的账号，在所有设备上生效' },
@@ -255,10 +297,35 @@ function showToast(message: string) {
   setTimeout(() => (showToastFlag.value = false), 2000)
 }
 
+let groupObserver: IntersectionObserver | null = null
+
 onMounted(async () => {
   await fetchServerSettings()
   if (!userStore.isLoggedIn) activeTab.value = 'browser'
   loadTab(activeTab.value)
+  // 滚动时高亮当前分组
+  const ids = navGroups.value.map((g) => 'group-' + g.id)
+  groupObserver = new IntersectionObserver(
+    (entries) => {
+      // 取仍可见且与顶部最近的分组
+      const visible = entries
+        .filter((e) => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      if (visible.length) {
+        activeGroup.value = visible[0].target.id.replace('group-', '')
+      }
+    },
+    { rootMargin: '-80px 0px -60% 0px', threshold: 0 }
+  )
+  ids.forEach((id) => {
+    const el = document.getElementById(id)
+    if (el) groupObserver!.observe(el)
+  })
+})
+
+onUnmounted(() => {
+  groupObserver?.disconnect()
+  groupObserver = null
 })
 
 watch(
@@ -298,71 +365,106 @@ watch(
       <span v-else-if="activeTab === 'user' && !userStore.isLoggedIn" class="tab-desc-warn">（请先登录）</span>
     </div>
 
-    <div class="settings-content">
-      <section class="settings-section">
-        <div
-          v-for="f in fields"
-          :key="f.key"
-          class="setting-item"
-          v-show="!f.showIf || form[f.showIf]"
+    <!-- 分组导航 -->
+    <nav class="group-nav">
+      <button
+        v-for="g in navGroups"
+        :key="g.id"
+        class="group-nav-btn"
+        :class="{ active: activeGroup === g.id }"
+        @click="scrollToGroup(g.id)"
+      >
+        {{ g.title }}
+      </button>
+    </nav>
+
+    <div class="settings-body">
+      <!-- 左侧分组导航（PC 端 sticky） -->
+      <aside class="group-sidebar">
+        <button
+          v-for="g in navGroups"
+          :key="g.id"
+          class="group-sidebar-btn"
+          :class="{ active: activeGroup === g.id }"
+          @click="scrollToGroup(g.id)"
         >
-          <div class="setting-info">
-            <label class="setting-label">
-              {{ f.label }}
-              <span class="source-badge" :class="'src-' + getSettingSource(f.key)">
-                {{ sourceLabel(f.key) }}
-              </span>
-            </label>
-            <p class="setting-desc">{{ f.desc }}</p>
-          </div>
+          {{ g.title }}
+        </button>
+      </aside>
 
-          <div class="setting-control">
-            <!-- toggle -->
-            <label v-if="f.type === 'toggle'" class="toggle-switch">
-              <input
-                type="checkbox"
-                v-model="(form as any)[f.key]"
-                :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
-                :data-testid="f.testid"
-              />
-              <span class="toggle-slider"></span>
-            </label>
-
-            <!-- radio -->
-            <div v-else-if="f.type === 'radio'" class="radio-group">
-              <label
-                v-for="opt in f.options"
-                :key="opt.v"
-                class="radio-label"
-                :data-testid="f.testid"
-              >
-                <input
-                  type="radio"
-                  v-model="(form as any)[f.key]"
-                  :value="opt.v"
-                  :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
-                />
-                <span class="radio-text">{{ opt.t }}</span>
+      <div class="settings-content">
+        <!-- 设置项分组 -->
+        <section
+          v-for="group in groups"
+          :key="group.id"
+          class="settings-section"
+          :id="'group-' + group.id"
+        >
+          <h2 class="section-title">{{ group.title }}</h2>
+          <p class="section-desc">{{ group.desc }}</p>
+          <div
+            v-for="f in group.fields"
+            :key="f.key"
+            class="setting-item"
+            v-show="!f.showIf || form[f.showIf]"
+          >
+            <div class="setting-info">
+              <label class="setting-label">
+                {{ f.label }}
+                <span class="source-badge" :class="'src-' + getSettingSource(f.key)">
+                  {{ sourceLabel(f.key) }}
+                </span>
               </label>
+              <p class="setting-desc">{{ f.desc }}</p>
             </div>
 
-            <!-- select -->
-            <select
-              v-else
-              v-model="(form as any)[f.key]"
-              class="setting-select"
-              :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
-              :data-testid="f.testid"
-            >
-              <option v-for="opt in f.options" :key="opt.v" :value="opt.v">{{ opt.t }}</option>
-            </select>
-          </div>
-        </div>
-      </section>
+            <div class="setting-control">
+              <!-- toggle -->
+              <label v-if="f.type === 'toggle'" class="toggle-switch">
+                <input
+                  type="checkbox"
+                  v-model="(form as any)[f.key]"
+                  :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+                  :data-testid="f.testid"
+                />
+                <span class="toggle-slider"></span>
+              </label>
 
-      <!-- 数据管理（仅浏览器层可见，操作本地数据） -->
-      <section class="settings-section">
-        <h2 class="section-title">数据管理</h2>
+              <!-- radio -->
+              <div v-else-if="f.type === 'radio'" class="radio-group">
+                <label
+                  v-for="opt in f.options"
+                  :key="opt.v"
+                  class="radio-label"
+                  :data-testid="f.testid"
+                >
+                  <input
+                    type="radio"
+                    v-model="(form as any)[f.key]"
+                    :value="opt.v"
+                    :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+                  />
+                  <span class="radio-text">{{ opt.t }}</span>
+                </label>
+              </div>
+
+              <!-- select -->
+              <select
+                v-else
+                v-model="(form as any)[f.key]"
+                class="setting-select"
+                :disabled="tabReadOnly || (activeTab === 'user' && !userEditable)"
+                :data-testid="f.testid"
+              >
+                <option v-for="opt in f.options" :key="opt.v" :value="opt.v">{{ opt.t }}</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <!-- 数据管理 -->
+        <section class="settings-section" id="group-data">
+          <h2 class="section-title">数据管理</h2>
         <div class="setting-item">
           <div class="setting-info">
             <label class="setting-label">清除所有本地数据</label>
@@ -375,7 +477,7 @@ watch(
       </section>
 
       <!-- 系统控制（仅管理员）：电脑关机 -->
-      <section class="settings-section" v-if="isAdmin">
+      <section class="settings-section" id="group-system" v-if="isAdmin">
         <h2 class="section-title">系统控制 · 电脑关机</h2>
         <div class="setting-item">
           <div class="setting-info">
@@ -424,6 +526,7 @@ watch(
           {{ loading ? '保存中...' : (activeTab === 'global' ? '保存全局默认' : activeTab === 'browser' ? '保存到此浏览器' : '保存我的设置') }}
         </button>
       </div>
+      </div>
     </div>
 
     <div v-if="saved" class="toast success" data-testid="save-success">设置已保存</div>
@@ -434,11 +537,90 @@ watch(
 <style scoped>
 .settings-page {
   padding: 24px;
-  max-width: 800px;
+  max-width: 1040px;
   margin: 0 auto;
   min-height: 100vh;
   background: var(--bg-surface);
   color: var(--text-primary);
+}
+
+/* 分组导航：顶部横向（移动端默认显示） */
+.group-nav {
+  display: none;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.group-nav-btn {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.group-nav-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* 两栏布局：侧边分组导航 + 内容 */
+.settings-body {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.group-sidebar {
+  position: sticky;
+  top: 24px;
+  flex: 0 0 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 8px;
+  background: var(--bg-surface-hover);
+  border-radius: 12px;
+}
+
+.group-sidebar-btn {
+  text-align: left;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.group-sidebar-btn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.group-sidebar-btn.active {
+  background: var(--bg-surface);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.section-desc {
+  margin: -12px 0 20px 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
 }
 
 .page-header {
@@ -504,6 +686,8 @@ watch(
 
 .settings-content {
   display: flex;
+  flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: 24px;
 }
@@ -764,6 +948,24 @@ input:disabled + .toggle-slider {
   10% { opacity: 1; transform: translateX(-50%) translateY(0); }
   90% { opacity: 1; transform: translateX(-50%) translateY(0); }
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+}
+
+@media (max-width: 900px) {
+  .settings-body {
+    display: block;
+  }
+
+  .group-sidebar {
+    display: none;
+  }
+
+  .group-nav {
+    display: flex;
+  }
+
+  .settings-page {
+    padding: 16px;
+  }
 }
 
 @media (max-width: 768px) {
