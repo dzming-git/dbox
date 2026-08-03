@@ -23,6 +23,7 @@ import AdminLogs from '../admin/AdminLogs.vue'
 import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
+import Pagination from '../components/Pagination.vue'
 
 const userStore = useUserStore()
 const videoStore = useVideoStore()
@@ -66,6 +67,24 @@ const videos = ref<any[]>([])
 const videoSearch = ref('')
 const videoPage = ref(1)
 const videoTotal = ref(0)
+const VIDEO_PAGE_SIZE = 20
+const videoTotalPages = computed(() => Math.ceil(videoTotal.value / VIDEO_PAGE_SIZE) || 1)
+const videoPageRange = computed(() => {
+  const cur = videoPage.value
+  const total = videoTotalPages.value
+  const range: (number | null)[] = []
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) range.push(i)
+  } else {
+    range.push(1)
+    const start = Math.max(2, cur - 1), end = Math.min(total - 1, cur + 1)
+    if (start > 2) range.push(null)
+    for (let i = start; i <= end; i++) range.push(i)
+    if (end < total - 1) range.push(null)
+    range.push(total)
+  }
+  return range
+})
 const resourceLibraryFilter = ref<number | ''>('')  // 当前筛选的资源库ID，空字符串表示全部
 const selectedVideos = ref<string[]>([])
 const editingVideo = ref<any>(null)
@@ -2233,26 +2252,14 @@ onUnmounted(() => {
         </div>
 
         <!-- 分页组件 -->
-        <div v-if="videoTotal > 20" class="pagination">
-          <button
-            class="page-btn"
-            :disabled="videoPage <= 1"
-            @click="videoPage--; fetchVideos(false)"
-          >
-            上一页
-          </button>
-          <span class="page-info">
-            第 {{ videoPage }} / {{ Math.ceil(videoTotal / 20) }} 页
-            (共 {{ videoTotal }} 条)
-          </span>
-          <button
-            class="page-btn"
-            :disabled="videoPage >= Math.ceil(videoTotal / 20)"
-            @click="videoPage++; fetchVideos(false)"
-          >
-            下一页
-          </button>
-        </div>
+        <Pagination
+          v-if="videoTotal > VIDEO_PAGE_SIZE"
+          :current-page="videoPage"
+          :total-pages="videoTotalPages"
+          :total="videoTotal"
+          :page-range="videoPageRange"
+          @change="(p: number) => { videoPage = p; fetchVideos(false) }"
+        />
       </div>
 
       <!-- 用户管理标签页 -->
@@ -2407,17 +2414,14 @@ onUnmounted(() => {
         </table>
         </div>
 
-        <div v-if="resourceTotal > RESOURCE_PAGE_SIZE" class="pagination">
-          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage = 1; fetchResources(false)">首页</button>
-          <button class="page-btn" :disabled="resourcePage <= 1" @click="resourcePage--; fetchResources(false)">‹ 上一页</button>
-          <template v-for="p in resourcePageRange" :key="p">
-            <button v-if="p" class="page-btn" :class="{ active: p === resourcePage }" @click="resourcePage = p; fetchResources(false)">{{ p }}</button>
-            <span v-else class="page-ellipsis">...</span>
-          </template>
-          <button class="page-btn" :disabled="resourcePage >= resourceTotalPages" @click="resourcePage++; fetchResources(false)">下一页 ›</button>
-          <button class="page-btn" :disabled="resourcePage >= resourceTotalPages" @click="resourcePage = resourceTotalPages; fetchResources(false)">末页</button>
-          <span class="page-info">第 {{ resourcePage }} / {{ resourceTotalPages }} 页（共 {{ resourceTotal }} 条）</span>
-        </div>
+        <Pagination
+          v-if="resourceTotal > RESOURCE_PAGE_SIZE"
+          :current-page="resourcePage"
+          :total-pages="resourceTotalPages"
+          :total="resourceTotal"
+          :page-range="resourcePageRange"
+          @change="(p: number) => { resourcePage = p; fetchResources(false) }"
+        />
       </div>
 
       <!-- 缩略图管理标签页 -->
