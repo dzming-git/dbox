@@ -16,7 +16,7 @@ from core.models import Gallery
 from backend.audit import log_operation
 from core.models import Text
 from backend.library_helpers import _library_scan_all_progress
-from core.models import Post
+from core.models import Post, PostRef
 from core.models import User
 from core.models import ResourceLibrary
 from core.models import LibraryPermission
@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from backend.trash import purge_trash
 from backend.runtime import runtime
 from backend.helpers import _resolve_resource_library_id
-from backend.access import admin_required, library_admin_required, resource_manager_required
+from backend.access import admin_required, library_admin_required, resource_manager_required, get_allowed_library_ids
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
@@ -1401,18 +1401,27 @@ def admin_list_resources():
     def _like(col):
         return col.like(f'%{search}%') if search else True
 
+    # 资源库可见性：仅统计「当前用户可见（库已激活 + 有权限）」的资源，
+    # 关闭资源库后其资源必须从所有入口（含管理后台）彻底不可见。
+    allowed_ids = get_allowed_library_ids()
+    allowed_set = set(allowed_ids)
+
+    # 若指定了某个资源库筛选，但该库对当前用户不可见，则视为越权、直接返回空结果
+    if lib_filter is not None and lib_filter not in allowed_set:
+        return jsonify({'success': True, 'items': [], 'total': 0})
+
     items = []
 
     if rtype in ('', 'video'):
-        q = Video.query
+        q = Video.query.filter(Video.in_trash == False, Video.library_id.in_(allowed_ids))
         if search:
             q = q.filter(_like(Video.title))
         if lib_filter is not None:
             q = q.filter(Video.library_id == lib_filter)
+        if not show_hidden:
+            q = q.filter(~Video.resource_index.has(ResourceIndex.hidden == True))
         for v in q.order_by(Video.created_at.desc()).all():
             ri = v.resource_index
-            if not show_hidden and ri and ri.hidden:
-                continue
             pres = ri.presentation() if ri else {}
             items.append({
                 'type': 'video', 'id': v.hash, 'title': v.title,
@@ -1429,15 +1438,15 @@ def admin_list_resources():
             })
 
     if rtype in ('', 'gallery'):
-        q = Gallery.query
+        q = Gallery.query.filter(Gallery.in_trash == False, Gallery.library_id.in_(allowed_ids))
         if search:
             q = q.filter(_like(Gallery.title))
         if lib_filter is not None:
             q = q.filter(Gallery.library_id == lib_filter)
+        if not show_hidden:
+            q = q.filter(~Gallery.resource_index.has(ResourceIndex.hidden == True))
         for g in q.order_by(Gallery.created_at.desc()).all():
             ri = g.resource_index
-            if not show_hidden and ri and ri.hidden:
-                continue
             pres = ri.presentation() if ri else {}
             items.append({
                 'type': 'gallery', 'id': g.hash, 'title': g.title,
@@ -1450,18 +1459,25 @@ def admin_list_resources():
             })
 
     if rtype in ('', 'post'):
-        q = Post.query
+        # 帖子通过 refs 关联资源索引，按资源索引所属库过滤可见性
+        q = Post.query.join(PostRef, PostRef.post_id == Post.id).join(
+            ResourceIndex, ResourceIndex.id == PostRef.resource_index_id
+        ).filter(ResourceIndex.library_id.in_(allowed_ids))
         if search:
             q = q.filter(_like(Post.title))
-        for p in q.order_by(Post.created_at.desc()).all():
-            ri = p.refs[0].resource_index if p.refs else None
-            if not show_hidden and ri and ri.hidden:
+        if not show_hidden:
+            q = q.filter(~ResourceIndex.hidden == True)
+        seen = set()
+        for p in q.order_by(Post.created_at.desc()).distinct(Post.id).all():
+            if p.id in seen:
                 continue
+            seen.add(p.id)
+            ri = p.refs[0].resource_index if p.refs else None
             items.append({
                 'type': 'post', 'id': p.id, 'title': p.title or '未命名帖子',
                 'resource_index_id': ri.id if ri else None,
                 'hidden': bool(ri.hidden) if ri else False,
-                'library_id': getattr(p, 'library_id', None), 'cover': p.cover_url,
+                'library_id': ri.library_id if ri else None, 'cover': p.cover_url,
                 'owner_id': p.owner_id,
                 'updated_at': str(getattr(p, 'updated_at', None) or p.created_at),
                 'content_length': len((p.content or '') if isinstance(p.content, str) else ''),
@@ -1469,9 +1485,13 @@ def admin_list_resources():
 
     if rtype in ('', 'text'):
         # Text 实体本身只有 body/summary，标题/库/时间都来自关联的资源索引
-        q = Text.query.join(ResourceIndex, Text.resource_index_id == ResourceIndex.id)
+        q = Text.query.join(ResourceIndex, Text.resource_index_id == ResourceIndex.id).filter(
+            ResourceIndex.library_id.in_(allowed_ids)
+        )
         if search:
             q = q.filter(ResourceIndex.meta.like(f'%{search}%'))
+        if not show_hidden:
+            q = q.filter(ResourceIndex.hidden == False)
         for t in q.order_by(ResourceIndex.updated_at.desc()).all():
             ri = t.resource_index
             pres = ri.presentation() if ri else {}
