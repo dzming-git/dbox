@@ -430,14 +430,44 @@ def fetch_text(url, opener, headers, timeout=60):
         _restore_socks()
 
 
-def fetch_bytes(url, opener, headers, timeout=60):
+def fetch_bytes(url, opener, headers, timeout=60, max_retries=3, retry_base=1.0):
+    """下载二进制，失败自动重试（指数退避）。
+
+    - 可重试：网络异常 / 超时 / 5xx / 429（X 的 twimg CDN 偶发不稳定）。
+    - 不可重试：4xx 中除 429 外的错误（如 404 资源真的不存在），直接抛出。
+    - 单次分片失败会被重试掩盖，避免整个视频下载因一个分片抖动而前功尽弃。
+    """
     _apply_socks()
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with opener.open(req, timeout=timeout) as r:
-            return r.read()
-    finally:
-        _restore_socks()
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with opener.open(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            last_exc = e
+            retryable = e.code in (429, 500, 502, 503, 504)
+            if retryable and attempt < max_retries - 1:
+                wait = retry_base * (2 ** attempt)
+                log(f'下载失败（{url[:90]}…）HTTP {e.code}，{wait:.0f}s 后第 {attempt + 2} 次重试',
+                    level='warn')
+                time.sleep(wait)
+                continue
+            break
+        except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError,
+                OSError) as e:
+            last_exc = e
+            if attempt < max_retries - 1:
+                wait = retry_base * (2 ** attempt)
+                log(f'下载失败（{url[:90]}…）{type(e).__name__}，{wait:.0f}s 后第 {attempt + 2} 次重试',
+                    level='warn')
+                time.sleep(wait)
+                continue
+            break
+        finally:
+            _restore_socks()
+    # 最后一次仍失败：抛出，由调用方决定整体是否失败
+    raise last_exc
 
 
 # ---------------- 媒体解析 ----------------
@@ -1008,11 +1038,21 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
     names = []
     if init_url:
         init_path = os.path.join(working_dir, f'{prefix}_init.mp4')
-        with open(init_path, 'wb') as f:
-            f.write(fetch_bytes(init_url, opener, headers, timeout=90))
+        # 续传：已成功下载的 init 段直接复用
+        if not (os.path.isfile(init_path) and os.path.getsize(init_path) > 0):
+            with open(init_path, 'wb') as f:
+                f.write(fetch_bytes(init_url, opener, headers, timeout=90))
+        else:
+            log(f'  init 已存在，复用')
         names.append(f'{prefix}_init.mp4')
     for i, seg_url in enumerate(segments, start=1):
         seg_path = os.path.join(working_dir, f'{prefix}_{i:04d}.m4s')
+        # 续传：已成功下载的分片直接复用，避免失败后从头重来
+        if os.path.isfile(seg_path) and os.path.getsize(seg_path) > 0:
+            names.append(f'{prefix}_{i:04d}.m4s')
+            if i % 5 == 0 or i == n:
+                log(f'  分片 {i}/{n}（已存在，复用）')
+            continue
         with open(seg_path, 'wb') as f:
             f.write(fetch_bytes(seg_url, opener, headers, timeout=90))
         names.append(f'{prefix}_{i:04d}.m4s')
