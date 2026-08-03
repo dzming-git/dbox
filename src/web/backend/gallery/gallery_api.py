@@ -26,7 +26,7 @@ from core.models import (
 from backend.trash import move_to_trash, purge_trash
 from backend.access import (
     get_allowed_library_ids, guard_location, guard_resource_index,
-    is_gallery_visible,
+    is_gallery_visible, deny_missing,
 )
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
@@ -203,10 +203,10 @@ def list_galleries():
             query = query.filter(Gallery.library_id == -1)
 
         if library_id is not None:
-            if _is_admin() or library_id in allowed_libs:
+            if library_id in allowed_libs:
                 query = query.filter(Gallery.library_id == library_id)
             else:
-                # 无权限访问该库，返回空结果
+                # 无权限访问该库（含未激活库），返回空结果，外界感知不到其存在
                 query = query.filter(Gallery.library_id == -1)
 
         if search:
@@ -281,17 +281,13 @@ def list_galleries():
 @gallery_bp.route('/api/gallery/<gallery_hash>', methods=['GET'])
 def get_gallery(gallery_hash):
     try:
-        c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
+        c = Gallery.query.filter_by(hash=gallery_hash).first()
         # ============ 资源库权限校验（与视频详情 /api/video/<hash> 对齐）============
-        if c.library_id:
-            _uid, _role = _resolve_identity()
-            if _role not in (UserRole.ADMIN, UserRole.ROOT):
-                # 资源库已取消激活时，外界完全不可见（含详情页）
-                _lib = ResourceLibrary.query.get(c.library_id)
-                if not _lib or not _lib.is_active:
-                    return jsonify({'success': False, 'message': '该图集所属资源库已停用', 'code': 404}), 404
-                if c.library_id not in _allowed_library_ids():
-                    return jsonify({'success': False, 'message': '无权访问该图集所在的资源库', 'code': 403}), 403
+        # 资源库未激活 / 无权访问时，外界完全感知不到该图集存在（含详情页、名称、页面）
+        # 注意：图集链接属于「资源对外访问」通道，即使是管理员也不允许在详情页泄露名称；
+        # 未激活资源库的可见性例外仅限于后台资源库管理界面，不扩展到图集详情页。
+        if not is_gallery_visible(c):
+            return deny_missing()
         key = current_interaction_key()
         d = c.to_dict()
         pages = GalleryPage.query.filter_by(gallery_id=c.id).order_by(GalleryPage.page_index).all()
@@ -739,7 +735,9 @@ def list_gallery_tags():
 @gallery_bp.route('/api/gallery/<gallery_hash>/tags', methods=['GET'])
 def get_gallery_tags(gallery_hash):
     try:
-        c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
+        c = Gallery.query.filter_by(hash=gallery_hash).first()
+        if not is_gallery_visible(c):
+            return deny_missing()
         tag_ids = [r[0] for r in db.session.query(GalleryTag.tag_id).filter_by(gallery_id=c.id).all()]
         tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
         return jsonify({'success': True, 'tags': [{'id': t.id, 'name': t.name, 'qualifiers': t.get_qualifiers(), 'path': t.path, 'library_id': t.library_id} for t in tags]})

@@ -503,6 +503,8 @@ const goCollectionItem = (it: { type: string; hash: string }) => {
 const loadGallery = async (hash: string) => {
   loading.value = true
   error.value = ''
+  // 切换图集时先清空，避免复用组件时残留上一个图集的标题/内容（即使新链接不可见也绝不展示旧标题）
+  gallery.value = null
   try {
     const res: any = await (await import('../api')).galleryApi.getGallery(hash)
     if (res.success) {
@@ -520,10 +522,17 @@ const loadGallery = async (hash: string) => {
         nextTick(() => waitAndScroll(lp))
       }
     } else {
-      error.value = res.message || '加载失败'
+      // 资源不可见（未激活库/无权）：不泄露任何名称或存在性，统一提示「不存在」
+      if (res.code === 404 || res.code === '404') {
+        error.value = '资源不存在'
+      } else {
+        error.value = res.message || '加载失败'
+      }
+      gallery.value = null
     }
   } catch (e: any) {
-    error.value = e?.message || '加载失败'
+    error.value = '资源不存在'
+    gallery.value = null
   } finally {
     loading.value = false
   }
