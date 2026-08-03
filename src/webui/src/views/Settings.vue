@@ -117,10 +117,22 @@ const navGroups = computed(() => {
   return base.concat(extra)
 })
 const activeGroup = ref('playback')
+// 点击导航跳转时临时锁定 observer 自动高亮，避免 smooth 滚动途中
+// 相邻分组(data/system)被误判为当前分组导致高亮错位
+const clickScrollingLock = ref(false)
+let clickLockTimer: number | undefined
 function scrollToGroup(id: string) {
   activeGroup.value = id
+  clickScrollingLock.value = true
   const el = document.getElementById('group-' + id)
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // scrollend 后解锁；不支持该事件的浏览器用兜底定时器
+  const unlock = () => {
+    clickScrollingLock.value = false
+  }
+  window.addEventListener('scrollend', unlock, { once: true })
+  if (clickLockTimer) clearTimeout(clickLockTimer)
+  clickLockTimer = window.setTimeout(unlock, 800)
 }
 
 const tabs: { scope: SettingScope; label: string; desc: string }[] = [
@@ -312,6 +324,8 @@ onMounted(async () => {
   const ids = navGroups.value.map((g) => 'group-' + g.id)
   groupObserver = new IntersectionObserver(
     (entries) => {
+      // 点击导航跳转的平滑滚动途中不自动改高亮，避免相邻分组误判
+      if (clickScrollingLock.value) return
       // 取仍可见且与顶部最近的分组
       const visible = entries
         .filter((e) => e.isIntersecting)
