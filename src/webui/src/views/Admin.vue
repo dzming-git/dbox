@@ -1841,7 +1841,17 @@ onUnmounted(() => {
             </div>
           </div>
           <div v-if="trashLoading" class="empty-tip">加载中…</div>
-          <div v-else-if="trashItems.length === 0" class="empty-tip">回收站为空</div>
+          <div v-else-if="trashItems.length === 0" class="empty-state trash-empty">
+            <svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+            <p>回收站为空</p>
+            <p class="empty-sub">已删除的资源会出现在这里，可恢复或彻底清除。</p>
+          </div>
           <div v-else class="trash-grid">
             <div v-for="item in trashItems" :key="item.type + item.hash" class="trash-card">
               <div class="trash-card-header">
@@ -4354,6 +4364,24 @@ onUnmounted(() => {
 
 .empty-state.mobile {
   padding: 40px 20px;
+}
+
+/* 回收站空状态 */
+.trash-empty {
+  padding: 80px 20px;
+}
+.trash-empty svg {
+  color: var(--text-quaternary, #cbd2dc);
+  margin-bottom: 16px;
+}
+.trash-empty p {
+  font-size: 16px;
+  margin: 0;
+}
+.trash-empty .empty-sub {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-quaternary, #aab2c0);
 }
 
 .empty-icon {
