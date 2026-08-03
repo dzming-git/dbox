@@ -576,27 +576,31 @@ watch(
   color: var(--text-on-accent);
 }
 
-/* 两栏布局：侧边分组导航 + 内容（用 grid 让侧边栏 sticky 可靠生效） */
+/* 两栏布局：侧边分组导航(fixed) + 内容。
+   侧边栏用 position: fixed 而非 sticky，因为祖先 .main-content / .app-container
+   带有 overflow-x: hidden，会把内部 sticky 的滚动上下文锁住导致吸顶失效。
+   内容区左移 184px(160 侧栏 + 24 间距)给 fixed 侧栏留位。 */
 .settings-body {
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 24px;
-  align-items: start;
+  display: block;
+  padding-left: 184px;
 }
 
 .group-sidebar {
-  position: sticky;
-  top: 24px;
-  align-self: start;
+  position: fixed;
+  /* 紧贴全局导航下方，避免被固定导航栏遮挡 */
+  top: calc(var(--nav-height, 60px) + 24px);
+  /* 与居中内容区(.settings-page max-width:1040 + padding:24)左边缘对齐，再左移 184px */
+  left: max(12px, calc((100vw - 1040px) / 2 + 24px - 184px));
+  width: 160px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - var(--nav-height, 60px) - 48px);
   overflow-y: auto;
   padding: 12px 8px;
   background: var(--bg-surface-hover);
   border-radius: 12px;
-  z-index: 5;
+  z-index: 50;
 }
 
 .group-sidebar-btn {
@@ -961,6 +965,7 @@ input:disabled + .toggle-slider {
 @media (max-width: 900px) {
   .settings-body {
     display: block;
+    padding-left: 0;
   }
 
   .group-sidebar {

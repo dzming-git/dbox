@@ -657,7 +657,9 @@ body {
   padding-top: var(--nav-height, 60px);
   flex: 1;
   max-width: 100vw;
-  overflow-x: hidden;
+  /* 注意：不要在此设置 overflow-x: hidden，否则会把 overflow-y 隐式变成 auto，
+     导致内部 position: sticky 相对此容器失效（设置页左侧分组导航吸顶会失效）。
+     横向溢出已由外层 .app-container 的 overflow-x: hidden 兜底。 */
 }
 
 .main-content.no-nav {
