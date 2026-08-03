@@ -840,13 +840,23 @@ body.reader-active .main-content {
     width: 100%;
   }
   
-  /* 移动端导航只显示图标，避免换行挤占两行遮挡搜索框 */
-  .nav-icon-link span {
+  /* 移动端导航只显示图标，避免换行挤占两行遮挡搜索框。
+     关键：必须用直接子选择器 > span，否则「更多」抽屉（位于 .mobile-more-wrapper
+     这个 .nav-icon-link 内部）里的「我的点赞/收藏/历史」文字会被这条规则
+     当成 .nav-icon-link 的后代 span 误隐藏，导致抽屉点开空白。 */
+  .nav-icon-link > span {
     display: none;
   }
-  /* 稍后再看图标需保留，避免被上面的规则连带隐藏 */
-  .watchlater-ico-wrap {
+  /* 稍后再看 / 任务图标包裹是直接子 span，需要保留可见（否则图标也一起消失） */
+  .watchlater-ico-wrap,
+  .task-ico-wrap {
     display: inline-flex !important;
+  }
+
+  /* 抽屉内文字必须显式恢复显示（防御：即便后代选择器被改回去也能遮住） */
+  .mobile-more-item span {
+    display: inline;
+    font-size: 14px;
   }
 
   .nav-icon-link {
