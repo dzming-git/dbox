@@ -943,7 +943,7 @@ def extract_media(url, cookie_header, proxy_cfg):
 
 
 # ---------------- 下载 ----------------
-def download_image(url, cookie_header, working_dir, index, proxy_cfg, guest_token=None):
+def download_image(url, cookie_header, working_dir, index, proxy_cfg, guest_token=None, progress_cb=None):
     ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or '.jpg'
     ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp') else '.jpg'
     dest = os.path.join(working_dir, f'x_media_{index}{ext}')
@@ -952,6 +952,12 @@ def download_image(url, cookie_header, working_dir, index, proxy_cfg, guest_toke
     data = fetch_bytes(url, opener, headers, timeout=90)
     with open(dest, 'wb') as f:
         f.write(data)
+    # 图片通常瞬时完成，向调用方报告一次「已完成」
+    if progress_cb:
+        try:
+            progress_cb(1, 1)
+        except Exception:
+            pass
     return dest
 
 
@@ -1021,10 +1027,13 @@ def select_renditions(master_text, base_url):
     return vurl, aurl
 
 
-def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
+def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers, seg_progress_cb=None):
     """下载一个 fMP4 流（init + 分片），用 ffmpeg concat 协议拼为单个 mp4。
 
     返回生成的 mp4 路径。
+
+    seg_progress_cb(done_seg, total_seg) 在每成功下载一个分片（含 init 段算作 1/N）
+    后调用一次，用于让外部把分片级别进度映射到全局进度条。
     """
     text = fetch_text(stream_url, opener, headers, timeout=45)
     init_url, segments = parse_m3u8(text, stream_url)
@@ -1034,8 +1043,11 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
         log(f'流 {prefix} 检测到加密分片，可能无法合并', level='warn')
 
     n = len(segments)
+    # 含 init 段在内的总段数；进度条按整流（含 init）走，下载 init 通常是瞬时
+    total_for_progress = n + (1 if init_url else 0)
     log(f'下载流 {prefix}：{n} 个分片' + (f' + init' if init_url else ''))
     names = []
+    done_segs = 0
     if init_url:
         init_path = os.path.join(working_dir, f'{prefix}_init.mp4')
         # 续传：已成功下载的 init 段直接复用
@@ -1045,17 +1057,38 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
         else:
             log(f'  init 已存在，复用')
         names.append(f'{prefix}_init.mp4')
+        done_segs += 1
+        # init 段也算一步进度（让首字节后的进度条有所反应）
+        if seg_progress_cb:
+            try:
+                seg_progress_cb(done_segs, total_for_progress)
+            except Exception:
+                pass
     for i, seg_url in enumerate(segments, start=1):
         seg_path = os.path.join(working_dir, f'{prefix}_{i:04d}.m4s')
         # 续传：已成功下载的分片直接复用，避免失败后从头重来
         if os.path.isfile(seg_path) and os.path.getsize(seg_path) > 0:
             names.append(f'{prefix}_{i:04d}.m4s')
+            done_segs += 1
+            if seg_progress_cb:
+                try:
+                    seg_progress_cb(done_segs, total_for_progress)
+                except Exception:
+                    pass
             if i % 5 == 0 or i == n:
                 log(f'  分片 {i}/{n}（已存在，复用）')
             continue
         with open(seg_path, 'wb') as f:
             f.write(fetch_bytes(seg_url, opener, headers, timeout=90))
         names.append(f'{prefix}_{i:04d}.m4s')
+        done_segs += 1
+        # 新增：每下载完成一个分片，立即向调用方上报分段进度，
+        # 避免长时间停在「开始下载 40%」看不出在动。
+        if seg_progress_cb:
+            try:
+                seg_progress_cb(done_segs, total_for_progress)
+            except Exception:
+                pass
         if i % 5 == 0 or i == n:
             log(f'  分片 {i}/{n}')
 
@@ -1071,22 +1104,34 @@ def download_fmp4_stream(stream_url, prefix, working_dir, opener, headers):
     return out_path
 
 
-def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, guest_token=None):
+def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, guest_token=None, progress_cb=None):
     """下载 X 视频。X 视频为 fMP4，且音视频分离：
        1) 解析 master -> 选最高分辨率视频流 + 对应音频流；
        2) 各自下载 init+分片，ffmpeg concat 协议拼为 mp4；
        3) 有音频时再混流为最终 mp4。
        若 m3u8 直接是单个 rendition 或只有视频，则仅拼视频流。
+
+    progress_cb(done, total) 在下载过程中按文件内分片粒度回调，多次调用；
+    done/total ∈ [0, total]，其中 total 默认 1（即 done ∈ [0, 1]）。
     """
     opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header, guest_token=guest_token)
     log('解析视频播放列表（m3u8）…')
+
+    def _safe_cb(d, t):
+        if not progress_cb:
+            return
+        try:
+            progress_cb(d, t)
+        except Exception:
+            pass
 
     # 直链 mp4（如某些 GIF）直接下载，无需 ffmpeg
     if m3u8_url.lower().endswith('.mp4'):
         dest = os.path.join(working_dir, f'{tweet_id}.mp4')
         with open(dest, 'wb') as f:
             f.write(fetch_bytes(m3u8_url, opener, headers, timeout=120))
+        _safe_cb(1, 1)
         return dest
 
     master_text = fetch_text(m3u8_url, opener, headers, timeout=45)
@@ -1095,10 +1140,27 @@ def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, gu
     else:
         v_url, a_url = m3u8_url, None
 
-    v_out = download_fmp4_stream(v_url, 'video', working_dir, opener, headers)
+    # 视频流占整个文件 60%，音频流占 40%（多数 X 视频音频段更短，加权合理）。
+    # 这样在视频分片下载阶段能持续推进，进度条不再卡在 40。
+    VIDEO_WEIGHT = 0.6
+    AUDIO_WEIGHT = 0.4
+
+    def v_seg_cb(d, n):
+        frac = (d / n) if n else 1.0
+        _safe_cb(VIDEO_WEIGHT * frac, 1.0)
+
+    def a_seg_cb(d, n):
+        frac = (d / n) if n else 1.0
+        _safe_cb(VIDEO_WEIGHT + AUDIO_WEIGHT * frac, 1.0)
+
+    v_out = download_fmp4_stream(v_url, 'video', working_dir, opener, headers,
+                                 seg_progress_cb=v_seg_cb)
     if not a_url:
+        # 仅视频流时把整体推到 100%，避免「视频完成但音频未到」让用户误以为卡住
+        _safe_cb(1, 1)
         return v_out
-    a_out = download_fmp4_stream(a_url, 'audio', working_dir, opener, headers)
+    a_out = download_fmp4_stream(a_url, 'audio', working_dir, opener, headers,
+                                 seg_progress_cb=a_seg_cb)
 
     # 混流
     final = os.path.join(working_dir, f'{tweet_id}.mp4').replace(chr(92), '/')
@@ -1109,6 +1171,7 @@ def download_video(m3u8_url, cookie_header, working_dir, tweet_id, proxy_cfg, gu
     if proc.returncode != 0 or not os.path.exists(final):
         err = (proc.stderr or '')[max(0, len(proc.stderr or '')) - 800:]
         raise RuntimeError('ffmpeg 混流失败: ' + err)
+    _safe_cb(1, 1)
     return final
 
 
@@ -1117,7 +1180,7 @@ def _looks_like_html(data):
     return head.startswith(b'<!doctype') or head.startswith(b'<html') or head.startswith(b'<?xml')
 
 
-def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_token):
+def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_token, progress_cb=None):
     """下载 X 文档附件（PDF / Office 等）。
 
     X 文档真实下载地址不在 entities 里直接给出，这里按优先级尝试若干候选地址，
@@ -1127,6 +1190,14 @@ def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_t
     opener = make_opener(proxy_cfg)
     headers = build_headers(cookie_header, guest_token=guest_token)
     media_id = media.get('media_id') or ''
+
+    def _safe_cb(d, t):
+        if not progress_cb:
+            return
+        try:
+            progress_cb(d, t)
+        except Exception:
+            pass
 
     candidates = []
     if media_id:
@@ -1156,6 +1227,7 @@ def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_t
             with open(dest, 'wb') as f:
                 f.write(data)
             log(f'已下载文档: {os.path.basename(dest)}')
+            _safe_cb(1, 1)
             return dest
         except Exception as e:
             last_err = f'{u}: {e}'
@@ -1167,6 +1239,7 @@ def download_document(media, cookie_header, working_dir, idx, proxy_cfg, guest_t
         try:
             dest = download_image(thumb, cookie_header, working_dir, idx, proxy_cfg, guest_token)
             log('文档实际文件未取到，已退化为下载缩略图预览', level='warn')
+            _safe_cb(1, 1)
             return dest
         except Exception as e:
             log(f'文档缩略图也下载失败: {e}', level='warn')
@@ -1307,20 +1380,37 @@ def main():
     image_files = []  # 图片路径收集，循环后再聚合为一本图集
     total = len(selected)
     for idx, item in enumerate(selected, start=1):
-        pct = 40 + int(50 * idx / total)
+        # 闭包：每次迭代重新绑定 idx，避免上一轮的索引泄漏到本轮回调
+        def file_progress(done_in_file, total_in_file=1.0):
+            try:
+                base = 40
+                # (idx-1) 为此前已完成文件的份额，done/total 是当前文件内的进度（0..1）
+                frac = (idx - 1) + (done_in_file / max(total_in_file, 1))
+                pct = base + int(50 * frac / max(total, 1))
+                progress(pct, f'下载中 {idx}/{total}')
+            except Exception:
+                pass
+
+        # 进入每个文件下载前推送一次「开始」事件，让 40~50 之间也有过渡
+        file_progress(0, 1)
+
         try:
             if item['type'] == 'image':
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'image')
+                    file_progress(1, 1)
                 else:
-                    path = download_image(item['url'], cookie_header, working_dir, idx, proxy_cfg, guest_token)
+                    path = download_image(item['url'], cookie_header, working_dir, idx,
+                                          proxy_cfg, guest_token, progress_cb=file_progress)
                 image_files.append((path, item.get('label')))
                 log(f'已下载图片: {os.path.basename(path)}')
             elif item['type'] == 'document':
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'document')
+                    file_progress(1, 1)
                 else:
-                    path = download_document(item, cookie_header, working_dir, idx, proxy_cfg, guest_token)
+                    path = download_document(item, cookie_header, working_dir, idx,
+                                             proxy_cfg, guest_token, progress_cb=file_progress)
                 # 文档：仅进帖子（post），作为可下载附件
                 downloaded.append({'path': path, 'type': 'document',
                                    'target_modes': ['post'], 'group': group,
@@ -1333,8 +1423,10 @@ def main():
             else:
                 if simulate:
                     path = write_sim_placeholder(working_dir, idx, 'video')
+                    file_progress(1, 1)
                 else:
-                    path = download_video(item['url'], cookie_header, working_dir, tweet_id, proxy_cfg, guest_token)
+                    path = download_video(item['url'], cookie_header, working_dir, tweet_id,
+                                          proxy_cfg, guest_token, progress_cb=file_progress)
                 # 视频：始终进 video + post 实体（数据完整，便于取消隐藏即时恢复），
                 # 是否对普通用户可见由 hidden 标志控制（默认隐藏，不进视频库列表）
                 modes = ['video', 'post']
@@ -1348,9 +1440,12 @@ def main():
                                    'caption': item.get('label')})
                 log(f'已下载视频: {os.path.basename(path)}'
                     + ('（已隐藏，仅帖子可见）' if hidden else '（已进视频库）'))
-            progress(pct, f'下载进度 {idx}/{total}')
+            # 文件级收尾：把进度推到该文件的末尾（done=1），便于多文件场景进度条连续
+            file_progress(1, 1)
         except Exception as e:
             error(f'下载失败（{item["label"]}）: {e}')
+            # 失败也要把当前文件的位置推到末尾，避免后续文件进度被卡在前面的份额
+            file_progress(1, 1)
 
     # 图片：同一个 URL 的图片统一放进同一目录，作为「一本图集」入库
     # （避免每张图各成一本图集；帖子也能把整组图片聚在一起展示）
