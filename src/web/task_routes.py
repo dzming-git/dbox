@@ -9,6 +9,9 @@
 脚本类任务的交互式处理仍走既有的 /api/scripts/jobs/<id>/interactive 与 /respond
 （经网关转发到下载器），本蓝图只负责读取与红点计数。
 """
+import os
+import sqlite3
+
 from flask import Blueprint, jsonify, request, g
 from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
@@ -19,6 +22,9 @@ from unified_tasks import (
 
 bp = Blueprint('task', __name__)
 
+# 任务详情接口单次返回的最大日志条数（避免长任务把接口拉爆）
+_TASK_LOG_LIMIT = 500
+
 
 def _is_admin(role):
     """role 可能来自 resolve_identity（整数 UserRole）或字符串，统一判定管理员。"""
@@ -28,6 +34,66 @@ def _is_admin(role):
         return int(role) >= UserRole.ADMIN
     except (TypeError, ValueError):
         return False
+
+
+def _script_jobs_db_path():
+    """定位 script_jobs.db 的绝对路径。
+
+    script_engine 把它建在 <DATA_DIR>/script_jobs.db，由下载器服务持有写入权。
+    主服务以只读方式直连，避免跨服务 HTTP 鉴权开销。
+    """
+    try:
+        from backend.paths import DATA_DIR
+        return os.path.join(DATA_DIR, 'script_jobs.db')
+    except Exception:
+        return None
+
+
+def _fetch_script_logs(job_id, limit=_TASK_LOG_LIMIT):
+    """从 script_jobs.db 读取指定 job_id 的日志（按 id 倒序）。
+
+    返回 None 表示数据库不可用（下载器未运行或未建库），调用方决定是否降级为空列表。
+    """
+    db_path = _script_jobs_db_path()
+    if not db_path or not os.path.exists(db_path):
+        return None
+    try:
+        # uri=True + mode=ro：只读连接，避免与下载器进程的写入锁冲突
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=5)
+        try:
+            cur = conn.execute(
+                'SELECT level, message, ts FROM job_logs '
+                'WHERE job_id=? ORDER BY id DESC LIMIT ?',
+                (job_id, limit),
+            )
+            # 翻转成「正序」，前端从最早展示到最后
+            rows = list(cur.fetchall())[::-1]
+        finally:
+            conn.close()
+        return [
+            {'level': r[0], 'message': r[1], 'ts': r[2]}
+            for r in rows
+        ]
+    except Exception:
+        # 直连失败（文件被独占、损坏等），不要让详情接口 500，降级为空
+        return []
+
+
+def _enrich_task_with_logs(task):
+    """为 script: 前缀的任务追加 logs 字段，供前端「点开查看实时日志」使用。"""
+    if not task:
+        return task
+    task_id = task.get('task_id') or ''
+    if not task_id.startswith('script:'):
+        return task
+    job_id = task_id[len('script:'):]
+    if not job_id:
+        return task
+    logs = _fetch_script_logs(job_id)
+    if logs is not None:
+        task['logs'] = logs
+        task['script_job_id'] = job_id
+    return task
 
 
 @bp.route('/api/tasks', methods=['GET'])
@@ -73,15 +139,25 @@ def action_count():
 @bp.route('/api/tasks/<path:task_id>', methods=['GET'])
 @auth_required
 def task_detail(task_id):
-    """任务详情。普通用户只能查看自己发起的任务。"""
+    """任务详情。普通用户只能查看自己发起的任务。
+
+    script: 前缀的任务会额外附带 logs（来自 script_jobs.db.job_logs）。
+    """
     user_id, role = resolve_identity()
     is_admin = _is_admin(role)
+
+    try:
+        from backend.paths import DATA_DIR
+        init_task_manager(DATA_DIR)
+    except Exception:
+        pass
 
     task = get_task(task_id)
     if not task:
         return jsonify({'success': False, 'message': '任务不存在'}), 404
     if not is_admin and task.get('owner_id') not in (None, user_id):
         return jsonify({'success': False, 'message': '无权查看该任务'}), 403
+    _enrich_task_with_logs(task)
     return jsonify({'success': True, 'task': task})
 
 

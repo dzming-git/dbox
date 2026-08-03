@@ -58,6 +58,52 @@
         </div>
 
         <div class="task-time">{{ formatTime(t.updated_at) }}</div>
+
+        <!-- 实时日志面板：脚本任务可展开查看日志；其他任务可展开查看参数与详情 -->
+        <div class="task-logs">
+          <button
+            class="logs-toggle"
+            :class="{ open: expandedTaskId === t.task_id }"
+            @click="toggleLogs(t)"
+          >
+            <span class="arrow">{{ expandedTaskId === t.task_id ? '▼' : '▶' }}</span>
+            <span>{{ expandedTaskId === t.task_id ? '收起详情' : '查看详情/日志' }}</span>
+          </button>
+          <div v-if="expandedTaskId === t.task_id" class="logs-panel" @click.stop>
+            <div v-if="loadingLogs === t.task_id" class="logs-loading">加载中…</div>
+            <div v-else-if="!taskLogs[t.task_id]" class="logs-empty">暂无日志</div>
+            <div v-else>
+              <div v-if="taskLogs[t.task_id].params && Object.keys(taskLogs[t.task_id].params).length" class="logs-section">
+                <div class="logs-section-title">任务参数</div>
+                <pre class="logs-params">{{ formatParams(taskLogs[t.task_id].params) }}</pre>
+              </div>
+              <div v-if="taskLogs[t.task_id].logs && taskLogs[t.task_id].logs.length" class="logs-section">
+                <div class="logs-section-title">
+                  实时日志 <span class="logs-count">({{ taskLogs[t.task_id].logs.length }} 条)</span>
+                </div>
+                <div class="logs-list">
+                  <div
+                    v-for="(l, i) in taskLogs[t.task_id].logs"
+                    :key="i"
+                    class="logs-row"
+                    :class="'lv-' + l.level"
+                  >
+                    <span class="logs-ts">{{ formatLogTs(l.ts) }}</span>
+                    <span class="logs-level">{{ l.level }}</span>
+                    <span class="logs-msg">{{ l.message }}</span>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else-if="taskLogs[t.task_id].error"
+                class="logs-section"
+              >
+                <div class="logs-section-title">错误信息</div>
+                <pre class="logs-params">{{ taskLogs[t.task_id].error }}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -112,6 +158,11 @@ const loading = ref(false)
 // 删除相关状态：deletingId 标记正在单条删除中的任务；clearing 用于批量清理按钮的 loading
 const deletingId = ref<string | null>(null)
 const clearing = ref(false)
+// 详情/日志展开：仅同时展开一个任务的日志面板，避免日志堆叠刷屏
+const expandedTaskId = ref<string | null>(null)
+const loadingLogs = ref<string | null>(null)
+// 任务日志缓存：taskId -> { logs?: Array; params?: object; error?: string }
+const taskLogs = ref<Record<string, { logs?: any[]; params?: Record<string, any>; error?: string }>>({})
 
 let pollTimer: any = null
 
@@ -207,6 +258,86 @@ async function clearFinished() {
   await refresh()
 }
 
+// 切换任务详情/日志面板的展开状态；展开时按需拉取详情，幂等缓存
+async function toggleLogs(t: Task) {
+  const tid = t.task_id
+  if (expandedTaskId.value === tid) {
+    expandedTaskId.value = null
+    return
+  }
+  expandedTaskId.value = tid
+  if (taskLogs.value[tid]) return  // 已缓存，无需再请求
+  loadingLogs.value = tid
+  try {
+    const res: any = await taskApi.detail(tid)
+    const task = res.task || {}
+    taskLogs.value = {
+      ...taskLogs.value,
+      [tid]: {
+        logs: task.logs || [],
+        params: task.action_data?.params || undefined,
+        error: task.error || task.detail || undefined,
+      },
+    }
+  } catch (e: any) {
+    taskLogs.value = {
+      ...taskLogs.value,
+      [tid]: { logs: [], error: e?.message || '加载失败' },
+    }
+  } finally {
+    loadingLogs.value = null
+  }
+}
+
+function formatLogTs(ts: string) {
+  if (!ts) return '--:--:--'
+  // ts 通常是 "YYYY-MM-DD HH:MM:SS" 格式，取 HH:MM:SS
+  const m = /(\d{2}:\d{2}:\d{2})/.exec(String(ts))
+  return m ? m[1] : String(ts)
+}
+
+function formatParams(params: Record<string, any>) {
+  try {
+    return JSON.stringify(params, null, 2)
+  } catch {
+    return String(params)
+  }
+}
+
+// 正在进行的任务每 2.5s 轮询一次数据，已结束的任务会自动停下
+// 展开时如发现对应任务仍在进行中，定时刷新其详情（取最新日志）
+let logsPollTimer: any = null
+function startLogsPoll() {
+  if (logsPollTimer) return
+  logsPollTimer = setInterval(async () => {
+    const tid = expandedTaskId.value
+    if (!tid) return
+    const cur = tasks.value.find((x) => x.task_id === tid)
+    if (cur && !isFinished(cur)) {
+      try {
+        const res: any = await taskApi.detail(tid)
+        const task = res.task || {}
+        taskLogs.value = {
+          ...taskLogs.value,
+          [tid]: {
+            logs: task.logs || [],
+            params: task.action_data?.params || undefined,
+            error: task.error || task.detail || undefined,
+          },
+        }
+      } catch {
+        // 静默忽略；下一次轮询再试
+      }
+    }
+  }, 3000)
+}
+function stopLogsPoll() {
+  if (logsPollTimer) {
+    clearInterval(logsPollTimer)
+    logsPollTimer = null
+  }
+}
+
 async function handleTask(t: Task) {
   if (t.action_kind === 'navigate' && t.action_data?.url) {
     router.push(t.action_data.url)
@@ -284,10 +415,12 @@ async function submitInteraction() {
 onMounted(() => {
   refresh()
   pollTimer = setInterval(refresh, 2500)
+  startLogsPoll()
 })
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = null
+  stopLogsPoll()
 })
 </script>
 
@@ -476,6 +609,119 @@ onUnmounted(() => {
   color: var(--text-tertiary);
   margin-top: 8px;
   text-align: right;
+}
+.task-logs {
+  margin-top: 10px;
+  border-top: 1px dashed var(--bg-surface-2);
+  padding-top: 8px;
+}
+.logs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.logs-toggle:hover,
+.logs-toggle.open {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.logs-toggle .arrow {
+  font-size: 10px;
+  line-height: 1;
+}
+.logs-panel {
+  margin-top: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 360px;
+  overflow: auto;
+}
+.logs-loading,
+.logs-empty {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  padding: 14px 0;
+}
+.logs-section + .logs-section {
+  margin-top: 10px;
+}
+.logs-section-title {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+  letter-spacing: 0.4px;
+}
+.logs-count {
+  margin-left: 4px;
+  font-weight: 400;
+}
+.logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.logs-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.logs-row .logs-ts {
+  color: var(--text-tertiary);
+  flex: 0 0 auto;
+}
+.logs-row .logs-level {
+  flex: 0 0 56px;
+  text-align: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+}
+.logs-row.lv-error .logs-level {
+  background: rgba(255, 90, 106, 0.2);
+  color: var(--danger);
+}
+.logs-row.lv-warning .logs-level {
+  background: rgba(255, 180, 80, 0.2);
+  color: #ffb450;
+}
+.logs-row .logs-msg {
+  flex: 1 1 auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+.logs-params {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-surface-hover);
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .modal-mask {
   position: fixed;
