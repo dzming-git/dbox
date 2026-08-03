@@ -63,6 +63,10 @@ const displayVideos = computed(() => {
 })
 const selectedTagId = computed(() => videoStore.selectedTagId)
 const selectedUntagged = computed(() => videoStore.selectedUntagged)
+const videoSearchQuery = computed({
+  get: () => videoStore.searchQuery,
+  set: (v) => videoStore.searchQuery = v
+})
 // 「未标记（待整理）」视频数量，仅在展开标签面板时拉取，不在主界面暴露
 const untaggedCount = ref(0)
 const fetchUntaggedCount = async () => {
@@ -257,6 +261,13 @@ const handleLibraryChange = (event: Event) => {
   videoStore.filterByLibrary(val === '' ? null : parseInt(val))
   updateUrl()
 }
+
+// 搜索防抖
+let videoSearchTimer: number | null = null
+watch(videoSearchQuery, (q) => {
+  if (videoSearchTimer) clearTimeout(videoSearchTimer)
+  videoSearchTimer = window.setTimeout(() => { videoStore.searchVideos(q); updateUrl() }, 500)
+})
 
 onMounted(async () => {
   // 加载继续观看（本地观看历史）
@@ -617,8 +628,13 @@ const listThumbUrl = (video: Video): string => {
 
     <!-- 操作栏 - 移到顶部 -->
     <div class="action-bar" v-if="mediaTab === 'video'">
+      <div class="search-box">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+        </svg>
+        <input v-model="videoSearchQuery" type="text" placeholder="搜索视频名称..." class="search-input" />
+      </div>
       <div class="sort-box">
-        <label class="sort-label">排序：</label>
         <select class="sort-select" :value="currentSort" @change="handleSortChange">
           <option v-for="option in sortOptions" :key="option.value" :value="option.value">
             {{ option.label }}
@@ -859,15 +875,11 @@ const listThumbUrl = (video: Video): string => {
         </div>
       </div>
 
-      <!-- 移动端单手翻页：底部悬浮的换一批 -->
+      <!-- 移动端单手翻页：底部悬浮的上一页 / 下一页 -->
       <div v-if="mediaTab === 'video' && totalPages > 1" class="mobile-pager">
-        <button class="shuffle-btn mobile-shuffle" @click="handleShuffle" :disabled="shuffling">
-          <svg class="shuffle-icon" :class="{ spinning: shuffling }" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l4.4-6c.6-.9 1.9-1.4 3-1.1l5.8 1.6"/>
-            <path d="M16.5 12L19 16l-9-4 2.5-4"/>
-          </svg>
-          <span>{{ shuffling ? '换选中...' : '换一批' }}</span>
-        </button>
+        <button class="page-btn mobile-page-btn" :disabled="currentPage === 1" @click="prevPage">‹ 上一页</button>
+        <span class="mobile-page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
+        <button class="page-btn mobile-page-btn" :disabled="currentPage === totalPages" @click="nextPage">下一页 ›</button>
       </div>
 
       <!-- 空状态 -->
@@ -1643,6 +1655,11 @@ const listThumbUrl = (video: Video): string => {
   flex-wrap: wrap;
 }
 
+/* 桌面端隐藏移动端悬浮翻页栏 */
+.mobile-pager {
+  display: none;
+}
+
 .page-btn {
   padding: 8px 14px;
   background: var(--bg-surface-hover);
@@ -1941,26 +1958,30 @@ const listThumbUrl = (video: Video): string => {
   /* 移动端：底部悬浮单手翻页栏 */
   .mobile-pager {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 50;
-    justify-content: center;
+    left: 0; right: 0; bottom: 0;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-    background: linear-gradient(to top, var(--bg-primary) 70%, transparent);
-    pointer-events: none;
+    background: var(--nav-bg);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid var(--border-subtle);
+    z-index: 50;
   }
 
-  .mobile-shuffle {
-    pointer-events: auto;
+  .mobile-page-btn {
+    flex: 1;
     height: 44px;
-    padding: 0 28px;
-    font-size: 15px;
     border-radius: 22px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    flex: 1 1 auto;
-    max-width: 320px;
+    font-size: 14px;
+  }
+
+  .mobile-page-info {
+    color: var(--text-secondary);
+    font-size: 13px;
+    white-space: nowrap;
   }
 
   /* 给底部悬浮翻页栏留出空间，避免遮挡最后一行 */

@@ -323,6 +323,7 @@ watch(() => route.query, async (newQuery) => {
 .empty-state p { margin-top: 12px; font-size: 16px; }
 .empty-tip { font-size: 13px; color: var(--text-secondary); max-width: 420px; text-align: center; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px 0; flex-wrap: wrap; }
+.mobile-pager { display: none; }
 .batch-toggle-btn { height: 36px; padding: 0 14px; border: 1px solid rgba(33,150,243,0.3); border-radius: 18px; background: rgba(33,150,243,0.1); color: #4a9eff; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.25s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .batch-toggle-btn:hover { background: rgba(33,150,243,0.2); }
 .batch-toggle-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
