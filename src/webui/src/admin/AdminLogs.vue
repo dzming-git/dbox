@@ -145,6 +145,9 @@ onUnmounted(stopAutoRefresh)
 
 <template>
   <div class="admin-logs">
+    <div class="section-header">
+      <h3>系统日志</h3>
+    </div>
     <!-- 日志类型切换 -->
     <div class="log-type-tabs">
       <button

@@ -1850,14 +1850,16 @@ onUnmounted(() => {
                 </span>
                 <span class="trash-time">{{ formatTrashTime(item.trashed_at) }}</span>
               </div>
-              <h4 class="trash-title">{{ item.title || '(无标题)' }}</h4>
-              <div class="trash-meta">
-                <span class="meta-line">{{ item.owner || '—' }}</span>
-                <span class="meta-line">{{ formatSize(item.size) }}</span>
-              </div>
-              <div class="trash-actions">
-                <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
-                <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
+              <div class="trash-card-body">
+                <h4 class="trash-title">{{ item.title || '(无标题)' }}</h4>
+                <div class="trash-meta">
+                  <span class="meta-line">{{ item.owner || '—' }}</span>
+                  <span class="meta-line">{{ formatSize(item.size) }}</span>
+                </div>
+                <div class="trash-actions">
+                  <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
+                  <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
+                </div>
               </div>
             </div>
           </div>
@@ -3541,6 +3543,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* 卡片顶部标题栏：圆角顶部 + 浅色底 + 细分隔线，与下方卡片内容视觉统一 */
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -3548,17 +3551,25 @@ onUnmounted(() => {
   padding: 16px 20px;
   background: var(--accent-soft);
   color: var(--accent);
+  border-bottom: 1px solid var(--border-color, var(--border-default));
+}
+
+.card-header:first-child {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
 }
 
 .card-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .version-badge {
   padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
@@ -3840,12 +3851,15 @@ onUnmounted(() => {
   align-items: center;
   padding: 16px 20px;
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 20px;
 }
 
 .section-header h3 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
@@ -5726,6 +5740,8 @@ input:checked + .slider:before {
 
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 
+  overflow: hidden;
+
 }
 
 
@@ -6096,13 +6112,13 @@ input:checked + .slider:before {
 
   gap: 12px;
 
-  padding: 18px 18px 16px;
+  padding: 16px 20px;
 
-  background: linear-gradient(135deg, var(--accent-soft) 0%, rgba(255,255,255,0.02) 100%);
+  background: var(--accent-soft);
 
   color: var(--accent);
 
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-color, var(--border-default));
 
 }
 
@@ -6112,9 +6128,11 @@ input:checked + .slider:before {
 
   margin: 0;
 
-  font-size: 17px;
+  font-size: 16px;
 
   font-weight: 600;
+
+  color: var(--accent);
 
   flex: 1;
 
@@ -7528,9 +7546,11 @@ input:checked + .slider:before {
 
   padding: 16px 20px;
 
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: var(--accent-soft);
 
-  color: white;
+  color: var(--accent);
+
+  border-bottom: 1px solid var(--border-color, var(--border-default));
 
 }
 
@@ -8324,6 +8344,10 @@ input:checked + .slider:before {
 
   padding: 16px 20px;
 
+  background: var(--accent-soft);
+
+  color: var(--accent);
+
   border-bottom: 1px solid var(--border-color, var(--border-default));
 
 }
@@ -8350,7 +8374,7 @@ input:checked + .slider:before {
 
   font-weight: 600;
 
-  color: var(--text-primary, #e1e1e1);
+  color: var(--accent);
 
 }
 
@@ -8775,10 +8799,9 @@ input:checked + .slider:before {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: 12px;
-  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .trash-card:hover {
@@ -8790,6 +8813,14 @@ input:checked + .slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 16px 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-bottom: 1px solid var(--border-color, var(--border-default));
+}
+
+.trash-card-body {
+  padding: 16px 20px;
 }
 
 .trash-type-badge {
