@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { watchLaterApi } from '../api'
+import { useUserStore } from './userStore'
 
 export type WatchLaterType = 'video' | 'gallery' | 'post' | 'text'
 
@@ -45,7 +46,17 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
 
   // 从后端加载（登录账号跨设备一致）。首次同步时把本地仅有的条目上传到后端，
   // 避免登录后覆盖丢失历史数据，再以「后端为唯一数据源」为准。
+  //
+  // 关键修复：游客态（未登录）的 identity key 是 Flask session 里的随机 6 位数，
+  // 浏览器关闭/清 cookie 后会变化，导致之前的 DELETE 删不到旧 key 的后端记录，
+  // 于是「删了又回来」。因此游客态完全以 localStorage 为唯一真相，不读写后端。
   const init = async () => {
+    const userStore = useUserStore()
+    if (!userStore.isLoggedIn) {
+      // 游客：只加载本地，不与后端交互，避免残留后端记录复活
+      items.value = loadLocal()
+      return
+    }
     try {
       const res = await watchLaterApi.list()
       const serverItems: WatchLaterItem[] =
@@ -85,6 +96,9 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
     if (has(item.type, item.id)) return
     items.value.push({ ...item, addedAt: new Date().toISOString() })
     persistLocal(items.value)
+    // 游客态不写后端：随机 session key 会导致删除时匹配不到，数据残留后复活
+    const userStore = useUserStore()
+    if (!userStore.isLoggedIn) return
     try {
       await watchLaterApi.add(item)
     } catch {
@@ -95,6 +109,9 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   const remove = async (type: WatchLaterType, id: string) => {
     items.value = items.value.filter((it) => !(it.type === type && it.id === id))
     persistLocal(items.value)
+    // 游客态不写后端，保证删除一定能删干净，不会从后端残留记录复活
+    const userStore = useUserStore()
+    if (!userStore.isLoggedIn) return
     try {
       await watchLaterApi.remove(type, id)
     } catch {
