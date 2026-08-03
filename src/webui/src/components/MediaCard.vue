@@ -68,7 +68,8 @@ const onAction = (name: string, e: Event) => {
 <template>
   <div class="media-card" :class="item.type" @click="onOpen" data-testid="media-card">
     <div class="thumbnail-wrapper">
-      <img :src="coverUrl" :alt="item.title" class="thumbnail" @error="(e:any)=>e.target.src='/default-thumb.jpg'" />
+      <img :src="coverUrl" :alt="item.title" class="thumbnail"
+           @error="(e:any)=>{ const t=e.target; t.onerror=null; t.src='/default-thumb.jpg'; }" />
       <span v-if="showTypeBadge" class="type-badge" :class="item.type">{{ typeLabel }}</span>
       <span v-if="subBadge" class="sub-badge">{{ subBadge }}</span>
 

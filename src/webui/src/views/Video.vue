@@ -2153,7 +2153,7 @@ const handleDelete = async () => {
               :src="withThumbToken('/thumbnail/' + rec.hash)"
               :alt="(rec.title || rec.file_name || '')"
               class="rec-thumbnail"
-              @error="($event.target as HTMLImageElement).src = '/placeholder.jpg'"
+              @error="(e:any)=>{ const t=e.target; if(t.dataset.fb) return; t.dataset.fb='1'; t.src='/placeholder.jpg'; }"
             />
             <span v-if="rec.duration" class="rec-duration">{{ formatDuration(rec.duration) }}</span>
           </div>
