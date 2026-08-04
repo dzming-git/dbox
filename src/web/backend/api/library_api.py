@@ -583,54 +583,63 @@ def get_library_scan_status(library_id):
 @bp.route('/api/admin/libraries/scan-all', methods=['POST'])
 @admin_required
 def scan_all_libraries():
-    """一键扫描所有（启用中的）资源库（异步，立即返回）。
+    """一键同步所有（启用中的）资源库（异步，立即返回）。
 
-    底层复用 library_watcher 的全量 diff：新增/删除/重命名/文件名对齐
+    底层复用 library_watcher 的增量/全量 diff：新增/删除/重命名/文件名对齐
     均会自动同步到 Video 表，覆盖「软件未运行时改名」「旧逻辑漏更新」
     等导致网页仍显示旧文件名的情况。
+
+    mode（请求体，默认 'incremental'）：
+      'incremental' —— 仅处理自上次扫描以来变化的目录，最快，日常首选
+      'verify'      —— 仅清理磁盘已不存在的孤儿记录，不枚举新增文件
+      'full'       —— 全量枚举磁盘并 diff（慢，仅数据严重不一致的小库使用）
     """
     global _library_scan_all_progress
     try:
-        if not resource_bus:
-            return jsonify({'success': False, 'message': '资源服务未连接'}), 500
+        data = request.get_json(silent=True) or {}
+        mode = data.get('mode', 'incremental')
+        if mode not in ('incremental', 'verify', 'full'):
+            mode = 'incremental'
         from library_watcher import get_watcher
         watcher = get_watcher()
         if not watcher:
             return jsonify({'success': False, 'message': '资源库监控器未初始化'}), 500
         if _library_scan_all_progress.get('status') == 'scanning':
-            return jsonify({'success': False, 'message': '全量扫描已在进行中，请稍候...'}), 400
+            return jsonify({'success': False, 'message': '同步已在进行中，请稍候...'}), 400
 
         _library_scan_all_progress = {
-            'status': 'scanning', 'total': 0, 'done': 0, 'message': '正在扫描所有资源库...'
+            'status': 'scanning', 'total': 0, 'done': 0, 'mode': mode,
+            'message': f'正在同步所有资源库（{mode}）...'
         }
+        mode_label = {'incremental': '增量同步', 'verify': '校验清理', 'full': '全量重建'}[mode]
 
         def _run_all():
             global _library_scan_all_progress
             try:
                 from core.models import ResourceLibrary
-                # 后台线程无请求上下文，需显式进入 Flask 应用上下文
-                # 才能执行 DB 查询与 watcher 内的 ORM 操作
-                with current_app.app_context():
+                # 后台线程无请求上下文，使用全局 runtime.app 的应用上下文
+                # （不能用 current_app：请求已返回，后台线程中无法解析）
+                with runtime.app.app_context():
                     libs = ResourceLibrary.query.filter_by(is_active=True).all()
                     _library_scan_all_progress['total'] = len(libs)
                     for i, lib in enumerate(libs, 1):
                         try:
-                            watcher.scan_library(lib.id)
+                            watcher.scan_library(lib.id, mode=mode)
                         except Exception as e:
                             log.debug('ERROR', f'扫描库 {lib.id} 失败: {e}')
                         _library_scan_all_progress['done'] = i
-                        _library_scan_all_progress['message'] = f'已扫描 {i}/{len(libs)} 个资源库'
+                        _library_scan_all_progress['message'] = f'已同步 {i}/{len(libs)} 个资源库'
                     _library_scan_all_progress['status'] = 'done'
-                    _library_scan_all_progress['message'] = f'全量扫描完成，共处理 {len(libs)} 个资源库'
+                    _library_scan_all_progress['message'] = f'{mode_label}完成，共处理 {len(libs)} 个资源库'
                     print('[web] scan-all done', flush=True)
             except Exception as e:
                 _library_scan_all_progress['status'] = 'error'
                 _library_scan_all_progress['error'] = str(e)
-                _library_scan_all_progress['message'] = f'全量扫描失败: {e}'
+                _library_scan_all_progress['message'] = f'同步失败: {e}'
                 print(f'[web] scan-all failed: {e}', flush=True)
 
         threading.Thread(target=_run_all, daemon=True).start()
-        return jsonify({'success': True, 'started': True, 'message': '全量扫描已启动'})
+        return jsonify({'success': True, 'started': True, 'mode': mode, 'message': f'{mode_label}已启动'})
     except Exception as e:
         log.debug('ERROR', f'启动全量扫描失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500

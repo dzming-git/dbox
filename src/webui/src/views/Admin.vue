@@ -457,23 +457,26 @@ const scanDetailFolder = async (folderKey?: string) => {
   }
 }
 
-// 一键扫描全部资源库（自动对齐文件名/标题，覆盖软件未运行或旧逻辑漏更新的情况）
+// 一键同步全部资源库（增量/校验/全量，覆盖软件未运行或旧逻辑漏更新的情况）
 const scanAllScanning = ref(false)
 const scanAllMessage = ref('')
+const scanAllMode = ref('incremental')
 let scanAllTimer: any = null
 
-const scanAllLibraries = async () => {
+const scanAllLibraries = async (mode: 'incremental' | 'verify' | 'full' = 'incremental') => {
   try {
-    const res = await libraryApi.scanAllLibraries() as any
+    scanAllMode.value = mode
+    const res = await libraryApi.scanAllLibraries({ mode }) as any
     if (res.success) {
       scanAllScanning.value = true
-      scanAllMessage.value = '全量扫描已启动...'
+      const label = mode === 'incremental' ? '增量同步' : mode === 'verify' ? '校验清理' : '全量重建'
+      scanAllMessage.value = `${label}已启动...`
       pollScanAll()
     } else {
       showToast(res.message || '启动失败')
     }
   } catch (e: any) {
-    console.error('启动全量扫描失败:', e)
+    console.error('启动同步失败:', e)
     showToast(e?.response?.data?.message || e?.message || '启动失败')
   }
 }
@@ -488,7 +491,7 @@ const pollScanAll = () => {
         if (res.status === 'done' || res.status === 'error') {
           scanAllScanning.value = false
           if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
-          showToast(res.message || '扫描完成')
+          showToast(res.message || '同步完成')
         }
       }
     } catch (e) {
@@ -2811,10 +2814,18 @@ onUnmounted(() => {
         <div class="section-header">
           <h3>资源库管理</h3>
           <div class="header-actions">
-            <button class="action-btn" @click="scanAllLibraries()" :disabled="scanAllScanning" v-if="userStore.isAdmin">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              {{ scanAllScanning ? '全量扫描中...' : '🔄 扫描全部库（同步文件名/标题）' }}
-            </button>
+            <div class="scan-actions">
+              <button class="action-btn primary" @click="scanAllLibraries('incremental')" :disabled="scanAllScanning" v-if="userStore.isAdmin" title="仅同步自上次扫描以来变化的文件，最快，日常首选">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {{ scanAllScanning && scanAllMode === 'incremental' ? '增量同步中...' : '🔄 增量同步' }}
+              </button>
+              <button class="action-btn" @click="scanAllLibraries('verify')" :disabled="scanAllScanning" v-if="userStore.isAdmin" title="仅清理磁盘已不存在的失效记录，不枚举新增文件">
+                {{ scanAllScanning && scanAllMode === 'verify' ? '校验清理中...' : '🧹 校验清理' }}
+              </button>
+              <button class="action-btn warn" @click="scanAllLibraries('full')" :disabled="scanAllScanning" v-if="userStore.isAdmin" title="全量枚举磁盘并比对（慢，仅数据严重不一致的小库使用）">
+                {{ scanAllScanning && scanAllMode === 'full' ? '全量重建中...' : '⚠ 全量重建' }}
+              </button>
+            </div>
             <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true" v-if="userStore.isAdmin">+ 新建资源库</button>
             <div class="scan-switch-group" v-if="scanConfigLoaded">
               <label class="scan-switch">
@@ -4008,6 +4019,22 @@ onUnmounted(() => {
   color: var(--success);
   background: var(--success-soft);
   border-bottom: 1px solid var(--border-default);
+}
+
+.scan-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.action-btn.warn {
+  background: var(--warning-soft, #fff7ed);
+  color: var(--warning, #d97706);
+  border: 1px solid var(--warning-border, #fdba74);
+}
+
+.action-btn.warn:hover {
+  background: var(--warning, #d97706);
+  color: #fff;
 }
 
 .scan-switch-group {

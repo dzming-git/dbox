@@ -43,8 +43,8 @@ export const libraryApi = {
   // 启动扫描（异步）
   scanLibrary: (libraryId: number) => api.post(`/api/admin/libraries/${libraryId}/scan`, {}),
 
-  // 一键扫描所有资源库（异步）
-  scanAllLibraries: () => api.post(`/api/admin/libraries/scan-all`, {}),
+  // 一键同步所有资源库（异步，支持模式：incremental/verify/full）
+  scanAllLibraries: (data?: { mode?: string }) => api.post(`/api/admin/libraries/scan-all`, data || {}),
   // 获取全量扫描进度
   getScanAllStatus: () => api.get(`/api/admin/libraries/scan-all/status`),
 

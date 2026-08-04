@@ -105,6 +105,7 @@ class ResourceLibraryWatcher:
         self._poll_thread = None
         self._stop_poll = threading.Event()
         self._gallery_timers = {}       # library_id -> Timer（图集重扫去抖）
+        self._last_scan_epoch = 0.0     # 最近一次全量/增量扫描成功的 epoch（用于增量剪枝）
 
     # ---------- 工具 ----------
     def _is_video(self, path):
@@ -288,8 +289,12 @@ class ResourceLibraryWatcher:
             self._poll_thread.start()
 
     def _initial_sync(self, targets):
-        """启动补齐：视频 diff + 各库图集首次扫描。"""
-        self._diff_sync(targets)
+        """启动补齐：视频 diff + 各库图集首次扫描。
+
+        完成后写入 _last_scan_epoch，作为后续增量扫描的基线时间戳。
+        """
+        self._diff_sync(targets, mode='full')
+        self._last_scan_epoch = time.time()
         for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
             self._delayed_gallery_scan(lib_id)
 
@@ -354,55 +359,139 @@ class ResourceLibraryWatcher:
         return list(self._observers.keys())
 
     # ---------- 目录 diff（新增 / 重命名 / 删除）----------
-    def _diff_sync(self, targets):
+    def _collect_disk_videos(self, root, lib_id, since_epoch=0.0):
+        """用 scandir 递归收集 root 下的视频文件。
+
+        since_epoch > 0 时启用**增量剪枝**：跳过 mtime 早于该时间戳的目录
+        （这些目录自上次扫描以来没有变化，无需进入枚举），大幅减少磁盘 IO。
+        返回 {norm_path: (real_path, library_id)}。
+        """
+        found = {}
+        try:
+            stack = [root]
+            while stack:
+                cur = stack.pop()
+                try:
+                    with os.scandir(cur) as it:
+                        for entry in it:
+                            try:
+                                if entry.is_dir(follow_symlinks=False):
+                                    # 增量剪枝：目录 mtime 早于 since 则整目录跳过
+                                    if since_epoch > 0:
+                                        try:
+                                            if entry.stat(follow_symlinks=False).st_mtime < since_epoch:
+                                                continue
+                                        except OSError:
+                                            pass
+                                    stack.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False) and self._is_video(entry.name):
+                                    p = os.path.abspath(entry.path)
+                                    found[os.path.normcase(p)] = (p, lib_id)
+                            except (OSError, PermissionError):
+                                continue
+                except (OSError, PermissionError):
+                    continue
+        except (OSError, PermissionError):
+            pass
+        return found
+
+    def _diff_sync(self, targets, mode='full'):
         """对比磁盘与 Video 表，处理新增、重命名、删除。用于初始补齐与轮询。
 
         title 与 file_name 解耦：已存在视频仅同步 file_name / url / 内容指纹等
         物理信息，绝不修改 title（标题由管理员在编辑界面维护，可一键“同步文件名”）。
         仅在新增视频时把 title 初始化为文件名（去扩展名）。
+
+        mode:
+          'full'   —— 全量枚举磁盘并 diff（原行为，慢，仅小库/数据不一致时使用）
+          'incremental' —— 仅枚举自 _last_scan_epoch 以来 mtime 变化的目录，
+                           只处理新增/改名/删除，最快的日常同步策略
+          'verify' —— 仅校验 DB 孤儿：清理磁盘已不存在的视频，不枚举磁盘新增文件
         """
         try:
             from core.models import Video, ResourceIndex
-            disk = {}   # norm_path -> (real_path, library_id)
-            for root, lib_id in targets:
-                for dirpath, _, files in os.walk(root):
-                    for f in files:
-                        if self._is_video(f):
-                            p = os.path.join(dirpath, f)
-                            disk[os.path.normcase(os.path.abspath(p))] = (p, lib_id)
+            incremental = (mode == 'incremental')
+            verify_only = (mode == 'verify')
+            since = self._last_scan_epoch if incremental else 0.0
+
+            disk = {}
+            if not verify_only:
+                for root, lib_id in targets:
+                    disk.update(self._collect_disk_videos(root, lib_id, since_epoch=since))
 
             # 新增 / 重命名 / 文件名对齐（仅更新物理信息，不动 title）
-            self._debug('INFO', f'[LibWatcher] diff 开始，磁盘文件数 {len(disk)}')
-            for np_norm, (p, lib_id) in disk.items():
-                with self._app.app_context():
-                    existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == p).first()
-                    if existing:
-                        new_name = os.path.basename(p)
-                        if existing.file_name != new_name:
-                            # 磁盘文件名已变（软件未运行 / 旧逻辑漏更新）：
-                            # 仅对齐 file_name / url / 内容指纹，不修改 title。
-                            self._reconcile_fields(existing, p, new_name)
-                        continue
-                    h = Video.generate_hash(p)
-                    by_hash = Video.query.filter_by(hash=h).first()
-                    if by_hash and by_hash.local_path != p:
-                        # 同一内容出现在新路径 -> 视为重命名
-                        # 必须在 app_context 内访问 by_hash.local_path（property 触发 resource_index 懒加载）
-                        self.rename_video(by_hash.local_path, p)
-                    else:
-                        self.upsert_video(p, lib_id)
+            if not verify_only:
+                self._debug('INFO', f'[LibWatcher] diff({mode}) 开始，磁盘文件数 {len(disk)}')
+                for np_norm, (p, lib_id) in disk.items():
+                    with self._app.app_context():
+                        existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == p).first()
+                        if existing:
+                            new_name = os.path.basename(p)
+                            if existing.file_name != new_name:
+                                # 磁盘文件名已变（软件未运行 / 旧逻辑漏更新）：
+                                # 仅对齐 file_name / url / 内容指纹，不修改 title。
+                                self._reconcile_fields(existing, p, new_name)
+                            continue
+                        h = Video.generate_hash(p)
+                        by_hash = Video.query.filter_by(hash=h).first()
+                        if by_hash and by_hash.local_path != p:
+                            # 同一内容出现在新路径 -> 视为重命名
+                            # 必须在 app_context 内访问 by_hash.local_path（property 触发 resource_index 懒加载）
+                            self.rename_video(by_hash.local_path, p)
+                        else:
+                            self.upsert_video(p, lib_id)
 
             # 删除：DB 中 local_path 位于任一监控 root 下，但磁盘已不存在
             roots_norm = [os.path.normcase(os.path.abspath(r)) for r, _ in targets]
             with self._app.app_context():
                 for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
                     np = os.path.normcase(os.path.abspath(v.local_path))
-                    if np in disk:
+                    if not verify_only and np in disk:
                         continue
                     if any(np == rn or np.startswith(rn + os.sep) for rn in roots_norm):
                         self.remove_video(v.local_path)
+
+            # 记录成功扫描时间，供后续增量剪枝使用
+            if mode != 'verify':
+                self._last_scan_epoch = time.time()
         except Exception as e:
-            self._debug('ERROR', f'[LibWatcher] diff 同步失败: {e}')
+            self._debug('ERROR', f'[LibWatcher] diff({mode}) 同步失败: {e}')
+
+    # ---------- 单库扫描（对外 API，支持模式）----------
+    def scan_library(self, library_id, mode='incremental'):
+        """对单个 web 资源库执行扫描/同步。
+
+        mode 透传给 _diff_sync：'incremental'（默认，快）/ 'full' / 'verify'。
+        返回 (added, updated, removed) 计数。
+        """
+        try:
+            targets = self._targets_for_library(library_id)
+            if not targets:
+                self._debug('WARN', f'[LibWatcher] 库 {library_id} 无可扫描目标')
+                return (0, 0, 0)
+            before = self._count_videos(targets)
+            self._diff_sync(targets, mode=mode)
+            after = self._count_videos(targets)
+            added = max(0, after - before)
+            removed = max(0, before - after)
+            self._debug('INFO', f'[LibWatcher] 扫描库 {library_id}({mode}) 完成: '
+                                f'新增≈{added} 移除≈{removed}')
+            return (added, 0, removed)
+        except Exception as e:
+            self._debug('ERROR', f'[LibWatcher] 扫描库 {library_id} 失败: {e}')
+            return (0, 0, 0)
+
+    def _count_videos(self, targets):
+        try:
+            from core.models import Video, ResourceIndex
+            with self._app.app_context():
+                cnt = 0
+                for _, lib_id in targets:
+                    if lib_id is not None:
+                        cnt += Video.query.filter_by(library_id=lib_id).count()
+                return cnt
+        except Exception:
+            return 0
 
     # ---------- 实时事件（watchdog 模式）----------
     def schedule_upsert(self, path, library_id):
