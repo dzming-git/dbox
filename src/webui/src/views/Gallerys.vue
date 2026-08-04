@@ -74,11 +74,6 @@ const displayGallerys = computed(() => {
   return list
 })
 
-const searchQuery = computed({
-  get: () => galleryStore.searchQuery,
-  set: (v) => galleryStore.searchQuery = v
-})
-
 const sortOptions = [
   { value: 'recommended', label: '推荐' },
   { value: 'name', label: '名称' },
@@ -153,12 +148,6 @@ const pageRange = computed(() => {
   return range
 })
 
-let searchTimer: number | null = null
-watch(searchQuery, (q) => {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => { galleryStore.searchGallerys(q); updateUrl() }, 500)
-})
-
 onMounted(async () => {
   // 如果 URL 带 query 参数（刷新/分享链接/前进后退），从其中恢复状态
   if (Object.keys(route.query).length > 0) {
@@ -188,12 +177,6 @@ watch(() => route.query, async (newQuery) => {
 <template>
   <div class="galleries-container">
     <div class="action-bar">
-      <div class="search-box">
-        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
-        </svg>
-        <input v-model="searchQuery" type="text" placeholder="搜索图集名称..." class="search-input" />
-      </div>
       <div class="sort-box">
         <select class="sort-select" :value="galleryStore.sortBy" @change="handleSortChange">
           <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
@@ -299,10 +282,6 @@ watch(() => route.query, async (newQuery) => {
 <style scoped>
 .galleries-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 .action-bar { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; flex-wrap: wrap; }
-.search-box { flex: 1; max-width: 500px; position: relative; }
-.search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); }
-.search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-primary); font-size: 15px; }
-.search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(33,150,243,0.1); }
 .sort-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); font-size: 14px; cursor: pointer; }
 .view-toggle { display: flex; gap: 4px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 8px; padding: 3px; margin-left: auto; }
@@ -343,7 +322,6 @@ watch(() => route.query, async (newQuery) => {
 @media (max-width: 600px) {
   .galleries-container { padding: 12px; }
   .gallery-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-  .search-box { max-width: 100%; width: 100%; }
   .action-bar { flex-direction: column; align-items: stretch; }
   .view-toggle { margin-left: 0; width: 100%; }
   .view-toggle-btn { flex: 1; justify-content: center; }

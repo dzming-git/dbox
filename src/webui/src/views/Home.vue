@@ -63,10 +63,6 @@ const displayVideos = computed(() => {
 })
 const selectedTagId = computed(() => videoStore.selectedTagId)
 const selectedUntagged = computed(() => videoStore.selectedUntagged)
-const videoSearchQuery = computed({
-  get: () => videoStore.searchQuery,
-  set: (v) => videoStore.searchQuery = v
-})
 // 「未标记（待整理）」视频数量，仅在展开标签面板时拉取，不在主界面暴露
 const untaggedCount = ref(0)
 const fetchUntaggedCount = async () => {
@@ -261,13 +257,6 @@ const handleLibraryChange = (event: Event) => {
   videoStore.filterByLibrary(val === '' ? null : parseInt(val))
   updateUrl()
 }
-
-// 搜索防抖
-let videoSearchTimer: number | null = null
-watch(videoSearchQuery, (q) => {
-  if (videoSearchTimer) clearTimeout(videoSearchTimer)
-  videoSearchTimer = window.setTimeout(() => { videoStore.searchVideos(q); updateUrl() }, 500)
-})
 
 onMounted(async () => {
   // 加载继续观看（本地观看历史）
@@ -628,12 +617,6 @@ const listThumbUrl = (video: Video): string => {
 
     <!-- 操作栏 - 移到顶部 -->
     <div class="action-bar" v-if="mediaTab === 'video'">
-      <div class="search-box">
-        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
-        </svg>
-        <input v-model="videoSearchQuery" type="text" placeholder="搜索视频名称..." class="search-input" />
-      </div>
       <div class="sort-box">
         <select class="sort-select" :value="currentSort" @change="handleSortChange">
           <option v-for="option in sortOptions" :key="option.value" :value="option.value">
@@ -1925,11 +1908,6 @@ const listThumbUrl = (video: Video): string => {
     height: 38px;
   }
   
-  .search-input {
-    height: 44px;
-    font-size: 14px;
-  }
-
   /* 移动端换一批按钮 */
   .shuffle-btn {
     height: 32px;
