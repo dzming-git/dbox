@@ -17,6 +17,7 @@ import {
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
 import AdminLogs from '../admin/AdminLogs.vue'
+import AdminEventLog from '../admin/AdminEventLog.vue'
 import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
@@ -30,7 +31,7 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
-const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'logs', 'users', 'monitor', 'config']
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'logs', 'events', 'users', 'monitor', 'config']
 const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
 const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
@@ -1828,6 +1829,12 @@ onUnmounted(() => {
           @click="switchTab('logs')"
           v-if="userStore.isAdmin"
         >📜 系统日志</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'events' }"
+          @click="switchTab('events')"
+          v-if="userStore.isAdmin"
+        >🔔 事件日志</button>
       </div>
 
       <div class="tab-group">
@@ -2943,6 +2950,7 @@ onUnmounted(() => {
       </div>
 
       <AdminLogs v-if="activeTab === 'logs'" />
+      <AdminEventLog v-if="activeTab === 'events'" />
 
       <AdminMonitor v-if="activeTab === 'monitor'" />
     </div>

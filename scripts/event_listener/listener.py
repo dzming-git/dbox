@@ -25,15 +25,80 @@ handler 调用约定：
 """
 import os
 import sys
+import io
 import json
 import time
 import argparse
 import subprocess
+import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DBOX_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 HANDLERS_DIR = os.path.join(SCRIPT_DIR, 'handlers')
 STATE_PATH = os.path.join(SCRIPT_DIR, '.listener_state.json')
+LOG_PATH = os.path.join(SCRIPT_DIR, '.listener.log')
+
+
+class _Tee(io.TextIOBase):
+    """将输出同时写到原始流与日志文件，用于持久化监听器日志。"""
+
+    def __init__(self, original, log_file):
+        self._original = original
+        self._log_file = log_file
+
+    def write(self, s):
+        try:
+            self._original.write(s)
+        except Exception:
+            pass
+        try:
+            self._log_file.write(s)
+            self._log_file.flush()
+        except Exception:
+            pass
+        return len(s)
+
+    def flush(self):
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+        try:
+            self._log_file.flush()
+        except Exception:
+            pass
+
+
+def setup_logging():
+    """把 stdout/stderr 重定向到控制台 + .listener.log，行首带时间戳。"""
+    logf = open(LOG_PATH, 'a', encoding='utf-8')
+    orig_out, orig_err = sys.stdout, sys.stderr
+
+    class _TSWriter:
+        def __init__(self, raw, ts=True):
+            self._raw = raw
+            self._ts = ts
+            self._buf = ''
+
+        def write(self, s):
+            # 仅在行首补时间戳
+            text = self._buf + s
+            out_lines = text.split('\n')
+            self._buf = out_lines.pop()  # 末尾未换行部分暂存
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            for ln in out_lines:
+                if ln == '':
+                    self._raw.write('\n')
+                    continue
+                prefix = f'[{now}] ' if self._ts else ''
+                self._raw.write(prefix + ln + '\n')
+            return len(s)
+
+        def flush(self):
+            self._raw.flush()
+
+    sys.stdout = _Tee(_TSWriter(orig_out), logf)
+    sys.stderr = _Tee(_TSWriter(orig_err), logf)
 
 # 让脚本能 import 到 src/web 下的 backend 模块
 WEB_DIR = os.path.join(DBOX_ROOT, 'src', 'web')
@@ -187,7 +252,9 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='只打印将触发的事件，不调用 handler')
     args = parser.parse_args()
 
+    setup_logging()
     print(f"[listener] 启动，dbox={DBOX_ROOT}，handlers={HANDLERS_DIR}，interval={args.interval}s，dry_run={args.dry_run}")
+    print(f"[listener] 日志写入: {LOG_PATH}")
 
     if args.once:
         sweep(dry_run=args.dry_run)

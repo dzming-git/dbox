@@ -78,3 +78,9 @@ export const logApi = {
   getLogs: (params: { type?: string; page?: number; limit?: number }) =>
     api.get('/api/admin/logs', { params })
 }
+
+export const eventApi = {
+  // 获取事件监听器日志（反馈事件处理日志）
+  getLog: (params: { tail?: number; page?: number; limit?: number }) =>
+    api.get('/api/admin/event-log', { params })
+}

@@ -128,6 +128,7 @@ _archived/
 # 事件监听器框架（核心 listener.py 提交 git；用户自定义 handler 与状态不提交）
 # ============================================
 scripts/event_listener/.listener_state.json
+scripts/event_listener/.listener.log
 scripts/event_listener/handlers/
 
 # ============================================
