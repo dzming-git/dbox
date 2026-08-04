@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '../api'
 import { useUserStore } from '../stores/userStore'
 import { useToast } from '../composables/useToast'
@@ -7,6 +7,10 @@ import { formatDate, getRoleClass } from '../utils/adminCommon'
 
 const { showToast } = useToast()
 const userStore = useUserStore()
+
+// ROOT 账号仅允许 ROOT 自身操作；普通管理员（ADMIN）不能创建/编辑/删除 ROOT
+const canManageRoot = computed(() => userStore.isRoot)
+const isRootUser = (u: any) => u.role >= 3
 
 const users = ref<any[]>([])
 const usersLoading = ref(false)
@@ -131,14 +135,14 @@ onMounted(() => {
               <button
                 class="icon-btn"
                 @click="editUser(user)"
-                v-if="user.id !== userStore.user?.id"
+                v-if="user.id !== userStore.user?.id && (canManageRoot || !isRootUser(user))"
               >
                 ✏️
               </button>
               <button
                 class="icon-btn danger"
                 @click="deleteUser(user.id)"
-                v-if="user.id !== userStore.user?.id"
+                v-if="user.id !== userStore.user?.id && (canManageRoot || !isRootUser(user))"
               >
                 🗑️
               </button>
@@ -171,7 +175,7 @@ onMounted(() => {
             <select v-model="userForm.role">
               <option value="user">普通用户</option>
               <option value="admin">管理员</option>
-              <option value="root">超级管理员</option>
+              <option value="root" :disabled="!canManageRoot">超级管理员</option>
             </select>
           </div>
         </div>

@@ -586,7 +586,11 @@ def create_admin_user():
             'root': UserRole.ROOT
         }
         role = role_map.get(role_str, UserRole.USER)
-        
+
+        # ROOT 账号仅允许 ROOT 创建，防止普通管理员越权提权
+        if role == UserRole.ROOT and g.role < UserRole.ROOT:
+            return jsonify({'success': False, 'message': '只有超级管理员可以创建超级管理员账号'}), 403
+
         if not username or not password:
             return jsonify({'success': False, 'message': '用户名和密码不能为空'}), 400
         
@@ -640,7 +644,14 @@ def update_admin_user(user_id):
                 'admin': UserRole.ADMIN,
                 'root': UserRole.ROOT
             }
-            user.role = role_map.get(data['role'], UserRole.USER)
+            new_role = role_map.get(data['role'], UserRole.USER)
+            # ROOT 账号仅允许 ROOT 修改
+            if user.role == UserRole.ROOT and g.role < UserRole.ROOT:
+                return jsonify({'success': False, 'message': '只有超级管理员可以修改超级管理员账号'}), 403
+            # 禁止普通管理员把任意账号提权为 ROOT
+            if new_role == UserRole.ROOT and g.role < UserRole.ROOT:
+                return jsonify({'success': False, 'message': '只有超级管理员可以设置超级管理员角色'}), 403
+            user.role = new_role
 
         # 更新密码（如果提供了）
         if data.get('password'):
@@ -670,6 +681,9 @@ def delete_admin_user(user_id):
     """删除用户（管理员）"""
     try:
         user = User.query.get_or_404(user_id)
+        # ROOT 账号仅允许 ROOT 删除
+        if user.role == UserRole.ROOT and g.role < UserRole.ROOT:
+            return jsonify({'success': False, 'message': '只有超级管理员可以删除超级管理员账号'}), 403
         if user.id == g.user_id:
             return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
         db.session.delete(user)

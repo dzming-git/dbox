@@ -1808,7 +1808,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'libraries' }"
           @click="switchTab('libraries')"
-          v-if="userStore.isRoot || userStore.canManageResources"
+          v-if="userStore.isAdmin || userStore.canManageResources"
         >📁 资源库管理</button>
         <button
           class="tab-btn"
@@ -1830,7 +1830,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'services' }"
           @click="switchTab('services')"
-          v-if="userStore.isRoot"
+          v-if="userStore.isAdmin"
         >🔧 服务管理</button>
         <button
           class="tab-btn"
@@ -1858,7 +1858,7 @@ onUnmounted(() => {
           class="tab-btn"
           :class="{ active: activeTab === 'users' }"
           @click="switchTab('users')"
-          v-if="userStore.isRoot"
+          v-if="userStore.isAdmin"
         >👥 用户管理</button>
       </div>
     </div>
