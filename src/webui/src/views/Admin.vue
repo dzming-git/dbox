@@ -2,20 +2,16 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
-import { useVideoStore } from '../stores/videoStore'
 import { api } from '../api'
 import { videoApi, libraryApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
 import { resourceApi } from '../api'
+import { trashApi } from '../api'
 import {
   formatDate,
   formatPath,
-  formatFileSize,
-  formatBytes,
-  formatUptime,
-  getUsageClass,
-  getRoleClass
+  formatFileSize
 } from '../utils/adminCommon'
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
@@ -26,7 +22,6 @@ import AdminUsers from '../admin/AdminUsers.vue'
 import Pagination from '../components/Pagination.vue'
 
 const userStore = useUserStore()
-const videoStore = useVideoStore()
 const router = useRouter()
 // 仅资源库管理员（非全局管理员）：只开放资源库管理，隐藏其它管理标签页
 const isResourceAdminOnly = computed(() => userStore.canManageResources && !userStore.isAdmin)
@@ -167,7 +162,6 @@ const permissionForm = ref({
 // 文件夹管理
 const libraryFolders = ref<any[]>([])
 const showFolderModal = ref(false)
-const editingFolder = ref<any>(null)
 const folderForm = ref({
   name: '',
   path: '',
@@ -1131,20 +1125,6 @@ const selectFileFromBrowser = (item: any) => {
   showFolderBrowser.value = false
 }
 
-// 创建用户组
-const createUserGroup = async (name: string, description: string) => {
-  try {
-    const res = await api.post('/api/admin/user-groups', { name, description }) as any
-    if (res.success) {
-      showToast('用户组创建成功')
-      fetchUserGroups()
-    }
-  } catch (error) {
-    console.error('创建用户组失败:', error)
-    showToast('创建失败')
-  }
-}
-
 // 获取系统信息
 const fetchSystemInfo = async () => {
   loading.value.info = true
@@ -1497,10 +1477,6 @@ const canStop = (svc: any) => {
   return svc.system_status === 'RUNNING'
 }
 
-const canRestart = (svc: any) => {
-  return svc.system_status === 'RUNNING'
-}
-
 const isOperating = (serviceName: string) => {
   const s = serviceControlLoading.value === serviceName
   const svc = services.value.find(sv => sv.service_name === serviceName)
@@ -1648,14 +1624,14 @@ const trashLoading = ref(false)
 const loadTrash = async () => {
   trashLoading.value = true
   try {
-    const res = await api.getTrash()
+    const res = await trashApi.getTrash()
     if (res.data.success) {
       trashItems.value = res.data.items || []
     } else {
-      ElMessage.error(res.data.message || '加载回收站失败')
+      showToast(res.data.message || '加载回收站失败')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '加载回收站失败')
+    showToast(e?.response?.data?.message || '加载回收站失败')
   } finally {
     trashLoading.value = false
   }
@@ -1663,30 +1639,30 @@ const loadTrash = async () => {
 
 const restoreTrashItem = async (item: any) => {
   try {
-    const res = await api.restoreTrash(item.type, item.hash)
+    const res = await trashApi.restoreTrash(item.type, item.hash)
     if (res.data.success) {
-      ElMessage.success('已恢复')
+      showToast('已恢复')
       loadTrash()
     } else {
-      ElMessage.error(res.data.message || '恢复失败')
+      showToast(res.data.message || '恢复失败')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '恢复失败')
+    showToast(e?.response?.data?.message || '恢复失败')
   }
 }
 
 const purgeTrashItem = async (item: any) => {
   if (!window.confirm(`确定要永久删除「${item.title}」吗？此操作不可恢复。`)) return
   try {
-    const res = await api.purgeTrash(item.type, item.hash)
+    const res = await trashApi.purgeTrash(item.type, item.hash)
     if (res.data.success) {
-      ElMessage.success('已永久删除')
+      showToast('已永久删除')
       loadTrash()
     } else {
-      ElMessage.error(res.data.message || '删除失败')
+      showToast(res.data.message || '删除失败')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '删除失败')
+    showToast(e?.response?.data?.message || '删除失败')
   }
 }
 
@@ -1694,15 +1670,15 @@ const emptyTrash = async () => {
   if (trashItems.value.length === 0) return
   if (!window.confirm('确定要清空回收站吗？所有资源将被永久删除，不可恢复。')) return
   try {
-    const res = await api.emptyTrash()
+    const res = await trashApi.emptyTrash()
     if (res.data.success) {
-      ElMessage.success(res.data.message || '已清空回收站')
+      showToast(res.data.message || '已清空回收站')
       loadTrash()
     } else {
-      ElMessage.error(res.data.message || '清空失败')
+      showToast(res.data.message || '清空失败')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '清空失败')
+    showToast(e?.response?.data?.message || '清空失败')
   }
 }
 
@@ -2016,7 +1992,7 @@ onUnmounted(() => {
                   class="hot-item"
                   @click="router.push('/video/' + v.hash)"
                 >
-                  <span class="hot-rank">{{ i + 1 }}</span>
+                  <span class="hot-rank">{{ Number(i) + 1 }}</span>
                   <span class="hot-name" :title="v.title">{{ v.title }}</span>
                   <span class="hot-count">{{ v.like_count }}</span>
                 </div>
@@ -2030,7 +2006,7 @@ onUnmounted(() => {
                   class="hot-item"
                   @click="router.push('/video/' + v.hash)"
                 >
-                  <span class="hot-rank fav">{{ i + 1 }}</span>
+                  <span class="hot-rank fav">{{ Number(i) + 1 }}</span>
                   <span class="hot-name" :title="v.title">{{ v.title }}</span>
                   <span class="hot-count">{{ v.favorite_count }}</span>
                 </div>
@@ -5097,6 +5073,7 @@ input:checked + .slider:before {
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     line-height: 1.4;
   }
