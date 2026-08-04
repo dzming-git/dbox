@@ -193,7 +193,7 @@ from backend.helpers import (
     get_or_create_tag_by_path, _resolve_post_refs, _build_post_refs,
 )
 from backend.library_helpers import (
-    _list_system_drives, _restart_library_watchers,
+    _list_system_drives, _restart_library_watchers, _initial_library_scan,
     _library_scan_progress, _library_scan_all_progress, _INVALID_NAME_RE,
 )
 from backend.thumbnail_helpers import (
@@ -444,6 +444,9 @@ try:
     import threading as _tw
     _tw.Thread(target=_restart_library_watchers, daemon=True,
                name='library-watcher-boot').start()
+    # 启动时全量扫描（受 auto_scan_on_startup 开关控制，独立于实时监控）
+    _tw.Thread(target=_initial_library_scan, daemon=True,
+               name='library-initial-scan').start()
 except Exception as e:
     log.maintenance('WARN', f'资源库文件夹监控模块不可用: {e}')
 

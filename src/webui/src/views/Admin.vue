@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { api } from '../api'
 import { videoApi, libraryApi } from '../api'
+import { configApi } from '../api'
 import { thumbnailManageApi } from '../api'
 import { serviceManageApi } from '../api'
 import { resourceApi } from '../api'
@@ -154,10 +155,47 @@ const libraryForm = ref({
 const permissionForm = ref({
   user_id: null as number | null,
   group_id: null as number | null,
-  role: 'user',
+  role: 'hidden',
   access_level: 'read',
   permissions: [] as string[]
 })
+
+// 资源库自动扫描开关（独立于全局/资源库管理员的可见性权限）
+const scanConfig = ref({
+  library_watch_enabled: true,   // 文件夹实时监控（文件增删改实时同步）
+  auto_scan_on_startup: true     // 服务启动时全量扫描磁盘
+})
+const scanConfigLoaded = ref(false)
+const scanSaving = ref(false)
+
+const loadScanConfig = async () => {
+  try {
+    const cfg = await configApi.getConfig() as any
+    scanConfig.value = {
+      library_watch_enabled: !!cfg.library_watch_enabled,
+      auto_scan_on_startup: !!cfg.auto_scan_on_startup
+    }
+  } catch (e) {
+    console.error('加载扫描配置失败:', e)
+  } finally {
+    scanConfigLoaded.value = true
+  }
+}
+
+const saveScanConfig = async () => {
+  scanSaving.value = true
+  try {
+    await configApi.updateConfig({
+      library_watch_enabled: scanConfig.value.library_watch_enabled,
+      auto_scan_on_startup: scanConfig.value.auto_scan_on_startup
+    } as any)
+    showToast('扫描设置已保存，实时监控已立即生效')
+  } catch (e) {
+    showToast('保存失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    scanSaving.value = false
+  }
+}
 
 // 文件夹管理
 const libraryFolders = ref<any[]>([])
@@ -1756,6 +1794,7 @@ onMounted(() => {
   fetchSystemPaths()
   fetchSyncStatus()
   loadHotStats()
+  loadScanConfig()  // 加载自动扫描开关配置（始终加载，不依赖标签页）
   // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
   const restoredTab = activeTab.value
   if (restoredTab === 'thumbnail') fetchThumbnailConfig()
@@ -2777,6 +2816,17 @@ onUnmounted(() => {
               {{ scanAllScanning ? '全量扫描中...' : '🔄 扫描全部库（同步文件名/标题）' }}
             </button>
             <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true" v-if="userStore.isAdmin">+ 新建资源库</button>
+            <div class="scan-switch-group" v-if="scanConfigLoaded">
+              <label class="scan-switch">
+                <input type="checkbox" v-model="scanConfig.library_watch_enabled" @change="saveScanConfig" :disabled="scanSaving" />
+                <span>文件夹实时监控</span>
+              </label>
+              <label class="scan-switch">
+                <input type="checkbox" v-model="scanConfig.auto_scan_on_startup" @change="saveScanConfig" :disabled="scanSaving" />
+                <span>启动时自动扫描</span>
+              </label>
+              <span v-if="scanSaving" class="scan-saving">保存中…</span>
+            </div>
           </div>
         </div>
         <div v-if="scanAllMessage" class="scan-all-status">{{ scanAllMessage }}</div>
@@ -3958,6 +4008,37 @@ onUnmounted(() => {
   color: var(--success);
   background: var(--success-soft);
   border-bottom: 1px solid var(--border-default);
+}
+
+.scan-switch-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  padding-left: 16px;
+  border-left: 1px solid var(--border-default);
+}
+
+.scan-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.scan-switch input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent, #3b82f6);
+}
+
+.scan-saving {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .log-count {

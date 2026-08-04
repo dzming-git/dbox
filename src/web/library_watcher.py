@@ -293,6 +293,20 @@ class ResourceLibraryWatcher:
         for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
             self._delayed_gallery_scan(lib_id)
 
+    def full_scan_once(self):
+        """一次性全量扫描（不启动后台监控），供启动时自动扫描开关调用。
+
+        收集所有监控目标后执行一次 diff 同步 + 各库图集扫描，使 Video 表与磁盘一致。
+        """
+        targets = self._collect_watch_targets()
+        if not targets:
+            self._debug('INFO', '[LibWatcher] 没有可扫描的目标，跳过全量扫描')
+            return
+        self._diff_sync(targets)
+        for lib_id in {lib_id for _, lib_id in targets if lib_id is not None}:
+            self._delayed_gallery_scan(lib_id)
+        self._debug('INFO', f'[LibWatcher] 全量扫描完成，共 {len(targets)} 个目标目录')
+
     def _poll_loop(self, targets):
         # 首次立即同步一次，之后按间隔轮询
         self._diff_sync(targets)

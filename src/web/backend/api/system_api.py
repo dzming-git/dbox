@@ -182,11 +182,33 @@ def get_config():
 def update_config():
     try:
         data = request.get_json()
+        changed_keys = set(data.keys()) & {
+            'library_watch_enabled', 'auto_scan_on_startup',
+            'scan_directories', 'watch_poll_interval', 'supported_formats',
+        }
         for k, v in data.items():
             runtime.app_config[k] = v
         if save_config(runtime.app_config):
             log.maintenance('INFO', f"更新配置文件: {list(data.keys())}")
-            return jsonify({'success': True, 'config': app_config})
+            # 与资源库扫描相关的开关变更时，重建监控器/触发扫描（后台执行，避免阻塞响应）
+            if changed_keys:
+                try:
+                    import threading as _tw
+                    from backend.library_helpers import _restart_library_watchers, _initial_library_scan
+
+                    def _apply_scan_config():
+                        try:
+                            _restart_library_watchers()
+                            if runtime.app_config.get('auto_scan_on_startup', True):
+                                _initial_library_scan()
+                        except Exception as _e:
+                            log.debug('ERROR', f'应用扫描配置失败: {_e}')
+
+                    _tw.Thread(target=_apply_scan_config, daemon=True,
+                               name='apply-scan-config').start()
+                except Exception as _e:
+                    log.debug('ERROR', f'应用扫描配置失败: {_e}')
+            return jsonify({'success': True, 'config': runtime.app_config})
         return jsonify({'success': False, 'message': '保存失败'}), 500
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

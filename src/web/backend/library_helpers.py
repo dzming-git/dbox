@@ -45,9 +45,20 @@ def _restart_library_watchers():
 
     监控路径优先从 resourced 查询（资源库/文件夹的磁盘路径），回退到现有 Video.local_path。
     文件的新增/删除/重命名会实时同步到 Video 表，无需手动扫描。
+
+    受配置 ``library_watch_enabled`` 控制：关闭后只停止监控、不执行全量扫描
+    （全量扫描由独立的 ``auto_scan_on_startup`` 开关决定）。
     """
     if not runtime.app_config.get('library_watch_enabled', True):
         log.debug('INFO', '资源库文件夹自动感知已通过配置禁用')
+        # 关闭监控：先停掉已有监控器，避免后台继续感知文件变化
+        try:
+            from library_watcher import get_watcher
+            _w = get_watcher()
+            if _w is not None:
+                _w.stop_all()
+        except Exception:
+            pass
         return
     try:
         from library_watcher import start_library_watchers as _sw
@@ -55,3 +66,25 @@ def _restart_library_watchers():
             thumbnail_bus=runtime.thumbnail_bus, log=log)
     except Exception as e:
         log.debug('ERROR', f'启动资源库文件夹监控失败: {e}')
+
+
+def _initial_library_scan():
+    """启动时全量扫描（受 ``auto_scan_on_startup`` 控制，独立于文件夹实时监控）。
+
+    对配置中的 ``scan_directories`` 与各资源库监控目标执行一次 diff 同步，
+    使 Video 表与磁盘保持一致。即使关闭了实时文件夹监控，也可单独开启此项。
+    """
+    if not runtime.app_config.get('auto_scan_on_startup', True):
+        log.debug('INFO', '启动时自动扫描已通过配置禁用')
+        return
+    try:
+        from library_watcher import start_library_watchers as _sw, get_watcher
+        # 复用 watcher 的 diff 逻辑：若监控已启用则直接取实例，否则临时构建一个
+        _w = get_watcher()
+        if _w is None:
+            _w = _sw(app=runtime.app, resource_bus=runtime.resource_bus,
+                     app_config=runtime.app_config, thumbnail_bus=runtime.thumbnail_bus, log=log)
+        _w.full_scan_once()
+        log.maintenance('INFO', '启动全量扫描已完成')
+    except Exception as e:
+        log.debug('ERROR', f'启动全量扫描失败: {e}')
