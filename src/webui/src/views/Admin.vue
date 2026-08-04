@@ -4158,6 +4158,7 @@ onUnmounted(() => {
 
 .tab-group {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
@@ -5116,9 +5117,15 @@ input:checked + .slider:before {
   }
   
   .admin-tabs {
+    flex-wrap: wrap;
     padding: 0 12px 12px;
     margin: 0 -12px 16px;
-    overflow-x: auto;
+    overflow-x: visible;
+    row-gap: 10px;
+  }
+
+  .tab-group {
+    flex: 1 1 auto;
   }
   
   .tab-btn {
