@@ -1666,8 +1666,8 @@ const loadTrash = async () => {
   trashLoading.value = true
   try {
     const res = await trashApi.getTrash()
-    if (res.data.success) {
-      trashItems.value = res.data.items || []
+    if (res.success) {
+      trashItems.value = res.items || []
     } else {
       showToast(res.data.message || '加载回收站失败')
     }
@@ -1681,7 +1681,7 @@ const loadTrash = async () => {
 const restoreTrashItem = async (item: any) => {
   try {
     const res = await trashApi.restoreTrash(item.type, item.hash)
-    if (res.data.success) {
+    if (res.success) {
       showToast('已恢复')
       loadTrash()
     } else {
@@ -1696,7 +1696,7 @@ const purgeTrashItem = async (item: any) => {
   if (!window.confirm(`确定要永久删除「${item.title}」吗？此操作不可恢复。`)) return
   try {
     const res = await trashApi.purgeTrash(item.type, item.hash)
-    if (res.data.success) {
+    if (res.success) {
       showToast('已永久删除')
       loadTrash()
     } else {
@@ -1712,8 +1712,8 @@ const emptyTrash = async () => {
   if (!window.confirm('确定要清空回收站吗？所有资源将被永久删除，不可恢复。')) return
   try {
     const res = await trashApi.emptyTrash()
-    if (res.data.success) {
-      showToast(res.data.message || '已清空回收站')
+    if (res.success) {
+      showToast(res.message || '已清空回收站')
       loadTrash()
     } else {
       showToast(res.data.message || '清空失败')
