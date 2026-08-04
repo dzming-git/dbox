@@ -25,9 +25,18 @@ from backend.paths import (
     PROJECT_ROOT,
     CONFIGS_DIR as _CONFIGS_DIR,
     DATA_DIR as _DATA_DIR,
+    USER_CONFIG_DIR,
     THUMB_CONFIG_FILE as _THUMB_CONFIG_FILE,
     WEB_CONFIG_FILE as CONFIG_FILE,
+    _ensure_user_dirs,
 )
+
+# 确保用户数据区/配置区存在（含首次启动从项目 data/ 的迁移），在创建 DB 前执行
+_ensure_user_dirs()
+
+# 把解析后的用户数据区/配置区写入环境变量，供脚本引擎等子模块继承一致路径
+os.environ.setdefault('DBOX_DATA_DIR', _DATA_DIR)
+os.environ.setdefault('DBOX_USER_CONFIG_DIR', USER_CONFIG_DIR)
 
 # 添加模块路径
 for _p in [_THIS_DIR, _SRC_DIR, os.path.join(_CONFIGS_DIR, 'services'), _DATA_DIR]:

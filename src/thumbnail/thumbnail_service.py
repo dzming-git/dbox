@@ -24,9 +24,9 @@ _script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() 
 # 如果当前工作目录是 msa-thumb，则向上两级；否则按正常逻辑计算
 _cwd = os.getcwd()
 if _cwd.endswith('msa-thumb'):
-    _PROJECT_ROOT = os.path.dirname(_cwd)  # Dplayer2.0
-elif _cwd.endswith('dplayer-src'):
-    _PROJECT_ROOT = os.path.dirname(_cwd)  # Dplayer2.0
+    _PROJECT_ROOT = os.path.dirname(_cwd)  # dbox
+elif _cwd.endswith('dbox-src'):
+    _PROJECT_ROOT = os.path.dirname(_cwd)  # dbox
 else:
     _PROJECT_ROOT = os.path.normpath(os.path.join(_script_dir, '..'))
 _THIS_DIR = os.path.join(_PROJECT_ROOT, 'msa-thumb')

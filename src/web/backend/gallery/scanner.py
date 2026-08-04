@@ -20,17 +20,16 @@ IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif')
 
 
 def _load_app_config():
-    """读取项目根目录的 configs/web/config.json（兜底目标来源）。"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    proj = os.path.abspath(os.path.join(here, '..', '..', '..', '..'))
-    p = os.path.join(proj, 'configs', 'web', 'config.json')
-    if os.path.isfile(p):
-        try:
-            with open(p, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    """读取用户运行时配置（兜底目标来源）。
+
+    配置已迁移到系统数据区的用户配置文件，由 backend.system_helpers.load_config 统一加载，
+    不再从项目目录读取（避免个人路径污染仓库）。
+    """
+    try:
+        from backend.system_helpers import load_config
+        return load_config()
+    except Exception:
+        return {}
 
 
 def _gallery_targets_from_scan_directories():

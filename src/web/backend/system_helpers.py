@@ -84,27 +84,60 @@ def _apply_setting(scope, key, value):
 
 
 # ============ 配置管理 ============
-def load_config():
-    default = {
-        "scan_directories": [{"path": "M:/<媒体库>", "recursive": True, "enabled": True}],
-        "auto_scan_on_startup": True,
+# 默认配置（不含任何个人路径）。首次启动时由代码生成到系统数据区的用户配置文件中，
+# 项目目录不再存放用户运行时配置（避免个人路径污染仓库、被他人拉取后不可用）。
+def _default_config():
+    return {
+        "scan_directories": [],  # 由用户在界面中添加，不预置个人路径
+        "auto_scan_on_startup": False,
+        "library_watch_enabled": True,
         "supported_formats": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v"],
         "default_tags": [],
         "default_priority": 0,
-        "ports": {"web": 8080, "thumbnail": "bus://127.0.0.1:15555"}
+        "watch_poll_interval": 5,
+        "scan_interval_minutes": 60,
+        "host": "0.0.0.0",
+        "auto_start": True,
+        "ports": {
+            "web": 8080,
+            "main_app": 8080,
+            "admin_app": 8081,
+            "thumbnail": 5001
+        }
     }
-    from backend.paths import CONFIG_FILE
+
+
+def load_config():
+    """加载用户运行时配置。
+
+    配置存放在系统数据区的用户配置文件（默认 %LOCALAPPDATA%/Dbox/config/web_config.json），
+    不纳入 git。若文件不存在，则用默认配置生成并写入（首次启动自动初始化）。
+
+    合并策略：默认配置为底座，用户文件覆盖同名键，保证新增键有默认值兜底。
+    """
+    from backend.paths import CONFIG_FILE, USER_CONFIG_DIR, _ensure_user_dirs
+    _ensure_user_dirs()
+    default = _default_config()
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return {**default, **json.load(f)}
+                user_cfg = json.load(f)
+            return {**default, **user_cfg}
         except Exception:
             pass
+    # 首次启动：生成默认配置文件
+    try:
+        os.makedirs(USER_CONFIG_DIR, exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(default, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
     return default
 
 
 def save_config(cfg):
-    from backend.paths import CONFIG_FILE
+    from backend.paths import CONFIG_FILE, USER_CONFIG_DIR, _ensure_user_dirs
+    _ensure_user_dirs()
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(cfg, f, indent=4, ensure_ascii=False)

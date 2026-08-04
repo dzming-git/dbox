@@ -36,6 +36,12 @@ for _p in (_WEB_DIR, _CONFIGS_DIR, _SERVICES_DIR, _ROOT_DIR):
 # configs/services 已在 sys.path，可直接导入启动守卫
 from launcher_guard import check_service_launch
 
+# 解析用户数据区（与 web 主服务保持一致：环境变量 > 平台系统数据区）
+# backend.paths 为纯路径模块，无副作用，可安全复用以保证多服务数据一致
+import backend.paths as _paths  # noqa: E402
+# 确保用户数据区存在，并在首次启动时从项目根 data/ 迁移遗留数据（幂等）
+_paths._ensure_user_dirs()
+
 # 启动守卫：生产环境要求经由 NSSM 启动；开发环境（DBOX_DEV_MODE=1）才允许直接运行
 try:
     check_service_launch('Dbox Resource Downloader', 'src/downloader/main.py')
@@ -55,7 +61,11 @@ CORS(app, supports_credentials=True)
 app.register_blueprint(script_bp)  # 通用外部脚本 / 下载器接口（/api/scripts, /api/admin/scripts, /api/admin/cookies）
 
 # ---- 与主服务一致的配置（确保共享 DB / 保险库 / 缩略图）----
-_data_dir = os.environ.get('DBOX_DATA_DIR', os.path.join(_ROOT_DIR, 'data'))
+# 用户数据库/配置存放于系统数据区（不纳入项目目录），优先 DBOX_DATA_DIR 环境变量，
+# 否则回落到平台系统数据区（Windows: %LOCALAPPDATA%/Dbox/data）。
+_data_dir = _paths.get_user_data_dir()
+os.environ.setdefault('DBOX_DATA_DIR', _data_dir)
+os.environ.setdefault('DBOX_USER_CONFIG_DIR', _paths.get_user_config_dir())
 app.config['DATA_DIR'] = _data_dir
 app.config['SECRET_KEY'] = os.environ.get('DBOX_JWT_SECRET', _DEFAULT_SECRET)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_data_dir, 'databases', 'dbox.db')

@@ -1153,7 +1153,7 @@ class ResourceLibrary(db.Model):
             # db_path = 'libraries' 相对路径：相对于项目根目录的 data/
             # 正确计算：main.py 在 src/web/，向上两级到项目根目录
             _src_web = os.path.dirname(os.path.abspath(__file__))  # src/web/core
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(_src_web)))  # Dplayer2.0/
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(_src_web)))  # dbox/
             data_dir = os.path.join(project_root, 'data')
             return os.path.join(data_dir, self.db_path, self.db_file)
         # 环境变量方式

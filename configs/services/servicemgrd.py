@@ -20,7 +20,7 @@ import time
 
 # 路径设置
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-# configs/services/ → configs/ → Dplayer2.0/（项目根目录）
+# configs/services/ → configs/ → dbox/（项目根目录）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src'))  # src/ → 可 import servicebus
 

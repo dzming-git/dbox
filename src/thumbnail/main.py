@@ -26,6 +26,13 @@ for _p in [_THIS_DIR, _SRC_DIR, os.path.join(_CONFIGS_DIR, 'services')]:
 from launcher_guard import check_service_launch
 check_service_launch('Dbox Thumbnail Service', 'src/thumbnail/main.py')
 
+# 用户数据区：缩略图从项目目录分离到系统数据区（与 web 主服务一致）。
+# backend.paths 为纯路径模块，无副作用，可安全复用。
+import backend.paths as _paths  # noqa: E402
+# 确保用户数据区存在，并在首次启动时从项目根 data/ 迁移遗留数据（幂等）
+_paths._ensure_user_dirs()
+_DATA_DIR = _paths.get_user_data_dir()
+
 import json
 import time
 import threading

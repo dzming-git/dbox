@@ -20,7 +20,12 @@ def _get_project_root():
 
 
 PROJECT_ROOT = _get_project_root()
-_DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+# 缩略图存储从项目目录分离到系统数据区（与 web 主服务一致）。
+try:
+    import backend.paths as _paths
+    _DATA_DIR = _paths.get_user_data_dir()
+except Exception:
+    _DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 THUMBNAIL_DIR = os.path.join(_DATA_DIR, 'thumbnails')
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 

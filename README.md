@@ -79,7 +79,7 @@
 ## 目录结构
 
 ```
-Dplayer2.0/
+dbox/
 ├── configs/            # 配置（web / services / thumbnail）
 │   ├── web/config.json        # Web 服务主配置（端口、扫描目录、格式…）
 │   └── services/              # NSSM 服务配置（JSON）
@@ -162,12 +162,38 @@ python scripts/service_manager.py restart-all   # 重启全部
 
 ## 配置说明
 
-主配置位于 `configs/web/config.json`，关键字段：
+运行时配置与数据库已从项目目录分离到**系统数据区**，不纳入 git 版本控制：
+
+- **Windows**：`%LOCALAPPDATA%/Dbox/`（如 `C:\Users\<你>\AppData\Local\Dbox\config\web_config.json`）
+- **Linux/macOS**：`~/.local/share/Dbox/`
+
+目录结构：
+```
+<系统数据区>/
+├── config/           # 运行时配置（代码首次启动自动生成）
+│   ├── web_config.json        # 主配置
+│   └── thumbnail_config.json  # 缩略图配置
+└── data/             # 运行时数据（数据库、缩略图、上传等）
+    ├── databases/    # SQLite 库（dbox.db / tasks.db / script_jobs.db ...）
+    ├── thumbnails/
+    └── ...
+```
+
+可通过环境变量覆盖默认位置（运维/多实例场景）：
+- `DBOX_USER_CONFIG_DIR`：用户配置根目录
+- `DBOX_DATA_DIR`：用户数据根目录
+- `DBOX_SYSTEM_DATA`：平台系统数据区根（决定上面两者的默认位置）
+
+> **首次启动自动初始化**：若系统数据区不存在配置文件，后端会用默认值（不含任何个人路径）自动生成 `web_config.json`。`scan_directories` 默认空，需在界面中添加你的扫描目录。
+> 从旧版本迁移：若项目根 `data/` 下已有数据，首次启动会自动将其移动到系统数据区，不丢失历史数据。
+
+主配置 `web_config.json` 关键字段：
 
 | 字段 | 说明 |
 |------|------|
 | `ports.web` | Web 后端端口（默认 `8080`） |
 | `scan_directories` | 资源库扫描目录列表（路径、是否递归、是否启用） |
+| `library_watch_enabled` | 文件夹实时监控 |
 | `auto_scan_on_startup` | 启动时自动扫描 |
 | `scan_interval_minutes` | 定时扫描间隔 |
 | `supported_formats` / `video_formats` | 支持的视频后缀 |
