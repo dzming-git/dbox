@@ -33,7 +33,15 @@ else:
 # 获取项目根目录
 PROJECT_DIR = Path(__file__).parent.parent.resolve()
 BASEDIR = str(PROJECT_DIR)
-LOG_DIR = os.path.join(BASEDIR, 'logs')
+# 启动器 stdout/stderr 日志统一存放到系统数据区（与 liblog 一致），
+# 优先级：DBOX_LOG_DIR 环境变量 > 系统数据区 Dbox/data/logs
+if os.environ.get('DBOX_LOG_DIR'):
+    LOG_DIR = os.environ['DBOX_LOG_DIR']
+elif os.name == 'nt':
+    _base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    LOG_DIR = os.path.join(_base, 'Dbox', 'data', 'logs')
+else:
+    LOG_DIR = os.path.expanduser('~/.local/share/Dbox/data/logs')
 
 # 配置日志（使用 liblog 统一日志）
 log = get_service_logger('dbox-servicemgr')

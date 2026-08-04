@@ -29,8 +29,14 @@ check_service_launch('Dbox WebUI Service', 'configs/services/webui_service.py')
 # 注册服务
 register_service('dbox-webui')
 
-# 配置日志
-LOG_DIR = os.path.join(_DATA_DIR, 'logs')
+# 配置日志（统一存放到系统数据区，与 liblog 解析一致）
+if os.environ.get('DBOX_LOG_DIR'):
+    LOG_DIR = os.environ['DBOX_LOG_DIR']
+elif os.name == 'nt':
+    _base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    LOG_DIR = os.path.join(_base, 'Dbox', 'data', 'logs')
+else:
+    LOG_DIR = os.path.expanduser('~/.local/share/Dbox/data/logs')
 os.makedirs(LOG_DIR, exist_ok=True)
 log = get_service_logger('dbox-webui')
 

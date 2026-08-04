@@ -24,11 +24,26 @@ from datetime import datetime
 from typing import Optional
 
 # ========== 配置 ==========
-# 日志根目录：通过环境变量或默认路径配置
-LOG_BASE_DIR = os.environ.get(
-    'DBOX_LOG_DIR',
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'logs')
-)
+# 日志根目录：与数据库/配置一致存放在系统数据区（不污染项目目录）。
+# 优先级：
+# 1. 环境变量 DBOX_LOG_DIR 显式指定
+# 2. 平台系统数据区下的 Dbox/data/logs
+#    Windows: %LOCALAPPDATA%/Dbox/data/logs
+#    Linux/macOS: ~/.local/share/Dbox/data/logs
+def _default_log_dir():
+    env = os.environ.get('DBOX_LOG_DIR')
+    if env:
+        return env
+    if os.name == 'nt':
+        local = os.environ.get('LOCALAPPDATA')
+        base = local if local else os.path.expanduser('~\\AppData\\Local')
+    else:
+        base = os.path.expanduser('~/.local/share')
+    # 与 backend.paths.get_user_data_dir() 保持一致：系统数据区 Dbox/data/logs
+    return os.path.join(base, 'Dbox', 'data', 'logs')
+
+
+LOG_BASE_DIR = _default_log_dir()
 
 # 日志分类
 LOG_CATEGORIES = {

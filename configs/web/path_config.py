@@ -72,10 +72,25 @@ def get_source_dir() -> Path | None:
 # 运行目录（动态解析）
 RUNTIME_DIR = get_runtime_dir()
 
+# 日志统一存放到系统数据区（不污染项目目录），与 liblog 解析保持一致：
+# 环境变量 DBOX_LOG_DIR > 平台系统数据区下的 Dbox/logs
+#   Windows: %LOCALAPPDATA%/Dbox/logs
+#   Linux/macOS: ~/.local/share/Dbox/logs
+def get_user_log_dir() -> Path:
+    if env_dir := os.environ.get('DBOX_LOG_DIR'):
+        return Path(env_dir)
+    if os.name == 'nt':
+        base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    else:
+        base = os.path.expanduser('~/.local/share')
+    # 与 backend.paths.get_user_data_dir() 一致：系统数据区 Dbox/data/logs
+    return Path(base) / 'Dbox' / 'data' / 'logs'
+
+
 # 所有路径均基于 RUNTIME_DIR
 DATABASE_PATH = RUNTIME_DIR / 'data' / 'databases' / 'dbox.db'
 UPLOAD_DIR = RUNTIME_DIR / 'data' / 'uploads'
-LOG_DIR = RUNTIME_DIR / 'data' / 'logs'
+LOG_DIR = get_user_log_dir()
 STATIC_DIR = RUNTIME_DIR / 'static'
 TEMPLATE_DIR = RUNTIME_DIR / 'static'
 CONFIG_DIR = RUNTIME_DIR / 'configs' / 'web'

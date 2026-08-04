@@ -18,6 +18,7 @@ from flask import Blueprint, request, jsonify, current_app
 from backend.runtime import runtime
 from backend.access import admin_required
 from backend.helpers import success_response, error_response
+from backend.paths import DATA_DIR
 
 try:
     from liblog import get_service_logger as _get_service_logger
@@ -245,8 +246,8 @@ def system_info():
             'memory_total': psutil.virtual_memory().total,
             'disk_total': psutil.disk_usage('/').total if sys.platform != 'win32' else psutil.disk_usage('C:\\').total,
             'runtime_dir': get_runtime_dir(),
-            'data_dir': os.path.join(get_runtime_dir(), 'data'),
-            'logs_dir': os.path.join(get_runtime_dir(), 'logs'),
+            'data_dir': str(DATA_DIR),
+            'logs_dir': os.path.join(str(DATA_DIR), 'logs'),
         }
         return success_response(info)
     except Exception as e:
@@ -261,11 +262,11 @@ def system_paths():
     try:
         paths = {
             'install_path': get_runtime_dir(),
-            'data_dir': os.path.join(get_runtime_dir(), 'data'),
-            'logs_dir': os.path.join(get_runtime_dir(), 'logs'),
-            'config_dir': os.path.join(get_runtime_dir(), 'config'),
-            'thumbnail_dir': os.path.join(get_runtime_dir(), 'data', 'thumbnails'),
-            'temp_dir': os.path.join(get_runtime_dir(), 'data', 'temp'),
+            'data_dir': str(DATA_DIR),
+            'logs_dir': os.path.join(str(DATA_DIR), 'logs'),
+            'config_dir': os.path.join(str(DATA_DIR), '..', 'config'),
+            'thumbnail_dir': os.path.join(str(DATA_DIR), 'thumbnails'),
+            'temp_dir': os.path.join(str(DATA_DIR), 'temp'),
         }
         return success_response(paths)
     except Exception as e:
