@@ -155,11 +155,11 @@ def create_library():
             config=data.get('config', {})
         )
 
-        # 确保目录存在
-        os.makedirs(library.db_path, exist_ok=True)
-
         # 创建数据库文件（从模板复制或创建空数据库）
         db_full_path = library.full_db_path
+        # 确保数据库文件所在目录存在（基于实际绝对路径，而非相对 db_path）
+        db_dir = os.path.dirname(db_full_path)
+        os.makedirs(db_dir, exist_ok=True)
         if not os.path.exists(db_full_path):
             # 从现有数据库复制结构
             import shutil
@@ -175,11 +175,11 @@ def create_library():
         log_operation('create library', target=name, success=True)
 
         # 同步创建 resource.db 中的资源库（供 resourced 服务使用）
-        if resource_bus:
+        if runtime.resource_bus:
             try:
                 # 库路径默认为空，用户可以后续添加文件夹
                 default_path = data.get('path', '')
-                result = resource_bus.call_method(
+                result = runtime.resource_bus.call_method(
                     'com.dbox.resourced',
                     'com.dbox.Resourced',
                     'AddLibrary',
@@ -296,7 +296,7 @@ def delete_library(library_id):
 def get_library_folders(library_id):
     """获取资源库的所有文件夹"""
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         # 使用 resource.db 中的库 ID（可能与 dbox.db 的 ID 不同）
@@ -324,7 +324,7 @@ def test_add_folder():
     try:
         data = request.get_json()
         log.debug('INFO', f'Test add folder: {data}')
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
@@ -349,7 +349,7 @@ def test_add_folder():
 def add_library_folder(library_id):
     """添加文件夹到资源库"""
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         data = request.get_json()
@@ -393,7 +393,7 @@ def add_library_folder(library_id):
 def update_folder(folder_id):
     """更新文件夹"""
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         data = request.get_json()
@@ -419,7 +419,7 @@ def update_folder(folder_id):
 def delete_folder(folder_id):
     """删除文件夹"""
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
@@ -443,7 +443,7 @@ def delete_folder(folder_id):
 def set_default_folder(folder_id):
     """设置文件夹为默认上传路径"""
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         result = resource_bus.call_method(
@@ -527,7 +527,7 @@ def scan_library(library_id):
     不再依赖 resourced 的 ResourceItem（已于 2026-07-12 废弃，双索引问题根因）。
     """
     try:
-        if not resource_bus:
+        if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
         from library_watcher import get_watcher
