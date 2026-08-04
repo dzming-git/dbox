@@ -526,6 +526,50 @@ body {
   }
 }
 
+/* 平板断点 601-900px：窄屏下隐藏导航文字、图标紧凑，避免与固定头像拥挤/重叠。
+   重点：头像 right 与 .nav-right padding-right 必须匹配，否则图标会钻到头像下方。 */
+@media (min-width: 601px) and (max-width: 900px) {
+  .user-avatar-wrapper {
+    top: 12px;
+    right: 16px;
+  }
+  .user-avatar {
+    width: 34px;
+    height: 34px;
+  }
+  /* 平板隐藏用户名与箭头，让头像 wrapper 收缩到仅头像宽度，避免把导航图标挤出重叠 */
+  .user-avatar-wrapper .username,
+  .user-avatar-wrapper .dropdown-arrow {
+    display: none;
+  }
+  /* 头像约 34px + right 16px + 间距 6px ≈ 56px 右侧预留，确保图标不钻到头像下方 */
+  .nav-right {
+    padding-right: 56px;
+    gap: 8px;
+  }
+  .nav-icon-link {
+    padding: 4px 7px;
+  }
+  /* 平板同移动端只显图标、隐藏文字标签 */
+  .nav-icon-link > span {
+    display: none;
+  }
+  .watchlater-ico-wrap,
+  .task-ico-wrap {
+    display: inline-flex !important;
+  }
+  .nav-left {
+    gap: 8px;
+  }
+  .nav-link {
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .nav-search {
+    width: 160px;
+  }
+}
+
 .user-avatar-trigger {
   display: flex;
   align-items: center;
