@@ -282,8 +282,16 @@ def run_cycle(dry_run=False):
             old_status = old_attr.get('status') if old_attr else None
             if old_status == new_status:
                 continue  # 无变化
-            # 构造触发详情
-            detail = {k: new_attr.get(k) for k in params}
+            # 构造触发详情。事件声明的 params 若探针未提供，且形如实体 ID
+            # （xxx_id / id），则用实体 ID 兜底，避免出现 issue_id=null。
+            detail = {}
+            for k in params:
+                if k in new_attr:
+                    detail[k] = new_attr.get(k)
+                elif k == 'id' or k.endswith('_id'):
+                    detail[k] = eid
+                else:
+                    detail[k] = None
             detail['id'] = eid
             detail['entity_id'] = eid
             detail['old_status'] = old_status
@@ -300,11 +308,39 @@ def run_cycle(dry_run=False):
                     retries[eid] = retries.get(eid, 0) + 1
                     if retries[eid] >= MAX_RETRIES:
                         print(f"[listener] {name}/{eid} 重试 {MAX_RETRIES} 次仍失败，放弃")
-        snapshots[name] = snap
+        # 合并而非覆盖：探针本轮未返回的实体（例如状态查询失败被主动跳过、
+        # 或临时不可见）保留上一次的基线，避免下轮出现假的状态变化。
+        merged = dict(prev)
+        merged.update(snap)
+        snapshots[name] = merged
         if not dry_run:
             state[retry_key] = retries
 
     save_state(state)
+
+
+def _running_listener_pid():
+    """返回另一个正在运行的常驻监听器 pid，没有则返回 None。
+
+    判定依据：状态文件里记录的 pid 仍存活，且其命令行确实是本脚本
+    （避免 pid 被系统复用后误判）。
+    """
+    try:
+        pid = (load_state() or {}).get('pid')
+    except Exception:
+        return None
+    if not pid or pid == os.getpid():
+        return None
+    try:
+        import psutil
+        proc = psutil.Process(int(pid))
+        if not proc.is_running():
+            return None
+        cmdline = ' '.join(proc.cmdline())
+        return int(pid) if 'listener.py' in cmdline else None
+    except Exception:
+        # psutil 不可用或进程已不存在，视为无冲突，不阻塞启动
+        return None
 
 
 def main():
@@ -321,12 +357,20 @@ def main():
     print(f"[listener] 启动，dbox={DBOX_ROOT}，interval={interval}s，dry_run={args.dry_run}，config={source}，已注册事件={events_count}")
     print(f"[listener] 日志写入: {LOG_PATH}")
 
-    # 立即写入 pid，确保管理后台启动瞬间即判定为运行中
-    save_state(load_state())
-
     if args.once:
+        # 单次扫描不做单实例检查，方便调试；dry-run 不落盘
         run_cycle(dry_run=args.dry_run)
         return
+
+    # 常驻模式做单实例校验：历史上出现过 NSSM 服务进程与手工启动的进程并存，
+    # 两者轮流覆盖同一份状态文件，导致快照错乱、事件重复或丢失。
+    other = _running_listener_pid()
+    if other:
+        print(f"[listener] 已有监听器在运行(pid={other})，本进程退出，避免状态文件互相覆盖")
+        return 1
+
+    # 立即写入 pid，确保管理后台启动瞬间即判定为运行中
+    save_state(load_state())
     try:
         while True:
             run_cycle(dry_run=args.dry_run)
