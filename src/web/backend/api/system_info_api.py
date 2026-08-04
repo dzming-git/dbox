@@ -102,37 +102,6 @@ def get_install_info():
         return {'error': str(e)}
 
 
-def get_sync_state_file():
-    """获取同步状态文件路径。"""
-    return os.path.join(get_runtime_dir(), 'data', 'sync_state.json')
-
-
-def load_sync_state_from_file():
-    """从文件加载同步状态。"""
-    try:
-        state_file = get_sync_state_file()
-        if os.path.exists(state_file):
-            with open(state_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        log.error(f"加载同步状态失败: {e}")
-    return {'running': False, 'last_sync': None, 'last_error': None}
-
-
-def get_sync_log(limit=100):
-    """获取同步日志。"""
-    try:
-        log_file = os.path.join(get_runtime_dir(), 'data', 'sync.log')
-        if not os.path.exists(log_file):
-            return []
-        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-        return lines[-limit:] if limit else lines
-    except Exception as e:
-        log.error(f"读取同步日志失败: {e}")
-        return []
-
-
 def _get_system_monitor():
     """延迟导入 SystemMonitor（top-level 模块，运行时 src 已在 path）。"""
     src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -312,66 +281,6 @@ def system_health():
     except Exception as e:  # pragma: no cover
         log.error(f"健康检查失败: {e}")
         return error_response(f"健康检查失败: {e}")
-
-
-@system_info_bp.route('/sync-status', methods=['GET'])
-@admin_required
-def get_sync_status():
-    """获取同步状态。"""
-    try:
-        state = load_sync_state_from_file()
-        state['log'] = get_sync_log(50)
-        return success_response(state)
-    except Exception as e:
-        log.error(f"获取同步状态失败: {e}")
-        return error_response(f"获取同步状态失败: {e}")
-
-
-@system_info_bp.route('/sync-trigger', methods=['POST'])
-@admin_required
-def trigger_sync():
-    """触发同步。"""
-    try:
-        data = request.get_json(silent=True) or {}
-        sync_type = data.get('type', 'all')
-
-        def run_sync():
-            try:
-                state = {
-                    'running': True,
-                    'last_sync': datetime.now().isoformat(),
-                    'last_error': None,
-                }
-                with open(get_sync_state_file(), 'w', encoding='utf-8') as f:
-                    json.dump(state, f, ensure_ascii=False, indent=2)
-
-                sync_script = os.path.join(get_runtime_dir(), 'scripts', 'sync.py')
-                if os.path.exists(sync_script):
-                    subprocess.run([sys.executable, sync_script], cwd=get_runtime_dir(), timeout=300)
-
-                state['running'] = False
-                state['last_sync'] = datetime.now().isoformat()
-                with open(get_sync_state_file(), 'w', encoding='utf-8') as f:
-                    json.dump(state, f, ensure_ascii=False, indent=2)
-            except Exception as e:  # pragma: no cover
-                state = {
-                    'running': False,
-                    'last_sync': datetime.now().isoformat(),
-                    'last_error': str(e),
-                }
-                try:
-                    with open(get_sync_state_file(), 'w', encoding='utf-8') as f:
-                        json.dump(state, f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
-
-        thread = threading.Thread(target=run_sync, daemon=True)
-        thread.start()
-
-        return success_response({'triggered': True, 'type': sync_type})
-    except Exception as e:
-        log.error(f"触发同步失败: {e}")
-        return error_response(f"触发同步失败: {e}")
 
 
 @system_info_bp.route('/metrics', methods=['GET'])

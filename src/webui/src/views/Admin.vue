@@ -47,16 +47,10 @@ const loading = ref({
   info: false,
   stats: false,
   paths: false,
-  sync: false,
   videos: false,
   users: false,
   libraries: false
 })
-
-// 开发同步状态
-const syncStatus = ref<any>(null)
-const syncLog = ref<string[]>([])
-const isSyncing = ref(false)
 
 // 视频管理
 const videos = ref<any[]>([])
@@ -1227,45 +1221,6 @@ const fetchSystemPaths = async () => {
   }
 }
 
-// 获取开发同步状态
-const fetchSyncStatus = async () => {
-  loading.value.sync = true
-  try {
-    const res = await api.get('/api/system/sync-status') as any
-    if (res.success) {
-      syncStatus.value = res.status
-      syncLog.value = res.log || []
-    }
-  } catch (error) {
-    console.error('获取同步状态失败:', error)
-  } finally {
-    loading.value.sync = false
-  }
-}
-
-// 触发全量同步
-const triggerFullSync = async () => {
-  if (isSyncing.value) return
-  
-  isSyncing.value = true
-  try {
-    const res = await api.post('/api/system/sync-trigger') as any
-    if (res.success) {
-      // 轮询同步状态
-      const checkStatus = setInterval(async () => {
-        await fetchSyncStatus()
-        if (!syncStatus.value?.is_running) {
-          clearInterval(checkStatus)
-          isSyncing.value = false
-        }
-      }, 2000)
-    }
-  } catch (error) {
-    console.error('触发同步失败:', error)
-    isSyncing.value = false
-  }
-}
-
 // 获取视频列表（Admin 专用，直接调用 API 支持 library_id 筛选和排序）
 const fetchVideos = async (resetPage = true) => {
   if (resetPage) videoPage.value = 1
@@ -1756,22 +1711,6 @@ const version = computed(() => {
   return systemInfo.value?.version || '2.0.0'
 })
 
-// 计算属性：同步状态文本
-const syncStatusText = computed(() => {
-  if (!syncStatus.value) return '未知'
-  if (syncStatus.value.is_running) return '运行中'
-  if (syncStatus.value.last_sync) return '已停止'
-  return '未启动'
-})
-
-// 计算属性：同步状态颜色
-const syncStatusColor = computed(() => {
-  if (!syncStatus.value) return '#9E9E9E'
-  if (syncStatus.value.is_running) return '#4CAF50'
-  if (syncStatus.value.last_sync) return '#2196F3'
-  return '#9E9E9E'
-})
-
 // ============ 切换标签页 ============
 const switchTab = (tab: string) => {
   activeTab.value = tab
@@ -1791,13 +1730,12 @@ onMounted(() => {
   // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=services）
   // 注意：外部脚本入口已移至用户头像下拉菜单，不再作为后台标签页
   const routeTab = router.currentRoute.value.query?.tab as string
-  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'logs', 'sync', 'users', 'monitor', 'config']
+  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'logs', 'users', 'monitor', 'config']
   if (routeTab && validTabs.includes(routeTab)) activeTab.value = routeTab
 
   fetchSystemInfo()
   fetchSystemStats()
   fetchSystemPaths()
-  fetchSyncStatus()
   loadHotStats()
   loadScanConfig()  // 加载自动扫描开关配置（始终加载，不依赖标签页）
   // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
@@ -1888,12 +1826,6 @@ onUnmounted(() => {
           @click="switchTab('logs')"
           v-if="userStore.isAdmin"
         >📜 系统日志</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'sync' }"
-          @click="switchTab('sync')"
-          v-if="!isResourceAdminOnly"
-        >🔄 开发同步</button>
       </div>
 
       <div class="tab-group">
@@ -2091,67 +2023,6 @@ onUnmounted(() => {
           </div>
         </div>
 
-      </div>
-
-      <!-- 开发同步标签页 -->
-      <div v-if="activeTab === 'sync'" class="tab-content">
-        <div class="section-header">
-          <h3>开发同步</h3>
-        </div>
-        <div class="card-grid">
-          <!-- 开发同步状态卡片 -->
-          <div class="info-card sync-card">
-            <div class="card-header">
-              <h3>开发同步状态</h3>
-              <span class="status-indicator" :style="{ backgroundColor: syncStatusColor }">
-                {{ syncStatusText }}
-              </span>
-            </div>
-            <div class="card-body">
-              <div class="info-row">
-                <span class="label">上次同步</span>
-                <span class="value">{{ formatDate(syncStatus?.last_sync) }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">同步文件数</span>
-                <span class="value">{{ syncStatus?.synced_count || 0 }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">监控模式</span>
-                <span class="value">{{ syncStatus?.watch_mode ? '已启用' : '未启用' }}</span>
-              </div>
-              <div class="sync-actions">
-                <button
-                  class="sync-btn"
-                  :class="{ syncing: isSyncing }"
-                  @click="triggerFullSync"
-                  :disabled="isSyncing"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                  {{ isSyncing ? '同步中...' : '立即全量同步' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 同步日志区域 -->
-        <div class="sync-log-section" v-if="syncLog.length > 0">
-          <div class="section-header">
-            <h3>同步日志</h3>
-            <span class="log-count">最近 {{ syncLog.length }} 条</span>
-          </div>
-          <div class="log-container">
-            <div
-              class="log-item"
-              v-for="(log, index) in syncLog"
-              :key="index"
-              :class="{ error: log.includes('ERROR'), success: log.includes('已同步') }"
-            >
-              {{ log }}
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- 视频管理标签页 -->
@@ -3907,44 +3778,6 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-/* 同步卡片样式 */
-.sync-actions {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-default);
-}
-
-.sync-btn {
-  width: 100%;
-  padding: 12px 20px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: all 0.3s ease;
-}
-
-.sync-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px var(--accent-soft);
-}
-
-.sync-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.sync-btn.syncing {
-  background: var(--warning);
-}
-
 .btn-icon {
   font-size: 16px;
 }
@@ -3990,14 +3823,6 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--text-secondary);
   word-break: break-all;
-}
-
-/* 同步日志样式 */
-.sync-log-section {
-  background: var(--bg-surface);
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
 }
 
 .section-header {
@@ -4109,11 +3934,6 @@ onUnmounted(() => {
 }
 
 .scan-saving {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.log-count {
   font-size: 12px;
   color: var(--text-secondary);
 }
