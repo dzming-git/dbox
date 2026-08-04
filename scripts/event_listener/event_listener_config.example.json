@@ -1,13 +1,7 @@
 {
   "interval": 30,
   "events": {
-    "feedback.new": [
-      {
-        "script": "handlers/feedback_processor.py",
-        "args": []
-      }
-    ],
-    "feedback.reopened": [
+    "feedback.status_changed": [
       {
         "script": "handlers/feedback_processor.py",
         "args": []

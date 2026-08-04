@@ -136,6 +136,8 @@ scripts/event_listener/event_listener_config.json
 scripts/event_listener/probes/*.custom.py
 # 事件注册中心运行时数据（由各服务启动时写入），不纳入 git
 data/event_registry.json
+# 事件处理器生成的待办任务（含真实反馈内容），不纳入 git
+data/agent_tasks/
 
 # ============================================
 # 测试文件和临时脚本
