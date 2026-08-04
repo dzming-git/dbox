@@ -30,7 +30,9 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
-const activeTab = ref(sessionStorage.getItem(ADMIN_TAB_KEY) || 'dashboard')
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'logs', 'users', 'monitor', 'config']
+const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
+const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
 // 监听 activeTab 变化，自动写入 sessionStorage
 watch(activeTab, (val) => {
@@ -1689,7 +1691,7 @@ const formatTrashTime = (iso: string | null) => {
 }
 
 const formatSize = (bytes: number) => {
-  if (!bytes) return '0 B'
+  if (bytes === null || bytes === undefined || isNaN(Number(bytes)) || Number(bytes) <= 0) return '-'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
   let n = bytes
@@ -4519,8 +4521,8 @@ onUnmounted(() => {
 .subtab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 5px;
+  padding: 6px 12px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -4681,8 +4683,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
@@ -4690,6 +4692,14 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--text-secondary);
   transition: all 0.2s ease;
+}
+
+/* 资源列表操作按钮间距 */
+.res-table .icon-btn {
+  margin-left: 4px;
+}
+.res-table .icon-btn:first-child {
+  margin-left: 0;
 }
 
 .icon-btn:hover {
