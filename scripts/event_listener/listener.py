@@ -1,43 +1,26 @@
 """通用事件监听器框架（可提交到 git）。
 
-框架职责：
-- 轮询反馈独立数据库（feedback.db），将反馈状态变化识别为事件：
-    * feedback.new      —— 新增的反馈（首次被监听器发现，status=open）
-    * feedback.reopened —— 曾被处理、又被重新打开（status 从非 open 变回 open）
-- 当事件发生时，按用户配置文件调用 handler 脚本（外部进程）。
-  handler 脚本本身与监听器配置都属于「用户本地数据」，不纳入 git
-  （见 .gitignore 的 scripts/event_listener/ 相关规则），
-  因此可以自由扩展、包含本地路径或个人逻辑，而不会污染仓库。
+设计要点（高自由度）：
+- 事件由各个服务模块自行在「事件注册中心」注册（见 src/web/core/event_registry.py），
+  监听器不硬编码任何具体事件。
+- 每个事件声明一个「状态探针 probe」，监听器周期性调用探针拉取实体状态快照，
+  与上次快照做 diff，当状态变化时触发事件。
+- 事件触发后调用哪个脚本、传什么参数，由用户配置文件
+  （event_listener_config.json）独立指定（与事件定义解耦），
+  脚本与配置均属用户本地数据，不纳入 git。
 
-handler 调用约定（用户可自由配置）：
-- 用户在 event_listener_config.json 中声明「事件 -> 一个或多个脚本」映射，
-  并可为每个脚本指定命令行参数模板。
-- 框架始终通过环境变量注入事件上下文（handler 可用任意一种方式读取）：
-    EVENT_NAME      事件名
-    EVENT_PAYLOAD   JSON 字符串（含 issue 字典及事件元信息）
-    DBOX_ROOT       项目根目录
-- 若脚本未显式指定参数，框架默认追加： --event <事件名> --payload <JSON>
-  （与旧的硬编码约定保持一致，便于存量脚本平滑迁移）。
-- handler 退出码非 0 视为处理失败，框架会标记该事件待重试（限次）。
+事件参数（触发时传入 handler）：
+- 环境变量：EVENT_NAME / EVENT_PAYLOAD(JSON) / DBOX_ROOT
+- 命令行（用户未指定参数时默认追加）：--event <事件名> --payload <JSON>
+- payload 详情含 event 定义中的 params 字段，外加：
+    id / entity_id   实体 ID
+    old_status       变化前状态（新增实体为 null）
+    new_status       变化后状态
 
-事件监听器配置文件（event_listener_config.json）示例：
-{
-  "interval": 30,
-  "events": {
-    "feedback.new": [
-      {"script": "handlers/feedback_processor.py", "args": []},
-      {"script": "C:/Users/me/scripts/notify.ps1", "args": ["--event", "{EVENT}", "--id", "{ISSUE_ID}"]}
-    ],
-    "feedback.reopened": [
-      {"script": "handlers/feedback_processor.py", "args": []}
-    ]
-  }
-}
-
-参数模板占位符（在 args 中可用，框架会替换后传入脚本）：
+参数模板占位符（event_listener_config.json 的 args 中可用）：
   {EVENT}      事件名
-  {ISSUE_ID}   反馈 ID
-  {ISSUE_JSON} 整个 issue 的 JSON 字符串（单行）
+  {ISSUE_ID}   实体 ID
+  {ISSUE_JSON} payload 详情的 JSON 字符串
 
 用法：
     python scripts/event_listener/listener.py            # 循环监听
@@ -53,36 +36,27 @@ import time
 import argparse
 import subprocess
 import datetime
+import importlib.util
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DBOX_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+PROBES_DIR = os.path.join(SCRIPT_DIR, 'probes')
 HANDLERS_DIR = os.path.join(SCRIPT_DIR, 'handlers')
 STATE_PATH = os.path.join(SCRIPT_DIR, '.listener_state.json')
 LOG_PATH = os.path.join(SCRIPT_DIR, '.listener.log')
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'event_listener_config.json')
+REGISTRY_PATH = os.path.join(DBOX_ROOT, 'data', 'event_registry.json')
 
-# 默认事件 -> handler 列表（当配置文件不存在时使用，保持旧行为可运行）
 DEFAULT_CONFIG = {
     'interval': 30,
-    'events': {
-        'feedback.new': [
-            {'script': 'handlers/feedback_processor.py', 'args': []},
-        ],
-        'feedback.reopened': [
-            {'script': 'handlers/feedback_processor.py', 'args': []},
-        ],
-    },
+    'events': {},
 }
 
 # 单条事件最大重试次数
 MAX_RETRIES = 3
-# 派发后超过该分钟数仍未处理则视为 stale（用于重启后兜底）
-STALE_MINUTES = 60
 
 
 class _Tee(io.TextIOBase):
-    """将输出同时写到原始流与日志文件，用于持久化监听器日志。"""
-
     def __init__(self, original, log_file):
         self._original = original
         self._log_file = log_file
@@ -111,28 +85,24 @@ class _Tee(io.TextIOBase):
 
 
 def setup_logging():
-    """把 stdout/stderr 重定向到控制台 + .listener.log，行首带时间戳。"""
     logf = open(LOG_PATH, 'a', encoding='utf-8')
     orig_out, orig_err = sys.stdout, sys.stderr
 
     class _TSWriter:
-        def __init__(self, raw, ts=True):
+        def __init__(self, raw):
             self._raw = raw
-            self._ts = ts
             self._buf = ''
 
         def write(self, s):
-            # 仅在行首补时间戳
             text = self._buf + s
             out_lines = text.split('\n')
-            self._buf = out_lines.pop()  # 末尾未换行部分暂存
+            self._buf = out_lines.pop()
             now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             for ln in out_lines:
                 if ln == '':
                     self._raw.write('\n')
                     continue
-                prefix = f'[{now}] ' if self._ts else ''
-                self._raw.write(prefix + ln + '\n')
+                self._raw.write(f'[{now}] ' + ln + '\n')
             return len(s)
 
         def flush(self):
@@ -142,19 +112,52 @@ def setup_logging():
     sys.stderr = _Tee(_TSWriter(orig_err), logf)
 
 
-# 让脚本能 import 到 src/web 下的 backend 模块
-WEB_DIR = os.path.join(DBOX_ROOT, 'src', 'web')
-if WEB_DIR not in sys.path:
-    sys.path.insert(0, WEB_DIR)
+# probe 模块缓存
+_PROBE_CACHE = {}
 
-from backend.feedback_db import init_feedback_db, get_session, FeedbackIssue  # noqa: E402
+
+def load_probe(probe_name):
+    """动态加载探针模块（带缓存）。
+
+    兼容两种命名：probes/<probe_name>.py 或 probes/<probe_name>_probe.py，
+    便于用户自定义探针时直接用事件语义命名（如 feedback.py）。
+    """
+    if probe_name in _PROBE_CACHE:
+        return _PROBE_CACHE[probe_name]
+    candidates = [
+        os.path.join(PROBES_DIR, f'{probe_name}.py'),
+        os.path.join(PROBES_DIR, f'{probe_name}_probe.py'),
+    ]
+    path = next((p for p in candidates if os.path.exists(p)), None)
+    if not path:
+        print(f"[listener] 探针不存在: {candidates[0]} 或 {candidates[1]}")
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(f'_probe_{probe_name}', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _PROBE_CACHE[probe_name] = mod
+        return mod
+    except Exception as e:
+        print(f"[listener] 加载探针 {probe_name} 失败: {e}")
+        return None
+
+
+def load_registry():
+    """读取事件注册中心。返回 list[dict]。"""
+    if not os.path.exists(REGISTRY_PATH):
+        print(f"[listener] 事件注册中心不存在: {REGISTRY_PATH}（尚未有服务注册事件）")
+        return []
+    try:
+        with open(REGISTRY_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return list(data.values())
+    except Exception as e:
+        print(f"[listener] 读取事件注册中心失败: {e}")
+        return []
 
 
 def load_config():
-    """读取用户配置文件；文件不存在时回退到默认配置。
-
-    返回 (config, source)，source 为 'user' 或 'default'。
-    """
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -163,50 +166,26 @@ def load_config():
             return cfg, 'user'
         except Exception as e:
             print(f"[listener] 配置文件解析失败，使用默认配置: {e}")
-    else:
-        print(f"[listener] 未找到配置文件 {CONFIG_PATH}，使用内置默认配置（仅反馈事件）")
     return DEFAULT_CONFIG, 'default'
 
 
 def resolve_handlers(event_name, config):
-    """返回事件对应的 handler 列表（含 script / args 模板）。"""
     events = config.get('events', {})
     handlers = events.get(event_name, [])
-    # 兼容旧式：handler 可能是纯字符串（脚本名）
     normalized = []
     for h in handlers:
         if isinstance(h, str):
             normalized.append({'script': h, 'args': []})
         else:
-            normalized.append({
-                'script': h.get('script', ''),
-                'args': h.get('args', []) or [],
-            })
+            normalized.append({'script': h.get('script', ''), 'args': h.get('args', []) or []})
     return normalized
 
 
-def render_args(args_template, event_name, issue):
-    """把参数模板中的占位符替换为实际值。
-
-    占位符：
-      {EVENT}      事件名
-      {ISSUE_ID}   反馈 ID
-      {ISSUE_JSON} issue 的 JSON 字符串（单行）
-    """
-    issue_id = issue.get('id', '')
-    issue_json = json.dumps(issue, ensure_ascii=False)
-    repl = {
-        '{EVENT}': event_name,
-        '{ISSUE_ID}': str(issue_id),
-        '{ISSUE_JSON}': issue_json,
-    }
-    out = []
-    for a in args_template:
-        if a in repl:
-            out.append(repl[a])
-        else:
-            out.append(a)
-    return out
+def render_args(args_template, event_name, detail):
+    issue_id = detail.get('id', detail.get('entity_id', ''))
+    issue_json = json.dumps(detail, ensure_ascii=False)
+    repl = {'{EVENT}': event_name, '{ISSUE_ID}': str(issue_id), '{ISSUE_JSON}': issue_json}
+    return [repl.get(a, a) for a in args_template]
 
 
 def load_state():
@@ -216,7 +195,7 @@ def load_state():
                 return json.load(f)
         except Exception:
             pass
-    return {'seen': {}, 'pid': os.getpid()}
+    return {'pid': os.getpid(), 'probes_snapshot': {}}
 
 
 def save_state(state):
@@ -225,142 +204,105 @@ def save_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def issue_to_dict(issue):
-    d = {}
-    for col in ('id', 'title', 'content', 'status', 'category',
-                'submitter', 'source', 'created_at', 'updated_at'):
-        v = getattr(issue, col, None)
-        if hasattr(v, 'isoformat'):
-            v = v.isoformat()
-        d[col] = v
-    return d
-
-
-def fetch_all_issues():
-    init_feedback_db()
-    out = []
-    with get_session() as session:
-        for issue in session.query(FeedbackIssue).all():
-            out.append(issue_to_dict(issue))
-    return out
-
-
-def call_handler(event_name, issue, handler, dry_run=False):
+def call_handler(event_name, detail, handler, dry_run=False):
     script = handler.get('script', '')
     if not script:
-        print(f"[listener] handler 缺少 script 字段，跳过")
         return True
-
-    # 解析脚本绝对路径：相对 handlers 目录或 handlers 下的相对路径；否则按原样（绝对/相对 cwd）
     if os.path.isabs(script):
         hpath = script
     else:
         candidate = os.path.join(HANDLERS_DIR, script)
-        if os.path.exists(candidate):
-            hpath = candidate
-        else:
-            # 允许直接写 handlers 子目录内的文件名
-            alt = os.path.join(SCRIPT_DIR, script)
-            hpath = alt if os.path.exists(alt) else candidate
-
+        hpath = candidate if os.path.exists(candidate) else os.path.join(SCRIPT_DIR, script)
     if not os.path.exists(hpath):
         print(f"[listener] handler 不存在: {hpath}，跳过")
         return True
 
-    # 命令行参数：用户模板 + 若用户未指定任何参数则追加默认 --event/--payload
     args_template = handler.get('args', []) or []
-    rendered = render_args(args_template, event_name, issue)
+    rendered = render_args(args_template, event_name, detail)
     if not rendered:
-        rendered = ['--event', event_name, '--payload', json.dumps(issue, ensure_ascii=False)]
+        rendered = ['--event', event_name, '--payload', json.dumps(detail, ensure_ascii=False)]
 
-    payload = {'event': event_name, 'issue': issue}
+    payload = {'event': event_name, 'issue': detail}
     payload_str = json.dumps(payload, ensure_ascii=False)
-
     env = dict(os.environ)
     env['EVENT_NAME'] = event_name
     env['EVENT_PAYLOAD'] = payload_str
     env['DBOX_ROOT'] = DBOX_ROOT
 
-    print(f"[listener] 触发 handler: {script} (event={event_name}, issue={issue.get('id')})")
+    print(f"[listener] 触发 handler: {script} (event={event_name}, entity={detail.get('id')})")
     if dry_run:
         print(f"[listener][dry-run] 命令: {sys.executable} {hpath} {' '.join(rendered)}")
-        print(f"[listener][dry-run] 环境变量 EVENT_NAME={event_name}")
         return True
-
     try:
-        proc = subprocess.run(
-            [sys.executable, hpath] + rendered,
-            cwd=DBOX_ROOT, env=env,
-            capture_output=True, text=True, timeout=3600,
-        )
+        proc = subprocess.run([sys.executable, hpath] + rendered, cwd=DBOX_ROOT, env=env,
+                              capture_output=True, text=True, timeout=3600)
         if proc.stdout:
             print(f"[listener][{script}/stdout] {proc.stdout.strip()}")
         if proc.stderr:
             print(f"[listener][{script}/stderr] {proc.stderr.strip()}")
-        if proc.returncode != 0:
-            print(f"[listener] handler {script} 退出码 {proc.returncode}（失败）")
-            return False
+        return proc.returncode == 0
     except subprocess.TimeoutExpired:
         print(f"[listener] handler {script} 超时（>3600s）")
         return False
     except Exception as e:
         print(f"[listener] 调用 handler {script} 异常: {e}")
         return False
-    return True
 
 
-def sweep(dry_run=False):
+def run_cycle(dry_run=False):
     state = load_state()
-    now = time.time()
     config, _ = load_config()
+    events = load_registry()
+    if not events:
+        print("[listener] 当前没有已注册的事件，跳过本轮")
+        save_state(state)
+        return
 
-    issues = fetch_all_issues()
-    # 建立 id -> issue 映射与当前 open 集合
-    by_id = {i['id']: i for i in issues}
-    open_ids = {i['id'] for i in issues if i['status'] == 'open'}
-
-    # 1) 检测新增 / 重新打开
-    triggered = []
-    for iid, issue in by_id.items():
-        prev = state['seen'].get(iid)
-        is_open = iid in open_ids
-        if prev is None:
-            # 首次出现
-            if is_open:
-                triggered.append(('feedback.new', issue))
-                state['seen'][iid] = {'status': issue['status'], 'ts': now, 'retries': 0}
-            else:
-                # 非 open 的历史反馈，仅登记不触发
-                state['seen'][iid] = {'status': issue['status'], 'ts': now, 'retries': 0}
-        else:
-            prev_open = prev.get('status') == 'open'
-            if not prev_open and is_open:
-                # 从非 open 变回 open => 重新打开
-                triggered.append(('feedback.reopened', issue))
-                state['seen'][iid] = {'status': issue['status'], 'ts': now, 'retries': 0}
-            else:
-                # 状态未变回 open，仅更新记录
-                state['seen'][iid] = {'status': issue['status'], 'ts': now,
-                                      'retries': prev.get('retries', 0)}
-
-    for event_name, issue in triggered:
-        handlers = resolve_handlers(event_name, config)
-        if not handlers:
-            print(f"[listener] 事件 {event_name} 无 handler 配置，跳过")
+    snapshots = state.setdefault('probes_snapshot', {})
+    for ev in events:
+        name = ev['name']
+        probe_name = ev.get('probe')
+        params = ev.get('params', [])
+        retry_key = f'__retries__{name}'
+        retries = state.get(retry_key, {})
+        probe = load_probe(probe_name)
+        if probe is None or not hasattr(probe, 'snapshot'):
+            print(f"[listener] 事件 {name} 的探针 {probe_name} 不可用，跳过")
             continue
-        for handler in handlers:
-            ok = call_handler(event_name, issue, handler, dry_run=dry_run)
-            if not ok and not dry_run:
-                rec = state['seen'].get(issue['id'], {})
-                rec['retries'] = rec.get('retries', 0) + 1
-                if rec['retries'] >= MAX_RETRIES:
-                    print(f"[listener] {issue['id']} 重试 {MAX_RETRIES} 次仍失败，放弃")
-                state['seen'][issue['id']] = rec
+        try:
+            snap = probe.snapshot()
+        except Exception as e:
+            print(f"[listener] 探针 {probe_name} 执行失败: {e}")
+            continue
 
-    # 2) 清理已删除的反馈记录
-    for iid in list(state['seen'].keys()):
-        if iid not in by_id:
-            del state['seen'][iid]
+        prev = snapshots.get(name, {})
+        for eid, new_attr in snap.items():
+            new_status = new_attr.get('status')
+            old_attr = prev.get(eid)
+            old_status = old_attr.get('status') if old_attr else None
+            if old_status == new_status:
+                continue  # 无变化
+            # 构造触发详情
+            detail = {k: new_attr.get(k) for k in params}
+            detail['id'] = eid
+            detail['entity_id'] = eid
+            detail['old_status'] = old_status
+            detail['new_status'] = new_status
+            detail['event'] = name
+            print(f"[listener] 事件触发: {name} entity={eid} {old_status} -> {new_status}")
+            handlers = resolve_handlers(name, config)
+            if not handlers:
+                print(f"[listener] 事件 {name} 无 handler 配置，跳过")
+                continue
+            for handler in handlers:
+                ok = call_handler(name, detail, handler, dry_run=dry_run)
+                if not ok and not dry_run:
+                    retries[eid] = retries.get(eid, 0) + 1
+                    if retries[eid] >= MAX_RETRIES:
+                        print(f"[listener] {name}/{eid} 重试 {MAX_RETRIES} 次仍失败，放弃")
+        snapshots[name] = snap
+        if not dry_run:
+            state[retry_key] = retries
 
     save_state(state)
 
@@ -373,19 +315,21 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
-    # 立即把当前进程 pid 写入 state，确保管理后台能在启动瞬间判定为「运行中」
-    save_state(load_state())
     config, source = load_config()
     interval = args.interval if args.interval else config.get('interval', 30)
-    print(f"[listener] 启动，dbox={DBOX_ROOT}，handlers={HANDLERS_DIR}，interval={interval}s，dry_run={args.dry_run}，config={source}")
+    events_count = len(load_registry())
+    print(f"[listener] 启动，dbox={DBOX_ROOT}，interval={interval}s，dry_run={args.dry_run}，config={source}，已注册事件={events_count}")
     print(f"[listener] 日志写入: {LOG_PATH}")
 
+    # 立即写入 pid，确保管理后台启动瞬间即判定为运行中
+    save_state(load_state())
+
     if args.once:
-        sweep(dry_run=args.dry_run)
+        run_cycle(dry_run=args.dry_run)
         return
     try:
         while True:
-            sweep(dry_run=args.dry_run)
+            run_cycle(dry_run=args.dry_run)
             time.sleep(interval)
     except KeyboardInterrupt:
         print("[listener] 被中断，退出。")

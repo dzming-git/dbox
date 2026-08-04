@@ -8,6 +8,7 @@
 配置保存在 scripts/event_listener/event_listener_config.json（gitignore，属用户本地数据）。
 """
 import os
+import sys
 import json
 import subprocess
 
@@ -25,20 +26,23 @@ _LISTENER_DIR = os.path.join(_ROOT, 'scripts', 'event_listener')
 _CONFIG_PATH = os.path.join(_LISTENER_DIR, 'event_listener_config.json')
 _HANDLERS_DIR = os.path.join(_LISTENER_DIR, 'handlers')
 
-# 框架支持的事件类型（反馈域）；其他事件类型可由用户自行在配置中扩展
-SUPPORTED_EVENTS = ['feedback.new', 'feedback.reopened']
+# 框架不再硬编码事件类型；事件由「事件注册中心」动态提供（见 src/web/core/event_registry.py）
 
 DEFAULT_CONFIG = {
     'interval': 30,
-    'events': {
-        'feedback.new': [
-            {'script': 'handlers/feedback_processor.py', 'args': []},
-        ],
-        'feedback.reopened': [
-            {'script': 'handlers/feedback_processor.py', 'args': []},
-        ],
-    },
+    'events': {},
 }
+
+
+def _registered_events():
+    """读取事件注册中心中的已注册事件列表。"""
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, 'src', 'web'))
+        from core.event_registry import list_events
+        return list_events()
+    except Exception as e:
+        log.warning('读取事件注册中心失败: %s', e)
+        return []
 
 
 def _read_config():
@@ -79,10 +83,14 @@ def _restart_listener_service():
 @admin_required
 def get_listener_config():
     cfg = _read_config()
+    registered = _registered_events()
+    # 仅保留注册中心中存在的事件配置，避免过期事件残留
+    valid_events = {ev['name']: ev for ev in registered}
+    filtered_events = {k: v for k, v in cfg.get('events', {}).items() if k in valid_events}
     return jsonify({
         'success': True,
-        'config': cfg,
-        'supported_events': SUPPORTED_EVENTS,
+        'config': {'interval': cfg.get('interval', 30), 'events': filtered_events},
+        'registered_events': registered,
         'available_scripts': _available_scripts(),
         'editable': True,
     })
@@ -104,8 +112,10 @@ def save_listener_config():
     interval = max(5, min(interval, 3600))
 
     events = cfg.get('events', {})
+    registered_names = {ev['name'] for ev in _registered_events()}
     normalized = {}
-    for ev in SUPPORTED_EVENTS:
+    # 只保存注册中心中存在的事件配置（用户可自由配置任意已注册事件）
+    for ev in registered_names:
         handlers = events.get(ev, [])
         if not isinstance(handlers, list):
             handlers = []
@@ -116,7 +126,6 @@ def save_listener_config():
             elif isinstance(h, dict) and h.get('script'):
                 args = h.get('args', []) or []
                 if isinstance(args, str):
-                    # 允许前端传逗号分隔字符串
                     args = [a.strip() for a in args.split(',') if a.strip()]
                 norm_list.append({'script': h['script'], 'args': args})
         normalized[ev] = norm_list

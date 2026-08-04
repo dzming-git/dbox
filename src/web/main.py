@@ -124,6 +124,30 @@ with app.app_context():
     migrate_main_library()
     init_root_user()
 
+    # ============ 事件注册 ============
+    # 各服务模块在此向「事件注册中心」自由注册事件，监听器据此轮询触发。
+    # 反馈状态变化事件：探针 feedback_probe 监测反馈库状态，状态变化时触发。
+    from core.event_registry import register_event
+    register_event(
+        name='feedback.status_changed',
+        description='反馈状态发生变化（如新增、处理中、待验证、已关闭等）',
+        probe='feedback',
+        params=['issue_id', 'old_status', 'new_status', 'title', 'category', 'submitter'],
+        source='feedback',
+    )
+    # 服务状态变化事件：探针 service_probe 监测各 NSSM 服务运行状态。
+    # 注意：scripts/service_manager.py（NSSM 管理）与 src/web/service_manager.py（web 内部）同名，
+    # 此处显式按路径加载 scripts 下的实现，避免误导入 web 内部版本。
+    try:
+        import importlib.util as _ilu
+        _sm_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'service_manager.py')
+        _sm_spec = _ilu.spec_from_file_location('scripts_service_manager', _sm_path)
+        _sm_mod = _ilu.module_from_spec(_sm_spec)
+        _sm_spec.loader.exec_module(_sm_mod)
+        _sm_mod.register_service_events()
+    except Exception as e:
+        print(f"[main] 注册服务事件失败: {e}")
+
 # ============ 注册蓝图 ============
 # 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变
 from backend.blueprints import register_core_blueprints, register_domain_blueprints

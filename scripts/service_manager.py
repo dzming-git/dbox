@@ -69,6 +69,26 @@ SERVICES = {
 }
 
 
+def register_service_events():
+    """向事件注册中心注册「服务状态变化」事件（供监听器轮询）。
+
+    在 Web 主进程启动时调用，而非模块导入时，避免被监听器探针 import 时重复触发写文件。
+    """
+    try:
+        sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src', 'web'))
+        from core.event_registry import register_event
+        names = '、'.join(svc.get('display_name', k) for k, svc in SERVICES.items())
+        register_event(
+            name='service.status_changed',
+            description=f'服务运行状态变化（启动/停止），覆盖：{names}',
+            probe='service',
+            params=['service_key', 'old_status', 'new_status'],
+            source='service',
+        )
+    except Exception as e:
+        print(f"[service_manager] 注册服务事件失败: {e}")
+
+
 # ============================================================
 # NSSM 服务管理 API
 # ============================================================

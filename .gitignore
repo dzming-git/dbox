@@ -125,13 +125,17 @@ _archived/
 .codebuddy/
 
 # ============================================
-# 事件监听器框架（核心 listener.py 提交 git；用户自定义 handler 与状态不提交）
+# 事件监听器框架（核心 listener.py / probes / event_registry 提交 git；用户自定义数据不提交）
 # ============================================
 scripts/event_listener/.listener_state.json
 scripts/event_listener/.listener.log
 scripts/event_listener/handlers/
-# 用户自定义事件监听器配置（自由配置监听哪些事件、调用哪些脚本与参数），不纳入 git
+# 用户自定义事件监听器配置（自由配置事件→脚本映射），不纳入 git
 scripts/event_listener/event_listener_config.json
+# 用户自定义探针（与内置 feedback_probe / service_probe 同名会覆盖，自定义放此忽略）
+scripts/event_listener/probes/*.custom.py
+# 事件注册中心运行时数据（由各服务启动时写入），不纳入 git
+data/event_registry.json
 
 # ============================================
 # 测试文件和临时脚本

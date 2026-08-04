@@ -20,12 +20,17 @@
       </div>
 
       <div class="events-block">
-        <div v-for="ev in supportedEvents" :key="ev" class="event-group">
+        <div v-for="ev in registeredEvents" :key="ev.name" class="event-group">
           <div class="event-title">
-            <span class="event-tag">{{ ev }}</span>
-            <button class="btn btn-sm" @click="addHandler(ev)">+ 添加处理器</button>
+            <span class="event-tag">{{ ev.name }}</span>
+            <span class="event-source" v-if="ev.source">来源：{{ ev.source }}</span>
+            <button class="btn btn-sm" @click="addHandler(ev.name)">+ 添加处理器</button>
           </div>
-          <p class="event-desc">{{ eventDesc(ev) }}</p>
+          <p class="event-desc">{{ ev.description }}</p>
+          <p class="event-params" v-if="ev.params && ev.params.length">
+            触发参数：<code v-for="p in ev.params" :key="p">{{ p }}</code>
+            <code>old_status</code><code>new_status</code><code>id</code>
+          </p>
 
           <div v-if="!form.events[ev] || form.events[ev].length === 0" class="empty-sub">
             当前无处理器（该事件不会触发任何脚本）
@@ -75,15 +80,9 @@ const saving = ref(false)
 const restarting = ref(false)
 
 const interval = ref(30)
-const supportedEvents = ref<string[]>(['feedback.new', 'feedback.reopened'])
+const registeredEvents = ref<any[]>([])
 const availableScripts = ref<string[]>([])
 const form = reactive<{ events: Record<string, any[]> }>({ events: {} })
-
-function eventDesc(ev: string) {
-  if (ev === 'feedback.new') return '新增反馈（状态首次被发现为 open）时触发。'
-  if (ev === 'feedback.reopened') return '反馈从「已处理/已关闭」等非 open 状态重新变为 open 时触发。'
-  return '用户自定义事件。'
-}
 
 function addHandler(ev: string) {
   if (!form.events[ev]) form.events[ev] = []
@@ -101,12 +100,12 @@ async function load() {
     if (res && (res as any).success) {
       const cfg = (res as any).config || {}
       interval.value = cfg.interval ?? 30
-      supportedEvents.value = (res as any).supported_events || supportedEvents.value
+      registeredEvents.value = (res as any).registered_events || []
       availableScripts.value = (res as any).available_scripts || []
       const events: Record<string, any[]> = {}
-      for (const ev of supportedEvents.value) {
-        const list = (cfg.events && cfg.events[ev]) || []
-        events[ev] = list.map((h: any) => ({
+      for (const ev of registeredEvents.value) {
+        const list = (cfg.events && cfg.events[ev.name]) || []
+        events[ev.name] = list.map((h: any) => ({
           script: h.script || '',
           argsText: Array.isArray(h.args) ? h.args.join(', ') : (h.args || ''),
         }))
@@ -126,8 +125,8 @@ async function save() {
   saving.value = true
   try {
     const events: Record<string, any[]> = {}
-    for (const ev of supportedEvents.value) {
-      events[ev] = (form.events[ev] || [])
+    for (const ev of registeredEvents.value) {
+      events[ev.name] = (form.events[ev.name] || [])
         .filter((h) => h.script)
         .map((h) => ({
           script: h.script,
