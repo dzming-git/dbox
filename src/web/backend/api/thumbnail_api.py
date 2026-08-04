@@ -14,6 +14,7 @@ from backend.thumbnail_helpers import _load_thumb_config
 import os
 from backend.access import admin_required
 from backend.paths import DATA_DIR
+from backend.runtime import runtime
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
@@ -45,13 +46,13 @@ def get_thumbnail(video_hash):
             abort(404)
 
         # 调用缩略图服务异步生成（后台线程，不阻塞当前请求）
-        if thumbnail_bus:
+        if runtime.thumbnail_bus:
             video_path = video.local_path
             _hash = video_hash
 
             def _async_generate(vp, vh):
                 try:
-                    thumbnail_bus.call_method(
+                    runtime.thumbnail_bus.call_method(
                         service='com.dbox.thumbnaild',
                         interface='com.dbox.Thumbnaild',
                         method='Generate',
@@ -142,9 +143,9 @@ def regenerate_thumbnail(video_hash):
         return jsonify({'success': False, 'message': '视频不存在或无本地路径'}), 404
 
     # 调用缩略图服务重新生成
-    if thumbnail_bus:
+    if runtime.thumbnail_bus:
         try:
-            result = thumbnail_bus.call_method(
+            result = runtime.thumbnail_bus.call_method(
                 service='com.dbox.thumbnaild',
                 interface='com.dbox.Thumbnaild',
                 method='Generate',
@@ -194,9 +195,9 @@ def get_thumbnail_config():
         # 获取缩略图服务状态
         thumb_service_status = 'unknown'
         thumb_service_stats = None
-        if thumbnail_bus:
+        if runtime.thumbnail_bus:
             try:
-                thumb_service_stats = thumbnail_bus.call_method(
+                thumb_service_stats = runtime.thumbnail_bus.call_method(
                     service='com.dbox.thumbnaild',
                     interface='com.dbox.Thumbnaild',
                     method='GetMetrics',
