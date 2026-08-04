@@ -5,6 +5,7 @@
 
 本模块只依赖 core.models / resource.models（可选）/ liblog，不依赖 main。
 """
+import os
 from flask import request, jsonify, Response
 
 from core.models import (
@@ -101,6 +102,70 @@ def _resolve_resource_library_id(dbox_library_id: int) -> int:
         if res_lib.name == library.name:
             return res_lib.id
     return dbox_library_id
+
+
+def _ensure_resource_library(dbox_library_id: int, fallback_path: str = None) -> int:
+    """确保 dbox.db 的资源库已在 resource 服务（resourced）中注册。
+
+    资源服务以自身维护的 resource.db 为准，按名称匹配。若同名库不存在，
+    则通过总线调用 AddLibrary 完成注册（用首个文件夹路径或兜底目录作为库路径），
+    避免后续 AddFolder / 扫描等操作因「库不存在」而失败。
+
+    返回 resource.db 中的库 ID；注册失败时回退为 dbox 库 ID，由调用方继续处理。
+    """
+    res_lib_id = _resolve_resource_library_id(dbox_library_id)
+    if res_lib_id != dbox_library_id:
+        # 已注册
+        return res_lib_id
+
+    if not _HAS_RESOURCE_DB:
+        return dbox_library_id
+
+    library = ResourceLibrary.query.get(dbox_library_id)
+    if not library:
+        return dbox_library_id
+
+    # 延迟导入运行时总线，避免循环依赖
+    try:
+        from backend.runtime import runtime
+    except Exception:
+        return dbox_library_id
+
+    if not runtime.resource_bus:
+        return dbox_library_id
+
+    # 选择一个有效的目录作为库路径：优先传入的文件夹路径，其次首个已登记文件夹
+    path = fallback_path
+    if not path or not os.path.isdir(path):
+        try:
+            folders = ResourceFolderDB.query.filter_by(library_id=res_lib_id).all()
+            for f in folders:
+                if f.path and os.path.isdir(f.path):
+                    path = f.path
+                    break
+        except Exception:
+            pass
+    if not path or not os.path.isdir(path):
+        from backend.paths import DATA_DIR
+        path = DATA_DIR
+
+    try:
+        result = runtime.resource_bus.call_method(
+            'com.dbox.resourced', 'com.dbox.Resourced', 'AddLibrary',
+            {'name': library.name, 'path': path},
+            timeout=3000,
+        )
+    except Exception as e:
+        log.debug('ERROR', f"注册资源库到 resourced 失败: {e}")
+        return dbox_library_id
+
+    if result and result.get('success'):
+        new_id = result.get('library_id') or result.get('id')
+        if new_id:
+            return new_id
+    log.debug('WARN', f"资源库({library.name})注册未返回成功: {result}")
+    return dbox_library_id
+
 
 
 def _resolve_dbox_library_id_by_folder(folder_id):

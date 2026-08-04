@@ -34,7 +34,7 @@ import re
 from datetime import datetime, timedelta
 from backend.trash import purge_trash
 from backend.runtime import runtime
-from backend.helpers import _resolve_resource_library_id
+from backend.helpers import _resolve_resource_library_id, _ensure_resource_library
 from backend.access import admin_required, library_admin_required, resource_manager_required, get_allowed_library_ids
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
@@ -302,7 +302,7 @@ def get_library_folders(library_id):
         # 使用 resource.db 中的库 ID（可能与 dbox.db 的 ID 不同）
         res_lib_id = _resolve_resource_library_id(library_id)
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'ListFolders',
@@ -327,7 +327,7 @@ def test_add_folder():
         if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'AddFolder',
@@ -361,10 +361,13 @@ def add_library_folder(library_id):
         if not path:
             return jsonify({'success': False, 'message': '路径不能为空'}), 400
 
+        # 确保该资源库已在 resourced 中注册（缺失时自动注册，避免「库不存在」）
+        _ensure_resource_library(library_id, fallback_path=path)
+
         # 使用 resource.db 中的库 ID（可能与 dbox.db 的 ID 不同）
         res_lib_id = _resolve_resource_library_id(library_id)
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'AddFolder',
@@ -398,7 +401,7 @@ def update_folder(folder_id):
 
         data = request.get_json()
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'UpdateFolder',
@@ -422,7 +425,7 @@ def delete_folder(folder_id):
         if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'RemoveFolder',
@@ -446,7 +449,7 @@ def set_default_folder(folder_id):
         if not runtime.resource_bus:
             return jsonify({'success': False, 'message': '资源服务未连接'}), 500
 
-        result = resource_bus.call_method(
+        result = runtime.resource_bus.call_method(
             'com.dbox.resourced',
             'com.dbox.Resourced',
             'SetDefaultFolder',
