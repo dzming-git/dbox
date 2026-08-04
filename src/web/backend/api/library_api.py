@@ -1459,6 +1459,13 @@ def admin_list_resources():
         for v in q.order_by(Video.created_at.desc()).all():
             ri = v.resource_index
             pres = ri.presentation() if ri else {}
+            # 文件大小：优先取已存储值，缺失时回退到磁盘实际大小（无需读取视频内容）
+            file_size = getattr(v, 'file_size', None)
+            if not file_size and ri and ri.location and os.path.exists(ri.location):
+                try:
+                    file_size = os.path.getsize(ri.location)
+                except OSError:
+                    file_size = None
             items.append({
                 'type': 'video', 'id': v.hash, 'title': v.title,
                 'resource_index_id': ri.id if ri else None,
@@ -1466,7 +1473,7 @@ def admin_list_resources():
                 'library_id': v.library_id, 'cover': v.thumbnail,
                 'owner_id': getattr(v, 'owner_id', None),
                 'updated_at': str(getattr(v, 'updated_at', None) or v.created_at),
-                'file_size': getattr(v, 'file_size', None),
+                'file_size': file_size,
                 'duration': pres.get('duration') or getattr(v, 'duration', None),
                 'width': pres.get('width') or getattr(v, 'width', None),
                 'height': pres.get('height') or getattr(v, 'height', None),
