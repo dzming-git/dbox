@@ -167,6 +167,7 @@ const scanConfig = ref({
 })
 const scanConfigLoaded = ref(false)
 const scanSaving = ref(false)
+const scanSaved = ref(false)
 
 const loadScanConfig = async () => {
   try {
@@ -189,6 +190,7 @@ const saveScanConfig = async () => {
       library_watch_enabled: scanConfig.value.library_watch_enabled,
       auto_scan_on_startup: scanConfig.value.auto_scan_on_startup
     } as any)
+    scanSaved.value = true
     showToast('扫描设置已保存，实时监控已立即生效')
   } catch (e) {
     showToast('保存失败：' + (e instanceof Error ? e.message : String(e)))
@@ -2827,16 +2829,25 @@ onUnmounted(() => {
               </button>
             </div>
             <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true" v-if="userStore.isAdmin">+ 新建资源库</button>
-            <div class="scan-switch-group" v-if="scanConfigLoaded">
+            <div class="scan-config-panel" v-if="scanConfigLoaded">
+              <div class="scan-config-title">扫描策略</div>
               <label class="scan-switch">
-                <input type="checkbox" v-model="scanConfig.library_watch_enabled" @change="saveScanConfig" :disabled="scanSaving" />
-                <span>文件夹实时监控</span>
+                <input type="checkbox" v-model="scanConfig.library_watch_enabled" :disabled="scanSaving" @change="scanSaved = false" />
+                <span class="scan-switch-text">
+                  <span class="scan-switch-label">文件夹实时监控</span>
+                  <span class="scan-switch-desc">开启后，磁盘文件新增 / 删除 / 改名会即时同步进资源库（后台持续监听，无需手动操作）</span>
+                </span>
               </label>
               <label class="scan-switch">
-                <input type="checkbox" v-model="scanConfig.auto_scan_on_startup" @change="saveScanConfig" :disabled="scanSaving" />
-                <span>启动时自动扫描</span>
+                <input type="checkbox" v-model="scanConfig.auto_scan_on_startup" :disabled="scanSaving" @change="scanSaved = false" />
+                <span class="scan-switch-text">
+                  <span class="scan-switch-label">启动时自动扫描</span>
+                  <span class="scan-switch-desc">每次服务启动时，对全部资源库做一次全量扫描（仅在启动时执行一次，与上面的实时监控互不影响）</span>
+                </span>
               </label>
-              <span v-if="scanSaving" class="scan-saving">保存中…</span>
+              <button class="action-btn primary scan-config-save" @click="saveScanConfig" :disabled="scanSaving">
+                {{ scanSaving ? '保存中...' : (scanSaved ? '已保存 ✓' : '保存设置') }}
+              </button>
             </div>
           </div>
         </div>
@@ -4037,19 +4048,28 @@ onUnmounted(() => {
   color: #fff;
 }
 
-.scan-switch-group {
+.scan-config-panel {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 10px;
   margin-left: auto;
-  padding-left: 16px;
-  border-left: 1px solid var(--border-default);
+  padding: 12px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface, #fff);
+  max-width: 420px;
+}
+
+.scan-config-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .scan-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -4059,8 +4079,33 @@ onUnmounted(() => {
 .scan-switch input {
   width: 16px;
   height: 16px;
+  margin-top: 2px;
   cursor: pointer;
   accent-color: var(--accent, #3b82f6);
+  flex-shrink: 0;
+}
+
+.scan-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scan-switch-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.scan-switch-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary, #8a8f98);
+}
+
+.scan-config-save {
+  align-self: flex-end;
+  margin-top: 2px;
 }
 
 .scan-saving {
@@ -9204,14 +9249,11 @@ input:checked + .slider:before {
     flex-shrink: 0;
   }
 
-  /* 开关组：去掉左边框分隔，正常换行 */
-  .scan-switch-group {
+  /* 扫描策略面板：手机端全宽、正常换行 */
+  .scan-config-panel {
+    width: 100%;
+    max-width: 100%;
     margin-left: 0;
-    padding-left: 0;
-    border-left: none;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: 12px;
   }
 
   /* 资源库卡片网格：单列 */
