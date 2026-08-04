@@ -9164,5 +9164,89 @@ input:checked + .slider:before {
   }
 }
 
+/* 资源库管理 - 移动端优化 */
+@media (max-width: 768px) {
+  /* 资源库 section header：标题和操作区换行 */
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  /* 操作按钮区域：自动换行，紧凑排列 */
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* 扫描按钮组：横向可滚动，避免竖排 */
+  .scan-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    scrollbar-width: none;
+  }
+  .scan-actions::-webkit-scrollbar { display: none; }
+
+  /* 扫描按钮文字缩小 */
+  .scan-actions .action-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* 新建资源库按钮：固定宽度不压缩 */
+  .header-actions > .action-btn.primary {
+    flex-shrink: 0;
+  }
+
+  /* 开关组：去掉左边框分隔，正常换行 */
+  .scan-switch-group {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  /* 资源库卡片网格：单列 */
+  .library-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  /* 卡片操作按钮：2列等宽，更紧凑 */
+  .library-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 7px;
+    padding: 10px 14px;
+  }
+
+  .library-card-actions .action-btn {
+    flex: none;
+    min-width: unset;
+    padding: 8px 4px;
+    font-size: 12px;
+    justify-content: center;
+  }
+
+  /* 统计标签：允许换行 */
+  .library-stats {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .stat-pill {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+}
+
 </style>
 
