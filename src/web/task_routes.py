@@ -17,10 +17,14 @@ from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
 from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_action_required,
-    delete_task,
+    delete_task, create_task, STATUS_RUNNING,
 )
 
 bp = Blueprint('task', __name__)
+
+# 资源下载器服务地址（脚本任务真正执行的进程）。主服务作为网关将 /api/scripts
+# 转发过去；重试脚本任务时本蓝图直接向内网地址发起 run 请求。
+_DOWNLOADER_BASE_URL = 'http://127.0.0.1:8092'
 
 # 任务详情接口单次返回的最大日志条数（避免长任务把接口拉爆）
 _TASK_LOG_LIMIT = 500
@@ -192,3 +196,82 @@ def delete_task_route(task_id):
         'success': False,
         'message': '任务进行中，无法删除；等待完成后再操作',
     }), 409
+
+
+@bp.route('/api/tasks/<path:task_id>/retry', methods=['POST'])
+@auth_required
+def retry_task(task_id):
+    """重试一个最终失败的任务。
+
+    - 脚本任务（script:*）：读取登记时的可重放参数（script_id + 原始 params），
+      向内网下载器服务重新提交 run 请求，由下载器创建新 job 并同步回统一任务表，
+      用户可在任务列表看到新任务。
+    - 上传 / 缩略图任务：这类失败（如文件已存在、指纹计算失败）通常无法脱离
+      原始请求体无感重放，返回明确提示，由前端引导用户重新发起。
+    """
+    user_id = getattr(g, 'user_id', None)
+    is_admin = _is_admin(getattr(g, 'role', None))
+
+    task = get_task(task_id)
+    if not task:
+        return jsonify({'success': False, 'message': '任务不存在'}), 404
+
+    # 权限：只能重试自己的任务；管理员可重试全部
+    if not is_admin and task.get('owner_id') not in (None, user_id):
+        return jsonify({'success': False, 'message': '无权重试该任务'}), 403
+
+    kind = task.get('kind')
+    status = task.get('status')
+    if status not in ('failed', 'cancelled'):
+        return jsonify({'success': False, 'message': '仅失败/已取消的任务可重试'}), 400
+
+    if kind == 'script':
+        params = task.get('params') or {}
+        script_id = params.get('script_id')
+        run_params = params.get('params') or {}
+        if not script_id:
+            return jsonify({'success': False, 'message': '该任务缺少脚本标识，无法重试'}), 400
+        try:
+            import requests
+            fwd = {'host', 'content-length', 'connection', 'transfer-encoding'}
+            fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in fwd}
+            try:
+                resp = requests.post(
+                    f'{_DOWNLOADER_BASE_URL}/api/scripts/{script_id}/run',
+                    json=run_params,
+                    headers=fwd_headers,
+                    cookies=request.cookies,
+                    timeout=30,
+                )
+                data = resp.json() if resp.content else {}
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'message': f'资源下载器服务不可用，请检查下载器进程是否运行：{e}',
+                    'code': 503,
+                }), 503
+            if data.get('success'):
+                return jsonify({
+                    'success': True,
+                    'message': '已重新提交，请在任务列表查看新任务',
+                    'job_id': data.get('job_id'),
+                })
+            return jsonify({
+                'success': False,
+                'message': data.get('error') or data.get('message') or '重新提交失败',
+            }), (resp.status_code if 'status_code' in dir(resp) else 400)
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'重试失败：{e}'}), 500
+
+    if kind == 'upload':
+        return jsonify({
+            'success': False,
+            'message': '上传任务需重新选择文件发起，无法自动重试',
+            'need_reupload': True,
+        }), 400
+
+    # thumbnail 等其他类型：无可靠重放参数
+    return jsonify({
+        'success': False,
+        'message': '该类型任务无法自动重试，请重新发起',
+    }), 400

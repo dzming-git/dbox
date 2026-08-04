@@ -40,6 +40,16 @@
           >
             {{ deletingId === t.task_id ? '删除中…' : '删除' }}
           </button>
+          <!-- 失败/已取消的任务可手动重试 -->
+          <button
+            v-if="canRetry(t)"
+            class="task-retry-btn"
+            :disabled="retryingId === t.task_id"
+            :title="'重试任务：' + t.title"
+            @click="retryOne(t)"
+          >
+            {{ retryingId === t.task_id ? '重试中…' : '重试' }}
+          </button>
         </div>
 
         <div class="task-progress">
@@ -49,6 +59,13 @@
           <span>{{ clampProgress(t.progress) }}%</span>
           <span v-if="t.stage">· {{ t.stage }}</span>
           <span v-if="t.detail" class="task-detail">· {{ t.detail }}</span>
+        </div>
+
+        <!-- 任务关键参数：帮助用户在列表中区分不同任务（如脚本名/目标/文件名） -->
+        <div v-if="taskParamPreview(t).length" class="task-params">
+          <span v-for="(p, i) in taskParamPreview(t)" :key="i" class="param-chip">
+            {{ p }}
+          </span>
         </div>
 
         <div v-if="t.action_required" class="task-action">
@@ -76,6 +93,10 @@
               <div v-if="taskLogs[t.task_id].params && Object.keys(taskLogs[t.task_id].params).length" class="logs-section">
                 <div class="logs-section-title">任务参数</div>
                 <pre class="logs-params">{{ formatParams(taskLogs[t.task_id].params) }}</pre>
+              </div>
+              <div v-else-if="taskLogs[t.task_id].raw_params && Object.keys(taskLogs[t.task_id].raw_params).length" class="logs-section">
+                <div class="logs-section-title">任务参数</div>
+                <pre class="logs-params">{{ formatParams(taskLogs[t.task_id].raw_params) }}</pre>
               </div>
               <div v-if="taskLogs[t.task_id].logs && taskLogs[t.task_id].logs.length" class="logs-section">
                 <div class="logs-section-title">
@@ -158,6 +179,8 @@ const loading = ref(false)
 // 删除相关状态：deletingId 标记正在单条删除中的任务；clearing 用于批量清理按钮的 loading
 const deletingId = ref<string | null>(null)
 const clearing = ref(false)
+// 重试状态：retryingId 标记正在重试中的任务
+const retryingId = ref<string | null>(null)
 // 详情/日志展开：仅同时展开一个任务的日志面板，避免日志堆叠刷屏
 const expandedTaskId = ref<string | null>(null)
 const loadingLogs = ref<string | null>(null)
@@ -218,6 +241,39 @@ function isFinished(t: Task): boolean {
   return FINISHED_STATUSES.has(t.status as any)
 }
 
+// 失败/已取消的任务可在任务列表手动重试
+function canRetry(t: Task): boolean {
+  return t.status === 'failed' || t.status === 'cancelled'
+}
+
+// 卡片上展示任务关键参数，帮助用户区分不同任务。
+// 脚本任务：展示脚本标识 + 关键运行参数；上传任务：展示文件名/标题/目标库。
+function taskParamPreview(t: Task): string[] {
+  const out: string[] = []
+  const p = t.params
+  if (t.kind === 'script' && p) {
+    if (p.script_id) out.push(`脚本:${p.script_id}`)
+    const inner = p.params
+    if (inner && typeof inner === 'object') {
+      for (const key of ['url', 'target', 'target_modes', 'group', 'quality']) {
+        const v = inner[key]
+        if (v !== undefined && v !== null && v !== '') {
+          out.push(`${key}:${Array.isArray(v) ? v.join(',') : v}`)
+        }
+      }
+    }
+  } else if (t.kind === 'upload' && p) {
+    if (p.filename) out.push(`文件:${p.filename}`)
+    if (p.title) out.push(`标题:${p.title}`)
+    if (p.library_id != null) out.push(`库:${p.library_id}`)
+  } else if (p && typeof p === 'object') {
+    for (const [k, v] of Object.entries(p)) {
+      if (v !== undefined && v !== null && v !== '') out.push(`${k}:${v}`)
+    }
+  }
+  return out.slice(0, 4)
+}
+
 async function deleteOne(t: Task) {
   if (!isFinished(t) || deletingId.value) return
   if (!confirm(`确定要删除任务「${t.title}」吗？该操作不可撤销。`)) return
@@ -230,6 +286,24 @@ async function deleteOne(t: Task) {
     alert('删除失败：' + (e?.message || e))
   } finally {
     deletingId.value = null
+  }
+}
+
+async function retryOne(t: Task) {
+  if (!canRetry(t) || retryingId.value) return
+  retryingId.value = t.task_id
+  try {
+    const res: any = await taskApi.retry(t.task_id)
+    if (res && res.success) {
+      // 脚本类任务由下载器重新提交并同步回任务表，刷新即可看到新任务
+      await refresh()
+    } else {
+      alert('重试失败：' + (res?.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('重试失败：' + (e?.message || e))
+  } finally {
+    retryingId.value = null
   }
 }
 
@@ -275,7 +349,7 @@ async function toggleLogs(t: Task) {
       ...taskLogs.value,
       [tid]: {
         logs: task.logs || [],
-        params: task.action_data?.params || undefined,
+        raw_params: task.params || task.action_data?.params || undefined,
         error: task.error || task.detail || undefined,
       },
     }
@@ -321,7 +395,7 @@ function startLogsPoll() {
           ...taskLogs.value,
           [tid]: {
             logs: task.logs || [],
-            params: task.action_data?.params || undefined,
+            raw_params: task.params || task.action_data?.params || undefined,
             error: task.error || task.detail || undefined,
           },
         }
@@ -472,6 +546,44 @@ onUnmounted(() => {
 .task-delete-btn:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+.task-retry-btn {
+  background: transparent;
+  color: #8fd0ff;
+  border: 1px solid rgba(120, 170, 255, 0.5);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.task-retry-btn:hover:not(:disabled) {
+  color: #b3e0ff;
+  border-color: #8fd0ff;
+  background: rgba(120, 170, 255, 0.08);
+}
+.task-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+/* 任务关键参数 chip：帮助区分不同任务 */
+.task-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.param-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--bg-surface-2);
+  color: var(--text-secondary);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .action-banner {
   display: flex;

@@ -822,7 +822,8 @@ def upload_video():
             create_task(
                 upload_task_id, 'upload', f'上传：{title}',
                 owner_id=user_id, library_id=library_id if isinstance(library_id, int) else None,
-                status='running', progress=50, stage='保存文件', detail='文件已接收，正在计算指纹'
+                status='running', progress=50, stage='保存文件', detail='文件已接收，正在计算指纹',
+                params={'title': title, 'filename': safe_filename, 'library_id': library_id}
             )
         except Exception as e:
             log.debug('WARN', f'创建上传任务失败: {e}')

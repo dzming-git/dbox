@@ -25,6 +25,7 @@ export interface Task {
   action_kind?: 'script_interactive' | 'navigate' | null
   action_hint?: string | null
   action_data?: any
+  params?: any
   created_at: number
   updated_at: number
 }
@@ -38,4 +39,6 @@ export const taskApi = {
   detail: (taskId: string) => api.get(`/api/tasks/${taskId}`),
   // 删除一条已结束的任务（进行中不允许）
   delete: (taskId: string) => api.delete(`/api/tasks/${taskId}`),
+  // 重试一个失败/已取消的任务
+  retry: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/retry`),
 }

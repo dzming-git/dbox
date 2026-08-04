@@ -62,11 +62,17 @@ def init_task_manager(data_dir):
             action_kind TEXT,
             action_hint TEXT,
             action_data TEXT,
+            params TEXT,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         )''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_action ON tasks(action_required, action_role)')
+        # 兼容旧库：补充 params 列（存储可重放的任务参数，供失败重试使用）
+        try:
+            conn.execute('ALTER TABLE tasks ADD COLUMN params TEXT')
+        except sqlite3.OperationalError:
+            pass
     _initialized = True
 
 
@@ -96,12 +102,17 @@ def _row_to_dict(row):
         d['action_data'] = json.loads(d['action_data']) if d.get('action_data') else None
     except (ValueError, TypeError):
         d['action_data'] = None
+    try:
+        d['params'] = json.loads(d['params']) if d.get('params') else None
+    except (ValueError, TypeError):
+        d['params'] = None
     return d
 
 
 def create_task(task_id, kind, title, owner_id=None, library_id=None,
-                status=STATUS_RUNNING, progress=0, stage=None, detail=None):
+                status=STATUS_RUNNING, progress=0, stage=None, detail=None, params=None):
     """登记一个新任务，返回任务 dict。"""
+    params_str = json.dumps(params, ensure_ascii=False) if params is not None else None
     with _lock:
         with _conn() as conn:
             now = _now()
@@ -109,10 +120,10 @@ def create_task(task_id, kind, title, owner_id=None, library_id=None,
                 '''INSERT OR REPLACE INTO tasks
                    (task_id, kind, title, status, progress, stage, detail,
                     owner_id, library_id, action_required, action_role, action_kind,
-                    action_hint, action_data, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,0,NULL,NULL,NULL,NULL,?,?)''',
+                    action_hint, action_data, params, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,0,NULL,NULL,NULL,NULL,?,?,?)''',
                 (task_id, kind, title, status, progress, stage, detail,
-                 owner_id, library_id, now, now),
+                 owner_id, library_id, params_str, now, now),
             )
     return get_task(task_id)
 
@@ -186,6 +197,12 @@ def sync_job(job):
         action_data = None
         status = job.get('status', STATUS_RUNNING)
 
+    # 记录可重放参数，供失败重试：脚本任务的 script_id + 原始运行参数 + 发起人
+    retry_params = {
+        'script_id': job.get('script_id'),
+        'params': job.get('params'),
+        'owner_id': job.get('owner_id'),
+    }
     with _lock:
         with _conn() as conn:
             now = _now()
@@ -193,9 +210,9 @@ def sync_job(job):
                 '''INSERT OR REPLACE INTO tasks
                    (task_id, kind, title, status, progress, stage, detail,
                     owner_id, library_id, action_required, action_role, action_kind,
-                    action_hint, action_data, created_at, updated_at)
+                    action_hint, action_data, params, created_at, updated_at)
                    VALUES (?, 'script', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?,
-                           COALESCE((SELECT created_at FROM tasks WHERE task_id=?), ?), ?)''',
+                           ?, COALESCE((SELECT created_at FROM tasks WHERE task_id=?), ?), ?)''',
                 (
                     task_id,
                     job.get('name') or job.get('script_id') or '脚本任务',
@@ -206,6 +223,7 @@ def sync_job(job):
                     1 if interactive else 0,
                     action_role, action_kind, action_hint,
                     json.dumps(action_data, ensure_ascii=False) if action_data else None,
+                    json.dumps(retry_params, ensure_ascii=False),
                     task_id, now, now,
                 ),
             )
