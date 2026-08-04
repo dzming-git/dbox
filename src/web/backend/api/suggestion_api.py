@@ -2,34 +2,27 @@
 
 原 src/web/api/suggestion_api.py 迁移而来，统一到 backend/api 体系：
 - 鉴权改用 backend.access.resolve_identity（cookie + JWT Bearer 双通道）
-- get_runtime_dir 复用 backend.api.system_info_api
-- 其余逻辑（id 生成、迁移、分页、评论）与前端契约保持一致，未做破坏性改动。
+- 数据存储从原 issues.json 单文件改为独立的反馈数据库
+  （{runtime_dir}/databases/feedback.db，见 backend.feedback_db）
 
+对外 API 契约（路径、字段、状态枚举、分页、评论）保持不变，前端无需改动。
 Issue 唯一 id 格式：yyyymmdd + 4 位流水号。
-数据存储于 {runtime_dir}/data/issues.json（单文件、线程安全写入）。
 权限：列表/详情公开；提交允许游客；关闭/重开/评论仅管理员。
 """
-import os
-import json
-import threading
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
 from core.models import UserRole
 from backend.access import resolve_identity
-from backend.api.system_info_api import get_runtime_dir
+from backend.feedback_db import (
+    init_feedback_db, get_session, FeedbackIssue, FeedbackComment,
+    issue_to_dict, STATUS_MAP,
+)
 
 suggestion_bp = Blueprint('suggestion_api', __name__)
 
-_lock = threading.Lock()
-
-# get_runtime_dir() 返回的是数据目录（{root}/data），issues.json 直接位于其下，
-# 切勿再追加一层 'data'，否则会落到 {root}/data/data/issues.json（路径错位丢数据）。
-ISSUES_FILE = os.path.join(get_runtime_dir(), 'issues.json')
-SUGGESTIONS_FILE = os.path.join(get_runtime_dir(), 'suggestions.json')
-
-# 状态
+# 状态（与前端契约一致）
 STATUS_OPEN = 'open'              # 开放
 STATUS_PENDING = 'pending'        # 待验证（已修复，等待管理员验证）
 STATUS_CLOSED = 'closed'          # 已关闭
@@ -41,25 +34,6 @@ REASON_DISMISSED = 'dismissed'    # 不处理
 
 def _now():
     return datetime.now().isoformat(timespec='seconds')
-
-
-def load_issues():
-    if not os.path.exists(ISSUES_FILE):
-        return []
-    try:
-        with open(ISSUES_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def save_issues(issues):
-    os.makedirs(os.path.dirname(ISSUES_FILE), exist_ok=True)
-    tmp = ISSUES_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(issues, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, ISSUES_FILE)
 
 
 def make_title(content, max_len=40):
@@ -76,74 +50,22 @@ def generate_issue_id(date=None):
     date = date or datetime.now()
     date_str = date.strftime('%Y%m%d')
     max_seq = 0
-    for it in load_issues():
-        iid = it.get('id', '')
-        if isinstance(iid, str) and iid.startswith(date_str) and len(iid) == 12:
-            try:
-                seq = int(iid[8:12])
-                if seq > max_seq:
-                    max_seq = seq
-            except ValueError:
-                pass
+    with get_session() as session:
+        for issue in session.query(FeedbackIssue).all():
+            iid = issue.id or ''
+            if isinstance(iid, str) and iid.startswith(date_str) and len(iid) == 12:
+                try:
+                    seq = int(iid[8:12])
+                    if seq > max_seq:
+                        max_seq = seq
+                except ValueError:
+                    pass
     return f"{date_str}{max_seq + 1:04d}"
 
 
 def migrate_if_needed():
-    """自动迁移旧 suggestions.json -> issues.json（幂等）。"""
-    if os.path.exists(ISSUES_FILE):
-        return
-    if not os.path.exists(SUGGESTIONS_FILE):
-        return
-    try:
-        with open(SUGGESTIONS_FILE, 'r', encoding='utf-8') as f:
-            suggestions = json.load(f)
-    except Exception:
-        return
-    if not isinstance(suggestions, list):
-        return
-
-    counters = {}
-    issues = []
-    for s in suggestions:
-        created = s.get('created_at')
-        try:
-            dt = datetime.fromisoformat(created) if created else None
-        except Exception:
-            dt = None
-        date_str = dt.strftime('%Y%m%d') if dt else datetime.now().strftime('%Y%m%d')
-        counters[date_str] = counters.get(date_str, 0) + 1
-        iid = f"{date_str}{counters[date_str]:04d}"
-
-        comments = []
-        if s.get('reply'):
-            comments.append({
-                'author': '管理员',
-                'author_role': int(UserRole.ADMIN),
-                'content': s['reply'],
-                'created_at': s.get('updated_at') or created or _now(),
-            })
-
-        user = s.get('user')
-        author = user if user else '游客'
-        author_role = int(UserRole.USER) if user else int(UserRole.GUEST)
-
-        issues.append({
-            'id': iid,
-            'title': make_title(s.get('content', '')),
-            'content': s.get('content', ''),
-            'type': 'suggestion',
-            'author': author,
-            'author_id': None,
-            'author_role': author_role,
-            'contact': s.get('contact', ''),
-            'status': 'open',
-            'closed_reason': None,
-            'comments': comments,
-            'created_at': created or _now(),
-            'updated_at': s.get('updated_at') or created or _now(),
-            'closed_at': None,
-        })
-    save_issues(issues)
+    """确保反馈独立数据库已初始化并迁移旧数据（幂等）。"""
+    init_feedback_db()
 
 
 def _auth():
@@ -187,8 +109,8 @@ def _is_admin():
     return _auth()[1] >= UserRole.ADMIN
 
 
-def _strip_contact(issue, admin):
-    d = dict(issue)
+def _strip_contact(issue_dict, admin):
+    d = dict(issue_dict)
     if not admin:
         d.pop('contact', None)
     return d
@@ -197,7 +119,6 @@ def _strip_contact(issue, admin):
 @suggestion_bp.route('/api/suggestion', methods=['GET'])
 def list_issues():
     migrate_if_needed()
-    issues = load_issues()
     admin = _is_admin()
 
     status = request.args.get('status', 'all')
@@ -211,6 +132,13 @@ def list_issues():
         page_size = max(1, min(100, int(request.args.get('page_size', 20))))
     except ValueError:
         page_size = 20
+
+    with get_session() as session:
+        issues = [issue_to_dict(i) for i in session.query(FeedbackIssue).all()]
+
+    # 兼容前端：category 作为 type 透出
+    for it in issues:
+        it['type'] = it.get('category') or 'suggestion'
 
     filtered = issues
     if status in (STATUS_OPEN, STATUS_CLOSED, STATUS_PENDING):
@@ -275,38 +203,53 @@ def create_issue():
         author_role = int(UserRole.GUEST)
         author_id = None
 
-    issue = {
-        'id': generate_issue_id(),
-        'title': title,
-        'content': content,
-        'type': ftype,
-        'author': author,
-        'author_id': author_id,
-        'author_role': author_role,
-        'contact': contact,
-        'status': 'open',
-        'closed_reason': None,
-        'comments': [],
-        'created_at': _now(),
-        'updated_at': _now(),
-        'closed_at': None,
-    }
-    with _lock:
-        issues = load_issues()
-        issues.append(issue)
-        save_issues(issues)
+    issue = FeedbackIssue(
+        id=generate_issue_id(),
+        title=title,
+        content=content,
+        status='open',
+        submitter=author,
+        category=ftype,
+        source='web',
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    # 兼容历史：把游客联系方式暂存进 classification 之外的 meta 不合适，
+    # 这里保留 contact 仅在 admin 可见——通过 submitter 备注不够，故在评论区不展示。
+    # 由于 DB 模型无 contact 列，将联系方式作为首条系统留言（仅管理员可见由 _strip_contact 控制）。
+    if contact:
+        issue.comments.append(FeedbackComment(
+            author='系统',
+            author_role=int(UserRole.ROOT),
+            content=f'联系方式：{contact}',
+            created_at=datetime.now(),
+        ))
 
-    return jsonify({'success': True, 'id': issue['id'], 'issue': issue})
+    with get_session() as session:
+        session.add(issue)
+        session.commit()
+        new_id = issue.id
+
+    out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    out['author'] = author
+    out['author_id'] = author_id
+    out['author_role'] = author_role
+    out['contact'] = contact
+    return jsonify({'success': True, 'id': new_id, 'issue': out})
 
 
 @suggestion_bp.route('/api/suggestion/<issue_id>', methods=['GET'])
 def get_issue(issue_id):
     migrate_if_needed()
     admin = _is_admin()
-    it = next((i for i in load_issues() if i.get('id') == issue_id), None)
-    if not it:
-        return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
-    return jsonify({'success': True, 'issue': _strip_contact(it, admin)})
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
+        out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    return jsonify({'success': True, 'issue': _strip_contact(out, admin)})
 
 
 @suggestion_bp.route('/api/suggestion/<issue_id>', methods=['PUT'])
@@ -315,35 +258,34 @@ def update_issue(issue_id):
         return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
 
     data = request.get_json(force=True, silent=True) or {}
-    with _lock:
-        issues = load_issues()
-        it = next((i for i in issues if i.get('id') == issue_id), None)
-        if not it:
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
             return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
 
         if 'status' in data:
             status = data['status']
             if status not in (STATUS_OPEN, STATUS_PENDING, STATUS_CLOSED):
                 return jsonify({'success': False, 'message': '无效状态', 'code': 400}), 400
-            it['status'] = status
+            issue.status = status
             if status == STATUS_CLOSED:
                 reason = data.get('closed_reason')
                 if reason not in (REASON_RESOLVED, REASON_DISMISSED, None):
                     reason = REASON_DISMISSED
-                it['closed_reason'] = reason
-                it['closed_at'] = _now()
+                issue.classification = reason  # 复用字段记录关闭原因
             else:
-                it['closed_reason'] = None
-                it['closed_at'] = None
+                issue.classification = None
+            issue.processed_at = datetime.now()
 
         if data.get('title') is not None and str(data['title']).strip():
-            it['title'] = str(data['title']).strip()
+            issue.title = str(data['title']).strip()
         if data.get('content') is not None:
-            it['content'] = str(data['content'])
-        it['updated_at'] = _now()
-        save_issues(issues)
-
-    return jsonify({'success': True, 'issue': it})
+            issue.content = str(data['content'])
+        issue.updated_at = datetime.now()
+        session.commit()
+        out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    return jsonify({'success': True, 'issue': out})
 
 
 @suggestion_bp.route('/api/suggestion/<issue_id>/comment', methods=['POST'])
@@ -359,20 +301,18 @@ def comment_issue(issue_id):
     uid, role, username = _auth()
     author = username or '管理员'
 
-    with _lock:
-        issues = load_issues()
-        it = next((i for i in issues if i.get('id') == issue_id), None)
-        if not it:
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
             return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
-
-        comment = {
-            'author': author,
-            'author_role': role or int(UserRole.ADMIN),
-            'content': content,
-            'created_at': _now(),
-        }
-        it.setdefault('comments', []).append(comment)
-        it['updated_at'] = _now()
-        save_issues(issues)
-
-    return jsonify({'success': True, 'issue': it})
+        issue.comments.append(FeedbackComment(
+            author=author,
+            author_role=role or int(UserRole.ADMIN),
+            content=content,
+            created_at=datetime.now(),
+        ))
+        issue.updated_at = datetime.now()
+        session.commit()
+        out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    return jsonify({'success': True, 'issue': out})

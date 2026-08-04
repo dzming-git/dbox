@@ -28,6 +28,7 @@ from datetime import datetime
 # 复用列出脚本的目录/数据定位逻辑（单一来源）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from feedback_list import find_runtime_dir, load_issues  # noqa: E402
+from backend.feedback_db import init_feedback_db, db_set_status, db_append_comment  # noqa: E402
 
 _lock = threading.Lock()
 
@@ -96,12 +97,8 @@ def _already_processed(issue) -> bool:
 
 
 def save_issues(runtime_dir: str, issues: list):
-    path = Path(runtime_dir) / 'data' / 'issues.json'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.json.tmp')
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(issues, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    """兼容保留接口（数据已实时写入独立数据库，此处不再写 JSON）。"""
+    pass
 
 
 def append_log(runtime_dir: str, text: str):
@@ -114,6 +111,7 @@ def append_log(runtime_dir: str, text: str):
 
 
 def process(runtime_dir: str, dry_run: bool = False):
+    init_feedback_db()
     all_issues = load_issues(runtime_dir)
     open_issues = [i for i in all_issues if i.get('status') == 'open']
 
@@ -121,6 +119,7 @@ def process(runtime_dir: str, dry_run: bool = False):
     dismissed, replied, skipped = [], [], []
 
     for it in open_issues:
+        iid = it.get('id')
         if _already_processed(it):
             skipped.append(it)
             continue
@@ -133,20 +132,15 @@ def process(runtime_dir: str, dry_run: bool = False):
         if spam:
             if dry_run:
                 dismissed.append(it)
-                print(f"  [DRY] 将关闭(不处理) #{it.get('id')}：{reason}")
+                print(f"  [DRY] 将关闭(不处理) #{iid}：{reason}")
                 continue
-            it['status'] = 'closed'
-            it['closed_reason'] = 'dismissed'
-            it['closed_at'] = now
-            it.setdefault('comments', []).append({
-                'author': AUTO_AUTHOR,
-                'author_role': AUTO_ROLE,
-                'content': f'{AUTO_PREFIX} 自动判定为“不处理”：{reason}，已关闭。',
-                'created_at': now,
-            })
-            it['updated_at'] = now
+            db_set_status(iid, 'closed', classification='dismissed')
+            db_append_comment(
+                iid, AUTO_AUTHOR, AUTO_ROLE,
+                f'{AUTO_PREFIX} 自动判定为“不处理”：{reason}，已关闭。',
+            )
             dismissed.append(it)
-            print(f"  [关闭] #{it.get('id')}：{reason}")
+            print(f"  [关闭] #{iid}：{reason}")
         else:
             cat = classify(it.get('content', ''))
             comment = (
@@ -156,17 +150,11 @@ def process(runtime_dir: str, dry_run: bool = False):
             )
             if dry_run:
                 replied.append(it)
-                print(f"  [DRY] 将对 #{it.get('id')} 添加分类回复：{cat}")
+                print(f"  [DRY] 将对 #{iid} 添加分类回复：{cat}")
                 continue
-            it.setdefault('comments', []).append({
-                'author': AUTO_AUTHOR,
-                'author_role': AUTO_ROLE,
-                'content': comment,
-                'created_at': now,
-            })
-            it['updated_at'] = now
+            db_append_comment(iid, AUTO_AUTHOR, AUTO_ROLE, comment)
             replied.append(it)
-            print(f"  [回复] #{it.get('id')}：归类为【{cat}】（保持开放）")
+            print(f"  [回复] #{iid}：归类为【{cat}】（保持开放）")
 
     summary = (
         f"未处理 {len(open_issues)} 条 | 自动关闭 {len(dismissed)} 条 | "
@@ -175,11 +163,7 @@ def process(runtime_dir: str, dry_run: bool = False):
     print('-' * 78)
     print(f"处理摘要：{summary}")
 
-    if not dry_run and (dismissed or replied):
-        with _lock:
-            save_issues(runtime_dir, all_issues)
-        print("数据已写回 issues.json")
-    elif not dry_run:
+    if not dry_run and not (dismissed or replied):
         print("无变更，未写回")
 
     append_log(runtime_dir, summary)

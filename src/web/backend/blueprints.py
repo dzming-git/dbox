@@ -16,6 +16,10 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.api.system_info_api import system_info_bp
     from backend.api.suggestion_api import suggestion_bp
 
+    # 初始化反馈独立数据库（建表 + 从旧 issues.json 幂等迁移）
+    from backend.feedback_db import init_feedback_db
+    init_feedback_db()
+
     app.register_blueprint(auth_v2_bp)
     app.register_blueprint(shared_watch_bp)
     app.register_blueprint(gallery_bp)

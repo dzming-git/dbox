@@ -23,6 +23,14 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
+# 将 src/web 加入路径，使后端 backend 包（含独立反馈数据库模块）可被导入
+_HERE = Path(__file__).resolve()
+for _lvl in range(1, 6):
+    _cand = _HERE.parents[min(_lvl, len(_HERE.parents) - 1)]
+    if (_cand / 'src' / 'web' / 'backend' / 'feedback_db.py').exists():
+        sys.path.insert(0, str(_cand / 'src' / 'web'))
+        break
+
 
 def find_runtime_dir() -> str:
     """定位运行目录（与后端 api.system_api.get_runtime_dir 保持一致的优先级）"""
@@ -53,16 +61,29 @@ def find_runtime_dir() -> str:
 
 
 def load_issues(runtime_dir: str) -> list:
-    path = Path(runtime_dir) / 'data' / 'issues.json'
-    if not path.exists():
-        return []
+    """从反馈独立数据库（databases/feedback.db）读取全部反馈。
+
+    兼容旧数据：若独立数据库尚未初始化（无 feedback.db），回退读取旧 issues.json。
+    """
     try:
-        # 使用 utf-8-sig 兼容带 BOM 的文件（Windows 工具可能写出 BOM）
-        with open(path, 'r', encoding='utf-8-sig') as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
+        from backend.feedback_db import init_feedback_db, get_session, FeedbackIssue, issue_to_dict
+        init_feedback_db()
+        with get_session() as session:
+            issues = [issue_to_dict(i) for i in session.query(FeedbackIssue).all()]
+        for it in issues:
+            it['type'] = it.get('category') or 'suggestion'
+        return issues
     except Exception:
-        return []
+        # 回退：旧 issues.json
+        path = Path(runtime_dir) / 'data' / 'issues.json'
+        if not path.exists():
+            return []
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
 
 
 def _fmt_date(iso: str) -> str:
