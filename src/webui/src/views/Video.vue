@@ -52,7 +52,10 @@ const seekFeedbackText = ref('')
 let seekFeedbackTimer: number | null = null
 
 const updateMobileState = () => {
-  isMobile.value = window.matchMedia('(pointer: coarse)').matches
+  // 触摸设备（pointer: coarse）或窄视口（手机竖屏/小窗模式）均启用自定义控制栏
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+  const narrow = window.innerWidth <= 768
+  isMobile.value = coarse || narrow
 }
 const updateFullscreenState = () => {
   isFullscreen.value = !!document.fullscreenElement
@@ -64,12 +67,89 @@ const togglePlay = () => {
   else p.pause()
 }
 
+// 全屏切换
+const toggleFullscreen = () => {
+  const el = videoPlayer.value?.parentElement || videoPlayer.value
+  if (!el) return
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {})
+  } else {
+    el.requestFullscreen?.().catch(() => {})
+  }
+}
+
+// 移动端控制栏自动隐藏
+const showControls = ref(true)
+let controlsTimer: number | null = null
+const showControlsTemporarily = () => {
+  showControls.value = true
+  if (controlsTimer) window.clearTimeout(controlsTimer)
+  controlsTimer = window.setTimeout(() => {
+    // 仅在点暂停或静止时自动隐藏，播放中且未交互才隐藏
+    if (isPlaying.value && !isBuffering.value) showControls.value = false
+  }, 3000)
+}
+
+// 缓冲/网速状态
+const isBuffering = ref(false)
+const netSpeed = ref(0) // KB/s
+let speedTimer: number | null = null
+let speedBytesStart = 0
+let speedTimeStart = 0
+
+const onWaiting = () => {
+  isBuffering.value = true
+  showControls.value = true
+  if (controlsTimer) window.clearTimeout(controlsTimer)
+  startSpeedMonitor()
+}
+
+const onPlaying = () => {
+  // 播放恢复，结束缓冲转圈
+  isBuffering.value = false
+  startSpeedMonitor()
+}
+
+const onStalled = () => {
+  isBuffering.value = true
+  showControls.value = true
+  if (controlsTimer) window.clearTimeout(controlsTimer)
+}
+
+// 通过轮询 video.buffered 末端字节估算网速
+const startSpeedMonitor = () => {
+  if (speedTimer) window.clearInterval(speedTimer)
+  speedBytesStart = videoPlayer.value?.buffered.length
+    ? videoPlayer.value.buffered.end(videoPlayer.value.buffered.length - 1) * (videoPlayer.value.videoWidth * videoPlayer.value.videoHeight * 0.08)
+    : 0
+  speedTimeStart = performance.now()
+  speedTimer = window.setInterval(() => {
+    const v = videoPlayer.value
+    if (!v || !v.buffered.length) return
+    const bufferedEnd = v.buffered.end(v.buffered.length - 1)
+    const bytes = bufferedEnd * (v.videoWidth * v.videoHeight * 0.08)
+    const dt = (performance.now() - speedTimeStart) / 1000
+    if (dt > 0) {
+      const kbps = (bytes - speedBytesStart) / 1024 / dt
+      netSpeed.value = kbps > 0 ? kbps : 0
+    }
+    speedBytesStart = bytes
+    speedTimeStart = performance.now()
+  }, 1000)
+}
+
 // 精彩片段标记（用户个人时间戳）
 const markers = ref<VideoMarker[]>([])
 const showMarkerForm = ref(false)
 const markerNote = ref('')
 const currentTime = ref(0)
-const videoDuration = computed(() => Number(video.value?.duration) || 0)
+// 优先用 <video> 元素自身的 duration（元信息加载后最准确），回退到后端返回的 video.duration
+const videoDuration = computed(() => {
+  void durationLoaded.value
+  const el = videoPlayer.value
+  if (el && isFinite(el.duration) && el.duration > 0) return el.duration
+  return Number(video.value?.duration) || 0
+})
 const markerTrack = computed(() => {
   if (!videoDuration.value) return []
   return markers.value
@@ -97,6 +177,11 @@ const formatTime = (sec: number) => {
   const mm = h > 0 ? String(m % 60).padStart(2, '0') : String(m)
   const ss = String(r).padStart(2, '0')
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+const formatSpeed = (kbps: number) => {
+  if (kbps >= 1024) return (kbps / 1024).toFixed(1) + ' MB'
+  return Math.round(kbps) + ' KB'
 }
 
 // 移动端进度条拖动/点击跳转
@@ -250,7 +335,17 @@ const cancelAutoContinue = () => {
   clearAutoContinueTimer()
 }
 
+const stopSpeedMonitor = () => {
+  if (speedTimer) {
+    window.clearInterval(speedTimer)
+    speedTimer = null
+  }
+}
+
 const onVideoEnded = () => {
+  isBuffering.value = false
+  netSpeed.value = 0
+  stopSpeedMonitor()
   if (!getEffectiveSettings().autoContinue) {
     if (nextItem.value) goCollectionItem(nextItem.value)
     return
@@ -480,6 +575,7 @@ const goBack = () => {
 // 播放事件 - 用于共享观看同步
 const onPlay = () => {
   isPlaying.value = true
+  showControlsTemporarily()
   // 共享模式下立即同步播放状态
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = true
@@ -490,6 +586,11 @@ const onPlay = () => {
 
 const onPause = () => {
   isPlaying.value = false
+  isBuffering.value = false
+  showControls.value = true
+  netSpeed.value = 0
+  stopSpeedMonitor()
+  if (controlsTimer) window.clearTimeout(controlsTimer)
   // 共享模式下立即同步播放状态
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = false
@@ -546,6 +647,7 @@ const onGestureEnd = () => {
   // 轻触：用定时器区分单击与双击
   const now = Date.now()
   if (now - lastTapTime.value < 300) {
+    // 双击：切换播放/暂停
     if (tapTimer.value) {
       clearTimeout(tapTimer.value)
       tapTimer.value = null
@@ -553,10 +655,18 @@ const onGestureEnd = () => {
     togglePlay()
     lastTapTime.value = 0
   } else {
+    // 单击：切换操作栏显示/隐藏，不暂停视频
     lastTapTime.value = now
     if (tapTimer.value) clearTimeout(tapTimer.value)
     tapTimer.value = window.setTimeout(() => {
-      togglePlay()
+      if (controlsTimer) window.clearTimeout(controlsTimer)
+      showControls.value = !showControls.value
+      if (showControls.value && isPlaying.value) {
+        // 显示后若正在播放，定时自动隐藏
+        controlsTimer = window.setTimeout(() => {
+          if (isPlaying.value && !isBuffering.value) showControls.value = false
+        }, 3000)
+      }
       tapTimer.value = null
     }, 280)
   }
@@ -981,6 +1091,11 @@ const deleteMarker = async (id: number) => {
 }
 
 let lastReportTime = 0
+const durationLoaded = ref(0)
+const onLoadedMetadata = () => {
+  // 元信息加载完成，强制 videoDuration 重新计算（读取 <video> 元素真实时长）
+  durationLoaded.value++
+}
 const onTimeUpdate = () => {
   if (videoPlayer.value) currentTime.value = videoPlayer.value.currentTime
   // 每 10 秒上报一次观看进度（节流，避免频繁请求）
@@ -1650,10 +1765,19 @@ const handleDelete = async () => {
               @pause="onPause"
               @seeked="onSeeked"
               @timeupdate="onTimeUpdate"
+              @loadedmetadata="onLoadedMetadata"
+              @waiting="onWaiting"
+              @playing="onPlaying"
+              @stalled="onStalled"
               @ended="onVideoEnded"
               preload="metadata"
-              :controls="!isTouchMode"
+              :controls="!isMobile"
             ></video>
+            <!-- 缓冲转圈 + 网速 -->
+            <div v-if="isBuffering" class="buffering-overlay">
+              <div class="buffering-spinner"></div>
+              <div class="buffering-speed" v-if="netSpeed > 0">{{ formatSpeed(netSpeed) }}/s</div>
+            </div>
             <!-- 移动端手势层：双击/左右滑动控制播放进度 -->
             <div
               v-if="isTouchMode"
@@ -1666,11 +1790,12 @@ const handleDelete = async () => {
             <div v-if="isTouchMode && seekFeedbackVisible" class="seek-feedback">
               {{ seekFeedbackText }}
             </div>
-            <!-- 移动端进度条（原生控件在触摸模式下关闭，此处提供可见进度条与拖动跳转） -->
+            <!-- 移动端底部控制栏：播放/暂停 + 进度条 + 全屏（原生控件在触摸模式下关闭） -->
             <div
-              v-if="isMobile"
-              class="mobile-progress"
-              :class="{ playing: isPlaying }"
+              v-if="isMobile && !autoContinueVisible"
+              class="mobile-controls"
+              :class="{ hidden: !showControls }"
+              @click.stop
             >
               <div
                 ref="progressBarRef"
@@ -1682,9 +1807,27 @@ const handleDelete = async () => {
                 <div class="mp-played" :style="{ width: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
                 <div class="mp-thumb" :style="{ left: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
               </div>
-              <div class="mp-time">
-                <span>{{ formatTime(currentTime) }}</span>
-                <span>{{ formatTime(videoDuration) }}</span>
+              <div class="mc-row">
+                <button class="mc-btn" @click.stop="togglePlay" :aria-label="isPlaying ? '暂停' : '播放'">
+                  <svg v-if="!isPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                  <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+                  </svg>
+                </button>
+                <div class="mp-time">
+                  <span>{{ formatTime(currentTime) }}</span>
+                  <span>{{ formatTime(videoDuration) }}</span>
+                </div>
+                <button class="mc-btn" @click.stop="toggleFullscreen" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
+                  <svg v-if="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                  </svg>
+                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" />
+                  </svg>
+                </button>
               </div>
             </div>
             <!-- 自动续播倒计时遮罩 -->
@@ -1741,7 +1884,7 @@ const handleDelete = async () => {
 
         <div class="video-meta">
           <span class="meta-item" data-testid="view-count">{{ video.view_count }} 次观看</span>
-          <span class="meta-item">{{ formatDuration(video.duration || 0) }}</span>
+          <span class="meta-item">{{ formatDuration(videoDuration || video.duration || 0) }}</span>
           <span class="meta-item" v-if="video.created_at">{{ new Date(video.created_at).toLocaleDateString() }}</span>
           <!-- 合集是分类归属，放在信息区而非操作按钮排 -->
           <span
@@ -2455,19 +2598,6 @@ const handleDelete = async () => {
 }
 
 /* 移动端进度条（替代被关闭的原生控件） */
-.mobile-progress {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 7;
-  padding: 10px 12px 14px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .mp-bar {
   position: relative;
   height: 16px;
@@ -2507,10 +2637,85 @@ const handleDelete = async () => {
   pointer-events: none;
 }
 
+/* 移动端底部控制栏（播放/暂停 + 进度条 + 全屏） */
+.mobile-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  padding: 22px 12px 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+  transition: opacity 0.3s ease;
+}
+
+.mc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.mc-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mc-btn:active {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .mp-time {
+  flex: 1;
   display: flex;
   justify-content: space-between;
   font-size: 12px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* 控制栏自动隐藏 */
+.mobile-controls.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 缓冲转圈 + 网速（桌面/移动通用） */
+.buffering-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.buffering-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.buffering-speed {
+  font-size: 14px;
   color: #fff;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
@@ -2629,6 +2834,13 @@ const handleDelete = async () => {
   background: #000;
   isolation: isolate;
   z-index: 1;
+}
+
+/* 全屏时铺满整个屏幕 */
+.video-player-container:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
 }
 
 .video-element {
