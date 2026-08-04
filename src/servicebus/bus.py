@@ -133,24 +133,117 @@ class ServiceBus:
         self._subscribers_lock = threading.Lock()
 
     @staticmethod
-    def register_service(service_name: str, interfaces: list = None,
+    def register_service(service_name: str, interfaces: list = None, *,
+                         handler: callable = None, object_path: str = "",
                          host: str = DEFAULT_HOST,
                          rpc_port: int = DEFAULT_RPC_PORT,
-                         pub_port: int = DEFAULT_PUB_PORT):
+                         pub_port: int = DEFAULT_PUB_PORT,
+                         auto_start: bool = True):
         """
-        注册服务到总线（静态方法，便捷 API）
+        注册一个服务到总线（静态方法，便捷 API），返回已注册的服务实例。
 
-        模拟 D-Bus 的 bus.request_name()。
+        模拟 D-Bus 的 ``bus.request_name()`` + 启动监听线程。调用方无需手动
+        编写 ``BaseDBusService`` 子类，一行即可上线一个可被其它进程发现的 D-Bus
+        风格服务。
 
-        Args:
-            service_name: 服务名，如 'com.dbox.thumbnail'
-            interfaces: 支持的接口列表
-            host: 总线地址
-            rpc_port: RPC 端口
-            pub_port: PUB 端口
+        参数
+        ----
+        service_name : str
+            服务名（Bus Name），如 ``com.dbox.thumbnail``。
+        interfaces : list[str]
+            该服务声明的接口名列表，如 ``['com.dbox.Thumbnail']``；用于 HELLO 注册。
+        handler : callable | None
+            方法分发处理器，签名 ``handler(method: str, params: dict) -> dict``。
+            省略时服务仍会完成注册并响应一个内置 ``Ping`` 探活方法（返回
+            ``{'success': True, 'pong': True}``），便于健康检查。
+        object_path : str
+            对象路径（D-Bus Object Path）；空字符串时回退为
+            ``/com/dbox/<service_name 末段>``。
+        host / rpc_port / pub_port :
+            总线地址（与 ``BaseDBusService`` 一致）。
+        auto_start : bool
+            是否立即 ``start()`` 启动监听（默认 True）。
+
+        返回
+        ----
+        BaseDBusService
+            已 HELLO 注册、监听线程已启动（auto_start=True）的服务实例。
+            可通过 ``svc.running`` 判断存活、``svc.stop()`` 下线。
+
+        典型用法
+        --------
+        >>> svc = ServiceBus.register_service(
+        ...     "com.example.MySvc",
+        ...     interfaces=["com.example.MySvc"],
+        ...     handler=lambda m, p: {"success": True, "result": "ok"} if m == "DoWork" else None,
+        ... )
+        >>> # svc 已上线：其它进程可经 BusRouter 发现并调用 DoWork
         """
-        # TODO: 实现服务注册（在 BaseDBusService 中完成）
-        pass
+        # 内置探活：未提供 handler 时仍能响应 Ping（健康检查 / 就绪探测）
+        def _default_handler(method, params):
+            if method == "Ping":
+                return {"success": True, "pong": True, "service": service_name}
+            return None
+
+        _handler = handler or _default_handler
+        _interfaces = list(interfaces or [service_name])
+
+        # 延迟导入避免 service_base <-> bus 的循环依赖
+        from .service_base import BaseDBusService
+
+        # 动态构造匿名子类：把每个接口声明与统一 handler 分发挂上去
+        import re as _re
+
+        def _snake(name: str) -> str:
+            s1 = _re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', name)
+            return _re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+        def _make_on_method(method_name):
+            def _on(self, params):
+                return _handler(method_name, params or {})
+            _on.__name__ = f"on_method_{_snake(method_name)}"
+            return _on
+
+        # 默认支持的方法：handler 可能响应的任意方法名无法在类层面穷举，
+        # 因此额外挂一个通配处理器——通过重写 _dispatch_message 实现。
+        ns = {
+            "BUS_NAME": service_name,
+            "INTERFACES": _interfaces,
+            "OBJECT_PATH": object_path or ("/com/dbox/" + service_name.split(".")[-1]
+                                           if "." in service_name else "/" + service_name),
+        }
+
+        # 用闭包改写分发：优先 on_method_xxx，否则交给统一 handler
+        def _dispatch_message(self, msg):
+            if msg.type == MessageType.METHOD_CALL:
+                handler_name = f"on_method_{_snake(msg.member)}"
+                h = getattr(self, handler_name, None)
+                if h is not None:
+                    self._executor.submit(self._execute_handler, h, msg)
+                    return
+                # 统一 handler 兜底（支持动态方法名）
+                self._executor.submit(
+                    self._execute_handler,
+                    lambda params: _handler(msg.member, params),
+                    msg,
+                )
+            elif msg.type == MessageType.SIGNAL:
+                handler_name = f"on_signal_{_snake(msg.member)}"
+                h = getattr(self, handler_name, None)
+                if h is not None:
+                    try:
+                        h(msg.signal_data, msg)
+                    except Exception:
+                        pass
+            # METHOD_REPLY / ERROR 由 call_method 的 poll 处理
+
+        ns["_dispatch_message"] = _dispatch_message
+
+        svc_cls = type(f"_RegisteredService_{_snake(service_name)}", (BaseDBusService,), ns)
+        svc = svc_cls(host=host, rpc_port=rpc_port, pub_port=pub_port)
+        if auto_start:
+            svc.start()
+        return svc
 
     def _daemon_loop(self):
         """
