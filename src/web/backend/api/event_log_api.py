@@ -25,7 +25,11 @@ STATE_PATH = os.path.join(_LISTENER_DIR, '.listener_state.json')
 
 
 def _listener_running():
-    """根据 .listener_state.json 中的 pid 判断监听器是否在运行。"""
+    """根据 .listener_state.json 中的 pid 判断监听器是否在运行。
+
+    除 pid 存活外，额外校验该进程命令行确实包含 listener.py，
+    避免 pid 复用导致误判为运行中。
+    """
     if not os.path.exists(STATE_PATH):
         return False
     try:
@@ -34,7 +38,15 @@ def _listener_running():
         pid = state.get('pid')
         if not pid:
             return False
-        return psutil.pid_exists(pid)
+        if not psutil.pid_exists(pid):
+            return False
+        try:
+            proc = psutil.Process(pid)
+            cmd = ' '.join(proc.cmdline())
+            return 'event_listener/listener.py' in cmd or 'listener.py' in cmd
+        except Exception:
+            # 无法读取命令行时退回到仅 pid 判断
+            return True
     except Exception:
         return False
 

@@ -82,5 +82,11 @@ export const logApi = {
 export const eventApi = {
   // 获取事件监听器日志（反馈事件处理日志）
   getLog: (params: { tail?: number; page?: number; limit?: number }) =>
-    api.get('/api/admin/event-log', { params })
+    api.get('/api/admin/event-log', { params }),
+  // 获取事件监听器配置
+  getConfig: () => api.get('/api/admin/event-listener/config'),
+  // 保存事件监听器配置（自动重启服务生效）
+  saveConfig: (config: any) => api.put('/api/admin/event-listener/config', { config }),
+  // 仅重启监听器服务
+  restart: () => api.post('/api/admin/event-listener/restart'),
 }

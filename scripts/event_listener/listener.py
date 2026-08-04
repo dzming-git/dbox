@@ -373,6 +373,8 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
+    # 立即把当前进程 pid 写入 state，确保管理后台能在启动瞬间判定为「运行中」
+    save_state(load_state())
     config, source = load_config()
     interval = args.interval if args.interval else config.get('interval', 30)
     print(f"[listener] 启动，dbox={DBOX_ROOT}，handlers={HANDLERS_DIR}，interval={interval}s，dry_run={args.dry_run}，config={source}")
