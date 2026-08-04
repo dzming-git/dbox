@@ -89,6 +89,31 @@ const seekTo = (time: number) => {
   }
 }
 
+const formatTime = (sec: number) => {
+  const s = Math.max(0, Math.floor(sec || 0))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  const h = Math.floor(m / 60)
+  const mm = h > 0 ? String(m % 60).padStart(2, '0') : String(m)
+  const ss = String(r).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+// 移动端进度条拖动/点击跳转
+const progressBarRef = ref<HTMLElement | null>(null)
+const draggingProgress = ref(false)
+const seekFromBar = (e: MouseEvent | TouchEvent) => {
+  const bar = progressBarRef.value
+  const player = videoPlayer.value
+  if (!bar || !player) return
+  const rect = bar.getBoundingClientRect()
+  const clientX = 'touches' in e ? (e as TouchEvent).touches[0]?.clientX : (e as MouseEvent).clientX
+  if (clientX == null) return
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  player.currentTime = ratio * (Number(player.duration) || videoDuration.value)
+  if (isPlaying.value) player.play().catch(() => {})
+}
+
 const videoHash = computed(() => route.params.hash as string)
 
 // —— 合集连播上下文 ——
@@ -1641,6 +1666,27 @@ const handleDelete = async () => {
             <div v-if="isTouchMode && seekFeedbackVisible" class="seek-feedback">
               {{ seekFeedbackText }}
             </div>
+            <!-- 移动端进度条（原生控件在触摸模式下关闭，此处提供可见进度条与拖动跳转） -->
+            <div
+              v-if="isMobile"
+              class="mobile-progress"
+              :class="{ playing: isPlaying }"
+            >
+              <div
+                ref="progressBarRef"
+                class="mp-bar"
+                @touchstart.prevent="seekFromBar($event)"
+                @touchmove.prevent="seekFromBar($event)"
+                @click="seekFromBar($event)"
+              >
+                <div class="mp-played" :style="{ width: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
+                <div class="mp-thumb" :style="{ left: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
+              </div>
+              <div class="mp-time">
+                <span>{{ formatTime(currentTime) }}</span>
+                <span>{{ formatTime(videoDuration) }}</span>
+              </div>
+            </div>
             <!-- 自动续播倒计时遮罩 -->
             <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
               <div class="ac-card">
@@ -2406,6 +2452,68 @@ const handleDelete = async () => {
   z-index: 6;
   pointer-events: none;
   white-space: nowrap;
+}
+
+/* 移动端进度条（替代被关闭的原生控件） */
+.mobile-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  padding: 10px 12px 14px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mp-bar {
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mp-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.mp-played {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent, #3b82f6);
+  pointer-events: none;
+}
+
+.mp-thumb {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translateX(-50%);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.mp-time {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .recommendations-list {
