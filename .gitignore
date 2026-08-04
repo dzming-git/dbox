@@ -130,6 +130,8 @@ _archived/
 scripts/event_listener/.listener_state.json
 scripts/event_listener/.listener.log
 scripts/event_listener/handlers/
+# 用户自定义事件监听器配置（自由配置监听哪些事件、调用哪些脚本与参数），不纳入 git
+scripts/event_listener/event_listener_config.json
 
 # ============================================
 # 测试文件和临时脚本

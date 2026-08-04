@@ -4,24 +4,46 @@
 - 轮询反馈独立数据库（feedback.db），将反馈状态变化识别为事件：
     * feedback.new      —— 新增的反馈（首次被监听器发现，status=open）
     * feedback.reopened —— 曾被处理、又被重新打开（status 从非 open 变回 open）
-- 当事件发生时，调用 handlers/ 目录下用户自定义的 handler 脚本（外部进程）。
-  handler 脚本本身不纳入 git（见 .gitignore 的 scripts/event_listener/handlers/ 规则），
+- 当事件发生时，按用户配置文件调用 handler 脚本（外部进程）。
+  handler 脚本本身与监听器配置都属于「用户本地数据」，不纳入 git
+  （见 .gitignore 的 scripts/event_listener/ 相关规则），
   因此可以自由扩展、包含本地路径或个人逻辑，而不会污染仓库。
 
-handler 调用约定：
-- 以子进程方式执行：python <handler> --event <event_name> --payload <json>
-- 框架通过环境变量注入：
+handler 调用约定（用户可自由配置）：
+- 用户在 event_listener_config.json 中声明「事件 -> 一个或多个脚本」映射，
+  并可为每个脚本指定命令行参数模板。
+- 框架始终通过环境变量注入事件上下文（handler 可用任意一种方式读取）：
     EVENT_NAME      事件名
     EVENT_PAYLOAD   JSON 字符串（含 issue 字典及事件元信息）
     DBOX_ROOT       项目根目录
-- handler 的 stdout/stderr 会被框架记录到日志。
+- 若脚本未显式指定参数，框架默认追加： --event <事件名> --payload <JSON>
+  （与旧的硬编码约定保持一致，便于存量脚本平滑迁移）。
 - handler 退出码非 0 视为处理失败，框架会标记该事件待重试（限次）。
+
+事件监听器配置文件（event_listener_config.json）示例：
+{
+  "interval": 30,
+  "events": {
+    "feedback.new": [
+      {"script": "handlers/feedback_processor.py", "args": []},
+      {"script": "C:/Users/me/scripts/notify.ps1", "args": ["--event", "{EVENT}", "--id", "{ISSUE_ID}"]}
+    ],
+    "feedback.reopened": [
+      {"script": "handlers/feedback_processor.py", "args": []}
+    ]
+  }
+}
+
+参数模板占位符（在 args 中可用，框架会替换后传入脚本）：
+  {EVENT}      事件名
+  {ISSUE_ID}   反馈 ID
+  {ISSUE_JSON} 整个 issue 的 JSON 字符串（单行）
 
 用法：
     python scripts/event_listener/listener.py            # 循环监听
     python scripts/event_listener/listener.py --once     # 只扫描一次
     python scripts/event_listener/listener.py --interval 60
-    python scripts/event_listener/listener.py --dry-run  # 只打印将触发的事件，不调用 handler
+    python scripts/event_listener/listener.py --dry-run  # 只打印将触发的事件与命令，不调用 handler
 """
 import os
 import sys
@@ -37,6 +59,25 @@ DBOX_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 HANDLERS_DIR = os.path.join(SCRIPT_DIR, 'handlers')
 STATE_PATH = os.path.join(SCRIPT_DIR, '.listener_state.json')
 LOG_PATH = os.path.join(SCRIPT_DIR, '.listener.log')
+CONFIG_PATH = os.path.join(SCRIPT_DIR, 'event_listener_config.json')
+
+# 默认事件 -> handler 列表（当配置文件不存在时使用，保持旧行为可运行）
+DEFAULT_CONFIG = {
+    'interval': 30,
+    'events': {
+        'feedback.new': [
+            {'script': 'handlers/feedback_processor.py', 'args': []},
+        ],
+        'feedback.reopened': [
+            {'script': 'handlers/feedback_processor.py', 'args': []},
+        ],
+    },
+}
+
+# 单条事件最大重试次数
+MAX_RETRIES = 3
+# 派发后超过该分钟数仍未处理则视为 stale（用于重启后兜底）
+STALE_MINUTES = 60
 
 
 class _Tee(io.TextIOBase):
@@ -100,6 +141,7 @@ def setup_logging():
     sys.stdout = _Tee(_TSWriter(orig_out), logf)
     sys.stderr = _Tee(_TSWriter(orig_err), logf)
 
+
 # 让脚本能 import 到 src/web 下的 backend 模块
 WEB_DIR = os.path.join(DBOX_ROOT, 'src', 'web')
 if WEB_DIR not in sys.path:
@@ -107,16 +149,64 @@ if WEB_DIR not in sys.path:
 
 from backend.feedback_db import init_feedback_db, get_session, FeedbackIssue  # noqa: E402
 
-# 事件 -> 关注的 handler 文件名（一个事件可触发多个 handler，按顺序执行）
-EVENT_HANDLERS = {
-    'feedback.new': ['feedback_processor.py'],
-    'feedback.reopened': ['feedback_processor.py'],
-}
 
-# 单条事件最大重试次数
-MAX_RETRIES = 3
-# 派发后超过该分钟数仍未处理则视为 stale（用于重启后兜底）
-STALE_MINUTES = 60
+def load_config():
+    """读取用户配置文件；文件不存在时回退到默认配置。
+
+    返回 (config, source)，source 为 'user' 或 'default'。
+    """
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            print(f"[listener] 已加载用户配置: {CONFIG_PATH}")
+            return cfg, 'user'
+        except Exception as e:
+            print(f"[listener] 配置文件解析失败，使用默认配置: {e}")
+    else:
+        print(f"[listener] 未找到配置文件 {CONFIG_PATH}，使用内置默认配置（仅反馈事件）")
+    return DEFAULT_CONFIG, 'default'
+
+
+def resolve_handlers(event_name, config):
+    """返回事件对应的 handler 列表（含 script / args 模板）。"""
+    events = config.get('events', {})
+    handlers = events.get(event_name, [])
+    # 兼容旧式：handler 可能是纯字符串（脚本名）
+    normalized = []
+    for h in handlers:
+        if isinstance(h, str):
+            normalized.append({'script': h, 'args': []})
+        else:
+            normalized.append({
+                'script': h.get('script', ''),
+                'args': h.get('args', []) or [],
+            })
+    return normalized
+
+
+def render_args(args_template, event_name, issue):
+    """把参数模板中的占位符替换为实际值。
+
+    占位符：
+      {EVENT}      事件名
+      {ISSUE_ID}   反馈 ID
+      {ISSUE_JSON} issue 的 JSON 字符串（单行）
+    """
+    issue_id = issue.get('id', '')
+    issue_json = json.dumps(issue, ensure_ascii=False)
+    repl = {
+        '{EVENT}': event_name,
+        '{ISSUE_ID}': str(issue_id),
+        '{ISSUE_JSON}': issue_json,
+    }
+    out = []
+    for a in args_template:
+        if a in repl:
+            out.append(repl[a])
+        else:
+            out.append(a)
+    return out
 
 
 def load_state():
@@ -155,49 +245,74 @@ def fetch_all_issues():
     return out
 
 
-def call_handler(event_name, payload, dry_run=False):
-    handlers = EVENT_HANDLERS.get(event_name, [])
-    if not handlers:
-        print(f"[listener] 事件 {event_name} 无对应 handler，跳过")
+def call_handler(event_name, issue, handler, dry_run=False):
+    script = handler.get('script', '')
+    if not script:
+        print(f"[listener] handler 缺少 script 字段，跳过")
         return True
+
+    # 解析脚本绝对路径：相对 handlers 目录或 handlers 下的相对路径；否则按原样（绝对/相对 cwd）
+    if os.path.isabs(script):
+        hpath = script
+    else:
+        candidate = os.path.join(HANDLERS_DIR, script)
+        if os.path.exists(candidate):
+            hpath = candidate
+        else:
+            # 允许直接写 handlers 子目录内的文件名
+            alt = os.path.join(SCRIPT_DIR, script)
+            hpath = alt if os.path.exists(alt) else candidate
+
+    if not os.path.exists(hpath):
+        print(f"[listener] handler 不存在: {hpath}，跳过")
+        return True
+
+    # 命令行参数：用户模板 + 若用户未指定任何参数则追加默认 --event/--payload
+    args_template = handler.get('args', []) or []
+    rendered = render_args(args_template, event_name, issue)
+    if not rendered:
+        rendered = ['--event', event_name, '--payload', json.dumps(issue, ensure_ascii=False)]
+
+    payload = {'event': event_name, 'issue': issue}
     payload_str = json.dumps(payload, ensure_ascii=False)
-    for h in handlers:
-        hpath = os.path.join(HANDLERS_DIR, h)
-        if not os.path.exists(hpath):
-            print(f"[listener] handler 不存在: {hpath}，跳过")
-            continue
-        env = dict(os.environ)
-        env['EVENT_NAME'] = event_name
-        env['EVENT_PAYLOAD'] = payload_str
-        env['DBOX_ROOT'] = DBOX_ROOT
-        cmd = [sys.executable, hpath]
-        print(f"[listener] 触发 handler: {h} (event={event_name}, issue={payload.get('issue', {}).get('id')})")
-        if dry_run:
-            print(f"[listener][dry-run] 命令: {' '.join(cmd)}")
-            print(f"[listener][dry-run] 环境变量 EVENT_NAME={event_name}")
-            continue
-        try:
-            proc = subprocess.run(cmd, cwd=DBOX_ROOT, env=env,
-                                  capture_output=True, text=True, timeout=3600)
-            if proc.stdout:
-                print(f"[listener][{h}/stdout] {proc.stdout.strip()}")
-            if proc.stderr:
-                print(f"[listener][{h}/stderr] {proc.stderr.strip()}")
-            if proc.returncode != 0:
-                print(f"[listener] handler {h} 退出码 {proc.returncode}（失败）")
-                return False
-        except subprocess.TimeoutExpired:
-            print(f"[listener] handler {h} 超时（>3600s）")
+
+    env = dict(os.environ)
+    env['EVENT_NAME'] = event_name
+    env['EVENT_PAYLOAD'] = payload_str
+    env['DBOX_ROOT'] = DBOX_ROOT
+
+    print(f"[listener] 触发 handler: {script} (event={event_name}, issue={issue.get('id')})")
+    if dry_run:
+        print(f"[listener][dry-run] 命令: {sys.executable} {hpath} {' '.join(rendered)}")
+        print(f"[listener][dry-run] 环境变量 EVENT_NAME={event_name}")
+        return True
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, hpath] + rendered,
+            cwd=DBOX_ROOT, env=env,
+            capture_output=True, text=True, timeout=3600,
+        )
+        if proc.stdout:
+            print(f"[listener][{script}/stdout] {proc.stdout.strip()}")
+        if proc.stderr:
+            print(f"[listener][{script}/stderr] {proc.stderr.strip()}")
+        if proc.returncode != 0:
+            print(f"[listener] handler {script} 退出码 {proc.returncode}（失败）")
             return False
-        except Exception as e:
-            print(f"[listener] 调用 handler {h} 异常: {e}")
-            return False
+    except subprocess.TimeoutExpired:
+        print(f"[listener] handler {script} 超时（>3600s）")
+        return False
+    except Exception as e:
+        print(f"[listener] 调用 handler {script} 异常: {e}")
+        return False
     return True
 
 
 def sweep(dry_run=False):
     state = load_state()
     now = time.time()
+    config, _ = load_config()
 
     issues = fetch_all_issues()
     # 建立 id -> issue 映射与当前 open 集合
@@ -229,13 +344,18 @@ def sweep(dry_run=False):
                                       'retries': prev.get('retries', 0)}
 
     for event_name, issue in triggered:
-        ok = call_handler(event_name, {'event': event_name, 'issue': issue}, dry_run=dry_run)
-        if not ok and not dry_run:
-            rec = state['seen'].get(issue['id'], {})
-            rec['retries'] = rec.get('retries', 0) + 1
-            if rec['retries'] >= MAX_RETRIES:
-                print(f"[listener] {issue['id']} 重试 {MAX_RETRIES} 次仍失败，放弃")
-            state['seen'][issue['id']] = rec
+        handlers = resolve_handlers(event_name, config)
+        if not handlers:
+            print(f"[listener] 事件 {event_name} 无 handler 配置，跳过")
+            continue
+        for handler in handlers:
+            ok = call_handler(event_name, issue, handler, dry_run=dry_run)
+            if not ok and not dry_run:
+                rec = state['seen'].get(issue['id'], {})
+                rec['retries'] = rec.get('retries', 0) + 1
+                if rec['retries'] >= MAX_RETRIES:
+                    print(f"[listener] {issue['id']} 重试 {MAX_RETRIES} 次仍失败，放弃")
+                state['seen'][issue['id']] = rec
 
     # 2) 清理已删除的反馈记录
     for iid in list(state['seen'].keys()):
@@ -248,12 +368,14 @@ def sweep(dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description='通用事件监听器')
     parser.add_argument('--once', action='store_true', help='只扫描一次')
-    parser.add_argument('--interval', type=int, default=30, help='轮询间隔秒数')
-    parser.add_argument('--dry-run', action='store_true', help='只打印将触发的事件，不调用 handler')
+    parser.add_argument('--interval', type=int, default=None, help='轮询间隔秒数（覆盖配置）')
+    parser.add_argument('--dry-run', action='store_true', help='只打印将触发的事件与命令，不调用 handler')
     args = parser.parse_args()
 
     setup_logging()
-    print(f"[listener] 启动，dbox={DBOX_ROOT}，handlers={HANDLERS_DIR}，interval={args.interval}s，dry_run={args.dry_run}")
+    config, source = load_config()
+    interval = args.interval if args.interval else config.get('interval', 30)
+    print(f"[listener] 启动，dbox={DBOX_ROOT}，handlers={HANDLERS_DIR}，interval={interval}s，dry_run={args.dry_run}，config={source}")
     print(f"[listener] 日志写入: {LOG_PATH}")
 
     if args.once:
@@ -262,7 +384,7 @@ def main():
     try:
         while True:
             sweep(dry_run=args.dry_run)
-            time.sleep(args.interval)
+            time.sleep(interval)
     except KeyboardInterrupt:
         print("[listener] 被中断，退出。")
 

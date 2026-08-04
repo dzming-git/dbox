@@ -129,6 +129,14 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'search',
     },
+    'listener': {
+        'service_name': 'dbox-listener',
+        'display_name': 'Dbox 事件监听器',
+        'description': 'Dbox 通用事件监听器 - 轮询反馈库，按用户配置 event_listener_config.json 调用 handler 脚本',
+        'entry': 'scripts/event_listener/listener.py',
+        'port': None,
+        'log_prefix': 'listener',
+    },
 }
 
 # ============================================================

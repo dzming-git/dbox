@@ -60,6 +60,12 @@ SERVICES = {
         'description': 'Dbox 独立下载器服务（外部脚本，与主服务解耦）',
         'port': 8092,
     },
+    'listener': {
+        'service_name': 'dbox-listener',
+        'display_name': 'Dbox 事件监听器',
+        'description': 'Dbox 通用事件监听器（轮询反馈库，按用户配置调用 handler 脚本）',
+        'port': 0,
+    },
 }
 
 
