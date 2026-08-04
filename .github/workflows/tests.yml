@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flask flask-cors flask-sqlalchemy flask-jwt-extended \
-                      sqlalchemy watchdog requests pyjwt pytest || true
+                      sqlalchemy watchdog requests pyjwt pytest pyzmq || true
 
       - name: Run backend unit & integration tests
         working-directory: ${{ github.workspace }}
@@ -35,6 +35,12 @@ jobs:
             tests.test_helpers_integration \
             tests.test_runtime_injection \
             tests.test_app_import
+
+      # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
+      - name: Run ServiceBus integration tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          python tests/test_servicebus.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -54,6 +60,9 @@ jobs:
 
       - name: Type check
         run: npx vue-tsc --noEmit
+
+      - name: Build
+        run: npm run build
 
       - name: Run frontend API mock tests
         run: npx vitest run

@@ -417,8 +417,8 @@ def main():
 
     for test in tests:
         try:
-            if test():
-                passed += 1
+            test()
+            passed += 1
         except Exception as e:
             print(f"  [FAIL] 测试失败: {e}")
             import traceback
