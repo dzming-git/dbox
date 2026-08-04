@@ -1,12 +1,4 @@
 {
-    "host": "0.0.0.0",
-    "auto_start": true,
-    "ports": {
-        "web": 8080,
-        "main_app": 8080,
-        "admin_app": 8081,
-        "thumbnail": 5001
-    },
     "scan_directories": [
         {
             "path": "M:/<媒体库>",
@@ -14,8 +6,7 @@
             "enabled": true
         }
     ],
-    "auto_scan_on_startup": true,
-    "scan_interval_minutes": 60,
+    "auto_scan_on_startup": false,
     "supported_formats": [
         ".mp4",
         ".avi",
@@ -27,11 +18,22 @@
         ".m4v"
     ],
     "default_tags": [],
+    "default_priority": 0,
+    "ports": {
+        "web": 8080,
+        "main_app": 8080,
+        "admin_app": 8081,
+        "thumbnail": 5001
+    },
+    "host": "0.0.0.0",
+    "auto_start": true,
+    "scan_interval_minutes": 60,
     "test": "value",
     "scan_directory": "/path/to/scan",
     "video_formats": [
         "mp4",
         "mkv",
         "avi"
-    ]
+    ],
+    "library_watch_enabled": true
 }
