@@ -10,6 +10,7 @@ from backend.thumbnail_helpers import _generate_missing_thumbnails
 from backend.thumbnail_helpers import _thumb_auto_stop_event
 from backend.thumbnail_helpers import _start_auto_generate
 from backend.thumbnail_helpers import _thumb_auto_thread
+from backend.thumbnail_helpers import get_auto_generate_progress
 from backend.thumbnail_helpers import _load_thumb_config
 import os
 from backend.access import admin_required
@@ -20,6 +21,37 @@ from liblog import get_service_logger
 log = get_service_logger('dbox-web')
 
 bp = Blueprint('thumbnail_api', __name__)
+
+
+def compute_thumb_stats():
+    """实时计算缩略图统计：视频总数、缩略图文件数、缺失数量。
+
+    抽成独立函数，供配置接口与自动生成状态轮询接口复用，确保进度推进时
+    缺失数量能实时下降（卡片数字之前只在页面加载时计算一次，从不刷新）。
+    """
+    from core.models import Video
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    total_thumbnails = 0
+    if os.path.exists(thumb_dir):
+        total_thumbnails = len([f for f in os.listdir(thumb_dir)
+                                if f.lower().endswith(('.gif', '.jpg', '.png'))])
+
+    db_videos = Video.query.all()
+    no_thumb_count = 0
+    for v in db_videos:
+        if v.hash:
+            has_thumb = any(
+                os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
+                for ext in ['gif', 'jpg', 'png']
+            )
+            if not has_thumb:
+                no_thumb_count += 1
+
+    return {
+        'total_videos': len(db_videos),
+        'total_thumbnails': total_thumbnails,
+        'no_thumbnail_count': no_thumb_count,
+    }
 
 @bp.route('/thumbnail/<video_hash>')
 def get_thumbnail(video_hash):
@@ -172,39 +204,31 @@ def get_thumbnail_config():
     try:
         config = _load_thumb_config()
 
-        # 获取缩略图统计信息
-        thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
-        total_thumbnails = 0
-        if os.path.exists(thumb_dir):
-            total_thumbnails = len([f for f in os.listdir(thumb_dir)
-                                     if f.lower().endswith(('.gif', '.jpg', '.png'))])
-
-        # 获取无缩略图的视频数量
-        from core.models import Video
-        db_videos = Video.query.all()
-        no_thumb_count = 0
-        for v in db_videos:
-            if v.hash:
-                has_thumb = any(
-                    os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
-                    for ext in ['gif', 'jpg', 'png']
-                )
-                if not has_thumb:
-                    no_thumb_count += 1
+        # 获取缩略图统计信息（实时计算，确保前后端一致）
+        thumb_stats = compute_thumb_stats()
 
         # 获取缩略图服务状态
         thumb_service_status = 'unknown'
         thumb_service_stats = None
         if runtime.thumbnail_bus:
             try:
-                thumb_service_stats = runtime.thumbnail_bus.call_method(
+                raw_stats = runtime.thumbnail_bus.call_method(
                     service='com.dbox.thumbnaild',
                     interface='com.dbox.Thumbnaild',
                     method='GetMetrics',
                     params={}
                 )
-                if thumb_service_stats:
+                if raw_stats:
                     thumb_service_status = 'running'
+                    # 字段兼容：thumbnaild 返回 {total,completed,failed,active,queue}，
+                    # 前端 Admin.vue 读取 tasks_completed/tasks_failed/active_tasks/queue_size
+                    thumb_service_stats = {
+                        'tasks_total': raw_stats.get('total', 0),
+                        'tasks_completed': raw_stats.get('completed', 0),
+                        'tasks_failed': raw_stats.get('failed', 0),
+                        'active_tasks': raw_stats.get('active', 0),
+                        'queue_size': raw_stats.get('queue', 0),
+                    }
                 else:
                     thumb_service_status = 'error'
             except Exception:
@@ -217,12 +241,13 @@ def get_thumbnail_config():
             'success': True,
             'config': config,
             'stats': {
-                'total_videos': len(db_videos),
-                'total_thumbnails': total_thumbnails,
-                'no_thumbnail_count': no_thumb_count,
+                'total_videos': thumb_stats['total_videos'],
+                'total_thumbnails': thumb_stats['total_thumbnails'],
+                'no_thumbnail_count': thumb_stats['no_thumbnail_count'],
                 'thumb_service_status': thumb_service_status,
                 'thumb_service_stats': thumb_service_stats,
-                'is_auto_generating': is_auto_running
+                'is_auto_generating': is_auto_running,
+                'auto_generate_progress': get_auto_generate_progress()
             }
         })
     except Exception as e:
@@ -254,9 +279,9 @@ def update_thumbnail_config():
         if _save_thumb_config(config):
             log.maintenance('INFO', f'缩略图配置已更新: {config}')
 
-            # 如果开启了自动生成，启动后台线程
+            # 如果开启了自动生成，启动后台线程（必须传入 app 以保持应用上下文）
             if config['auto_generate'] and (_thumb_auto_thread is None or not _thumb_auto_thread.is_alive()):
-                _start_auto_generate(config)
+                _start_auto_generate(config, app=current_app._get_current_object())
             # 如果关闭了自动生成，停止后台线程
             elif not config['auto_generate'] and _thumb_auto_thread is not None:
                 _thumb_auto_stop_event.set()
@@ -287,11 +312,17 @@ def generate_missing_thumbnails():
 @bp.route('/api/admin/thumbnail/auto-generate/status', methods=['GET'])
 @admin_required
 def get_auto_generate_status():
-    """获取自动生成线程状态"""
+    """获取自动生成线程状态与实时进度"""
     is_running = _thumb_auto_thread is not None and _thumb_auto_thread.is_alive()
+    progress = get_auto_generate_progress()
+    progress['is_running'] = is_running
+    if not is_running and not progress['running']:
+        progress['running'] = False
     return jsonify({
         'success': True,
-        'is_running': is_running
+        'is_running': is_running,
+        'progress': progress,
+        'no_thumbnail_count': compute_thumb_stats()['no_thumbnail_count']
     })
 
 @bp.route('/api/admin/thumbnail/auto-generate/stop', methods=['POST'])

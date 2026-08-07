@@ -109,7 +109,18 @@ const thumbStats = ref<any>({
   no_thumbnail_count: 0,
   thumb_service_status: 'unknown',
   thumb_service_stats: null,
-  is_auto_generating: false
+  is_auto_generating: false,
+  auto_generate_progress: null
+})
+
+// 自动生成实时进度
+const thumbProgress = ref<any>(null)
+let autoProgressTimer: number | null = null
+
+const thumbProgressPercent = computed(() => {
+  const p = thumbProgress.value
+  if (!p || !p.total) return 0
+  return Math.min(100, Math.round((p.processed / p.total) * 100))
 })
 const thumbLoading = ref(false)
 const thumbSaving = ref(false)
@@ -1264,11 +1275,51 @@ const fetchThumbnailConfig = async () => {
       thumbConfig.value = { ...thumbConfig.value, ...res.config }
       thumbStats.value = res.stats
       thumbConfigLoaded.value = true
+      // 同步进度快照
+      thumbProgress.value = res.stats?.auto_generate_progress || null
+      startAutoProgressPolling()
     }
   } catch (error) {
     console.error('获取缩略图配置失败:', error)
   } finally {
     thumbLoading.value = false
+  }
+}
+
+// 自动生成进度轮询
+const pollAutoProgress = async () => {
+  try {
+    const res = await thumbnailManageApi.getAutoStatus() as any
+    if (res.success && res.progress) {
+      thumbProgress.value = res.progress
+      // 实时同步缺失数量卡片：缩略图生成后磁盘文件增加，缺失数应随之下降
+      if (typeof res.no_thumbnail_count === 'number' && thumbStats.value) {
+        thumbStats.value = { ...thumbStats.value, no_thumbnail_count: res.no_thumbnail_count }
+      }
+      // 进度是否仍在推进：以 thumbnaild 真实待处理数（pending）为准，
+      // 不再依赖 web 端 running 标志（后端线程可能已退出但 thumbnaild 仍在执行）。
+      const pending = res.progress.pending ?? (res.progress.total - res.progress.processed)
+      const stillGoing = res.is_running || (pending > 0 && res.progress.total > 0)
+      if (!stillGoing) {
+        // 真正结束后刷新统计并停止轮询
+        if (autoProgressTimer) {
+          clearInterval(autoProgressTimer)
+          autoProgressTimer = null
+        }
+        fetchThumbnailConfig()
+      }
+    }
+  } catch (error) {
+    // 忽略轮询错误
+  }
+}
+
+const startAutoProgressPolling = () => {
+  if (autoProgressTimer) clearInterval(autoProgressTimer)
+  // 只要已开启自动生成、或已有进度/待处理任务，就启动轮询
+  const p = thumbProgress.value
+  if (thumbConfig.value.auto_generate || (p && (p.total > 0 || p.running || (p.pending ?? 0) > 0))) {
+    autoProgressTimer = window.setInterval(pollAutoProgress, 2000)
   }
 }
 
@@ -1753,6 +1804,10 @@ onMounted(() => {
 // 组件卸载时停止轮询
 onUnmounted(() => {
   stopServicePolling()
+  if (autoProgressTimer) {
+    clearInterval(autoProgressTimer)
+    autoProgressTimer = null
+  }
 })
 </script>
 
@@ -2491,6 +2546,32 @@ onUnmounted(() => {
               <div class="auto-status-dot"></div>
               <span>自动生成正在运行中</span>
               <button class="action-btn danger small" @click="stopAutoGenerate">停止</button>
+            </div>
+
+            <!-- 自动生成实时进度 -->
+            <div v-if="thumbProgress && (thumbProgress.running || thumbProgress.processed > 0)" class="auto-progress-box">
+              <div class="auto-progress-header">
+                <span class="auto-progress-title">
+                  {{ thumbProgress.running ? '生成进度（进行中）' : '生成进度（已完成）' }}
+                </span>
+                <span class="auto-progress-count">
+                  {{ thumbProgress.processed }} / {{ thumbProgress.total }}
+                </span>
+              </div>
+              <div class="auto-progress-bar">
+                <div
+                  class="auto-progress-fill"
+                  :style="{ width: thumbProgressPercent + '%' }"
+                ></div>
+              </div>
+              <div class="auto-progress-meta">
+                <span class="text-ok">成功 {{ thumbProgress.success }}</span>
+                <span class="text-error">失败 {{ thumbProgress.failed }}</span>
+                <span v-if="thumbProgress.pending !== undefined" class="text-muted">待处理 {{ thumbProgress.pending }}</span>
+                <span v-if="thumbProgress.running && thumbProgress.current" class="auto-progress-current">
+                  当前: {{ thumbProgress.current }}
+                </span>
+              </div>
             </div>
 
             <!-- 并发线程数 -->
@@ -8327,6 +8408,63 @@ input:checked + .slider:before {
 
   font-size: 13px;
 
+}
+
+.auto-progress-box {
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: var(--bg-surface, #1a1d2e);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+}
+
+.auto-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.auto-progress-title {
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.auto-progress-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.auto-progress-bar {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.auto-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.auto-progress-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.auto-progress-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+  margin-left: auto;
 }
 
 

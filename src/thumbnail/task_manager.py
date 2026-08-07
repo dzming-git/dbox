@@ -6,6 +6,7 @@ TaskManager - 封面生成任务管理器
 被 thumbnail/main.py（旧）和 thumbnaild.py（新版）共用。
 """
 import os
+import sys
 import time
 import threading
 from datetime import datetime
@@ -21,7 +22,12 @@ def _get_project_root():
 
 PROJECT_ROOT = _get_project_root()
 # 缩略图存储从项目目录分离到系统数据区（与 web 主服务一致）。
+# thumbnaild 运行时 sys.path 只含 src/，需手动把 src/web 加入以便导入 backend.paths，
+# 否则会回退到项目目录 data/，导致生成的缩略图写入错误位置。
 try:
+    _WEB_DIR = os.path.join(PROJECT_ROOT, 'src', 'web')
+    if _WEB_DIR not in sys.path:
+        sys.path.insert(0, _WEB_DIR)
     import backend.paths as _paths
     _DATA_DIR = _paths.get_user_data_dir()
 except Exception:
@@ -111,82 +117,101 @@ class TaskManager:
 
 
 # ============ 封面生成核心逻辑 ============
-def generate_thumbnail(task):
-    """执行封面生成（同步），被 task_worker 调用"""
+# 单任务整体超时（秒）：cv2 在某些损坏/特殊编码视频上 cap.read() 可能永久阻塞，
+# 若不加超时，卡死的任务会永久占用 worker 线程，导致整个队列停滞、控制面看到
+# active 数永远不变却无文件产出。超时即放弃该任务并标记为失败，释放 worker。
+TASK_TIMEOUT = 25
+
+
+def _do_generate(task):
+    """实际生成逻辑，在独立线程中运行以便超时控制。"""
+    import cv2
+    from PIL import Image
+
+    if not os.path.exists(task.video_path):
+        return False, "视频文件不存在"
+
+    output_format = task.format
+    cap = cv2.VideoCapture(task.video_path)
+    if not cap.isOpened():
+        return False, "无法打开视频"
+
     try:
-        import cv2
-        from PIL import Image
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        if not os.path.exists(task.video_path):
-            return False, "视频文件不存在"
-
-        output_format = task.format
-        cap = cv2.VideoCapture(task.video_path)
-        if not cap.isOpened():
-            return False, "无法打开视频"
-
-        try:
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            if output_format == 'gif':
-                frames = []
-                head_skip = int(total_frames * 0.10)
-                tail_skip = int(total_frames * 0.10)
-                valid_start = head_skip
-                valid_end = total_frames - tail_skip
-                valid_frames = valid_end - valid_start
-
-                if valid_frames <= 0:
-                    valid_start = 0
-                    valid_end = total_frames
-                    valid_frames = total_frames
-
-                num_sample_points = 2
-                frames_per_point = min(8, int(fps * 0.3))
-                sample_interval = valid_frames // (num_sample_points + 1)
-
-                for sp in range(1, num_sample_points + 1):
-                    sample_pos = valid_start + (sp * sample_interval)
-                    for fp in range(frames_per_point):
-                        frame_pos = sample_pos + fp
-                        if frame_pos >= total_frames:
-                            break
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-                        ret, f = cap.read()
-                        if not ret:
-                            break
-                        f = cv2.resize(f, (240, 135))
-                        f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
-                        frames.append(Image.fromarray(f))
-
-                if frames:
-                    output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.gif')
-                    frames[0].save(
-                        output_path,
-                        save_all=True,
-                        append_images=frames[1:],
-                        duration=125,
-                        loop=0
-                    )
-                else:
-                    return False, "无法读取视频帧"
-            else:
-                frame_num = min(int(5 * fps) if fps > 0 else 10, total_frames - 1)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-                ret, frame = cap.read()
+        if output_format == 'gif':
+            frames = []
+            # 顺序读取采样，不使用 cap.set(POS_FRAMES) 跳转：
+            # 部分 mp4 的 moov atom 位于文件末尾，随机 seek 会触发
+            # "moov atom not found" 导致读取失败，顺序读取则不受影响。
+            # 为避免长视频顺序读完整个文件（极慢），只在「前 MAX_READ_FRAMES 帧」
+            # 内均匀采样 12 帧——长视频的封面取开头片段即可，无需读完全片。
+            target_total = 12
+            max_read_frames = 120  # 封顶读取范围，控制单任务耗时（M 盘慢视频顺序读取需快速收敛）
+            effective_total = min(total_frames, max_read_frames) if total_frames and total_frames > 0 else max_read_frames
+            step = max(1, int(effective_total / target_total))
+            collected = 0
+            idx = 0
+            while collected < target_total and idx < max_read_frames:
+                ret, f = cap.read()
                 if not ret:
-                    return False, "读取帧失败"
-                frame = cv2.resize(frame, (320, 180))
-                ext = 'jpg' if output_format != 'png' else 'png'
-                output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.{ext}')
-                cv2.imwrite(output_path, frame)
+                    break
+                if idx % step == 0 or collected < 2:
+                    f = cv2.resize(f, (240, 135))
+                    f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
+                    frames.append(Image.fromarray(f))
+                    collected += 1
+                idx += 1
 
-            return True, output_path
-        finally:
-            cap.release()
-    except Exception as e:
-        return False, str(e)
+            if frames:
+                output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.gif')
+                frames[0].save(
+                    output_path,
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=125,
+                    loop=0
+                )
+            else:
+                return False, "无法读取视频帧"
+        else:
+            frame_num = min(int(5 * fps) if fps > 0 else 10, total_frames - 1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            ret, frame = cap.read()
+            if not ret:
+                return False, "读取帧失败"
+            frame = cv2.resize(frame, (320, 180))
+            ext = 'jpg' if output_format != 'png' else 'png'
+            output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.{ext}')
+            cv2.imwrite(output_path, frame)
+
+        return True, output_path
+    finally:
+        cap.release()
+
+
+def generate_thumbnail(task):
+    """执行封面生成（同步），被 task_worker 调用。带整体超时保护。"""
+    result = {}
+
+    def _runner():
+        try:
+            result['val'] = _do_generate(task)
+        except Exception as e:
+            result['val'] = (False, str(e))
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(timeout=TASK_TIMEOUT)
+    if t.is_alive():
+        # 超时：cv2 卡死，放弃该任务（cap 在子线程中稍后会被 GC 释放）
+        import logging
+        logging.getLogger('thumbnail').warning(
+            f'[thumbnail] 生成超时（>{TASK_TIMEOUT}s）跳过: {task.video_hash} path={task.video_path}'
+        )
+        return False, f"生成超时（>{TASK_TIMEOUT}s），跳过该视频"
+    return result.get('val', (False, "未知错误"))
 
 
 def task_worker(task_manager):

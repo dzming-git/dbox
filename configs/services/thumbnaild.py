@@ -30,7 +30,7 @@ from thumbnail.task_manager import TaskManager, task_worker
 # 默认配置
 DEFAULT_RPC_PORT = 15555
 DEFAULT_PUB_PORT = 15556
-DEFAULT_MAX_CONCURRENT = 2
+DEFAULT_MAX_CONCURRENT = 8
 DEFAULT_QUEUE_SIZE = 100
 
 

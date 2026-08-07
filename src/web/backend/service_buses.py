@@ -15,7 +15,11 @@ log = get_service_logger('dbox-web')
 
 
 def _make_bus(name, src_dir):
-    """创建单个 BusClient（连接 thumbnaild / servicemgr / historyd / collectiond / searchd / resourced）。"""
+    """创建单个 BusClient（连接 thumbnaild / servicemgr / historyd / collectiond / searchd / resourced）。
+
+    注意：BusClient 在 __init__ 内部已调用 BusEndpoint.start_listening() 启动
+    后台接收线程，call_method 才能收到 METHOD_REPLY/ERROR 回复，无需外部额外调用。
+    """
     sys.path.insert(0, os.path.join(src_dir, 'servicebus'))
     from servicebus import BusClient
     return BusClient(

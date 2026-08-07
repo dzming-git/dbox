@@ -525,6 +525,16 @@ except Exception as e:
 # 延迟导入与注册逻辑收敛至 backend.blueprints.register_domain_blueprints
 register_domain_blueprints(app)
 
+# 启动时若缩略图配置开启了自动生成，则自动恢复后台批量生成线程，
+# 避免服务重启后需管理员手动重新打开开关才能继续生成缩略图。
+try:
+    _thumb_cfg = _load_thumb_config()
+    if _thumb_cfg.get('auto_generate') and (_thumb_auto_thread is None or not _thumb_auto_thread.is_alive()):
+        _start_auto_generate(_thumb_cfg, app=app)
+        log.maintenance('INFO', '缩略图自动生成线程已随 Web 服务启动自动恢复')
+except Exception as _e:
+    log.maintenance('WARN', f'恢复缩略图自动生成线程失败: {_e}')
+
 # ============ 主入口 ============
 if __name__ == '__main__':
     # 启动守卫：生产模式必须通过 NSSM 启动，开发模式允许直接运行。
