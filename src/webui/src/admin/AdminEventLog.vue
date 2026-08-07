@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { eventApi } from '../api'
 import { useToast } from '../composables/useToast'
 
@@ -54,14 +54,14 @@ const lines = ref<string[]>([])
 const loading = ref(false)
 const running = ref(false)
 const mode = ref<'tail' | 'page'>('tail')
-const tail = ref(300)
+const tail = ref(100)
 const page = ref(1)
-const limit = ref(200)
+const limit = ref(100)
 const total = ref(0)
 const autoRefresh = ref(false)
 let timer: number | null = null
 
-const totalPages = () => Math.max(1, Math.ceil(total.value / limit.value))
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit.value)))
 
 async function loadStatus() {
   try {
@@ -109,7 +109,7 @@ function prevPage() {
 }
 
 function nextPage() {
-  if (page.value < totalPages()) {
+  if (page.value < totalPages.value) {
     page.value++
     loadLog()
   }
