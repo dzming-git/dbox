@@ -44,11 +44,8 @@ watch(() => props.video.hash, () => {
 const thumbnailUrl = ref('')
 const isLoading = ref(true)
 const hasError = ref(false)
-// 缩略图真实宽高比（加载后按原图比例锁定，避免竖屏被裁成 16:9）
-const imgAspect = ref<number | null>(null)
 
 const loadThumbnail = () => {
-  imgAspect.value = null
   if (!props.video.thumbnail) {
     thumbnailUrl.value = '/placeholder.jpg'
     isLoading.value = false
@@ -86,11 +83,6 @@ const handleClick = () => {
 const handleImageLoad = (e: Event) => {
   isLoading.value = false
   hasError.value = false
-  const img = e.target as HTMLImageElement
-  if (img && img.naturalWidth && img.naturalHeight) {
-    // 按原图真实宽高比锁定，竖屏视频不再被裁成横屏
-    imgAspect.value = img.naturalWidth / img.naturalHeight
-  }
 }
 
 const handleImageError = () => {
@@ -108,8 +100,8 @@ const handleImageError = () => {
     data-testid="video-card"
     :data-hash="video.hash"
   >
-    <!-- 缩略图容器：加载后用原图真实宽高比锁定 -->
-    <div class="thumbnail-container" :style="imgAspect ? { aspectRatio: String(imgAspect) } : undefined">
+    <!-- 缩略图容器：统一 16:9 比例 -->
+    <div class="thumbnail-container">
       <!-- 加载占位符 -->
       <div v-if="isLoading" class="thumbnail-loading">
         <div class="loading-spinner"></div>
@@ -211,13 +203,13 @@ const handleImageError = () => {
   border-radius: 8px;
   background: var(--bg-surface);
   width: 100%;
-  aspect-ratio: 16 / 9; /* 加载完成前占位，加载后由 inline style 覆盖为原图比例 */
+  aspect-ratio: 16 / 9; /* 统一封面比例，栅格整齐、不空缺 */
 }
 
 .thumbnail {
   width: 100%;
   height: 100%;
-  object-fit: contain; /* 配合容器真实比例：完整显示、不裁切、不变形 */
+  object-fit: cover; /* 填满容器、不拉伸，小卡片下更清晰 */
   display: block;
   max-width: 100%;
 }

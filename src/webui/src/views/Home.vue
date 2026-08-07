@@ -1535,8 +1535,8 @@ const listThumbUrl = (video: Video): string => {
 
 .video-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
   align-items: start; /* 不同宽高比的卡片顶部对齐，不互相拉伸 */
 }
 
@@ -1828,13 +1828,19 @@ const listThumbUrl = (video: Video): string => {
 }
 
 /* 响应式 */
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
+  .video-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
   .video-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .video-grid {
     grid-template-columns: repeat(2, 1fr);
   }

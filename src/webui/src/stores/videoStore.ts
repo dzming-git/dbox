@@ -15,7 +15,7 @@ export const useVideoStore = defineStore('video', () => {
   const error = ref<string | null>(null)
   
   const pagination = ref({
-    limit: 20,
+    limit: 24,
     offset: 0,
     total: 0
   })
