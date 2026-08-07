@@ -15,10 +15,10 @@ export interface WatchLaterItem {
 
 const STORAGE_KEY = 'watchLater'
 
-// 登录态下「本地 -> 后端」迁移只做一次，避免反复 init() 把已删除的残留条目
-// 重新上传回后端，导致「删了又回来」。
-let migrationDone = false
-
+// localStorage 仅作为「未登录游客态」的本地缓存。
+// 登录账号以「后端为唯一数据源」：init 直接以后端列表为准，既不读取本地残留、
+// 也不把本地残留反向推回后端。这样删除操作一定作用于后端，且本地不会留存可被
+// 重新上传的镜像，从根本上杜绝「删了又回来 / 始终删不掉」的僵尸复活问题。
 function loadLocal(): WatchLaterItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -34,7 +34,12 @@ function persistLocal(list: WatchLaterItem[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
 }
 
+function clearLocal() {
+  localStorage.removeItem(STORAGE_KEY)
+}
+
 export const useWatchLaterStore = defineStore('watchLater', () => {
+  // 游客态以本地缓存初始化；登录态由 init() 用服务端数据覆盖，不引入本地残留
   const items = ref<WatchLaterItem[]>(loadLocal())
 
   const list = computed(() =>
@@ -48,24 +53,12 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
   const has = (type: WatchLaterType, id: string) =>
     items.value.some((it) => it.type === type && it.id === id)
 
-  // 从后端加载（登录账号跨设备一致）。仅在「首次从游客态登录」时把本地仅有的
-  // 条目上传一次到后端，完成迁移；之后纯以「后端为唯一数据源」为准，绝不再把
-  // 本地残留反向推回后端。
-  //
-  // 关键修复：游客态（未登录）的 identity key 是 Flask session 里的随机 6 位数，
-  // 浏览器关闭/清 cookie 后会变化，导致之前的 DELETE 删不到旧 key 的后端记录，
-  // 于是「删了又回来」。因此游客态完全以 localStorage 为唯一真相，不读写后端。
-  //
-  // 更关键的是：之前 init() 会在每次调用时把「本地有、后端没有」的条目重新上传
-  // 后端，而 init() 被 App.vue（onMounted / 登录态 watch）和 WatchLater.vue 多处
-  // 触发，一旦本地 localStorage 残留了已删除条目、或删除与 init 竞态，该条目就会被
-  // 无限复活。现用 migrationDone 标记保证迁移上传只发生一次，之后删除以「后端为准」。
+  // 登录态：后端为唯一数据源。直接以服务端列表覆盖内存，并清空本地镜像，
+  // 杜绝本地残留被下一次 init（登出/重新登录/库重建触发）重新推回后端。
+  // 游客态：只加载本地，不与后端交互。
   const init = async () => {
     const userStore = useUserStore()
     if (!userStore.isLoggedIn) {
-      // 游客：只加载本地，不与后端交互，避免残留后端记录复活
-      // 重置迁移标记：登出后再登录（或切换到其他账号）可重新执行一次迁移
-      migrationDone = false
       items.value = loadLocal()
       return
     }
@@ -73,65 +66,40 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
       const res = await watchLaterApi.list()
       const serverItems: WatchLaterItem[] =
         res && res.success && Array.isArray(res.items) ? res.items : []
-      const serverKeys = new Set(serverItems.map((it) => keyOf(it.type, it.id)))
-      // 仅在首次登录迁移时，把本地有、后端没有的条目上传后端一次
-      if (!migrationDone) {
-        migrationDone = true
-        const localOnly = items.value.filter((it) => !serverKeys.has(keyOf(it.type, it.id)))
-        if (localOnly.length) {
-          await Promise.all(
-            localOnly.map((it) =>
-              watchLaterApi
-                .add({
-                  type: it.type,
-                  id: it.id,
-                  title: it.title,
-                  thumbnail: it.thumbnail,
-                })
-                .catch(() => null)
-            )
-          )
-          // 重新拉取一次，确保与后端完全一致
-          const res2 = await watchLaterApi.list()
-          if (res2 && res2.success && Array.isArray(res2.items)) {
-            items.value = res2.items
-            persistLocal(items.value)
-            return
-          }
-        }
-      }
-      // 以后端为唯一数据源：直接用后端列表覆盖本地，杜绝本地残留复活
       items.value = serverItems
-      persistLocal(items.value)
+      clearLocal()
     } catch {
-      // 网络/鉴权失败：继续使用本地缓存，保证可用性
+      // 网络/鉴权失败：继续使用当前内存状态，保证可用性
     }
   }
 
   const add = async (item: Omit<WatchLaterItem, 'addedAt'>) => {
     if (has(item.type, item.id)) return
     items.value.push({ ...item, addedAt: new Date().toISOString() })
-    persistLocal(items.value)
-    // 游客态不写后端：随机 session key 会导致删除时匹配不到，数据残留后复活
     const userStore = useUserStore()
-    if (!userStore.isLoggedIn) return
+    // 游客态以本地为准；登录态只写后端（本地镜像已在 init 时清空且不再回写）
+    if (!userStore.isLoggedIn) {
+      persistLocal(items.value)
+      return
+    }
     try {
       await watchLaterApi.add(item)
     } catch {
-      // 后端失败：保留本地状态，下次 init 不会被覆盖（以本地为准兜底）
+      // 后端失败：保留内存状态，下次 init 以后端为准兜底
     }
   }
 
   const remove = async (type: WatchLaterType, id: string) => {
     items.value = items.value.filter((it) => !(it.type === type && it.id === id))
-    persistLocal(items.value)
-    // 游客态不写后端，保证删除一定能删干净，不会从后端残留记录复活
     const userStore = useUserStore()
-    if (!userStore.isLoggedIn) return
+    if (!userStore.isLoggedIn) {
+      persistLocal(items.value)
+      return
+    }
     try {
       await watchLaterApi.remove(type, id)
     } catch {
-      // 同上，本地已移除，后端失败兜底
+      // 后端失败：内存已移除，下次 init 以后端为准兜底
     }
   }
 
@@ -142,11 +110,16 @@ export const useWatchLaterStore = defineStore('watchLater', () => {
 
   const clear = async () => {
     items.value = []
-    persistLocal(items.value)
+    const userStore = useUserStore()
+    // 游客态：仅清本地镜像；登录态：本地镜像已在 init 时清空且不再回写，
+    // 这里直接清空后端（其 user_key 稳定）。两种情况都以后端为最终真相。
+    if (!userStore.isLoggedIn) {
+      persistLocal(items.value)
+    }
     try {
       await watchLaterApi.clear()
     } catch {
-      // 后端失败：本地已清空，下次 init 以本地为准兜底
+      // 后端失败：内存已清空，下次 init 以后端为准兜底
     }
   }
 
