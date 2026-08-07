@@ -161,13 +161,7 @@ def load_config():
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                raw = f.read()
-            cfg = json.loads(raw)
-            # 仅在配置内容实际变化时打印，避免常驻轮询每轮刷屏
-            _lc = getattr(load_config, '_last_raw', None)
-            if _lc != raw:
-                load_config._last_raw = raw
-                print(f"[listener] 已加载用户配置: {CONFIG_PATH}")
+                cfg = json.load(f)
             return cfg, 'user'
         except Exception as e:
             print(f"[listener] 配置文件解析失败，使用默认配置: {e}")

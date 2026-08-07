@@ -5,6 +5,7 @@
 该日志文件由用户在本地手动启动监听器时产生，属于本地运行数据，不纳入 git。
 """
 import os
+import sys
 import json
 import psutil
 import subprocess
@@ -54,8 +55,24 @@ def _listener_running():
         return False
 
 
-def _read_log_lines(tail=None, page=1, limit=200):
-    """读取日志文件。tail>0 取末尾 N 行；否则按 page/limit 分页（倒序展示较新在前）。"""
+import re
+
+_EVENT_RE = re.compile(r'事件触发:\s*(\S+)|事件\s+(\S+)\s+的探针|(\S+)/\S+\s+重试')
+
+
+def _extract_event(line):
+    """从日志行中提取事件名（用于按事件筛选）。"""
+    m = _EVENT_RE.search(line)
+    if not m:
+        return None
+    return next((g for g in m.groups() if g), None)
+
+
+def _read_log_lines(tail=None, page=1, limit=200, event=None):
+    """读取日志文件。tail>0 取末尾 N 行；否则按 page/limit 分页（倒序展示较新在前）。
+
+    若 event 非空，则只保留包含该事件名的日志行。
+    """
     if not os.path.exists(LOG_PATH):
         return [], 0
     try:
@@ -63,6 +80,8 @@ def _read_log_lines(tail=None, page=1, limit=200):
             lines = [ln.rstrip('\n') for ln in f if ln.strip() != '']
     except Exception:
         return [], 0
+    if event:
+        lines = [ln for ln in lines if _extract_event(ln) == event]
     total = len(lines)
     if tail and tail > 0:
         return lines[-tail:], total
@@ -122,18 +141,71 @@ def get_event_log():
     - tail:   取末尾 N 行（优先于分页），如 tail=200
     - page:   页码（默认 1）
     - limit:  每页条数（默认 200，最大 1000）
+    - event:  按事件名筛选（可选）
     """
     tail = request.args.get('tail', type=int)
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 200, type=int)
+    event = request.args.get('event', type=str) or None
 
-    lines, total = _read_log_lines(tail=tail, page=page, limit=limit)
+    lines, total = _read_log_lines(tail=tail, page=page, limit=limit, event=event)
     return jsonify({
         'success': True,
         'lines': lines,
         'total': total,
         'page': page,
         'limit': limit,
+        'event': event,
         'running': _listener_running(),
         'log_path': LOG_PATH,
+    })
+
+
+@bp.route('/api/admin/event-handlers', methods=['GET'])
+@admin_required
+def get_event_handlers():
+    """返回当前注册的事件处理器清单（事件 -> handler 列表）。
+
+    数据来自事件注册中心（已注册事件）与事件监听器配置（每个事件绑定的处理器）。
+    """
+    try:
+        sys.path.insert(0, os.path.join(_ROOT_DIR, 'src', 'web'))
+        from core.event_registry import list_events
+        events = list_events()
+    except Exception as e:
+        log.warning('读取事件注册中心失败: %s', e)
+        events = []
+
+    cfg_path = os.path.join(_LISTENER_DIR, 'event_listener_config.json')
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+    configured = cfg.get('events', {}) or {}
+
+    handlers = []
+    for ev in events:
+        name = ev.get('name')
+        ev_handlers = configured.get(name, []) or []
+        normalized = []
+        for h in ev_handlers:
+            if isinstance(h, str):
+                normalized.append({'script': h, 'args': []})
+            elif isinstance(h, dict) and h.get('script'):
+                normalized.append({'script': h.get('script'), 'args': h.get('args', []) or []})
+        handlers.append({
+            'event': name,
+            'description': ev.get('description', ''),
+            'source': ev.get('source', ''),
+            'params': ev.get('params', []),
+            'handlers': normalized,
+            'enabled': len(normalized) > 0,
+        })
+
+    return jsonify({
+        'success': True,
+        'handlers': handlers,
     })
