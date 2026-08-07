@@ -69,7 +69,7 @@ def _extract_event(line):
 
 
 def _read_log_lines(tail=None, page=1, limit=200, event=None):
-    """读取日志文件。tail>0 取末尾 N 行；否则按 page/limit 分页（倒序展示较新在前）。
+    """读取日志文件。tail>0 取末尾 N 行（倒序，最新在前）；否则按 page/limit 分页（倒序，最新在前）。
 
     若 event 非空，则只保留包含该事件名的日志行。
     """
@@ -80,19 +80,29 @@ def _read_log_lines(tail=None, page=1, limit=200, event=None):
             lines = [ln.rstrip('\n') for ln in f if ln.strip() != '']
     except Exception:
         return [], 0
+    # 倒序：最新一行在数组最前，后续切片统一按“较新在前”处理
+    lines.reverse()
     if event:
         lines = [ln for ln in lines if _extract_event(ln) == event]
     total = len(lines)
     if tail and tail > 0:
-        return lines[-tail:], total
+        return lines[:tail], total
     limit = max(1, min(limit, 1000))
     page = max(1, page)
-    start = max(0, total - page * limit)
-    end = max(0, total - (page - 1) * limit)
-    # 返回较新在前
-    window = lines[start:end]
-    window.reverse()
-    return window, total
+    start = max(0, (page - 1) * limit)
+    end = min(total, page * limit)
+    return lines[start:end], total
+
+
+def _clear_log():
+    """清空事件日志文件（保留文件本身，截断内容）。"""
+    try:
+        # 以追加模式打开并立即截断，等价于清空；监听器持有文件句柄不受影响
+        with open(LOG_PATH, 'a', encoding='utf-8') as f:
+            f.truncate(0)
+        return True
+    except Exception:
+        return False
 
 
 @bp.route('/api/event-listener/status', methods=['GET'])
@@ -158,6 +168,17 @@ def get_event_log():
         'event': event,
         'running': _listener_running(),
         'log_path': LOG_PATH,
+    })
+
+
+@bp.route('/api/admin/event-log/clear', methods=['DELETE'])
+@admin_required
+def clear_event_log():
+    """一键清空事件日志文件内容（保留文件，不删除）。"""
+    ok = _clear_log()
+    return jsonify({
+        'success': ok,
+        'message': '事件日志已清空' if ok else '清空失败',
     })
 
 

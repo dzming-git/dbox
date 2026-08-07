@@ -7,6 +7,7 @@
           <input type="checkbox" v-model="autoRefresh" @change="toggleAutoRefresh" />
           自动刷新
         </label>
+        <button class="btn btn-ghost" @click="clearLog" :disabled="loading || clearing">清空</button>
         <button class="btn btn-primary" @click="loadLog" :disabled="loading">刷新</button>
       </div>
     </div>
@@ -106,6 +107,7 @@ let timer: number | null = null
 // 事件处理器清单
 const handlers = ref<any[]>([])
 const loadingHandlers = ref(false)
+const clearing = ref(false)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit.value)))
 
@@ -156,6 +158,26 @@ async function loadLog() {
     showToast('加载事件日志失败：' + (e?.message || e))
   } finally {
     loading.value = false
+  }
+}
+
+async function clearLog() {
+  if (clearing.value) return
+  clearing.value = true
+  try {
+    const res = await eventApi.clearLog()
+    if (res && (res as any).success) {
+      lines.value = []
+      total.value = 0
+      filterEvent.value = null
+      showToast('事件日志已清空')
+    } else {
+      showToast((res as any).message || '清空失败')
+    }
+  } catch (e: any) {
+    showToast('清空事件日志失败：' + (e?.message || e))
+  } finally {
+    clearing.value = false
   }
 }
 
