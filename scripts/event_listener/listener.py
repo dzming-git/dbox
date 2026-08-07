@@ -255,6 +255,13 @@ def call_handler(event_name, detail, handler, dry_run=False):
     env['EVENT_NAME'] = event_name
     env['EVENT_PAYLOAD'] = payload_str
     env['DBOX_ROOT'] = DBOX_ROOT
+    # AI 派发开关与 codebuddy 路径从配置文件读取（避免依赖 NSSM AppEnvironment 格式），
+    # 透传给 handler 进程。配置优先级高于进程环境变量。
+    _cfg, _ = load_config()
+    env['DBOX_AI_DISPATCH'] = '1' if _cfg.get('ai_dispatch') else '0'
+    buddy_cn = _cfg.get('buddy_cn') or os.environ.get('DBOX_BUDDYCN', '')
+    if buddy_cn:
+        env['DBOX_BUDDYCN'] = buddy_cn
 
     print(f"[listener] 触发 handler: {script} (event={event_name}, entity={detail.get('id')})")
     if dry_run:
