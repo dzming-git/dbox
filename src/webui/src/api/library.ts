@@ -83,6 +83,8 @@ export const eventApi = {
   // 获取事件监听器日志（反馈事件处理日志）
   getLog: (params: { tail?: number; page?: number; limit?: number }) =>
     api.get('/api/admin/event-log', { params }),
+  // 获取事件监听器运行状态（公开，无需登录，取自服务管理器）
+  getStatus: () => api.get('/api/event-listener/status'),
   // 获取事件监听器配置
   getConfig: () => api.get('/api/admin/event-listener/config'),
   // 保存事件监听器配置（自动重启服务生效）

@@ -13,7 +13,7 @@
 
     <div class="event-status" :class="running ? 'on' : 'off'">
       监听器状态：<b>{{ running ? '运行中' : '未运行' }}</b>
-      <span class="hint" v-if="!running">（在服务器上手动启动：python scripts/event_listener/listener.py）</span>
+      <span class="hint" v-if="!running">（事件监听器是独立常驻服务，请在「服务管理」中启动）</span>
     </div>
 
     <div class="event-toolbar">
@@ -63,6 +63,15 @@ let timer: number | null = null
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / limit.value))
 
+async function loadStatus() {
+  try {
+    const res = await eventApi.getStatus()
+    running.value = !!(res && (res as any).running)
+  } catch (e) {
+    running.value = false
+  }
+}
+
 async function loadLog() {
   loading.value = true
   try {
@@ -77,7 +86,6 @@ async function loadLog() {
     if (res && (res as any).success) {
       lines.value = (res as any).lines || []
       total.value = (res as any).total || 0
-      running.value = !!(res as any).running
     } else {
       showToast((res as any).message || '加载事件日志失败')
     }
@@ -109,7 +117,7 @@ function nextPage() {
 
 function toggleAutoRefresh() {
   if (autoRefresh.value) {
-    timer = window.setInterval(loadLog, 5000)
+    timer = window.setInterval(() => { loadLog(); loadStatus() }, 5000)
   } else if (timer) {
     clearInterval(timer)
     timer = null
@@ -121,6 +129,7 @@ onUnmounted(() => {
 })
 
 loadLog()
+loadStatus()
 </script>
 
 <style scoped>

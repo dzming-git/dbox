@@ -7,6 +7,7 @@
 import os
 import json
 import psutil
+import subprocess
 
 from flask import Blueprint, request, jsonify
 
@@ -18,7 +19,9 @@ log = get_service_logger('dbox-web')
 bp = Blueprint('event_log_api', __name__)
 
 # 监听器目录与日志/状态文件路径（相对项目根）
-_SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'scripts')
+# 文件位于 <root>/src/web/backend/api/event_log_api.py，向上 5 层到项目根
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+_SCRIPTS_DIR = os.path.join(_ROOT_DIR, 'scripts')
 _LISTENER_DIR = os.path.join(_SCRIPTS_DIR, 'event_listener')
 LOG_PATH = os.path.join(_LISTENER_DIR, '.listener.log')
 STATE_PATH = os.path.join(_LISTENER_DIR, '.listener_state.json')
@@ -71,6 +74,42 @@ def _read_log_lines(tail=None, page=1, limit=200):
     window = lines[start:end]
     window.reverse()
     return window, total
+
+
+@bp.route('/api/event-listener/status', methods=['GET'])
+def get_event_listener_status_public():
+    """公开（无需登录）的监听器运行状态接口。
+
+    监听器已作为独立常驻服务（dbox-listener）运行，状态直接取自
+    service_manager，保证前端始终能正确显示，不依赖管理员登录态。
+    """
+    running = False
+    try:
+        proc = subprocess.run(
+            ['python', os.path.join(_SCRIPTS_DIR, 'service_manager.py'), 'status', 'listener'],
+            cwd=_ROOT_DIR, capture_output=True, text=True, timeout=30,
+        )
+        out = (proc.stdout or '') + (proc.stderr or '')
+        if proc.returncode == 0 and 'RUNNING' in out:
+            running = True
+        else:
+            running = _listener_running()
+    except Exception:
+        running = _listener_running()
+    return jsonify({
+        'success': True,
+        'running': running,
+    })
+
+
+@bp.route('/api/admin/event-log/status', methods=['GET'])
+@admin_required
+def get_event_log_status():
+    """轻量级状态接口：仅返回监听器是否运行中，供前端轮询展示。"""
+    return jsonify({
+        'success': True,
+        'running': _listener_running(),
+    })
 
 
 @bp.route('/api/admin/event-log', methods=['GET'])
