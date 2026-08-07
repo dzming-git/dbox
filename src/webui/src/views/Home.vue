@@ -516,7 +516,7 @@ const videoListMeta = (video: Video): string[] => {
 // 列表模式的缩略图地址（带登录 token 鉴权）
 const listThumbUrl = (video: Video): string => {
   const base = video.thumbnail || '/placeholder.jpg'
-  return userStore.token ? `${base}?token=${userStore.token}` : base
+  return withThumbToken(base)
 }
 </script>
 

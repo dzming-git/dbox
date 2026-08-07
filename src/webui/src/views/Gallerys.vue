@@ -8,6 +8,7 @@ import GalleryCard from '../components/GalleryCard.vue'
 import ResourceListRow from '../components/ResourceListRow.vue'
 import type { Gallery } from '../types'
 import { galleryApi } from '../api'
+import { withThumbToken } from '../utils/media'
 
 const router = useRouter()
 const route = useRoute()
@@ -243,7 +244,7 @@ watch(() => route.query, async (newQuery) => {
             :key="c.hash"
             type="gallery"
             :item="c"
-            :thumb-url="c.cover_url ? (userStore.token ? c.cover_url + '?token=' + userStore.token : c.cover_url) : '/placeholder.jpg'"
+            :thumb-url="c.cover_url ? withThumbToken(c.cover_url) : '/placeholder.jpg'"
             :meta="galleryListMeta(c)"
             :badge="c.page_count + 'P'"
             :edit-mode="false"

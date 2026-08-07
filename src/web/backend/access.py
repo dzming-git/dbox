@@ -66,6 +66,23 @@ def resolve_identity():
             return user.id, int(user.role)
     except Exception:
         pass
+    # 3. 浏览器原生 <img> 请求无法携带 Authorization 头，
+    # 缩略图/封面接口通过 URL ?token= 传递 JWT（与 gallery 侧 _gallery_auth_ok 对齐）
+    token_arg = request.args.get('token')
+    if token_arg:
+        try:
+            from authlib.jose import jwt as _jwt
+            _payload = None
+            for _secret in (JWT_SECRET_KEY, 'dbox-jwt-secret-key-change-in-production-2024'):
+                try:
+                    _payload = _jwt.decode(token_arg, _secret)
+                    break
+                except Exception:
+                    continue
+            if _payload and _payload.get('type') == 'access':
+                return _payload.get('user_id'), int(_payload.get('role', 0))
+        except Exception:
+            pass
     return None, 0
 
 

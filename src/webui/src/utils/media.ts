@@ -9,7 +9,7 @@ import { useUserStore } from '../stores/userStore'
  * /thumbnail/、/gallery-cover/ 等接口需要 token 才能访问非公开库资源。
  */
 export function withThumbToken(url?: string | null): string {
-  if (!url) return '/default-thumb.jpg'
+  if (!url) return '/placeholder.jpg'
   const token = useUserStore().token
   if (token && (url.startsWith('/thumbnail/') || url.startsWith('/gallery-cover/'))) {
     const sep = url.includes('?') ? '&' : '?'

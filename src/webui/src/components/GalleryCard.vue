@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { Gallery } from '../types'
 import { useUserStore } from '../stores/userStore'
 import { useGalleryStore } from '../stores/galleryStore'
+import { withThumbToken } from '../utils/media'
 import WatchLaterButton from './WatchLaterButton.vue'
 
 const props = defineProps<{
@@ -25,12 +26,6 @@ const thumbnailUrl = ref('')
 const isLoading = ref(true)
 const hasError = ref(false)
 
-const withToken = (url: string) => {
-  if (!url) return ''
-  const sep = url.includes('?') ? '&' : '?'
-  return userStore.token ? `${url}${sep}token=${userStore.token}` : url
-}
-
 const loadThumb = () => {
   const base = props.gallery.cover_url
   if (!base) {
@@ -38,16 +33,12 @@ const loadThumb = () => {
     isLoading.value = false
     return
   }
-  thumbnailUrl.value = withToken(base)
+  // withThumbToken 自动处理 ?/&，避免与后端 ?v= 参数冲突导致 token 丢失
+  thumbnailUrl.value = withThumbToken(base)
   isLoading.value = false
 }
 loadThumb()
 watch(() => props.gallery.hash, loadThumb)
-
-const cardStyle = computed(() => {
-  const map = { large: { height: '180px' }, normal: { height: '135px' }, small: { height: '101px' } }
-  return map[props.size || 'normal']
-})
 
 const progressPercent = computed(() => Math.round((props.gallery.progress || 0) * 100))
 
@@ -62,7 +53,7 @@ const handleClick = () => {
 
 <template>
   <div class="gallery-card" @click="handleClick" :data-hash="gallery.hash">
-    <div class="thumbnail-container" :style="{ height: cardStyle.height }">
+    <div class="thumbnail-container">
       <div v-if="isLoading" class="thumbnail-loading"><div class="loading-spinner"></div></div>
       <img
         v-show="!isLoading"
@@ -71,7 +62,7 @@ const handleClick = () => {
         loading="lazy"
         class="thumbnail"
         :class="{ 'thumbnail-error': hasError }"
-        @error="hasError = true; thumbnailUrl = '/placeholder.jpg'"
+        @error="(e: any) => { const t = e.target; t.onerror = null; hasError = true; t.src = '/placeholder.jpg' }"
       />
       <span class="page-count" v-if="gallery.page_count">{{ gallery.page_count }}P</span>
       <div class="continue-badge" v-if="(gallery.progress || 0) > 0 && (gallery.progress || 0) < 1">
@@ -114,7 +105,7 @@ const handleClick = () => {
 <style scoped>
 .gallery-card { cursor: pointer; transition: transform var(--transition); width: 100%; position: relative; }
 .gallery-card:hover { transform: scale(1.02); }
-.thumbnail-container { position: relative; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-input); width: 100%; }
+.thumbnail-container { position: relative; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-input); width: 100%; aspect-ratio: 3 / 4; }
 .thumbnail { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumbnail-error { opacity: 0.5; }
 .thumbnail-loading { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg-input); }

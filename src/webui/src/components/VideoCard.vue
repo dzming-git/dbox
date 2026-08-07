@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
+import { withThumbToken } from '../utils/media'
 import WatchLaterButton from './WatchLaterButton.vue'
 
 const props = defineProps<{
@@ -54,9 +55,8 @@ const loadThumbnail = () => {
     return
   }
 
-  const token = userStore.token
   const baseUrl = props.video.thumbnail
-  thumbnailUrl.value = token ? `${baseUrl}?token=${token}` : baseUrl
+  thumbnailUrl.value = withThumbToken(baseUrl)
   isLoading.value = false
 }
 

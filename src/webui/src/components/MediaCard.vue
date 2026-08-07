@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
-import type { MediaItem } from '../utils/media'
+import { withThumbToken, type MediaItem } from '../utils/media'
 
 const props = withDefaults(defineProps<{
   item: MediaItem
@@ -21,14 +21,9 @@ const userStore = useUserStore()
 
 const coverUrl = computed(() => {
   const cover = props.item.cover
-  if (!cover) return '/default-thumb.jpg'
-  // JWT 模式下浏览器原生 <img> 请求无法携带 Authorization 头，
-  // 服务端 /thumbnail/、/gallery-cover/ 等受资源库权限保护的封面需带 token 查询参数才能访问。
-  if (userStore.token && (cover.startsWith('/thumbnail/') || cover.startsWith('/gallery-cover/'))) {
-    const sep = cover.includes('?') ? '&' : '?'
-    return cover + sep + 'token=' + userStore.token
-  }
-  return cover
+  if (!cover) return '/placeholder.jpg'
+  // withThumbToken 自动处理 token 与 ?/& 拼接，避免与后端 ?v= 冲突
+  return withThumbToken(cover)
 })
 
 const typeLabel = computed(() => (props.item.type === 'video' ? '视频' : '图集'))
@@ -69,7 +64,7 @@ const onAction = (name: string, e: Event) => {
   <div class="media-card" :class="item.type" @click="onOpen" data-testid="media-card">
     <div class="thumbnail-wrapper">
       <img :src="coverUrl" :alt="item.title" class="thumbnail"
-           @error="(e:any)=>{ const t=e.target; t.onerror=null; t.src='/default-thumb.jpg'; }" />
+           @error="(e:any)=>{ const t=e.target; t.onerror=null; t.src='/placeholder.jpg'; }" />
       <span v-if="showTypeBadge" class="type-badge" :class="item.type">{{ typeLabel }}</span>
       <span v-if="subBadge" class="sub-badge">{{ subBadge }}</span>
 

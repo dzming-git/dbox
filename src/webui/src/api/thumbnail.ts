@@ -7,17 +7,17 @@ export const thumbnailApi = {
 
   // 删除缩略图
   delete: (hash: string) =>
-    axios.delete(`${THUMB_BASE}/api/thumbnail/${hash}`),
+    axios.delete(`${API_BASE}/api/thumbnail/${hash}`),
 
   // 重新生成缩略图（管理后台使用）
   regenerate: (hash: string) =>
-    axios.post(`${THUMB_BASE}/api/thumbnail/regenerate/${hash}`)
+    axios.post(`${API_BASE}/api/thumbnail/regenerate/${hash}`)
 }
 
 export const healthApi = {
   check: () => api.get('/health'),
   checkThumbnail: () =>
-    axios.get(`${THUMB_BASE}/health`)
+    axios.get(`${API_BASE}/health`)
 }
 
 export const thumbnailManageApi = {
