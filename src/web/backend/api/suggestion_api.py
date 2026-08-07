@@ -229,13 +229,14 @@ def create_issue():
         session.add(issue)
         session.commit()
         new_id = issue.id
+        # 必须在 session 关闭前序列化，否则访问 issue.comments 会因 detached 抛出 500
+        out = issue_to_dict(issue)
+        out['type'] = out.get('category') or 'suggestion'
+        out['author'] = author
+        out['author_id'] = author_id
+        out['author_role'] = author_role
+        out['contact'] = contact
 
-    out = issue_to_dict(issue)
-    out['type'] = out.get('category') or 'suggestion'
-    out['author'] = author
-    out['author_id'] = author_id
-    out['author_role'] = author_role
-    out['contact'] = contact
     return jsonify({'success': True, 'id': new_id, 'issue': out})
 
 
@@ -250,6 +251,8 @@ def get_issue(issue_id):
         out = issue_to_dict(issue)
     out['type'] = out.get('category') or 'suggestion'
     return jsonify({'success': True, 'issue': _strip_contact(out, admin)})
+
+
 
 
 @suggestion_bp.route('/api/suggestion/<issue_id>', methods=['PUT'])
