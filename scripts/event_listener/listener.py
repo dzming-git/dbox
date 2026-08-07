@@ -39,18 +39,43 @@ import datetime
 import importlib.util
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DBOX_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 PROBES_DIR = os.path.join(SCRIPT_DIR, 'probes')
 HANDLERS_DIR = os.path.join(SCRIPT_DIR, 'handlers')
 STATE_PATH = os.path.join(SCRIPT_DIR, '.listener_state.json')
 LOG_PATH = os.path.join(SCRIPT_DIR, '.listener.log')
 CONFIG_PATH = os.path.join(SCRIPT_DIR, 'event_listener_config.json')
+
+# DBOX_ROOT 晚绑定：先给默认值，main() 启动时经 resolve_dbox_root() 重算
+# （环境变量 DBOX_ROOT → 配置文件 dbox_root → 脚本位置推导），
+# 之后由 _rebind_paths() 重建依赖它的路径。
+DBOX_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 REGISTRY_PATH = os.path.join(DBOX_ROOT, 'data', 'event_registry.json')
 
 DEFAULT_CONFIG = {
     'interval': 30,
     'events': {},
 }
+
+
+def resolve_dbox_root(config):
+    """确定 dbox 根目录（数据/运行目录的基准）。
+
+    优先级：环境变量 DBOX_ROOT > 配置文件 dbox_root > 脚本位置推导。
+    改路径只需改一处配置（event_listener_config.json 的 dbox_root）。
+    """
+    env_val = os.environ.get('DBOX_ROOT', '').strip()
+    if env_val:
+        return os.path.abspath(env_val)
+    cfg_val = (config or {}).get('dbox_root', '').strip()
+    if cfg_val:
+        return os.path.abspath(cfg_val)
+    return os.path.dirname(os.path.dirname(SCRIPT_DIR))
+
+
+def _rebind_paths():
+    """根据当前 DBOX_ROOT 重建依赖它的路径（需在 DBOX_ROOT 确定后调用）。"""
+    global REGISTRY_PATH
+    REGISTRY_PATH = os.path.join(DBOX_ROOT, 'data', 'event_registry.json')
 
 # 单条事件最大重试次数
 MAX_RETRIES = 3
@@ -364,6 +389,9 @@ def main():
 
     setup_logging()
     config, source = load_config()
+    global DBOX_ROOT
+    DBOX_ROOT = resolve_dbox_root(config)
+    _rebind_paths()
     interval = args.interval if args.interval else config.get('interval', 30)
     events_count = len(load_registry())
     print(f"[listener] 启动，dbox={DBOX_ROOT}，interval={interval}s，dry_run={args.dry_run}，config={source}，已注册事件={events_count}")

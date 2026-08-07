@@ -8,9 +8,13 @@
 
 用户数据区解析优先级：
 - 环境变量 DBOX_USER_CONFIG_DIR / DBOX_DATA_DIR 显式指定 → 最高优先级；
-- 否则使用平台系统数据区：
+- 否则使用公共数据区（多服务共享、避免用户目录权限问题）：
+    Windows: C:\\ProgramData\\Dbox\\data
+    Linux/macOS: /var/lib/Dbox/data  (macOS 也可接受)
+  公共数据区的根可通过环境变量 DBOX_DATA_ROOT 覆盖（如 DBOX_DATA_ROOT=C:\\ProgramData\\Dbox）。
+- 最后兜底使用平台系统数据区（仅当公共数据区不可写时）：
     Windows: %LOCALAPPDATA%/Dbox
-    Linux/macOS: ~/.local/share/Dbox  (macOS 也可接受)
+    Linux/macOS: ~/.local/share/Dbox
 - 首次启动时若系统数据区为空且项目根目录下存在旧 data/（历史遗留），会自动迁移一次，
   保证已有开发数据不丢失，之后完全使用系统数据区。
 """
@@ -46,17 +50,35 @@ def _system_data_root():
     return os.path.expanduser('~/.local/share')
 
 
+def _public_data_root():
+    """公共数据区根目录（多服务共享，避开用户目录权限问题）。
+
+    可通过环境变量 DBOX_DATA_ROOT 覆盖（如 DBOX_DATA_ROOT=C:\\ProgramData\\Dbox）。
+    默认 Windows: C:\\ProgramData\\Dbox；Linux/macOS: /var/lib/Dbox。
+    """
+    env = os.environ.get('DBOX_DATA_ROOT')
+    if env:
+        return env
+    if sys.platform.startswith('win'):
+        return r'C:\ProgramData\Dbox'
+    return '/var/lib/Dbox'
+
+
 def get_user_data_dir():
     """用户数据根目录（数据库、缩略图等运行时数据）。
 
     优先级：
-    1. 环境变量 DBOX_DATA_DIR
-    2. 平台系统数据区下的 Dbox/data
+    1. 环境变量 DBOX_DATA_DIR（显式指定完整 data 目录）
+    2. 公共数据区下的 Dbox/data（DBOX_DATA_ROOT 可覆盖根，默认 C:\\ProgramData\\Dbox）
+    3. 平台系统数据区下的 Dbox/data（兜底，仅当公共区不可写）
     首次启动做一次从项目根 data/ 的迁移（仅当系统区为空且项目 data 存在）。
     """
     env = os.environ.get('DBOX_DATA_DIR')
     if env:
         return env
+    public = os.path.join(_public_data_root(), 'data')
+    if os.path.isdir(public) or _is_writable(public):
+        return public
     return os.path.join(_system_data_root(), 'Dbox', 'data')
 
 
@@ -65,12 +87,29 @@ def get_user_config_dir():
 
     优先级：
     1. 环境变量 DBOX_USER_CONFIG_DIR
-    2. 平台系统数据区下的 Dbox/config
+    2. 公共数据区下的 Dbox/config（DBOX_DATA_ROOT 可覆盖根）
+    3. 平台系统数据区下的 Dbox/config（兜底）
     """
     env = os.environ.get('DBOX_USER_CONFIG_DIR')
     if env:
         return env
+    public = os.path.join(_public_data_root(), 'config')
+    if os.path.isdir(public) or _is_writable(public):
+        return public
     return os.path.join(_system_data_root(), 'Dbox', 'config')
+
+
+def _is_writable(path):
+    """判断目录是否可写（不存在则尝试创建并清理，存在则试建临时文件）。"""
+    try:
+        os.makedirs(path, exist_ok=True)
+        test = os.path.join(path, '.write_test')
+        with open(test, 'w') as f:
+            f.write('')
+        os.remove(test)
+        return True
+    except Exception:
+        return False
 
 
 # 用户数据区（运行时生成，不纳入 git）
