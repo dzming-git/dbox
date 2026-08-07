@@ -261,9 +261,10 @@ async function clearAllData() {
     } catch (e) {
       console.error('清空互动数据失败:', e)
     }
-    // 同时清理浏览器本地缓存（播放设置等）
+    // 同时清理浏览器本地缓存（播放设置等）；稍后再看的本地镜像也要一并清除，
+    // 否则登录态下它会被重新推回后端，导致已清空的「稍后再看」死灰复燃
     localStorage.removeItem('dbox_browser_settings')
-    localStorage.removeItem('dbox_browser_settings')
+    localStorage.removeItem('watchLater')
     showToast('所有互动数据已清除')
     loadTab(activeTab.value)
   }
