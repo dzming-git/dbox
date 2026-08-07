@@ -55,6 +55,9 @@ DEFAULT_CONFIG = {
 # 单条事件最大重试次数
 MAX_RETRIES = 3
 
+# 进程启动后首轮扫描标志：首轮时清空历史快照，使待处理实体被当作新事件触发。
+FIRST_CYCLE = True
+
 
 class _Tee(io.TextIOBase):
     def __init__(self, original, log_file):
@@ -249,6 +252,7 @@ def call_handler(event_name, detail, handler, dry_run=False):
 
 
 def run_cycle(dry_run=False):
+    global FIRST_CYCLE
     state = load_state()
     config, _ = load_config()
     events = load_registry()
@@ -258,6 +262,15 @@ def run_cycle(dry_run=False):
         return
 
     snapshots = state.setdefault('probes_snapshot', {})
+
+    # 进程启动后的第一轮：把每个事件的上次快照清空，使当前所有处于触发状态的
+    # 实体（如反馈库中已 open、但重启前就在快照里的反馈）被当作「从无到有」的新
+    # 事件重新触发一次。即「程序重启 + 有待处理反馈」也算事件，不依赖状态真正变化。
+    if FIRST_CYCLE and not dry_run:
+        for ev in events:
+            snapshots[ev['name']] = {}
+        FIRST_CYCLE = False
+        print("[listener] 首轮扫描：已清空历史快照，待处理实体将按新事件触发")
     for ev in events:
         name = ev['name']
         probe_name = ev.get('probe')
