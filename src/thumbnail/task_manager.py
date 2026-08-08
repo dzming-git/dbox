@@ -116,6 +116,31 @@ class TaskManager:
         }
 
 
+# ============ 等比缩放 + 黑边（避免竖屏被拉伸成横屏）============
+def _resize_letterbox(frame, target_w, target_h):
+    """保持原始宽高比缩放并居中填充黑边到目标尺寸，避免拉伸变形。
+
+    竖屏视频会完整显示在中央（左右黑边），横屏视频保持 16:9，
+    不会再被强行拉伸成横向画面。这是 thumbnaild 实际使用的生成入口，
+    早期版本直接用 cv2.resize 到固定 16:9 导致竖屏被横向拉伸，已在
+    src/thumbnail/task_manager.py 的 _do_generate 中改用本函数修复。
+    """
+    import numpy as np
+    import cv2
+    h, w = frame.shape[:2]
+    if w <= 0 or h <= 0:
+        return cv2.resize(frame, (target_w, target_h))
+    scale = min(target_w / w, target_h / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((target_h, target_w, 3), dtype=resized.dtype)
+    x = (target_w - new_w) // 2
+    y = (target_h - new_h) // 2
+    canvas[y:y + new_h, x:x + new_w] = resized
+    return canvas
+
+
 # ============ 封面生成核心逻辑 ============
 # 单任务整体超时（秒）：cv2 在某些损坏/特殊编码视频上 cap.read() 可能永久阻塞，
 # 若不加超时，卡死的任务会永久占用 worker 线程，导致整个队列停滞、控制面看到
@@ -158,7 +183,7 @@ def _do_generate(task):
                 if not ret:
                     break
                 if idx % step == 0 or collected < 2:
-                    f = cv2.resize(f, (240, 135))
+                    f = _resize_letterbox(f, 240, 135)
                     f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
                     frames.append(Image.fromarray(f))
                     collected += 1
@@ -188,7 +213,7 @@ def _do_generate(task):
             ret, frame = cap.read()
             if not ret:
                 return False, "读取帧失败"
-            frame = cv2.resize(frame, (320, 180))
+            frame = _resize_letterbox(frame, 320, 180)
             ext = 'jpg' if output_format != 'png' else 'png'
             output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.{ext}')
             cv2.imwrite(output_path, frame)
