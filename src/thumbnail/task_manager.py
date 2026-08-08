@@ -116,29 +116,45 @@ class TaskManager:
         }
 
 
-# ============ 等比缩放 + 黑边（避免竖屏被拉伸成横屏）============
-def _resize_letterbox(frame, target_w, target_h):
-    """保持原始宽高比缩放并居中填充黑边到目标尺寸，避免拉伸变形。
+# ============ 输出尺寸：保持源视频宽高比 ============
+# 缩略图的长边像素数。短边按源视频真实宽高比推导，因此竖屏视频产出竖版
+# 缩略图（如 135x240），横屏视频产出横版（240x135）。
+#
+# 为什么不再用固定 240x135 画布 + 黑边：
+# 固定 16:9 画布虽然不会几何变形，但竖屏 1080x1920 缩进去只剩中间 76x135
+# 一条，两侧大片黑边——在前端 16:9 卡片里看起来仍是「横的」，主体又被缩得
+# 极小。让文件本身携带正确宽高比，配合前端 object-fit 才是根治方案。
+THUMB_LONG_EDGE = 240
+STATIC_LONG_EDGE = 320
 
-    竖屏视频会完整显示在中央（左右黑边），横屏视频保持 16:9，
-    不会再被强行拉伸成横向画面。这是 thumbnaild 实际使用的生成入口，
-    早期版本直接用 cv2.resize 到固定 16:9 导致竖屏被横向拉伸，已在
-    src/thumbnail/task_manager.py 的 _do_generate 中改用本函数修复。
-    """
-    import numpy as np
+# ============ 动图预览播放节奏 ============
+# GIF 预览是「跨越全片均匀取样的快照轮播」，不是原速回放。
+# 帧数与帧间隔固定，使所有视频的预览节奏一致：
+# 12 帧 x 400ms = 4.8 秒循环一轮，人眼可以看清每一帧内容。
+# 早期版本用 step*1000/fps 让间隔跟随源帧率，结果在不同视频上从
+# 十几毫秒到数百毫秒剧烈波动，表现为「有的快到看不清」。
+GIF_FRAMES = 12
+GIF_FRAME_DURATION_MS = 400
+
+
+def _fit_size(src_w, src_h, long_edge):
+    """按源宽高比推导输出尺寸，长边固定为 long_edge，短边等比取偶数。"""
+    if src_w <= 0 or src_h <= 0:
+        return long_edge, max(2, int(round(long_edge * 9 / 16)))
+    if src_w >= src_h:
+        out_w = long_edge
+        out_h = max(2, int(round(long_edge * src_h / src_w)))
+    else:
+        out_h = long_edge
+        out_w = max(2, int(round(long_edge * src_w / src_h)))
+    # 取偶数，避免部分解码器/编码器对奇数边的兼容问题
+    return out_w - (out_w % 2), out_h - (out_h % 2)
+
+
+def _resize_keep_ratio(frame, out_w, out_h):
+    """等比缩放到已按源宽高比算好的目标尺寸（无黑边、无拉伸）。"""
     import cv2
-    h, w = frame.shape[:2]
-    if w <= 0 or h <= 0:
-        return cv2.resize(frame, (target_w, target_h))
-    scale = min(target_w / w, target_h / h)
-    new_w = max(1, int(round(w * scale)))
-    new_h = max(1, int(round(h * scale)))
-    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    canvas = np.zeros((target_h, target_w, 3), dtype=resized.dtype)
-    x = (target_w - new_w) // 2
-    y = (target_h - new_h) // 2
-    canvas[y:y + new_h, x:x + new_w] = resized
-    return canvas
+    return cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
 
 
 # ============ 封面生成核心逻辑 ============
@@ -165,55 +181,83 @@ def _do_generate(task):
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
         if output_format == 'gif':
+            out_w, out_h = _fit_size(src_w, src_h, THUMB_LONG_EDGE)
             frames = []
-            # 顺序读取采样，不使用 cap.set(POS_FRAMES) 跳转：
-            # 部分 mp4 的 moov atom 位于文件末尾，随机 seek 会触发
-            # "moov atom not found" 导致读取失败，顺序读取则不受影响。
-            # 为避免长视频顺序读完整个文件（极慢），只在「前 MAX_READ_FRAMES 帧」
-            # 内均匀采样 12 帧——长视频的封面取开头片段即可，无需读完全片。
-            target_total = 12
-            max_read_frames = 120  # 封顶读取范围，控制单任务耗时（M 盘慢视频顺序读取需快速收敛）
-            effective_total = min(total_frames, max_read_frames) if total_frames and total_frames > 0 else max_read_frames
-            step = max(1, int(effective_total / target_total))
-            collected = 0
-            idx = 0
-            while collected < target_total and idx < max_read_frames:
-                ret, f = cap.read()
-                if not ret:
-                    break
-                if idx % step == 0 or collected < 2:
-                    f = _resize_letterbox(f, 240, 135)
+
+            # ---- 采样策略：跨越全片均匀取样，而不是只读开头 ----
+            # 旧实现把采样窗口锁死在「前 120 帧」（约 4 秒），导致预览永远是
+            # 片头（常为黑屏/logo），既不能代表内容，也让人误以为「播放速度不对」。
+            # 现在改为在 [10%, 90%] 区间内均匀取 GIF_FRAMES 个时间点，用 seek
+            # 跳转读取；seek 失败（moov atom 在文件尾等）时回退到顺序读取。
+            target_total = GIF_FRAMES
+            frames_read_ok = False
+
+            if total_frames and total_frames > 0:
+                start_f = int(total_frames * 0.1)
+                end_f = int(total_frames * 0.9)
+                if end_f <= start_f:
+                    start_f, end_f = 0, max(0, total_frames - 1)
+                span = max(1, end_f - start_f)
+                positions = [start_f + int(span * i / target_total)
+                             for i in range(target_total)]
+                for pos in positions:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+                    ret, f = cap.read()
+                    if not ret:
+                        frames = []
+                        break
+                    f = _resize_keep_ratio(f, out_w, out_h)
                     f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
                     frames.append(Image.fromarray(f))
-                    collected += 1
-                idx += 1
+                frames_read_ok = len(frames) >= 2
+
+            if not frames_read_ok:
+                # 回退：顺序读取（兼容无法 seek 的文件）
+                cap.release()
+                cap = cv2.VideoCapture(task.video_path)
+                frames = []
+                max_read_frames = 600
+                effective = min(total_frames, max_read_frames) if total_frames and total_frames > 0 else max_read_frames
+                step = max(1, int(effective / target_total))
+                idx = 0
+                while len(frames) < target_total and idx < max_read_frames:
+                    ret, f = cap.read()
+                    if not ret:
+                        break
+                    if idx % step == 0:
+                        f = _resize_keep_ratio(f, out_w, out_h)
+                        f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
+                        frames.append(Image.fromarray(f))
+                    idx += 1
 
             if frames:
                 output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.gif')
-                # 动图帧间隔跟随源视频帧率，使预览播放速度与真实视频一致。
-                # 采样帧之间相隔 step 帧，故每帧真实时长为 step * (1000/fps) ms；
-                # fps 异常时回退到 125ms（8fps）。
-                if fps and fps > 0:
-                    frame_duration = max(10, round(step * 1000.0 / fps))
-                else:
-                    frame_duration = 125
+                # 播放速度：预览是「跨越全片的快照轮播」，不是原速回放，
+                # 因此帧间隔应是一个固定的、适合观看的展示节奏，而不能用
+                # step/fps 去还原源视频时间轴（那会得到 330ms+ 的迟滞感，
+                # 或在高帧率视频上快到看不清）。固定 GIF_FRAME_DURATION_MS
+                # 保证任何视频的预览节奏完全一致、可预期。
                 frames[0].save(
                     output_path,
                     save_all=True,
                     append_images=frames[1:],
-                    duration=frame_duration,
+                    duration=GIF_FRAME_DURATION_MS,
                     loop=0
                 )
             else:
                 return False, "无法读取视频帧"
         else:
-            frame_num = min(int(5 * fps) if fps > 0 else 10, total_frames - 1)
+            frame_num = min(int(5 * fps) if fps > 0 else 10, max(0, total_frames - 1))
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
             ret, frame = cap.read()
             if not ret:
                 return False, "读取帧失败"
-            frame = _resize_letterbox(frame, 320, 180)
+            sw, sh = _fit_size(src_w, src_h, STATIC_LONG_EDGE)
+            frame = _resize_keep_ratio(frame, sw, sh)
             ext = 'jpg' if output_format != 'png' else 'png'
             output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.{ext}')
             cv2.imwrite(output_path, frame)
