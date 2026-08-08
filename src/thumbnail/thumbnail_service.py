@@ -334,8 +334,13 @@ def generate_thumbnail(task):
 
                 # 优化：只采样2个位置，每个位置少量帧，降低CPU消耗
                 frames = []
-                # 固定帧率8fps，减少GIF大小和CPU消耗
-                frame_duration = 125  # 125ms/帧 = 8fps
+                # 动图帧间隔跟随源视频帧率，使预览播放速度与真实视频一致
+                # （之前固定 125ms/帧=8fps，与源视频帧率无关，导致预览速度失真）。
+                # 1000/fps 即每帧对应的真实时长；fps 异常时回退到 8fps 兜底。
+                if fps and fps > 0:
+                    frame_duration = max(10, round(1000.0 / fps))
+                else:
+                    frame_duration = 125  # 125ms/帧 = 8fps
 
                 # 计算两个位置：30%、70%
                 positions = [0.3, 0.7]

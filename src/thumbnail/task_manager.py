@@ -166,11 +166,18 @@ def _do_generate(task):
 
             if frames:
                 output_path = os.path.join(THUMBNAIL_DIR, f'{task.video_hash}.gif')
+                # 动图帧间隔跟随源视频帧率，使预览播放速度与真实视频一致。
+                # 采样帧之间相隔 step 帧，故每帧真实时长为 step * (1000/fps) ms；
+                # fps 异常时回退到 125ms（8fps）。
+                if fps and fps > 0:
+                    frame_duration = max(10, round(step * 1000.0 / fps))
+                else:
+                    frame_duration = 125
                 frames[0].save(
                     output_path,
                     save_all=True,
                     append_images=frames[1:],
-                    duration=125,
+                    duration=frame_duration,
                     loop=0
                 )
             else:
