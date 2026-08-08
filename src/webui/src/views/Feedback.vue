@@ -8,6 +8,7 @@ import {
   createIssue,
   updateIssue,
   addIssueComment,
+  replyAndReopen,
   extractMessage,
   type IssueListParams,
 } from '../api/suggestion'
@@ -28,9 +29,10 @@ const errorMsg = ref('')
 const issues = ref<Issue[]>([])
 const total = ref(0)
 const openCount = ref(0)
+const inProgressCount = ref(0)
 const pendingCount = ref(0)
 const closedCount = ref(0)
-const statusFilter = ref<'all' | 'open' | 'pending' | 'closed'>('all')
+const statusFilter = ref<'all' | 'open' | 'in_progress' | 'pending' | 'closed'>('all')
 const typeFilter = ref<'all' | 'bug' | 'suggestion' | 'other'>('all')
 const keyword = ref('')
 const page = ref(1)
@@ -55,9 +57,31 @@ const typeMeta: Record<'bug' | 'suggestion' | 'other', { label: string; cls: str
 const tabs = computed(() => [
   { key: 'all', label: '全部', count: total.value },
   { key: 'open', label: '开放', count: openCount.value },
+  { key: 'in_progress', label: '处理中', count: inProgressCount.value },
   { key: 'pending', label: '待验证', count: pendingCount.value },
   { key: 'closed', label: '已关闭', count: closedCount.value },
 ])
+
+// 状态展示元数据：统一映射状态 -> 标签 / 圆点样式 / 徽章样式 / 图标类型
+// pending 与 pending_verification 语义相同（待验证），均按待验证处理。
+type StatusMeta = { label: string; dot: string; badge: string; icon: 'open' | 'in_progress' | 'pending' | 'resolved' | 'dismissed' }
+function statusMeta(status: string, closedReason: string | null | undefined): StatusMeta {
+  switch (status) {
+    case 'open':
+      return { label: '开放', dot: 'open', badge: 'open', icon: 'open' }
+    case 'in_progress':
+      return { label: '处理中', dot: 'in_progress', badge: 'in_progress', icon: 'in_progress' }
+    case 'pending':
+    case 'pending_verification':
+      return { label: '待验证', dot: 'pending', badge: 'pending', icon: 'pending' }
+    case 'closed':
+      return closedReason === 'resolved'
+        ? { label: '已解决', dot: 'resolved', badge: 'resolved', icon: 'resolved' }
+        : { label: '已关闭', dot: 'dismissed', badge: 'dismissed', icon: 'dismissed' }
+    default:
+      return { label: '已关闭', dot: 'dismissed', badge: 'dismissed', icon: 'dismissed' }
+  }
+}
 
 const typeTabs = computed(() => [
   { key: 'all', label: '全部类型', count: total.value },
@@ -91,6 +115,7 @@ async function loadIssues(reset = true) {
       issues.value = res.issues
       total.value = res.total
       openCount.value = res.open_count
+      inProgressCount.value = res.in_progress_count
       pendingCount.value = res.pending_count
       closedCount.value = res.closed_count
     } else {
@@ -131,7 +156,7 @@ function backToList() {
 }
 
 // 切换状态标签：点「全部」时一并重置类型与关键词筛选，确保真正显示全部
-function changeStatusFilter(key: 'all' | 'open' | 'pending' | 'closed') {
+function changeStatusFilter(key: 'all' | 'open' | 'in_progress' | 'pending' | 'closed') {
   statusFilter.value = key
   if (key === 'all') {
     typeFilter.value = 'all'
@@ -242,6 +267,29 @@ async function submitComment() {
   }
 }
 
+// 回复并重新打开：一次性追加管理员回复 + 置为开放，仅产生 1 个状态变更事件，
+// 避免「先回复、再重开」两步操作各自触发事件、导致同一问题产生多个事件。
+async function replyAndReopenIssue() {
+  if (!selected.value) return
+  const content = commentText.value.trim()
+  if (!content) {
+    errorMsg.value = '请先填写回复内容'
+    return
+  }
+  loading.value = true
+  try {
+    const res = await replyAndReopen(selected.value.id, { content })
+    if (res.success) {
+      selected.value = res.issue
+      commentText.value = ''
+    }
+  } catch (e) {
+    errorMsg.value = extractMessage(e, '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 // 关键词输入防抖触发加载（状态/类型筛选改用显式处理函数，确保一致重置）
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, () => {
@@ -276,7 +324,7 @@ watch(
           <path d="M12 1C6.48 1 2 5.48 2 11c0 4.84 3.44 8.87 8 9.8V22l2.86-1.43c.43.07.87.13 1.14.13 5.52 0 10-4.48 10-10S17.52 1 12 1zm-1 14h-2v-2h2v2zm0-4h-2V7h2v4zm4 4h-2v-2h2v2zm0-4h-2V7h2v4z"/>
         </svg>
         <span>反馈中心</span>
-        <small v-if="view === 'list'">开放 {{ openCount }} · 待验证 {{ pendingCount }} · 已关闭 {{ closedCount }}</small>
+        <small v-if="view === 'list'">开放 {{ openCount }} · 处理中 {{ inProgressCount }} · 待验证 {{ pendingCount }} · 已关闭 {{ closedCount }}</small>
       </div>
     </header>
 
@@ -328,7 +376,7 @@ watch(
         >
           <span
             class="fb-dot"
-            :class="it.status === 'open' ? 'open' : (it.status === 'pending' ? 'pending' : (it.closed_reason === 'resolved' ? 'resolved' : 'dismissed'))"
+            :class="statusMeta(it.status, it.closed_reason).dot"
           ></span>
           <div class="fb-item-main">
             <div class="fb-item-title">
@@ -361,14 +409,15 @@ watch(
       <div class="fb-status-row">
         <span
           class="fb-badge"
-          :class="selected.status === 'open' ? 'open' : (selected.status === 'pending' ? 'pending' : (selected.closed_reason === 'resolved' ? 'resolved' : 'dismissed'))"
+          :class="statusMeta(selected.status, selected.closed_reason).badge"
         >
           <span class="fb-badge-ico">
-            <svg v-if="selected.status === 'open'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
-            <svg v-else-if="selected.status === 'pending'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm1-13h-2v6l5 3 1-1.7-4-2.3z"/></svg>
+            <svg v-if="statusMeta(selected.status, selected.closed_reason).icon === 'open'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+            <svg v-else-if="statusMeta(selected.status, selected.closed_reason).icon === 'in_progress'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V2A10 10 0 0 0 12 22a10 10 0 0 0 10-10h-2a8 8 0 1 1-8-8z"/></svg>
+            <svg v-else-if="statusMeta(selected.status, selected.closed_reason).icon === 'pending'" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm1-13h-2v6l5 3 1-1.7-4-2.3z"/></svg>
             <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           </span>
-          {{ selected.status === 'open' ? '开放' : (selected.status === 'pending' ? '待验证' : (selected.closed_reason === 'resolved' ? '已解决' : '已关闭')) }}
+          {{ statusMeta(selected.status, selected.closed_reason).label }}
         </span>
         <span class="fb-type-badge" :class="typeMeta[selected.type]?.cls">{{ typeMeta[selected.type]?.label }}</span>
         <span class="fb-detail-meta">由 {{ selected.author }} 创建于 {{ formatDate(selected.created_at) }}</span>
@@ -412,10 +461,16 @@ watch(
           <button class="fb-btn fb-btn-reopen" :disabled="loading" @click="reopenIssue">
             重新打开
           </button>
+          <button class="fb-btn fb-btn-reopen-reply" :disabled="loading || !commentText.trim()" @click="replyAndReopenIssue">
+            回复并重新打开
+          </button>
         </div>
         <div class="fb-admin-actions" v-else>
           <button class="fb-btn fb-btn-reopen" :disabled="loading" @click="reopenIssue">
             重新打开
+          </button>
+          <button class="fb-btn fb-btn-reopen-reply" :disabled="loading || !commentText.trim()" @click="replyAndReopenIssue">
+            回复并重新打开
           </button>
         </div>
 
@@ -424,7 +479,7 @@ watch(
             v-model="commentText"
             class="fb-comment-input"
             rows="3"
-            placeholder="以管理员身份回复..."
+            placeholder="以管理员身份回复...（点「回复并重新打开」可一并重开该反馈）"
             :disabled="loading"
           ></textarea>
           <button class="fb-btn fb-btn-primary" :disabled="loading || !commentText.trim()" @click="submitComment">
@@ -610,6 +665,7 @@ watch(
   flex-shrink: 0;
 }
 .fb-dot.open { background: var(--success); }
+.fb-dot.in_progress { background: #58a6ff; }
 .fb-dot.pending { background: #d29922; }
 .fb-dot.resolved { background: #a371f7; }
 .fb-dot.dismissed { background: #6e7681; }
@@ -679,6 +735,7 @@ watch(
   font-weight: 600;
 }
 .fb-badge.open { background: rgba(63,185,80,0.15); color: #3fb950; }
+.fb-badge.in_progress { background: rgba(88,166,255,0.15); color: #58a6ff; }
 .fb-badge.pending { background: rgba(210,153,34,0.15); color: #d29922; }
 .fb-badge.resolved { background: rgba(163,113,247,0.15); color: #a371f7; }
 .fb-badge.dismissed { background: rgba(110,118,129,0.2); color: var(--text-secondary); }
@@ -771,6 +828,8 @@ watch(
 .fb-btn-dismissed:hover:not(:disabled) { background: rgba(110,118,129,0.25); }
 .fb-btn-reopen { background: rgba(63,185,80,0.15); color: #3fb950; border-color: rgba(63,185,80,0.4); }
 .fb-btn-reopen:hover:not(:disabled) { background: rgba(63,185,80,0.25); }
+.fb-btn-reopen-reply { background: rgba(88,166,255,0.15); color: #58a6ff; border-color: rgba(88,166,255,0.4); }
+.fb-btn-reopen-reply:hover:not(:disabled) { background: rgba(88,166,255,0.25); }
 
 .fb-comment-form { display: flex; gap: 10px; align-items: flex-start; }
 .fb-comment-input {

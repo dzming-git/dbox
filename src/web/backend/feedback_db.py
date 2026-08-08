@@ -212,6 +212,7 @@ def issue_to_dict(issue: FeedbackIssue):
         'source': issue.source,
         'auto_classified': issue.auto_classified,
         'classification': issue.classification,
+        'closed_reason': issue.classification,  # 关闭原因（resolved/dismissed），前端据此区分已解决/已关闭
         'processed_at': issue.processed_at.isoformat() if issue.processed_at else None,
         'created_at': issue.created_at.isoformat() if issue.created_at else None,
         'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,

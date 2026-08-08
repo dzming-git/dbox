@@ -244,7 +244,7 @@ export interface Issue {
   author_id: number | null
   author_role: number
   contact?: string                             // 仅管理员可见
-  status: 'open' | 'pending' | 'closed'
+  status: 'open' | 'in_progress' | 'pending' | 'pending_verification' | 'closed'
   closed_reason: 'resolved' | 'dismissed' | null
   comments: IssueComment[]
   created_at: string
@@ -257,6 +257,7 @@ export interface IssueListResponse {
   issues: Issue[]
   total: number
   open_count: number
+  in_progress_count: number
   pending_count: number
   closed_count: number
   page: number

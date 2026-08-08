@@ -23,9 +23,17 @@ from backend.feedback_db import (
 suggestion_bp = Blueprint('suggestion_api', __name__)
 
 # 状态（与前端契约一致）
-STATUS_OPEN = 'open'              # 开放
-STATUS_PENDING = 'pending'        # 待验证（已修复，等待管理员验证）
-STATUS_CLOSED = 'closed'          # 已关闭
+STATUS_OPEN = 'open'                          # 开放
+STATUS_IN_PROGRESS = 'in_progress'           # 处理中（自动助手正在处理）
+STATUS_PENDING = 'pending'                    # 待验证（已修复，等待管理员验证）
+STATUS_PENDING_VERIFICATION = 'pending_verification'  # 待验证（自动助手处理完成，语义同 pending）
+STATUS_CLOSED = 'closed'                      # 已关闭
+
+# 允许写入的状态白名单（status 为自由字符串，无需迁移）
+ALLOWED_STATUSES = {
+    STATUS_OPEN, STATUS_IN_PROGRESS,
+    STATUS_PENDING, STATUS_PENDING_VERIFICATION, STATUS_CLOSED,
+}
 
 # 关闭原因
 REASON_RESOLVED = 'resolved'      # 以解决
@@ -141,7 +149,7 @@ def list_issues():
         it['type'] = it.get('category') or 'suggestion'
 
     filtered = issues
-    if status in (STATUS_OPEN, STATUS_CLOSED, STATUS_PENDING):
+    if status in ALLOWED_STATUSES:
         filtered = [i for i in filtered if i.get('status') == status]
     if ftype in ('bug', 'suggestion', 'other'):
         filtered = [i for i in filtered if i.get('type', 'suggestion') == ftype]
@@ -162,7 +170,10 @@ def list_issues():
 
     out = [_with_type(it) for it in page_items]
     open_count = sum(1 for i in issues if i.get('status') == STATUS_OPEN)
-    pending_count = sum(1 for i in issues if i.get('status') == STATUS_PENDING)
+    in_progress_count = sum(1 for i in issues if i.get('status') == STATUS_IN_PROGRESS)
+    # pending 与 pending_verification 语义相同（待验证），合并计数
+    pending_count = sum(1 for i in issues
+                        if i.get('status') in (STATUS_PENDING, STATUS_PENDING_VERIFICATION))
     closed_count = sum(1 for i in issues if i.get('status') == STATUS_CLOSED)
 
     return jsonify({
@@ -170,6 +181,7 @@ def list_issues():
         'issues': out,
         'total': total,
         'open_count': open_count,
+        'in_progress_count': in_progress_count,
         'pending_count': pending_count,
         'closed_count': closed_count,
         'page': page,
@@ -268,7 +280,7 @@ def update_issue(issue_id):
 
         if 'status' in data:
             status = data['status']
-            if status not in (STATUS_OPEN, STATUS_PENDING, STATUS_CLOSED):
+            if status not in ALLOWED_STATUSES:
                 return jsonify({'success': False, 'message': '无效状态', 'code': 400}), 400
             issue.status = status
             if status == STATUS_CLOSED:
@@ -314,6 +326,46 @@ def comment_issue(issue_id):
             content=content,
             created_at=datetime.now(),
         ))
+        issue.updated_at = datetime.now()
+        session.commit()
+        out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    return jsonify({'success': True, 'issue': out})
+
+
+@suggestion_bp.route('/api/suggestion/<issue_id>/reply_reopen', methods=['POST'])
+def reply_reopen_issue(issue_id):
+    """回复并重新打开（原子操作）。
+
+    一次性追加管理员回复并把状态置为 open（重新打开），单次提交只产生
+    1 个 feedback.status_changed 事件，避免「先回复、再重开」两步操作各自
+    触发事件、导致同一问题产生多个事件/任务。
+    """
+    if not _is_admin():
+        return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+
+    data = request.get_json(force=True, silent=True) or {}
+    content = (data.get('content') or '').strip()
+    if not content:
+        return jsonify({'success': False, 'message': '评论内容不能为空', 'code': 400}), 400
+
+    uid, role, username = _auth()
+    author = username or '管理员'
+
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
+        issue.comments.append(FeedbackComment(
+            author=author,
+            author_role=role or int(UserRole.ADMIN),
+            content=content,
+            created_at=datetime.now(),
+        ))
+        # 重新打开：进入处理流水线（与重新打开按钮语义一致，仅一次状态变更）
+        issue.status = STATUS_OPEN
+        issue.classification = None
+        issue.processed_at = datetime.now()
         issue.updated_at = datetime.now()
         session.commit()
         out = issue_to_dict(issue)

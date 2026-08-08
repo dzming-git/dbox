@@ -2,7 +2,7 @@ import { api } from './index'
 import type { Issue, IssueListResponse } from '../types'
 
 export interface IssueListParams {
-  status?: 'open' | 'pending' | 'closed' | 'all'
+  status?: 'open' | 'in_progress' | 'pending' | 'pending_verification' | 'closed' | 'all'
   type?: IssueType | 'all'
   keyword?: string
   page?: number
@@ -36,7 +36,7 @@ export async function createIssue(payload: {
 export async function updateIssue(
   id: string,
   payload: {
-    status?: 'open' | 'pending' | 'closed'
+    status?: 'open' | 'in_progress' | 'pending' | 'pending_verification' | 'closed'
     closed_reason?: 'resolved' | 'dismissed' | null
     title?: string
     content?: string
@@ -50,4 +50,12 @@ export async function addIssueComment(
   payload: { content: string }
 ): Promise<{ success: boolean; issue: Issue }> {
   return await api.post(`/api/suggestion/${id}/comment`, payload)
+}
+
+// 回复并重新打开（原子操作）：一次性追加回复 + 置为 open，仅产生 1 个状态变更事件
+export async function replyAndReopen(
+  id: string,
+  payload: { content: string }
+): Promise<{ success: boolean; issue: Issue }> {
+  return await api.post(`/api/suggestion/${id}/reply_reopen`, payload)
 }
