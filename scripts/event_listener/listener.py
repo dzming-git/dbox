@@ -259,7 +259,7 @@ def call_handler(event_name, detail, handler, dry_run=False):
     # 透传给 handler 进程。配置优先级高于进程环境变量。
     _cfg, _ = load_config()
     env['DBOX_AI_DISPATCH'] = '1' if _cfg.get('ai_dispatch') else '0'
-    buddy_cn = _cfg.get('buddy_cn') or os.environ.get('DBOX_BUDDYCN', '')
+    buddy_cn = _cfg.get('buddy_cn') or ''
     if buddy_cn:
         env['DBOX_BUDDYCN'] = buddy_cn
 
@@ -424,6 +424,11 @@ def main():
             time.sleep(interval)
     except KeyboardInterrupt:
         print("[listener] 被中断，退出。")
+    except Exception as _e:
+        import traceback
+        traceback.print_exc()
+        print(f"[listener] 未捕获异常导致退出: {_e}")
+        raise
 
 
 if __name__ == '__main__':
