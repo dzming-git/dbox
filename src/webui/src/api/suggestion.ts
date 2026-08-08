@@ -59,3 +59,11 @@ export async function replyAndReopen(
 ): Promise<{ success: boolean; issue: Issue }> {
   return await api.post(`/api/suggestion/${id}/reply_reopen`, payload)
 }
+
+// 验证完成并关闭（原子操作）：可选追加回复 + 置为 closed（已解决），仅产生 1 个状态变更事件
+export async function verifyClose(
+  id: string,
+  payload?: { content?: string }
+): Promise<{ success: boolean; issue: Issue }> {
+  return await api.post(`/api/suggestion/${id}/verify_close`, payload || {})
+}

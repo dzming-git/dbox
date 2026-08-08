@@ -9,6 +9,7 @@ import {
   updateIssue,
   addIssueComment,
   replyAndReopen,
+  verifyClose,
   extractMessage,
   type IssueListParams,
 } from '../api/suggestion'
@@ -54,8 +55,14 @@ const typeMeta: Record<'bug' | 'suggestion' | 'other', { label: string; cls: str
   other: { label: '其他', cls: 'type-other' },
 }
 
+// 全部数量始终基于各状态计数之和（后端按全量统计，不随当前筛选变化），
+// 而非 total（筛选后数量），避免点选某筛选导致「全部」计数错误地显示为筛选结果数。
+const allCount = computed(() =>
+  openCount.value + inProgressCount.value + pendingCount.value + closedCount.value
+)
+
 const tabs = computed(() => [
-  { key: 'all', label: '全部', count: total.value },
+  { key: 'all', label: '全部', count: allCount.value },
   { key: 'open', label: '开放', count: openCount.value },
   { key: 'in_progress', label: '处理中', count: inProgressCount.value },
   { key: 'pending', label: '待验证', count: pendingCount.value },
@@ -84,7 +91,7 @@ function statusMeta(status: string, closedReason: string | null | undefined): St
 }
 
 const typeTabs = computed(() => [
-  { key: 'all', label: '全部类型', count: total.value },
+  { key: 'all', label: '全部类型', count: allCount.value },
   { key: 'bug', label: '缺陷', count: 0 },
   { key: 'suggestion', label: '建议', count: 0 },
   { key: 'other', label: '其他', count: 0 },
@@ -290,6 +297,25 @@ async function replyAndReopenIssue() {
   }
 }
 
+// 验证完成并关闭：可选追加管理员回复 + 置为已关闭（已解决），仅产生 1 个状态变更事件，
+// 避免「先回复、再关闭」两步操作各自触发事件。评论内容可选，未填写则只关闭。
+async function verifyCloseIssue() {
+  if (!selected.value) return
+  loading.value = true
+  try {
+    const content = commentText.value.trim()
+    const res = await verifyClose(selected.value.id, content ? { content } : {})
+    if (res.success) {
+      selected.value = res.issue
+      commentText.value = ''
+    }
+  } catch (e) {
+    errorMsg.value = extractMessage(e, '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 // 关键词输入防抖触发加载（状态/类型筛选改用显式处理函数，确保一致重置）
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, () => {
@@ -454,9 +480,9 @@ watch(
             不处理关闭
           </button>
         </div>
-        <div class="fb-admin-actions" v-else-if="selected.status === 'pending'">
-          <button class="fb-btn fb-btn-resolved" :disabled="loading" @click="closeIssue('resolved')">
-            验证通过并关闭
+        <div class="fb-admin-actions" v-else-if="selected.status === 'pending' || selected.status === 'pending_verification'">
+          <button class="fb-btn fb-btn-resolved" :disabled="loading" @click="verifyCloseIssue">
+            验证完成关闭
           </button>
           <button class="fb-btn fb-btn-reopen" :disabled="loading" @click="reopenIssue">
             重新打开

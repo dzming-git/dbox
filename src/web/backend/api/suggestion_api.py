@@ -150,7 +150,13 @@ def list_issues():
 
     filtered = issues
     if status in ALLOWED_STATUSES:
-        filtered = [i for i in filtered if i.get('status') == status]
+        # pending 与 pending_verification 语义相同（均为「待验证」），合并匹配，
+        # 与下方的 pending_count 计数逻辑保持一致，避免筛选为空。
+        if status == STATUS_PENDING:
+            filtered = [i for i in filtered
+                        if i.get('status') in (STATUS_PENDING, STATUS_PENDING_VERIFICATION)]
+        else:
+            filtered = [i for i in filtered if i.get('status') == status]
     if ftype in ('bug', 'suggestion', 'other'):
         filtered = [i for i in filtered if i.get('type', 'suggestion') == ftype]
     if keyword:
@@ -365,6 +371,46 @@ def reply_reopen_issue(issue_id):
         # 重新打开：进入处理流水线（与重新打开按钮语义一致，仅一次状态变更）
         issue.status = STATUS_OPEN
         issue.classification = None
+        issue.processed_at = datetime.now()
+        issue.updated_at = datetime.now()
+        session.commit()
+        out = issue_to_dict(issue)
+    out['type'] = out.get('category') or 'suggestion'
+    return jsonify({'success': True, 'issue': out})
+
+
+@suggestion_bp.route('/api/suggestion/<issue_id>/verify_close', methods=['POST'])
+def verify_close_issue(issue_id):
+    """验证完成并关闭（原子操作）。
+
+    管理员验证反馈已处理完成时，一次性（可选追加回复 + ）将状态置为 closed、
+    closed_reason=resolved（已解决），单次提交只产生 1 个 feedback.status_changed
+    事件，避免「先回复、再关闭」两步操作各自触发事件。评论内容可选：仅当
+    填写时才追加管理员回复。
+    """
+    if not _is_admin():
+        return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+
+    data = request.get_json(force=True, silent=True) or {}
+    content = (data.get('content') or '').strip()
+
+    uid, role, username = _auth()
+    author = username or '管理员'
+
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
+        if content:
+            issue.comments.append(FeedbackComment(
+                author=author,
+                author_role=role or int(UserRole.ADMIN),
+                content=content,
+                created_at=datetime.now(),
+            ))
+        # 验证完成：置为已关闭（已解决），仅一次状态变更
+        issue.status = STATUS_CLOSED
+        issue.classification = REASON_RESOLVED
         issue.processed_at = datetime.now()
         issue.updated_at = datetime.now()
         session.commit()
