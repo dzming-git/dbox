@@ -144,9 +144,10 @@ def process(runtime_dir: str, dry_run: bool = False):
         else:
             cat = classify(it.get('content', ''))
             comment = (
-                f'{AUTO_PREFIX} 已收到并初步归类为【{cat}】。'
-                f'已记录并安排处理；如涉及代码改动将另行修复并关闭本建议，'
-                f'请留意后续状态更新。'
+                f'{AUTO_PREFIX} 已收到并初步归类为【{cat}】。\n'
+                f'本工具仅做关键词归类，未分析根因；如涉及代码缺陷将转交 AI 逐条'
+                f'复现并定位根因、给出修复与验证说明。请留意后续由「自动助手」补充的'
+                f'处理结论（含根因/修复/验证）。'
             )
             if dry_run:
                 replied.append(it)
