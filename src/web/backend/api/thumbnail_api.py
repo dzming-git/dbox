@@ -69,7 +69,11 @@ def get_thumbnail(video_hash):
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
             resp = send_file(path, mimetype=f'image/{ext}')
-            resp.cache_control.max_age = 3600
+            # 缩略图文件会在重新生成时改变内容（同 hash），固定 1h 缓存会导致用户
+            # 即便在服务端重建后仍长时间看到旧图。缩到 60s 并强制协商，兼顾性能
+            # 与修复后的即时可见性。
+            resp.cache_control.max_age = 60
+            resp.cache_control.must_revalidate = True
             return resp
 
     # 文件不存在，尝试懒加载生成
