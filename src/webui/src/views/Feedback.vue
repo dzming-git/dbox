@@ -316,9 +316,8 @@ async function verifyCloseIssue() {
   }
 }
 
-// 管理员自由切换阶段：可直接把反馈置为任意状态，避免异常情况下卡死（如停在
-// 处理中无法关闭）。后端 PUT /api/suggestion/<id> 已支持任意合法状态，这里仅做 UI 入口。
-// value 含义见 STATUS_OPTIONS：closed 需附带关闭原因（resolved / dismissed）。
+// 管理员切换阶段：可直接把反馈置为任意状态。后端 PUT /api/suggestion/<id> 已支持
+// 任意合法状态，这里仅做 UI 入口；选择后需点「确认变更」才生效，并给出操作反馈。
 const STATUS_OPTIONS = [
   { value: 'open', label: '开放', status: 'open', reason: null },
   { value: 'in_progress', label: '处理中', status: 'in_progress', reason: null },
@@ -337,6 +336,19 @@ const currentStatusValue = computed<string>(() => {
   return 'open'
 })
 
+// 状态变更操作反馈
+const statusMsg = ref('')
+
+// 待确认的下拉选择：选择后不会立即生效，需点「确认变更」才提交，避免误操作且无反馈。
+const pendingStatus = ref<string>(currentStatusValue.value)
+// 反馈切换或状态变化后，把待确认项同步回当前状态
+watch(currentStatusValue, (v) => { pendingStatus.value = v })
+// 重新选择时清除上一次的操作反馈
+watch(pendingStatus, () => {
+  statusMsg.value = ''
+  errorMsg.value = ''
+})
+
 async function applyStatus(value: string) {
   if (!selected.value) return
   const opt = STATUS_OPTIONS.find((o) => o.value === value)
@@ -346,14 +358,19 @@ async function applyStatus(value: string) {
     opt.status === selected.value.status &&
     (opt.reason ?? null) === (selected.value.closed_reason ?? null)
   ) {
+    statusMsg.value = ''
     return
   }
   loading.value = true
+  statusMsg.value = ''
   try {
     const payload: { status: string; closed_reason?: string | null } = { status: opt.status }
     if (opt.reason !== null) payload.closed_reason = opt.reason
     const res = await updateIssue(selected.value.id, payload)
-    if (res.success) selected.value = res.issue
+    if (res.success) {
+      selected.value = res.issue
+      statusMsg.value = `状态已更新为「${opt.label}」`
+    }
   } catch (e) {
     errorMsg.value = extractMessage(e, '状态变更失败')
   } finally {
@@ -514,18 +531,24 @@ watch(
 
       <!-- 管理员操作区 -->
       <div v-if="isAdmin" class="fb-admin">
-        <!-- 管理员可自由切换任意阶段，避免异常情况下卡死（如停在处理中无法关闭） -->
         <div class="fb-admin-status">
           <span class="fb-admin-status-label">变更状态</span>
           <select
             class="fb-status-select"
-            :value="currentStatusValue"
+            :value="pendingStatus"
             :disabled="loading"
-            @change="applyStatus(($event.target as HTMLSelectElement).value)"
+            @change="pendingStatus = ($event.target as HTMLSelectElement).value"
           >
             <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
-          <span class="fb-admin-status-hint">可自由切换任意阶段，避免异常锁死</span>
+          <button
+            class="fb-btn fb-btn-primary"
+            :disabled="loading || pendingStatus === currentStatusValue"
+            @click="applyStatus(pendingStatus)"
+          >
+            确认变更
+          </button>
+          <span v-if="statusMsg" class="fb-admin-status-ok">{{ statusMsg }}</span>
         </div>
 
         <div class="fb-admin-actions" v-if="selected.status === 'open'">
@@ -923,8 +946,8 @@ watch(
 }
 .fb-status-select:focus { border-color: #58a6ff; }
 .fb-status-select:disabled { opacity: 0.5; cursor: not-allowed; }
-.fb-admin-status-hint {
-  color: var(--text-secondary);
+.fb-admin-status-ok {
+  color: #3fb950;
   font-size: 12px;
 }
 .fb-admin-actions {
