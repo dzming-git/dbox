@@ -1608,11 +1608,11 @@ def admin_delete_resource(rtype, rid):
         if rtype == 'video':
             obj = Video.query.filter_by(hash=rid).first()
             if obj:
-                db.session.delete(obj)
+                purge_trash(obj, 'video')
         elif rtype == 'gallery':
             obj = Gallery.query.filter_by(hash=rid).first()
             if obj:
-                db.session.delete(obj)
+                purge_trash(obj, 'gallery')
         elif rtype == 'post':
             obj = Post.query.get(int(rid))
             if obj:

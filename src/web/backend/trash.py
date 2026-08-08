@@ -11,7 +11,9 @@ from datetime import datetime
 from core.models import (
     db, User, Video, Gallery, ResourceLibrary,
     UserInteraction, VideoTag,
+    VideoMarker, CollectionVideo, PlaylistItem,
     GalleryPage, GalleryInteraction, GalleryProgress, GalleryTag,
+    GalleryPlaylistItem,
 )
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
@@ -100,6 +102,29 @@ def restore_from_trash(obj, kind: str):
     return obj
 
 
+def _delete_video_dependents(video):
+    """删除视频前先清理其全部子表记录，避免外键约束导致删除失败。
+
+    这些子表通过 ``videos.id`` 外键关联但未配置 ORM 级联删除，
+    直接 ``db.session.delete(video)`` 会触发 ``FOREIGN KEY constraint failed``。
+    """
+    VideoMarker.query.filter_by(video_id=video.id).delete()
+    CollectionVideo.query.filter_by(video_id=video.id).delete()
+    PlaylistItem.query.filter_by(video_id=video.id).delete()
+    VideoTag.query.filter_by(video_id=video.id).delete()
+    UserInteraction.query.filter_by(video_id=video.id).delete()
+
+
+def _delete_gallery_dependents(gallery):
+    """删除图集前先清理其全部子表记录（同 ``_delete_video_dependents`` 的原因）。"""
+    GalleryPage.query.filter_by(gallery_id=gallery.id).delete()
+    GalleryInteraction.query.filter_by(gallery_id=gallery.id).delete()
+    GalleryProgress.query.filter_by(gallery_id=gallery.id).delete()
+    GalleryTag.query.filter_by(gallery_id=gallery.id).delete()
+    GalleryPlaylistItem.query.filter_by(gallery_id=gallery.id).delete()
+    CollectionVideo.query.filter_by(gallery_id=gallery.id).delete()
+
+
 def purge_trash(obj, kind: str):
     """永久删除：清除回收站（或原位置残留）的物理文件及数据库记录。"""
     # 物理文件可能仍在原位置（管理员直接永久删除，未经过回收站）
@@ -111,10 +136,12 @@ def purge_trash(obj, kind: str):
             else:
                 os.remove(p)
 
+    # 先清理所有外键子表，再删除主体，避免 FOREIGN KEY 约束失败
     if kind == 'video':
+        _delete_video_dependents(obj)
         _delete_thumbnails(obj.hash)
     elif kind == 'gallery':
-        GalleryTag.query.filter_by(gallery_id=obj.id).delete()
+        _delete_gallery_dependents(obj)
 
     db.session.delete(obj)
     db.session.commit()
