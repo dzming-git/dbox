@@ -316,6 +316,51 @@ async function verifyCloseIssue() {
   }
 }
 
+// 管理员自由切换阶段：可直接把反馈置为任意状态，避免异常情况下卡死（如停在
+// 处理中无法关闭）。后端 PUT /api/suggestion/<id> 已支持任意合法状态，这里仅做 UI 入口。
+// value 含义见 STATUS_OPTIONS：closed 需附带关闭原因（resolved / dismissed）。
+const STATUS_OPTIONS = [
+  { value: 'open', label: '开放', status: 'open', reason: null },
+  { value: 'in_progress', label: '处理中', status: 'in_progress', reason: null },
+  { value: 'pending', label: '待验证', status: 'pending_verification', reason: null },
+  { value: 'resolved', label: '已解决关闭', status: 'closed', reason: 'resolved' },
+  { value: 'dismissed', label: '不处理关闭', status: 'closed', reason: 'dismissed' },
+] as const
+
+// 当前状态 -> 下拉选项 value，便于选中项与数据保持一致
+const currentStatusValue = computed<string>(() => {
+  const s = selected.value?.status
+  const r = selected.value?.closed_reason
+  if (s === 'closed') return r === 'resolved' ? 'resolved' : 'dismissed'
+  if (s === 'in_progress') return 'in_progress'
+  if (s === 'pending' || s === 'pending_verification') return 'pending'
+  return 'open'
+})
+
+async function applyStatus(value: string) {
+  if (!selected.value) return
+  const opt = STATUS_OPTIONS.find((o) => o.value === value)
+  if (!opt) return
+  // 状态与关闭原因均未变化则无事可做
+  if (
+    opt.status === selected.value.status &&
+    (opt.reason ?? null) === (selected.value.closed_reason ?? null)
+  ) {
+    return
+  }
+  loading.value = true
+  try {
+    const payload: { status: string; closed_reason?: string | null } = { status: opt.status }
+    if (opt.reason !== null) payload.closed_reason = opt.reason
+    const res = await updateIssue(selected.value.id, payload)
+    if (res.success) selected.value = res.issue
+  } catch (e) {
+    errorMsg.value = extractMessage(e, '状态变更失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 // 关键词输入防抖触发加载（状态/类型筛选改用显式处理函数，确保一致重置）
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, () => {
@@ -469,6 +514,20 @@ watch(
 
       <!-- 管理员操作区 -->
       <div v-if="isAdmin" class="fb-admin">
+        <!-- 管理员可自由切换任意阶段，避免异常情况下卡死（如停在处理中无法关闭） -->
+        <div class="fb-admin-status">
+          <span class="fb-admin-status-label">变更状态</span>
+          <select
+            class="fb-status-select"
+            :value="currentStatusValue"
+            :disabled="loading"
+            @change="applyStatus(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+          <span class="fb-admin-status-hint">可自由切换任意阶段，避免异常锁死</span>
+        </div>
+
         <div class="fb-admin-actions" v-if="selected.status === 'open'">
           <button class="fb-btn fb-btn-pending" :disabled="loading" @click="markPending">
             标记待验证
@@ -489,6 +548,20 @@ watch(
           </button>
           <button class="fb-btn fb-btn-reopen-reply" :disabled="loading || !commentText.trim()" @click="replyAndReopenIssue">
             回复并重新打开
+          </button>
+        </div>
+        <div class="fb-admin-actions" v-else-if="selected.status === 'in_progress'">
+          <button class="fb-btn fb-btn-pending" :disabled="loading" @click="markPending">
+            标记待验证
+          </button>
+          <button class="fb-btn fb-btn-resolved" :disabled="loading" @click="closeIssue('resolved')">
+            以解决关闭
+          </button>
+          <button class="fb-btn fb-btn-dismissed" :disabled="loading" @click="closeIssue('dismissed')">
+            不处理关闭
+          </button>
+          <button class="fb-btn fb-btn-reopen" :disabled="loading" @click="reopenIssue">
+            重新打开
           </button>
         </div>
         <div class="fb-admin-actions" v-else>
@@ -826,6 +899,33 @@ watch(
 .fb-admin {
   border-top: 1px solid var(--border-default);
   padding-top: 16px;
+}
+.fb-admin-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.fb-admin-status-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.fb-status-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+.fb-status-select:focus { border-color: #58a6ff; }
+.fb-status-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.fb-admin-status-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 .fb-admin-actions {
   display: flex;
