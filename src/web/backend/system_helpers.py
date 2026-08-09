@@ -103,6 +103,18 @@ def _default_config():
             "main_app": 8080,
             "admin_app": 8081,
             "thumbnail": 5001
+        },
+        # HTTPS / TLS 支持（呼应反馈 202608090002：禁用 http、使用 https、可配置）。
+        # 默认不启用，保持向后兼容；启用后优先使用 cert_file/key_file，
+        # 缺失时自动生成自签名证书（默认 10 年，CN=localhost）一次。
+        "tls": {
+            "enabled": False,
+            "cert_file": "",
+            "key_file": "",
+            "port": 8443,
+            # 为 True 且 TLS 正常启用后，仅监听 HTTPS、不再提供明文 HTTP；
+            # 为 False 时同时提供 HTTPS(tls.port) 与 HTTP(ports.web) 便于过渡。
+            "disable_http": False
         }
     }
 

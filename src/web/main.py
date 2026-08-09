@@ -237,6 +237,7 @@ from backend.thumbnail_helpers import (
 
 # 运行时单例统一注入到 backend.runtime，彻底消除 helper 对 main 的依赖
 from backend.runtime import runtime as _runtime
+from backend.tls_helpers import build_tls_context
 app_config = load_config()
 _runtime.init(db=db, app=app, app_config=app_config)
 # 总线客户端创建并注入 runtime（收敛至 backend.service_buses）
@@ -535,6 +536,33 @@ try:
 except Exception as _e:
     log.maintenance('WARN', f'恢复缩略图自动生成线程失败: {_e}')
 
+# ============ 双协议栈（HTTP + HTTPS 同时监听） ============
+def _serve_dual_stack(app, host, http_port, https_port, ssl_ctx):
+    """同时启动明文 HTTP 与 HTTPS 服务（HTTPS 在后台线程）。
+
+    主线程阻塞在明文 HTTP 上，HTTPS 在守护线程中运行；
+    两者使用同一个 Flask app 实例，共享全部路由与中间件。
+    """
+    from werkzeug.serving import make_server
+    import threading
+
+    http_srv = make_server(host, http_port, app, threaded=True)
+    https_srv = make_server(host, https_port, app, ssl_context=ssl_ctx, threaded=True)
+
+    def _run_https():
+        try:
+            https_srv.serve_forever()
+        except Exception as e:  # pragma: no cover - 守护线程异常不应杀死进程
+            log.runtime('ERROR', f'HTTPS 服务异常: {e}')
+
+    t = threading.Thread(target=_run_https, daemon=True, name='dbox-https')
+    t.start()
+    try:
+        http_srv.serve_forever()
+    finally:
+        https_srv.shutdown()
+
+
 # ============ 主入口 ============
 if __name__ == '__main__':
     # 启动守卫：生产模式必须通过 NSSM 启动，开发模式允许直接运行。
@@ -544,18 +572,36 @@ if __name__ == '__main__':
 
     # 检查是否为开发模式
     is_dev_mode = os.environ.get('DBOX_DEV_MODE') == '1'
-    
+
+    host = app_config.get('host', '0.0.0.0')
     port = app_config.get('ports', {}).get('web', 8080)
-    
-    if is_dev_mode:
+    tls_cfg = app_config.get('tls', {}) or {}
+    tls_port = int(tls_cfg.get('port', 8443)) if isinstance(tls_cfg, dict) else 8443
+    # 开发模式不做 TLS（避免与调试器/热重载冲突）；生产模式按配置启用 HTTPS
+    tls_ctx = build_tls_context(tls_cfg, USER_CONFIG_DIR) if (not is_dev_mode and isinstance(tls_cfg, dict)) else None
+    tls_enabled = tls_ctx is not None
+    disable_http = bool(tls_cfg.get('disable_http')) if isinstance(tls_cfg, dict) else False
+
+    if tls_enabled and disable_http:
+        # 仅 HTTPS：禁用明文 HTTP（呼应反馈「禁用 http，使用 https」）
+        print(f"[PRODUCTION] Starting Dbox Web service (HTTPS only) on port {tls_port}")
+        log.runtime('INFO', f'Dbox Web 服务（仅 HTTPS）启动于端口 {tls_port}')
+        app.run(host=host, port=tls_port, debug=False, use_reloader=False,
+                threaded=True, ssl_context=tls_ctx)
+    elif tls_enabled:
+        # 双栈：HTTPS(tls_port) + 明文 HTTP(web port)，便于平滑过渡
+        print(f"[PRODUCTION] Starting Dbox Web service: HTTPS on {tls_port}, HTTP on {port}")
+        log.runtime('INFO', f'Dbox Web 服务（HTTPS+HTTP）启动: HTTPS={tls_port}, HTTP={port}')
+        _serve_dual_stack(app, host, port, tls_port, tls_ctx)
+    elif is_dev_mode:
         print(f"[DEV MODE] Starting Dbox Web service on port {port}")
         print(f"[DEV MODE] Access at: http://localhost:{port}")
         log.runtime('INFO', f'Dbox Web 服务（开发模式）启动于端口 {port}')
         # 注意：禁用 use_reloader，因为 zmq socket 与 Flask reloader 不兼容
         # 代码变化后需要手动重启服务
-        app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False, threaded=True)
+        app.run(host=host, port=port, debug=True, use_reloader=False, threaded=True)
     else:
         print(f"[PRODUCTION] Starting Dbox Web service on port {port}")
         log.runtime('INFO', f'Dbox Web 服务启动于端口 {port}')
         # 生产模式：不启用 debug
-        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+        app.run(host=host, port=port, debug=False, threaded=True)

@@ -82,3 +82,31 @@ curl http://localhost:8080/api/tags
 # 获取配置
 curl http://localhost:8080/api/config
 ```
+
+## HTTPS / TLS 配置（反馈 202608090002）
+
+默认仅提供明文 HTTP。可在用户配置文件（`web_config.json`，位于系统数据区
+`config/` 目录，默认 `C:\ProgramData\Dbox\config\web_config.json`）中启用 HTTPS：
+
+```json
+"tls": {
+    "enabled": true,            // 是否启用 HTTPS
+    "cert_file": "",            // 证书路径（留空则自动生成自签名证书）
+    "key_file": "",             // 私钥路径
+    "port": 8443,               // HTTPS 监听端口
+    "disable_http": false      // 为 true 时仅监听 HTTPS、禁用明文 HTTP
+}
+```
+
+行为说明：
+- `enabled=false`（默认）：行为与之前完全一致，仅明文 HTTP。
+- `enabled=true` 且未提供证书：首次启动自动生成自签名证书
+  （`dbox-selfsigned.crt` / `dbox-selfsigned.key`，默认 10 年，CN=localhost），
+  之后可在 `cert_file`/`key_file` 指定受信任证书替换。
+- `disable_http=false`（默认）：同时提供 HTTPS(`tls.port`) 与明文 HTTP(`ports.web`)，便于平滑过渡。
+- `disable_http=true`：仅监听 HTTPS，彻底禁用明文 HTTP（呼应「禁用 http，使用 https」）。
+
+> 注意：TLS 在 `app.run` 启动时读取，修改 `tls` 配置后需重启 `dbox-web` 服务生效；
+> `GET /api/config` 会返回当前完整配置（含 `tls` 段），`PUT /api/config` 可持久化修改。
+> 证书加载失败会安全回退到明文 HTTP，避免服务无法启动。
+

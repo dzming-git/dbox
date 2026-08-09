@@ -28,6 +28,13 @@
     "host": "0.0.0.0",
     "auto_start": true,
     "scan_interval_minutes": 60,
+    "tls": {
+        "enabled": false,
+        "cert_file": "",
+        "key_file": "",
+        "port": 8443,
+        "disable_http": false
+    },
     "test": "value",
     "scan_directory": "/path/to/scan",
     "video_formats": [

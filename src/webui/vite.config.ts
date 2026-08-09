@@ -14,34 +14,41 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      // 脚本/下载器接口统一打到主服务 8080，由主服务网关转发到独立下载器（8092）。
-      // 这样开发/生产行为一致，且主服务不直接执行脚本代码。
+      // 后端已启用 HTTPS（自签名证书，端口 8443）并禁用明文 HTTP（呼应反馈 202608090002）。
+      // 前端代理统一打到主服务的 HTTPS 端口；secure:false 以接受自签名证书。
+      // 脚本/下载器接口仍由主服务网关转发到独立下载器（8092）。
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: 'https://127.0.0.1:8443',
         changeOrigin: true,
+        secure: false,
         headers: {
           'Connection': 'keep-alive'
         }
       },
       '/thumbnail': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        target: 'https://127.0.0.1:8443',
+        changeOrigin: true,
+        secure: false
       },
       '/local_video': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        target: 'https://127.0.0.1:8443',
+        changeOrigin: true,
+        secure: false
       },
       '/gallery-page': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        target: 'https://127.0.0.1:8443',
+        changeOrigin: true,
+        secure: false
       },
       '/gallery-cover': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        target: 'https://127.0.0.1:8443',
+        changeOrigin: true,
+        secure: false
       },
       '/resource-file': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        target: 'https://127.0.0.1:8443',
+        changeOrigin: true,
+        secure: false
       }
     }
   }
