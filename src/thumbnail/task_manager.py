@@ -179,6 +179,11 @@ def _load_preview_config():
         'sample_points': 12,
         'sprite_cols': 4,
         'sprite_long_edge': 180,
+        # 片段式采样：在 segment_count 个关键时间点各密集抽 frames_per_segment 帧，
+        # 每帧相隔 segment_frame_gap 秒，构成几秒的连续片段；前端片段内循环播放再跳转。
+        'segment_count': 4,
+        'frames_per_segment': 3,
+        'segment_frame_gap': 0.4,
     }
     try:
         cfg_path = _THUMB_CONFIG_FILE
@@ -234,9 +239,13 @@ def _ts(sec):
     return f'{h:02d}:{m:02d}:{s:02d}.{ms:03d}'
 
 
-def _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, frame_count):
-    """构建 WebVTT：NOTE 携带几何信息，每个 cue 携带单帧 xywh 坐标与时间区间。"""
-    step = window / max(1, frame_count)
+def _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, times, seg_of):
+    """构建 WebVTT：NOTE 携带几何与片段信息，每个 cue 携带单帧 xywh 坐标、时间区间与片段归属。
+
+    times   —— 每帧的实际采样时间点（秒），用于精确时间戳（片段式采样不再均匀）。
+    seg_of  —— 每帧所属片段编号（int），前端据此分组：片段内连续播放几秒再跳转。
+    """
+    frame_count = len(times)
     lines = ['WEBVTT', 'X-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000', '']
     lines.append(
         f'NOTE sprite fw={fw} fh={fh} cols={cols} rows={rows} '
@@ -246,10 +255,20 @@ def _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, frame_count):
     for i in range(frame_count):
         x = (i % cols) * fw
         y = (i // cols) * fh
-        t_start = start + i * step
-        t_end = start + (i + 1) * step
+        # 片段内相邻帧用中点切分；片段边界帧不跨片段，用片段内相邻帧间隔
+        same_seg_prev = i > 0 and seg_of[i] == seg_of[i - 1]
+        same_seg_next = i + 1 < frame_count and seg_of[i] == seg_of[i + 1]
+        if same_seg_next and i + 1 < frame_count:
+            t_end = (times[i] + times[i + 1]) / 2
+        else:
+            t_end = times[i] + 0.2  # 片段末帧：短暂停留区间
+        if same_seg_prev:
+            t_start = (times[i - 1] + times[i]) / 2
+        else:
+            t_start = times[i] - 0.2  # 片段首帧：从采样点前开始
         lines.append(f'{_ts(t_start)} --> {_ts(t_end)}')
         lines.append(f'xywh={x},{y},{fw},{fh}')
+        lines.append(f'seg={seg_of[i]}')
         lines.append('')
     return '\n'.join(lines)
 
@@ -272,11 +291,18 @@ def _generate_sprite(task, pv):
     if not duration or duration <= 0:
         return False, '无法获取视频时长'
 
-    n = int(pv.get('sample_points', 12))
     cols = int(pv.get('sprite_cols', 4))
     long_edge = int(pv.get('sprite_long_edge', 180))
     head_skip = float(pv.get('head_skip', 0.08))
     tail_skip = float(pv.get('tail_skip', 0.08))
+    # 片段式采样：在 segment_count 个关键时间点各密集抽 frames_per_segment 帧
+    n_seg = int(pv.get('segment_count', 4))
+    fps = int(pv.get('frames_per_segment', 3))
+    gap = float(pv.get('segment_frame_gap', 0.4))
+    n_seg = max(1, min(12, n_seg))
+    fps = max(1, min(8, fps))
+    gap = max(0.1, min(2.0, gap))
+    n = n_seg * fps
     n = max(1, min(48, n))
     cols = max(1, cols)
 
@@ -287,9 +313,16 @@ def _generate_sprite(task, pv):
         head, tail = 0, 0
     start = head
     window = max(0.5, duration - head - tail)
-    step = window / n
-    # 12 个均匀采样时间点
-    times = [start + i * step for i in range(n)]
+    # 片段中心均匀分布在有效区间，片段内围绕中心密集采样（几秒连续片段）
+    times = []
+    seg_of = []
+    for s in range(n_seg):
+        center = start + window * (s + 0.5) / n_seg
+        for f in range(fps):
+            t = center + (f - (fps - 1) / 2.0) * gap
+            t = max(0.0, min(duration - 0.05, t))
+            times.append(t)
+            seg_of.append(s)
 
     # 行数 = ceil(n / cols)
     rows = math.ceil(n / cols)
@@ -394,7 +427,7 @@ def _generate_sprite(task, pv):
             pass
 
     # 4) 写 VTT 索引
-    vtt = _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, n)
+    vtt = _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, times, seg_of)
     try:
         with open(vtt_path, 'w', encoding='utf-8') as f:
             f.write(vtt)

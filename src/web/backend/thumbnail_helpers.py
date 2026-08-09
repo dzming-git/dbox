@@ -29,10 +29,13 @@ _DEFAULT_THUMB_CONFIG = {
     'task_interval': 3,
     'auto_generate_interval': 3600,
     # 悬停预览（sprite 雪碧图）采样参数：
-    # head_skip / tail_skip —— 跳过片头/片尾的比例（0~0.5），保证预览内容有代表性
-    # sample_points       —— 在有效区间内均匀采样的帧数
-    # sprite_cols         —— 雪碧图每行帧数（行数 = ceil(sample_points / sprite_cols)）
-    # sprite_long_edge    —— 单帧长边像素（短边按源视频宽高比自动推导）
+    # head_skip / tail_skip      —— 跳过片头/片尾的比例（0~0.5），保证预览内容有代表性
+    # sample_points              —— 兼容旧配置的总帧数参考（片段式采样下实际总帧数由片段参数推导）
+    # sprite_cols                —— 雪碧图每行帧数（行数 = ceil(总帧数 / sprite_cols)）
+    # sprite_long_edge           —— 单帧长边像素（短边按源视频宽高比自动推导）
+    # segment_count / frames_per_segment —— 片段式采样：在 segment_count 个关键时间点各密集抽
+    #                            frames_per_segment 帧，片段内构成几秒连续动作，片段间跳转
+    # segment_frame_gap          —— 片段内相邻帧的间隔秒数（越大片段持续时间越长）
     'preview': {
         'enabled': True,
         'head_skip': 0.08,
@@ -40,6 +43,9 @@ _DEFAULT_THUMB_CONFIG = {
         'sample_points': 12,
         'sprite_cols': 4,
         'sprite_long_edge': 180,
+        'segment_count': 4,
+        'frames_per_segment': 3,
+        'segment_frame_gap': 0.4,
     },
 }
 

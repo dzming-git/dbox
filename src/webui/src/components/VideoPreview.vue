@@ -28,6 +28,7 @@ interface FrameCue {
   h: number
   start: number
   end: number
+  seg: number  // 所属片段编号，片段内帧时间相邻构成连续动作
 }
 
 const root = ref<HTMLElement | null>(null)
@@ -115,9 +116,10 @@ function parseVtt(text: string): { cues: FrameCue[]; fw: number; fh: number } {
     if (tm) {
       const start = toSeconds(tm[1], tm[2], tm[3])
       const end = toSeconds(tm[4], tm[5], tm[6])
-      // 下一行应是 xywh=x,y,w,h
+      // 下一行应是 xywh=x,y,w,h，再下一行是 seg=N（片段归属）
       const xy = lines[i + 1]?.trim().match(/^xywh=(\d+),(\d+),(\d+),(\d+)/)
       if (xy) {
+        const segM = lines[i + 2]?.trim().match(/^seg=(\d+)/)
         cuesOut.push({
           x: parseInt(xy[1], 10),
           y: parseInt(xy[2], 10),
@@ -125,8 +127,9 @@ function parseVtt(text: string): { cues: FrameCue[]; fw: number; fh: number } {
           h: parseInt(xy[4], 10),
           start,
           end,
+          seg: segM ? parseInt(segM[1], 10) : 0,
         })
-        i += 1
+        i += segM ? 2 : 1
       }
     }
   }
@@ -171,19 +174,42 @@ async function loadPreview() {
   }
 }
 
+// 按片段分组：每组内帧时间相邻，构成几秒连续动作；片段间跳转浏览
+function buildSegments(): FrameCue[][] {
+  const segs: FrameCue[][] = []
+  for (const cue of cues.value) {
+    while (segs.length <= cue.seg) segs.push([])
+    segs[cue.seg].push(cue)
+  }
+  return segs.filter((s) => s.length)
+}
+
 function startAutoplay() {
   if (!spriteLoaded.value || autoplayTimer || !inView.value) return
-  const n = cues.value.length
-  if (!n) return
-  currentFrame = 0
+  const segs = buildSegments()
+  const total = segs.length
+  if (!total) return
+  const interval = props.autoplayIntervalMs || 700
+  let segIdx = 0
+  let frameIdx = 0
+
   const tick = () => {
     if (disposed || !inView.value || isSeeking.value) {
       autoplayTimer = null
       return
     }
-    activeFrame.value = currentFrame % n
-    currentFrame += 1
-    autoplayTimer = window.setTimeout(tick, props.autoplayIntervalMs || 700)
+    const seg = segs[segIdx]
+    activeFrame.value = cues.value.indexOf(seg[frameIdx])
+    frameIdx += 1
+    if (frameIdx >= seg.length) {
+      // 当前片段播完：停留该片段首帧片刻后，跳到下一个片段
+      frameIdx = 0
+      segIdx += 1
+      if (segIdx >= total) segIdx = 0  // 全部片段播完，回到开头
+      autoplayTimer = window.setTimeout(tick, interval)
+    } else {
+      autoplayTimer = window.setTimeout(tick, interval)
+    }
   }
   tick()
 }
