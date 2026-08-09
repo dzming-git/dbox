@@ -82,6 +82,7 @@ class FeedbackIssue(_Base):
     processed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now)
+    feedback_extra = Column(Text, nullable=True)  # 附加结构化数据（AI 任务队列、契约结果等，JSON）
 
     comments = relationship(
         'FeedbackComment', back_populates='issue',
@@ -107,7 +108,28 @@ def init_feedback_db():
     """创建表结构并自动迁移旧的 issues.json 数据（幂等）。"""
     os.makedirs(os.path.dirname(FEEDBACK_DB_PATH), exist_ok=True)
     _Base.metadata.create_all(_engine)
+    _migrate_feedback_extra_column()
     _migrate_legacy_json()
+
+
+def _migrate_feedback_extra_column():
+    """幂等迁移：为 feedback_issues 增加 feedback_extra 列（SQLite 加列安全）。
+
+    直接尝试 ALTER，若列已存在则捕获 DuplicateColumn 错误忽略。
+    """
+    import sqlalchemy
+    try:
+        with _engine.connect() as conn:
+            conn.execute(
+                sqlalchemy.text('ALTER TABLE feedback_issues ADD COLUMN feedback_extra TEXT')
+            )
+            conn.commit()
+    except Exception as e:
+        # 列已存在 / 其他可忽略错误
+        err = str(e).lower()
+        if 'duplicate column' in err or 'already exists' in err:
+            return
+        _log.warning(f'feedback_extra 列迁移异常（可忽略）: {e}')
 
 
 def _parse_dt(value):
@@ -201,6 +223,17 @@ STATUS_MAP = {
 }
 
 
+def _parse_extra(raw):
+    """将 feedback_extra TEXT 解析为 dict（解析失败返回 {}）。"""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def issue_to_dict(issue: FeedbackIssue):
     return {
         'id': issue.id,
@@ -216,6 +249,7 @@ def issue_to_dict(issue: FeedbackIssue):
         'processed_at': issue.processed_at.isoformat() if issue.processed_at else None,
         'created_at': issue.created_at.isoformat() if issue.created_at else None,
         'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
+        'feedback_extra': _parse_extra(issue.feedback_extra),
         'comments': [
             {
                 'author': c.author,
@@ -255,6 +289,59 @@ def db_append_comment(issue_id: str, author: str, author_role: int, content: str
             content=content,
             created_at=datetime.now(),
         ))
+        issue.updated_at = datetime.now()
+        session.commit()
+        return True
+
+
+def db_get_extra(issue_id: str) -> dict:
+    """读取 feedback_extra（JSON）字段，不存在/为空时返回 {}。"""
+    init_feedback_db()
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return {}
+        raw = issue.feedback_extra
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+
+def db_set_extra(issue_id: str, extra: dict) -> bool:
+    """整体写回 feedback_extra（JSON）。仅覆盖整个字段，调用方需先 get 再 merge。"""
+    init_feedback_db()
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return False
+        issue.feedback_extra = json.dumps(extra, ensure_ascii=False)
+        issue.updated_at = datetime.now()
+        session.commit()
+        return True
+
+
+def db_update_extra(issue_id: str, patch: dict) -> bool:
+    """局部合并写回 feedback_extra（JSON）。线程安全，每次独立 session。"""
+    init_feedback_db()
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return False
+        raw = issue.feedback_extra
+        data = {}
+        if raw:
+            try:
+                data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except Exception:
+                data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data.update(patch)
+        issue.feedback_extra = json.dumps(data, ensure_ascii=False)
         issue.updated_at = datetime.now()
         session.commit()
         return True
