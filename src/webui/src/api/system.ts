@@ -11,6 +11,8 @@ export const serviceManageApi = {
 }
 
 export const systemApi = {
+  // 看门狗汇总的整体健康状态（各服务总线 ping + 自动重启 + 告警）
+  getHealth: () => api.get('/api/admin/health'),
   // action: immediate(立即) / scheduled(定时，需 minutes) / after_tasks(任务全部结束后)
   shutdown: (action: 'immediate' | 'scheduled' | 'after_tasks', minutes?: number) =>
     api.post('/api/system/shutdown', { action, minutes }),

@@ -65,6 +65,14 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'servicemgr',
     },
+    'watchdog': {
+        'service_name': 'dbox-watchdog',
+        'display_name': 'Dbox 服务看门狗',
+        'description': 'Dbox 服务看门狗 - 定时 ping 各服务总线，不可达则自动重启，多次失败则告警',
+        'entry': 'configs/services/watchdogd.py',
+        'port': None,
+        'log_prefix': 'watchdog',
+    },
     'thumbnail': {
         'service_name': 'dbox-thumbnail',
         'display_name': 'Dbox 缩略图服务',

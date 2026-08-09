@@ -83,6 +83,7 @@ SERVICES = [
     {'key': 'collection', 'entry': 'src/collection/main.py',              'port': None, 'watch': ['src/collection']},
     {'key': 'search',     'entry': 'src/search/main.py',                  'port': None, 'watch': ['src/search']},
     {'key': 'servicemgr', 'entry': 'configs/services/servicemgrd.py',     'port': None, 'watch': ['configs/services/servicemgrd.py']},
+    {'key': 'watchdog',   'entry': 'configs/services/watchdogd.py',        'port': None, 'watch': ['src/servicebus', 'configs/services/watchdogd.py']},
 ]
 
 # 共享库：改动后需重启所有后端 Python 服务（前端 HMR 自理）

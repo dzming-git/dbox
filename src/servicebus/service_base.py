@@ -46,6 +46,7 @@ D-Bus 对应关系：
 
 import threading
 import traceback
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List
 
@@ -122,6 +123,7 @@ class BaseDBusService:
             f"tcp://{self._host}")
 
         self._running = True
+        self._start_time = time.time()
 
         if block:
             self._recv_loop()
@@ -144,6 +146,22 @@ class BaseDBusService:
     @property
     def running(self) -> bool:
         return self._running
+
+    def on_method_ping(self, params: Dict[str, Any] = None) -> Dict:
+        """
+        通用探活方法 — 所有总线服务默认可响应 Ping。
+
+        看门狗（com.dbox.watchdog）通过调用各服务的 Ping 判断其总线是否存活。
+        早期仅 ``register_service`` 提供默认 Ping，BaseDBusService 子类需显式实现；
+        现统一在基类实现，保证「ping 各个服务的 bus」对任意服务都成立。
+        """
+        return {
+            'success': True,
+            'pong': True,
+            'service': self.BUS_NAME,
+            'uptime': round(time.time() - self._start_time, 1)
+            if getattr(self, '_start_time', None) else None,
+        }
 
     def call_method(self, service: str, interface: str, method: str,
                     params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:

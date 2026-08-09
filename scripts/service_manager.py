@@ -66,6 +66,12 @@ SERVICES = {
         'description': 'Dbox 通用事件监听器（轮询反馈库，按用户配置调用 handler 脚本）',
         'port': 0,
     },
+    'watchdog': {
+        'service_name': 'dbox-watchdog',
+        'display_name': 'Dbox 服务看门狗',
+        'description': 'Dbox 服务看门狗（定时 ping 各服务总线，不可达则自动重启，多次失败告警）',
+        'port': 0,
+    },
 }
 
 

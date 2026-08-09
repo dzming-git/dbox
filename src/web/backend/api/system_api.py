@@ -329,6 +329,109 @@ def get_services():
         'warning': 'servicemgrd 不可用，状态可能不是最新的',
     })
 
+
+@bp.route('/api/admin/health', methods=['GET'])
+@admin_required
+def get_health():
+    """
+    获取看门狗（com.dbox.watchdog）汇总的整体健康状态与逐服务详情。
+
+    优先读取看门狗的实时巡检结果（含总线 ping、自动重启次数、告警）。
+    若看门狗不可用，则直接聚合 servicemgrd 的 Windows 服务状态作为兜底。
+    """
+    import time
+
+    # 1. 优先读看门狗的汇总结果
+    try:
+        from servicebus import BusClient
+        _wdbus = BusClient(
+            f'web-health-req-{id(time.time())}',
+            host='127.0.0.1', rpc_port=15555, pub_port=15556
+        )
+        try:
+            result = _wdbus.call_method(
+                'com.dbox.watchdog', 'com.dbox.Watchdog', 'GetHealth',
+                {}, timeout=3000
+            )
+        finally:
+            _wdbus.stop()
+        if result and 'overall_status' in result:
+            return jsonify({
+                'success': True,
+                'overall_status': result.get('overall_status'),
+                'services': result.get('services', []),
+                'alerts': result.get('alerts', []),
+                'last_check': result.get('last_check'),
+                'uptime': result.get('uptime'),
+                'config': result.get('config'),
+                'source': 'watchdog',
+            })
+    except Exception as e:
+        log.debug('WARN', f'看门狗查询失败，回退 servicemgrd: {e}')
+
+    # 2. 兜底：直接聚合 servicemgrd 的 Windows 服务状态
+    try:
+        from servicebus import BusClient as _BC
+        _smb = _BC(f'web-health-fb-{id(time.time())}',
+                   host='127.0.0.1', rpc_port=15555, pub_port=15556)
+        try:
+            svc_result = _smb.call_method(
+                'com.dbox.servicemgr', 'com.dbox.ServiceMgr', 'ListServices',
+                {}, timeout=3000
+            )
+        finally:
+            _smb.stop()
+        if svc_result and 'services' in svc_result:
+            services = []
+            overall = 'healthy'
+            for svc in svc_result['services']:
+                win = svc.get('status', 'unknown')
+                health = svc.get('health_status', 'unknown')
+                if win not in ('RUNNING', 'PAUSED'):
+                    svc_status = 'down'
+                elif health == 'unhealthy':
+                    svc_status = 'down'
+                else:
+                    svc_status = 'healthy'
+                if svc_status != 'healthy':
+                    overall = 'degraded'
+                services.append({
+                    'name': svc.get('name'),
+                    'display': svc.get('display_name', svc.get('name')),
+                    'bus_name': None,
+                    'status': svc_status,
+                    'windows_status': win,
+                    'bus_reachable': None,
+                    'consecutive_failures': 0,
+                    'restart_count': 0,
+                    'last_success': None,
+                    'last_failure': None,
+                    'last_restart': None,
+                    'alerted': False,
+                    'last_error': None,
+                })
+            return jsonify({
+                'success': True,
+                'overall_status': overall,
+                'services': services,
+                'alerts': [],
+                'last_check': time.time(),
+                'uptime': None,
+                'config': None,
+                'source': 'servicemgr-fallback',
+                'warning': '看门狗不可用，状态由服务管理器聚合',
+            })
+    except Exception as e:
+        log.debug('WARN', f'servicemgrd 兜底查询也失败: {e}')
+
+    return jsonify({
+        'success': False,
+        'overall_status': 'unknown',
+        'services': [],
+        'alerts': [],
+        'message': '看门狗与服务管理器均不可用',
+    }), 503
+
 @bp.route('/api/admin/services/<service_name>/control', methods=['POST'])
 @admin_required
 def control_service(service_name):

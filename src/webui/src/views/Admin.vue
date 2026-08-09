@@ -6,7 +6,7 @@ import { api } from '../api'
 import { videoApi, libraryApi } from '../api'
 import { configApi } from '../api'
 import { thumbnailManageApi } from '../api'
-import { serviceManageApi } from '../api'
+import { serviceManageApi, systemApi } from '../api'
 import { resourceApi } from '../api'
 import { trashApi } from '../api'
 import {
@@ -1436,6 +1436,60 @@ const stopServicePolling = () => {
   }
 }
 
+// ============ 总体健康灯（看门狗） ============
+// 由 com.dbox.watchdog 汇总的整体健康状态：healthy / degraded / critical / unknown
+const overallHealth = ref<string>('unknown')
+const healthAlerts = ref<any[]>([])
+const healthSource = ref<string>('')
+let healthInterval: number | null = null
+
+const fetchOverallHealth = async () => {
+  try {
+    const res = await systemApi.getHealth() as any
+    if (res && res.success) {
+      overallHealth.value = res.overall_status || 'unknown'
+      healthAlerts.value = res.alerts || []
+      healthSource.value = res.source || ''
+    } else {
+      overallHealth.value = 'unknown'
+    }
+  } catch (error) {
+    console.error('获取总体健康状态失败:', error)
+    overallHealth.value = 'unknown'
+  }
+}
+
+const overallHealthClass = computed(() => {
+  switch (overallHealth.value) {
+    case 'healthy': return 'svc-running'
+    case 'degraded': return 'svc-pending'
+    case 'critical': return 'svc-stopped'
+    default: return 'svc-unknown'
+  }
+})
+
+const overallHealthText = computed(() => {
+  switch (overallHealth.value) {
+    case 'healthy': return '全部服务正常'
+    case 'degraded': return '部分服务异常'
+    case 'critical': return '存在严重告警'
+    default: return '健康状态未知'
+  }
+})
+
+const startHealthPolling = () => {
+  if (healthInterval) return
+  fetchOverallHealth()
+  healthInterval = window.setInterval(fetchOverallHealth, 10000)
+}
+
+const stopHealthPolling = () => {
+  if (healthInterval) {
+    clearInterval(healthInterval)
+    healthInterval = null
+  }
+}
+
 const controlService = async (serviceName: string, action: 'start' | 'stop' | 'restart') => {
   serviceControlLoading.value = serviceName
   try {
@@ -1793,6 +1847,7 @@ onMounted(() => {
   fetchSystemPaths()
   loadHotStats()
   loadScanConfig()  // 加载自动扫描开关配置（始终加载，不依赖标签页）
+  startHealthPolling()  // 总体健康灯轮询（看门狗）
   // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
   const restoredTab = activeTab.value
   if (restoredTab === 'thumbnail') fetchThumbnailConfig()
@@ -1804,6 +1859,7 @@ onMounted(() => {
 // 组件卸载时停止轮询
 onUnmounted(() => {
   stopServicePolling()
+  stopHealthPolling()
   if (autoProgressTimer) {
     clearInterval(autoProgressTimer)
     autoProgressTimer = null
@@ -1815,6 +1871,17 @@ onUnmounted(() => {
   <div class="admin-page">
     <div class="admin-header">
       <h1>管理后台</h1>
+      <div class="header-health">
+        <div
+          class="health-light overall-health"
+          :class="overallHealthClass"
+          :title="overallHealthText + (healthAlerts.length ? '（' + healthAlerts.length + ' 条告警）' : '') + (healthSource ? ' · 数据来源: ' + healthSource : '')"
+        >
+          <span class="light-dot"></span>
+          <span class="light-label">{{ overallHealthText }}</span>
+          <span v-if="healthAlerts.length" class="alert-badge">{{ healthAlerts.length }}</span>
+        </div>
+      </div>
       <div class="user-info">
         <span class="role-badge" :class="{ root: userStore.isRoot }">
           {{ userStore.isRoot ? 'ROOT' : 'ADMIN' }}
@@ -3623,6 +3690,31 @@ onUnmounted(() => {
   margin: 0;
   font-size: 24px;
   color: var(--text-primary);
+}
+
+.header-health {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.overall-health {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.alert-badge {
+  margin-left: 8px;
+  padding: 0 7px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
 }
 
 .user-info {

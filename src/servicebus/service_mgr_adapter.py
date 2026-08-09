@@ -93,6 +93,12 @@ _SERVICE_META = {
         'health_url': 'http://127.0.0.1:8092/api/health',
         'port': 8092,
     },
+    'dbox-watchdog': {
+        'display_name': 'Dbox 服务看门狗',
+        'description': '服务看门狗 - 定时 ping 各服务总线，不可达则自动重启，多次失败告警',
+        'health_url': None,
+        'port': None,
+    },
 }
 
 
@@ -216,7 +222,7 @@ class BusServiceMgrAdapter(BaseDBusService):
             'dbox-web', 'dbox-bus', 'dbox-servicemgr', 'dbox-thumbnail',
             'dbox-webui', 'dbox-resource', 'dbox-userd', 'dbox-systemd',
             'dbox-historyd', 'dbox-collectiond', 'dbox-searchd',
-            'dbox-downloader',
+            'dbox-downloader', 'dbox-watchdog',
         ]
         verified = []
         try:
