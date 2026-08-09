@@ -356,10 +356,10 @@ def control_service(service_name):
             action_text = {'start': '启动', 'stop': '停止', 'restart': '重启'}
 
             # 优先通过总线调用 servicemgrd
-            if svc_mgr_bus:
+            if runtime.svc_mgr_bus:
                 try:
                     method_name = f'{action.capitalize()}Service'
-                    result = svc_mgr_bus.call_method(
+                    result = runtime.svc_mgr_bus.call_method(
                         'com.dbox.servicemgr',
                         'com.dbox.ServiceMgr',
                         method_name,
