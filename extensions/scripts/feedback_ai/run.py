@@ -156,6 +156,36 @@ verdict 取值说明：
 """
 
 
+class AuthError(RuntimeError):
+    """AI 工具（CodeBuddy CLI）未登录 / 认证失败，属工具故障而非反馈本身问题。"""
+
+
+# 认证失败类返回的关键词（中英文都要覆盖，CLI 在不同环境下可能输出不同语言）
+_AUTH_ERROR_HINTS = (
+    'authentication required',
+    'please use /login',
+    'please login',
+    'sign in to your account',
+    'not logged in',
+    '未登录',
+    '请登录',
+    '请先登录',
+    '需要登录',
+    '登录失败',
+    'unauthorized',
+    'token invalid',
+    'login required',
+)
+
+
+def _is_auth_error(raw: str) -> bool:
+    """判断 CLI 返回是否为「未登录 / 认证失败」类提示（而非真实模型分析）。"""
+    if not raw:
+        return False
+    low = raw.lower()
+    return any(hint in low for hint in _AUTH_ERROR_HINTS)
+
+
 def _call_ai(prompt: str) -> str:
     """调用 CodeBuddy CLI 消费契约，返回 AI 的纯文本回复。
 
@@ -163,6 +193,9 @@ def _call_ai(prompt: str) -> str:
     不指定 --output-format（该选项返回的是对话历史 JSON 而非最终回答），
     改为默认文本输出，由 prompt 约束 AI 只输出契约 JSON，解析时再宽松提取。
     以 bytes 读取后用 utf-8/gbk 双重兜底解码（Windows 下 CLI 输出编码不确定）。
+
+    若 CLI 返回的是「未登录 / 认证失败」提示（工具故障），抛出 AuthError，
+    避免把这类无意义的报错当成 AI 分析回复发给用户。
     """
     buddy = os.environ.get('DBOX_BUDDYCN') or r'C:\Users\<用户>\AppData\Roaming\npm\codebuddy.cmd'
     # 关键：
@@ -181,10 +214,16 @@ def _call_ai(prompt: str) -> str:
     raw = (proc.stdout or b'') + (proc.stderr or b'')
     for enc in ('utf-8', 'gbk', 'utf-8-sig'):
         try:
-            return raw.decode(enc)
+            text = raw.decode(enc)
+            break
         except Exception:
-            continue
-    return raw.decode('utf-8', errors='replace')
+            text = raw.decode('utf-8', errors='replace')
+    if _is_auth_error(text):
+        raise AuthError(
+            'AI 工具（CodeBuddy CLI）未登录或认证失败，无法调用模型。'
+            '请先执行 `codebuddy /login` 登录后重启调度器。'
+        )
+    return text
 
 
 def _parse_contract(raw: str) -> dict:
@@ -281,6 +320,20 @@ def execute_one(issue_id: str) -> dict:
         prompt = _build_prompt(issue)
         raw = _call_ai(prompt)
         contract = _parse_contract(raw)
+    except AuthError as e:
+        # 工具故障（CLI 未登录）：不应把报错回复发给用户，也不进入「待验证」骚扰
+        # 管理员判定反馈本身——它属于自动处理链路自身的问题，需要的是修复工具
+        # 登录态，而非人工决策反馈内容。
+        task['state'] = TASK_FAILED
+        task['last_error'] = str(e)
+        task['finished_at'] = _now_iso()
+        _save_ai_task(issue_id, task)
+        db_append_comment(
+            issue_id, AUTO_AUTHOR, AUTO_ROLE,
+            f'【自动处理】AI 工具调用失败：{e}\n'
+            f'该反馈未自动处理，请先登录 AI 工具后重启调度器重试，或人工处理本反馈。',
+        )
+        return task
     except Exception as e:
         retries = task.get('retries', 0)
         if retries < MAX_RETRIES:
