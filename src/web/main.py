@@ -140,7 +140,10 @@ with app.app_context():
     # 此处显式按路径加载 scripts 下的实现，避免误导入 web 内部版本。
     try:
         import importlib.util as _ilu
-        _sm_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'service_manager.py')
+        _sm_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            'scripts', 'service_manager.py',
+        )
         _sm_spec = _ilu.spec_from_file_location('scripts_service_manager', _sm_path)
         _sm_mod = _ilu.module_from_spec(_sm_spec)
         _sm_spec.loader.exec_module(_sm_mod)
