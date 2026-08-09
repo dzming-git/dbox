@@ -78,7 +78,7 @@ DEFAULT_MONITORED = [
     {'win': 'dbox-web',        'bus': None,               'display': 'Web API'},
     {'win': 'dbox-webui',      'bus': None,               'display': 'WebUI'},
     {'win': 'dbox-downloader', 'bus': None,               'display': '下载器'},
-    {'win': 'dbox-listener',   'bus': None,               'display': '事件监听'},
+    {'win': 'dbox-scheduler',   'bus': None,               'display': '脚本调度器'},
 ]
 
 # 看门狗自身依赖的基础设施，禁止自动重启（只告警）

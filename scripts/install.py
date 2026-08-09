@@ -137,13 +137,13 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'search',
     },
-    'listener': {
-        'service_name': 'dbox-listener',
-        'display_name': 'Dbox 事件监听器',
-        'description': 'Dbox 通用事件监听器 - 轮询反馈库，按用户配置 event_listener_config.json 调用 handler 脚本',
-        'entry': 'scripts/event_listener/listener.py',
+    'scheduler': {
+        'service_name': 'dbox-scheduler',
+        'display_name': 'Dbox 脚本调度器',
+        'description': 'Dbox 通用脚本轮询调度器 - 扫描 extensions/scripts 中声明 poll 触发的脚本并周期执行',
+        'entry': 'scripts/poll_scheduler.py',
         'port': None,
-        'log_prefix': 'listener',
+        'log_prefix': 'scheduler',
     },
 }
 

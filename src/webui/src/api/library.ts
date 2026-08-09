@@ -78,21 +78,3 @@ export const logApi = {
   getLogs: (params: { type?: string; page?: number; limit?: number }) =>
     api.get('/api/admin/logs', { params })
 }
-
-export const eventApi = {
-  // 获取事件监听器日志（反馈事件处理日志）
-  getLog: (params: { tail?: number; page?: number; limit?: number }) =>
-    api.get('/api/admin/event-log', { params }),
-  // 一键清空事件日志
-  clearLog: () => api.delete('/api/admin/event-log/clear'),
-  // 获取事件监听器运行状态（公开，无需登录，取自服务管理器）
-  getStatus: () => api.get('/api/event-listener/status'),
-  // 获取已注册的事件处理器清单
-  getHandlers: () => api.get('/api/admin/event-handlers'),
-  // 获取事件监听器配置
-  getConfig: () => api.get('/api/admin/event-listener/config'),
-  // 保存事件监听器配置（自动重启服务生效）
-  saveConfig: (config: any) => api.put('/api/admin/event-listener/config', { config }),
-  // 仅重启监听器服务
-  restart: () => api.post('/api/admin/event-listener/restart'),
-}
