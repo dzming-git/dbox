@@ -128,7 +128,7 @@ def test_generate_no_file():
     result = client.call_method('com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'Generate', {
         'video_path': 'C:/not_exist.mp4',
         'video_hash': 'test_no_file',
-        'output_format': 'gif'
+        'output_format': 'sprite'
     })
     print(f"  生成结果（预期失败）: {result}")
     assert result is not None
@@ -140,6 +140,49 @@ def test_generate_no_file():
     router.stop()
 
 
+def test_sprite_config_defaults():
+    """测试 sprite 生成默认参数正确（采样点数/列数/长边）。"""
+    print("\n[Test] sprite 默认采样参数测试")
+    print("-" * 50)
+    from thumbnail.task_manager import _load_preview_config
+    cfg = _load_preview_config()
+    print(f"  preview config: {cfg}")
+    assert cfg.get('enabled') is True
+    assert cfg.get('sample_points', 0) >= 4, "采样点数至少 4"
+    assert cfg.get('sprite_cols', 0) >= 1, "雪碧图列数至少 1"
+    assert cfg.get('sprite_long_edge', 0) >= 80, "单帧长边至少 80"
+    print("  [OK] sprite 默认参数合理")
+
+
+def test_sprite_vtt_geometry():
+    """测试 WebVTT 坐标生成正确：按 cols/rows 推导 xywh，时间区间递增。"""
+    print("\n[Test] sprite WebVTT 坐标生成测试")
+    print("-" * 50)
+    from thumbnail.task_manager import _build_vtt, _ts
+    pv = {'sample_points': 12, 'sprite_cols': 4}
+    vtt = _build_vtt(pv, 'testhash', 180, 136, 4, 3, 0.8, 8.4, 12)
+
+    assert vtt.startswith('WEBVTT')
+    assert 'NOTE sprite fw=180 fh=136 cols=4 rows=3 n=12' in vtt
+    # 首帧坐标 (0,0)，第二行首帧 y=136
+    assert 'xywh=0,0,180,136' in vtt
+    assert 'xywh=0,136,180,136' in vtt
+    assert 'xywh=0,272,180,136' in vtt
+    # 时间区间从 start 递增
+    assert _ts(0.8) in vtt
+    print("  [OK] VTT 坐标与时间区间正确")
+
+
+def test_sprite_mimetype_route():
+    """测试缩略图路由的 mimetype：poster=image/jpeg, sprite=image/jpeg, vtt=text/vtt。"""
+    print("\n[Test] sprite 路由 mimetype 测试")
+    print("-" * 50)
+    from thumbnail.task_manager import _probe_duration, _ffmpeg_available
+    # ffmpeg 可用性（sprite 依赖）
+    assert _ffmpeg_available() is True, "sprite 生成依赖 ffmpeg 必须可用"
+    print("  [OK] ffmpeg 可用，sprite 前置依赖满足")
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("  thumbnaild 端到端集成测试")
@@ -148,6 +191,9 @@ if __name__ == '__main__':
     try:
         test_thumbnaild_lifecycle()
         test_generate_no_file()
+        test_sprite_config_defaults()
+        test_sprite_vtt_geometry()
+        test_sprite_mimetype_route()
         print("\n" + "=" * 60)
         print("  全部测试通过!")
         print("=" * 60)

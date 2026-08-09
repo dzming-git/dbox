@@ -29,6 +29,15 @@ export interface Video {
   tags: Tag[]
   created_at?: string
   updated_at?: string
+  // 悬停预览（Sprite sheet + WebVTT）可选信息：前端默认按 hash 构造 URL，
+  // 该字段仅用于后端显式下发（预留扩展）
+  preview?: {
+    sprite_url?: string
+    vtt_url?: string
+    cols?: number
+    frame_count?: number
+    duration?: number
+  } | null
 }
 
 // 精彩片段标记（用户个人时间戳）

@@ -17,12 +17,30 @@ from backend.runtime import runtime
 
 from backend.paths import DATA_DIR, THUMB_CONFIG_FILE
 
+# 缩略图文件扩展名集合（含 sprite 雪碧图与 vtt 预览索引）。
+# 旧版 gif 保留兼容（不主动生成，但删除/统计时需一并清理），
+# jpg = 静态 poster（新默认），png = 静态回退，sprite.jpg = 雪碧图，vtt = 预览坐标索引。
+THUMB_EXTENSIONS = ('gif', 'jpg', 'png', 'vtt')
+
 # 默认缩略图配置
 _DEFAULT_THUMB_CONFIG = {
     'auto_generate': False,
     'max_workers': 2,
     'task_interval': 3,
     'auto_generate_interval': 3600,
+    # 悬停预览（sprite 雪碧图）采样参数：
+    # head_skip / tail_skip —— 跳过片头/片尾的比例（0~0.5），保证预览内容有代表性
+    # sample_points       —— 在有效区间内均匀采样的帧数
+    # sprite_cols         —— 雪碧图每行帧数（行数 = ceil(sample_points / sprite_cols)）
+    # sprite_long_edge    —— 单帧长边像素（短边按源视频宽高比自动推导）
+    'preview': {
+        'enabled': True,
+        'head_skip': 0.08,
+        'tail_skip': 0.08,
+        'sample_points': 12,
+        'sprite_cols': 4,
+        'sprite_long_edge': 180,
+    },
 }
 
 # 自动生成后台线程控制
@@ -149,7 +167,7 @@ def _generate_missing_thumbnails(config=None):
         if v.hash and v.local_path and os.path.exists(v.local_path):
             has_thumb = any(
                 os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
-                for ext in ['gif', 'jpg', 'png']
+                for ext in THUMB_EXTENSIONS
             )
             if not has_thumb:
                 missing_videos.append(v)
@@ -183,7 +201,7 @@ def _generate_missing_thumbnails(config=None):
                     service='com.dbox.thumbnaild',
                     interface='com.dbox.Thumbnaild',
                     method='Generate',
-                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'gif'}
+                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'sprite'}
                 )
                 # 区分三类结果：
                 # 1) 调用异常（微服务不可用/超时）→ 失败，记录错误

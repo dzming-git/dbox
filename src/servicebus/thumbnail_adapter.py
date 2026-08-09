@@ -81,14 +81,14 @@ class BusThumbnailAdapter(BaseDBusService):
         Args (params):
             video_path: str     - 视频文件路径
             video_hash: str     - 视频 hash
-            output_format: str  - 输出格式（gif/jpg），默认 gif
+            output_format: str  - 输出格式（sprite/gif/jpg/png），默认 sprite
 
         Returns:
             {success: bool, task_id: str, status: str}
         """
         video_path = params.get('video_path', '')
         video_hash = params.get('video_hash', '')
-        output_format = params.get('output_format', 'gif')
+        output_format = params.get('output_format', 'sprite')
 
         if not video_path or not video_hash:
             return {'success': False, 'error': '缺少 video_path 或 video_hash'}
@@ -144,11 +144,27 @@ class BusThumbnailAdapter(BaseDBusService):
 
         Args (params):
             video_hash: str - 视频 hash
+            variant: str     - 可选：poster（默认，静态封面）/ sprite（雪碧图）/ vtt（预览索引）
 
         Returns:
             {success: bool, path: str, format: str}
         """
         video_hash = params.get('video_hash', '')
+        variant = params.get('variant', 'poster')
+        from thumbnail.task_manager import THUMBNAIL_DIR
+
+        # 变体文件的文件名规则
+        variant_files = {
+            'sprite': f'{video_hash}.sprite.jpg',
+            'vtt': f'{video_hash}.vtt',
+        }
+        if variant in variant_files:
+            vp = os.path.join(THUMBNAIL_DIR, variant_files[variant])
+            if os.path.exists(vp):
+                fmt = 'vtt' if variant == 'vtt' else 'sprite'
+                return {'success': True, 'path': vp, 'format': fmt}
+            return {'success': False, 'error': f'封面变体不存在: {variant}'}
+
         # 检查是否有已完成的任务
         task_id = self._task_manager.video_hash_to_task.get(video_hash)
         task = self._task_manager.tasks.get(task_id) if task_id else None
@@ -162,9 +178,8 @@ class BusThumbnailAdapter(BaseDBusService):
                         'format': ext,
                     }
 
-        # 检查文件是否已存在（无需任务）
-        from thumbnail.task_manager import THUMBNAIL_DIR
-        for ext in ['gif', 'jpg', 'png']:
+        # 检查文件是否已存在（无需任务），poster 优先 jpg（新默认）
+        for ext in ['jpg', 'gif', 'png']:
             path = os.path.join(THUMBNAIL_DIR, f'{video_hash}.{ext}')
             if os.path.exists(path):
                 return {

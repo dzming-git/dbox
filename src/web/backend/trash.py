@@ -151,8 +151,10 @@ def _delete_thumbnails(video_hash: str):
     thumb_dir = os.path.join(PROJECT_ROOT, 'data', 'thumbnails')
     if not os.path.isdir(thumb_dir):
         return
-    for ext in ('gif', 'jpg', 'png'):
-        tp = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+    # 删除该 hash 的完整缩略图文件集（poster / 旧 gif / png / sprite 雪碧图 / vtt 索引）
+    for fname in (f'{video_hash}.gif', f'{video_hash}.jpg', f'{video_hash}.png',
+                  f'{video_hash}.sprite.jpg', f'{video_hash}.vtt'):
+        tp = os.path.join(thumb_dir, fname)
         if os.path.exists(tp):
             try:
                 os.remove(tp)

@@ -4,6 +4,7 @@ import type { Video } from '../types'
 import { useUserStore } from '../stores/userStore'
 import { withThumbToken } from '../utils/media'
 import WatchLaterButton from './WatchLaterButton.vue'
+import VideoPreview from './VideoPreview.vue'
 
 const props = defineProps<{
   video: Video
@@ -79,18 +80,6 @@ const handleClick = () => {
   }
   emit('click', props.video)
 }
-
-const handleImageLoad = (e: Event) => {
-  isLoading.value = false
-  hasError.value = false
-}
-
-const handleImageError = () => {
-  // 加载失败显示默认图
-  isLoading.value = false
-  hasError.value = true
-  thumbnailUrl.value = '/placeholder.jpg'
-}
 </script>
 
 <template>
@@ -106,16 +95,15 @@ const handleImageError = () => {
       <div v-if="isLoading" class="thumbnail-loading">
         <div class="loading-spinner"></div>
       </div>
-      <img
+      <!-- 悬停预览（Sprite + VTT）：默认静态海报，hover 时轮播/seek -->
+      <VideoPreview
         v-show="!isLoading"
-        :src="thumbnailUrl"
-        :alt="video.title"
-        loading="lazy"
         class="thumbnail"
         :class="{ 'thumbnail-error': hasError }"
+        :hash="video.hash"
+        :poster="thumbnailUrl"
+        :alt="video.title"
         data-testid="video-thumbnail"
-        @error="handleImageError"
-        @load="handleImageLoad"
       />
       <!-- 时长标签 -->
       <span class="duration" v-if="video.duration" data-testid="video-duration">

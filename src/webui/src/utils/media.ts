@@ -18,6 +18,22 @@ export function withThumbToken(url?: string | null): string {
   return url
 }
 
+/**
+ * 构造视频悬停预览的三件套 URL（雪碧图 + WebVTT 索引）。
+ * 路由遵循固定模式：poster=/thumbnail/{hash}，sprite=/thumbnail/{hash}/sprite，
+ * vtt=/thumbnail/{hash}/preview.vtt。均需走 withThumbToken 追加权限 token。
+ */
+export function buildPreviewUrls(hash?: string | null): {
+  spriteUrl: string
+  vttUrl: string
+} | null {
+  if (!hash) return null
+  return {
+    spriteUrl: withThumbToken(`/thumbnail/${hash}/sprite`),
+    vttUrl: withThumbToken(`/thumbnail/${hash}/preview.vtt`),
+  }
+}
+
 export type MediaType = 'video' | 'gallery'
 
 export interface MediaItem {

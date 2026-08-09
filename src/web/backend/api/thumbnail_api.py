@@ -33,8 +33,23 @@ def compute_thumb_stats():
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     total_thumbnails = 0
     if os.path.exists(thumb_dir):
-        total_thumbnails = len([f for f in os.listdir(thumb_dir)
-                                if f.lower().endswith(('.gif', '.jpg', '.png'))])
+        # 统计「已生成缩略图的视频数」：以每个 hash 的 poster(jpg)/gif/png 为准，
+        # sprite.jpg 与 vtt 是附属于 poster 的预览产物，不单独计为「有缩略图」。
+        seen = set()
+        for f in os.listdir(thumb_dir):
+            low = f.lower()
+            base = None
+            if low.endswith('.sprite.jpg'):
+                continue
+            if low.endswith('.vtt'):
+                continue
+            for ext in ('.gif', '.jpg', '.png'):
+                if low.endswith(ext):
+                    base = f[:-len(ext)]
+                    break
+            if base:
+                seen.add(base)
+        total_thumbnails = len(seen)
 
     db_videos = Video.query.all()
     no_thumb_count = 0
@@ -42,7 +57,7 @@ def compute_thumb_stats():
         if v.hash:
             has_thumb = any(
                 os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
-                for ext in ['gif', 'jpg', 'png']
+                for ext in ['jpg', 'gif', 'png']
             )
             if not has_thumb:
                 no_thumb_count += 1
@@ -64,11 +79,13 @@ def get_thumbnail(video_hash):
     if not is_video_visible(video):
         abort(404)
 
-    # 已存在缓存则直接返回
-    for ext in ['gif', 'jpg', 'png']:
+    # 已存在缓存则直接返回。新默认是静态 poster（jpg，无闪烁、零额外带宽）；
+    # 旧版 gif 保留兼容，作为 jpg/png 缺失时的回退。
+    for ext in ['jpg', 'png', 'gif']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
-            resp = send_file(path, mimetype=f'image/{ext}')
+            mime = 'image/jpeg' if ext == 'jpg' else f'image/{ext}'
+            resp = send_file(path, mimetype=mime)
             # 缩略图文件会在重新生成时改变内容（同 hash），固定 1h 缓存会导致用户
             # 即便在服务端重建后仍长时间看到旧图。缩到 60s 并强制协商，兼顾性能
             # 与修复后的即时可见性。
@@ -76,7 +93,7 @@ def get_thumbnail(video_hash):
             resp.cache_control.must_revalidate = True
             return resp
 
-    # 文件不存在，尝试懒加载生成
+    # 文件不存在，尝试懒加载生成（output_format=sprite 会同时产出 poster/sprite/vtt）
     try:
         if not video.local_path:
             abort(404)
@@ -92,7 +109,7 @@ def get_thumbnail(video_hash):
                         service='com.dbox.thumbnaild',
                         interface='com.dbox.Thumbnaild',
                         method='Generate',
-                        params={'video_path': vp, 'video_hash': vh, 'output_format': 'gif'}
+                        params={'video_path': vp, 'video_hash': vh, 'output_format': 'sprite'}
                     )
                 except Exception as e:
                     log.debug('ERROR', f"后台封面生成失败: {e}")
@@ -116,20 +133,52 @@ def get_thumbnail(video_hash):
             'video_hash': video_hash
         }), 202
 
+@bp.route('/thumbnail/<video_hash>/sprite')
+def get_thumbnail_sprite(video_hash):
+    """获取雪碧图（悬停预览用）。权限校验同 /thumbnail/。"""
+    video = Video.query.filter_by(hash=video_hash).first()
+    if not is_video_visible(video):
+        abort(404)
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    path = os.path.join(thumb_dir, f'{video_hash}.sprite.jpg')
+    if not os.path.exists(path):
+        abort(404)
+    resp = send_file(path, mimetype='image/jpeg')
+    resp.cache_control.max_age = 3600
+    resp.cache_control.must_revalidate = True
+    return resp
+
+@bp.route('/thumbnail/<video_hash>/preview.vtt')
+def get_thumbnail_vtt(video_hash):
+    """获取 WebVTT 预览索引（雪碧图帧坐标与时间区间）。"""
+    video = Video.query.filter_by(hash=video_hash).first()
+    if not is_video_visible(video):
+        abort(404)
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    path = os.path.join(thumb_dir, f'{video_hash}.vtt')
+    if not os.path.exists(path):
+        abort(404)
+    resp = send_file(path, mimetype='text/vtt')
+    resp.cache_control.max_age = 3600
+    resp.cache_control.must_revalidate = True
+    return resp
+
 @bp.route('/api/thumbnail/status/<video_hash>', methods=['GET'])
 def get_thumbnail_status(video_hash):
     """检查缩略图是否存在（已简化，不触发生成，由后端自动生成）"""
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
 
-    # 检查文件是否存在
-    for ext in ['gif', 'jpg', 'png']:
+    # 检查文件是否存在（poster jpg 优先，旧 gif 兼容）
+    for ext in ['jpg', 'png', 'gif']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
             return jsonify({
                 'success': True,
                 'status': 'ready',
                 'url': f'/thumbnail/{video_hash}',
-                'format': ext
+                'format': ext,
+                'has_sprite': os.path.exists(os.path.join(thumb_dir, f'{video_hash}.sprite.jpg')),
+                'has_vtt': os.path.exists(os.path.join(thumb_dir, f'{video_hash}.vtt')),
             })
 
     # 缩略图不存在
@@ -145,9 +194,10 @@ def delete_thumbnail(video_hash):
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
 
     deleted = False
-    # 删除所有格式的缩略图文件
-    for ext in ['gif', 'jpg', 'png']:
-        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+    # 删除所有格式的缩略图文件（含 poster/sprite/vtt 全集）
+    for fname in [f'{video_hash}.gif', f'{video_hash}.jpg', f'{video_hash}.png',
+                  f'{video_hash}.sprite.jpg', f'{video_hash}.vtt']:
+        path = os.path.join(thumb_dir, fname)
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -163,10 +213,11 @@ def delete_thumbnail(video_hash):
 @bp.route('/api/thumbnail/regenerate/<video_hash>', methods=['POST'])
 def regenerate_thumbnail(video_hash):
     """重新生成指定视频的缩略图"""
-    # 先删除旧缩略图
+    # 先删除旧缩略图（含 poster/sprite/vtt 全集）
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
-    for ext in ['gif', 'jpg', 'png']:
-        path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
+    for fname in [f'{video_hash}.gif', f'{video_hash}.jpg', f'{video_hash}.png',
+                  f'{video_hash}.sprite.jpg', f'{video_hash}.vtt']:
+        path = os.path.join(thumb_dir, fname)
         if os.path.exists(path):
             try:
                 os.remove(path)
@@ -185,7 +236,7 @@ def regenerate_thumbnail(video_hash):
                 service='com.dbox.thumbnaild',
                 interface='com.dbox.Thumbnaild',
                 method='Generate',
-                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'gif'}
+                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'sprite'}
             )
             if result and result.get('success'):
                 return jsonify({
@@ -267,7 +318,7 @@ def update_thumbnail_config():
         config = _load_thumb_config()
 
         # 只允许更新指定字段
-        allowed_fields = ['auto_generate', 'max_workers', 'task_interval', 'auto_generate_interval']
+        allowed_fields = ['auto_generate', 'max_workers', 'task_interval', 'auto_generate_interval', 'preview']
         for field in allowed_fields:
             if field in data:
                 # 参数校验
@@ -279,6 +330,23 @@ def update_thumbnail_config():
                     config[field] = max(300, min(int(data[field]), 86400))  # 5分钟 ~ 24小时
                 elif field == 'auto_generate':
                     config[field] = bool(data[field])
+                elif field == 'preview' and isinstance(data[field], dict):
+                    # 悬停预览采样参数（sprite 雪碧图）：逐字段合并 + 白名单校验
+                    pv = config.setdefault('preview', {})
+                    allowed_pv = ('enabled', 'head_skip', 'tail_skip', 'sample_points', 'sprite_cols', 'sprite_long_edge')
+                    for k, v in data[field].items():
+                        if k not in allowed_pv:
+                            continue
+                        if k == 'enabled':
+                            pv[k] = bool(v)
+                        elif k in ('head_skip', 'tail_skip'):
+                            pv[k] = max(0.0, min(0.5, float(v)))
+                        elif k == 'sample_points':
+                            pv[k] = max(4, min(48, int(v)))
+                        elif k == 'sprite_cols':
+                            pv[k] = max(1, min(12, int(v)))
+                        elif k == 'sprite_long_edge':
+                            pv[k] = max(80, min(480, int(v)))
 
         if _save_thumb_config(config):
             log.maintenance('INFO', f'缩略图配置已更新: {config}')

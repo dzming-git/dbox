@@ -905,7 +905,7 @@ def upload_video():
         except Exception as e:
             log.debug('WARN', f'更新上传任务失败: {e}')
 
-        # 异步生成真实缩略图
+        # 异步生成真实缩略图（走 thumbnaild 总线，产出 poster/sprite/vtt 三件套）
         try:
             def _gen_thumb():
                 try:
@@ -913,8 +913,17 @@ def upload_video():
                 except Exception:
                     pass
                 try:
-                    client = get_thumbnail_client()
-                    client.generate_thumbnail(file_path, video_hash, output_format='gif')
+                    bus = runtime.thumbnail_bus
+                    if bus is not None:
+                        bus.call_method(
+                            service='com.dbox.thumbnaild',
+                            interface='com.dbox.Thumbnaild',
+                            method='Generate',
+                            params={'video_path': file_path, 'video_hash': video_hash, 'output_format': 'sprite'}
+                        )
+                    else:
+                        # 总线不可用，退回旧 HTTP 客户端
+                        get_thumbnail_client().generate_thumbnail(file_path, video_hash, output_format='jpg')
                     update_task(upload_task_id, progress=100, status='completed',
                                 stage='完成', detail='上传成功，缩略图已生成')
                 except Exception as e:

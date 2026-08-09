@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { withThumbToken, type MediaItem } from '../utils/media'
+import VideoPreview from './VideoPreview.vue'
 
 const props = withDefaults(defineProps<{
   item: MediaItem
@@ -63,7 +64,15 @@ const onAction = (name: string, e: Event) => {
 <template>
   <div class="media-card" :class="item.type" @click="onOpen" data-testid="media-card">
     <div class="thumbnail-wrapper">
-      <img :src="coverUrl" :alt="item.title" class="thumbnail"
+      <!-- 视频：悬停预览（Sprite + VTT）；图集：保持静态 -->
+      <VideoPreview
+        v-if="item.type === 'video'"
+        class="thumbnail"
+        :hash="item.hash"
+        :poster="coverUrl"
+        :alt="item.title"
+      />
+      <img v-else :src="coverUrl" :alt="item.title" class="thumbnail"
            @error="(e:any)=>{ const t=e.target; t.onerror=null; t.src='/placeholder.jpg'; }" />
       <span v-if="showTypeBadge" class="type-badge" :class="item.type">{{ typeLabel }}</span>
       <span v-if="subBadge" class="sub-badge">{{ subBadge }}</span>

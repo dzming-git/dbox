@@ -614,7 +614,7 @@ class ResourceLibraryWatcher:
                     try:
                         self._thumbnail_bus.call_method(
                             'com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'Generate',
-                            {'video_path': path, 'video_hash': vhash, 'output_format': 'gif'})
+                            {'video_path': path, 'video_hash': vhash, 'output_format': 'sprite'})
                     except Exception:
                         pass
 
