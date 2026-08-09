@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * VideoPreview - 视频悬停预览组件（Sprite sheet + WebVTT）
+ * VideoPreview - 视频预览组件（Sprite sheet + WebVTT）
  *
- * 取代旧 GIF 动图（256 色调色板 + 逐帧硬切导致闪烁）。默认显示静态海报
- * （无闪烁、零额外带宽），鼠标悬停时懒加载雪碧图 + VTT 索引，按时间轴平滑
- * 轮播帧；鼠标横向移动按 X 比例 seek 到对应时间点。离开后复位为海报。
- * 无雪碧图/VTT 或移动端（无 hover）时静默降级为静态海报。
+ * 取代旧 GIF 动图（256 色调色板 + 逐帧硬切导致闪烁）。进入视口后自动加载
+ * 雪碧图 + VTT 索引，并以定时器按时间轴自动轮播帧（无 hover 依赖，桌面/移动端
+ * 一致可看动图）；鼠标横向移动按 X 比例 seek 到对应时间点。离开视口自动停止
+ * 播放以节省带宽。无雪碧图/VTT 时静默降级为静态海报。
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { buildPreviewUrls, withThumbToken } from '../utils/media'
@@ -14,7 +14,7 @@ const props = defineProps<{
   hash?: string | null
   poster?: string | null   // 静态海报 URL（缺省时按 hash 推导 /thumbnail/{hash}）
   alt?: string
-  autoplayIntervalMs?: number  // 自动轮播每帧间隔（默认 600ms）
+  autoplayIntervalMs?: number  // 自动轮播每帧间隔（默认 700ms）
 }>()
 
 const emit = defineEmits<{
@@ -31,12 +31,11 @@ interface FrameCue {
 }
 
 const root = ref<HTMLElement | null>(null)
-const posterEl = ref<HTMLImageElement | null>(null)
 
-// 悬停/seek 状态
-const isHovering = ref(false)
+// 播放/seek 状态
+const inView = ref(false)     // 卡片是否在视口内
 const isSeeking = ref(false)
-const seekRatio = ref(0) // 0~1，鼠标在卡片内的横向位置比例
+const seekRatio = ref(0)      // 0~1，鼠标在卡片内的横向位置比例
 
 // sprite 数据
 const spriteUrl = ref('')
@@ -52,13 +51,9 @@ const containerH = ref(0)
 
 // 自动轮播游标
 let autoplayTimer: number | null = null
+let resumeTimer: number | null = null  // seek 结束后恢复自动播放的延迟
 let currentFrame = 0
 let disposed = false
-
-// 移动端 / 无 hover：不做懒加载
-const isFinePointer = typeof window !== 'undefined'
-  ? window.matchMedia('(hover: hover) and (pointer: fine)').matches
-  : true
 
 // 海报地址：优先显式 poster，否则按 hash 推导
 const posterSrc = computed(() => {
@@ -95,6 +90,9 @@ const bgPosStyle = computed(() => {
 
 // 顶部进度条宽度（随 seek 位置联动）
 const progressStyle = computed(() => `${(isSeeking.value ? seekRatio.value : 0) * 100}%`)
+
+// 是否正在显示动图（sprite 已加载且卡片在视口）
+const showingSprite = computed(() => spriteLoaded.value && inView.value)
 
 function parseVtt(text: string): { cues: FrameCue[]; fw: number; fh: number } {
   const lines = text.split(/\r?\n/)
@@ -141,7 +139,7 @@ function toSeconds(h: string, m: string, s: string): number {
 
 async function loadPreview() {
   const urls = buildPreviewUrls(props.hash)
-  if (!urls || spriteLoaded.value || spriteError.value) return
+  if (!urls || spriteLoaded.value || spriteError.value || disposed) return
 
   try {
     // 先取 VTT（轻量），成功后再加载雪碧图
@@ -161,7 +159,7 @@ async function loadPreview() {
       spriteH.value = img.naturalHeight
       spriteLoaded.value = true
       spriteUrl.value = urls.spriteUrl
-      if (isHovering.value && !disposed) startAutoplay()
+      if (inView.value && !disposed) startAutoplay()
     }
     img.onerror = () => {
       spriteError.value = true
@@ -174,18 +172,18 @@ async function loadPreview() {
 }
 
 function startAutoplay() {
-  if (!spriteLoaded.value || autoplayTimer) return
+  if (!spriteLoaded.value || autoplayTimer || !inView.value) return
   const n = cues.value.length
   if (!n) return
   currentFrame = 0
   const tick = () => {
-    if (disposed || !isHovering.value || isSeeking.value) {
+    if (disposed || !inView.value || isSeeking.value) {
       autoplayTimer = null
       return
     }
     activeFrame.value = currentFrame % n
     currentFrame += 1
-    autoplayTimer = window.setTimeout(tick, props.autoplayIntervalMs || 600)
+    autoplayTimer = window.setTimeout(tick, props.autoplayIntervalMs || 700)
   }
   tick()
 }
@@ -195,21 +193,14 @@ function stopAutoplay() {
     clearTimeout(autoplayTimer)
     autoplayTimer = null
   }
-}
-
-function onEnter(e: MouseEvent) {
-  if (!isFinePointer || spriteError.value) return
-  isHovering.value = true
-  const box = root.value?.getBoundingClientRect()
-  if (box) {
-    containerW.value = box.width
-    containerH.value = box.height
+  if (resumeTimer) {
+    clearTimeout(resumeTimer)
+    resumeTimer = null
   }
-  loadPreview()
 }
 
 function onMove(e: MouseEvent) {
-  if (!isHovering.value || !spriteLoaded.value) return
+  if (!inView.value || !spriteLoaded.value) return
   const box = root.value?.getBoundingClientRect()
   if (!box || !box.width) return
   const ratio = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width))
@@ -217,18 +208,29 @@ function onMove(e: MouseEvent) {
   isSeeking.value = true
   const idx = Math.min(cues.value.length - 1, Math.floor(ratio * cues.value.length))
   activeFrame.value = idx
+  // 停止自动轮播，短暂延迟后恢复
+  stopAutoplay()
+  if (resumeTimer) clearTimeout(resumeTimer)
+  resumeTimer = window.setTimeout(() => {
+    isSeeking.value = false
+    if (inView.value && !disposed) startAutoplay()
+  }, 1500)
 }
 
-function onLeave() {
-  isHovering.value = false
-  isSeeking.value = false
-  seekRatio.value = 0
-  stopAutoplay()
-  // 复位海报
-  spriteLoaded.value = false
-  activeFrame.value = 0
-  // 保留 cues/sprite 缓存以快速复现，但海报层重新显现
-}
+// IntersectionObserver：进入视口播放，离开视口停止
+let observer: IntersectionObserver | null = null
+
+watch(inView, (vis) => {
+  if (vis) {
+    loadPreview()
+    startAutoplay()
+  } else {
+    stopAutoplay()
+    isSeeking.value = false
+    seekRatio.value = 0
+    activeFrame.value = 0
+  }
+})
 
 watch(() => props.hash, () => {
   // hash 变化：重置预览状态
@@ -238,10 +240,10 @@ watch(() => props.hash, () => {
   cues.value = []
   stopAutoplay()
   activeFrame.value = 0
+  if (inView.value) loadPreview()
 })
 
 onMounted(() => {
-  // 监听尺寸变化，保证 background 缩放正确
   const box = root.value?.getBoundingClientRect()
   if (box) {
     containerW.value = box.width
@@ -257,12 +259,28 @@ onMounted(() => {
     })
     resizeObserver.observe(root.value)
   }
+  // 进入视口自动播放
+  if (typeof IntersectionObserver !== 'undefined' && root.value) {
+    observer = new IntersectionObserver(
+      (entries) => {
+        for (const en of entries) {
+          inView.value = en.isIntersecting
+        }
+      },
+      { rootMargin: '80px 0px' }  // 提前 80px 预加载
+    )
+    observer.observe(root.value)
+  } else {
+    inView.value = true
+  }
 })
 
 let resizeObserver: ResizeObserver | null = null
 onBeforeUnmount(() => {
   disposed = true
   stopAutoplay()
+  observer?.disconnect()
+  observer = null
   resizeObserver?.disconnect()
   resizeObserver = null
 })
@@ -272,25 +290,23 @@ onBeforeUnmount(() => {
   <div
     ref="root"
     class="video-preview"
-    @mouseenter="onEnter"
     @mousemove="onMove"
-    @mouseleave="onLeave"
+    @mouseleave="isSeeking = false"
     @click="emit('click', $event)"
   >
-    <!-- 默认静态海报（无 sprite 或未 hover 时显示） -->
+    <!-- 静态海报（无 sprite 或未在视口时显示） -->
     <img
-      ref="posterEl"
       class="preview-poster"
-      :class="{ 'preview-active': spriteLoaded && isHovering }"
+      :class="{ 'preview-active': showingSprite }"
       :src="posterSrc"
       :alt="alt"
       loading="lazy"
       draggable="false"
     />
 
-    <!-- hover 态雪碧图帧层 -->
+    <!-- 自动轮播雪碧图帧层（进入视口后播放） -->
     <div
-      v-show="spriteLoaded && isHovering"
+      v-show="showingSprite"
       class="preview-sprite"
       :style="{
         backgroundImage: `url(${spriteUrl})`,
@@ -300,13 +316,13 @@ onBeforeUnmount(() => {
       }"
     ></div>
 
-    <!-- 顶部进度条（随 seek 位置联动） -->
-    <div class="preview-progress" v-show="spriteLoaded && isHovering">
+    <!-- 顶部进度条（seek 时联动） -->
+    <div class="preview-progress" v-show="showingSprite">
       <div class="preview-progress-fill" :style="{ width: progressStyle }"></div>
     </div>
 
-    <!-- 悬停轻微亮度渐变遮罩 -->
-    <div class="preview-vignette" v-show="isHovering"></div>
+    <!-- 轻微亮度渐变遮罩 -->
+    <div class="preview-vignette" v-show="showingSprite"></div>
 
     <slot></slot>
   </div>
@@ -328,9 +344,9 @@ onBeforeUnmount(() => {
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: opacity 0.2s ease, filter 0.2s ease;
+  transition: opacity 0.25s ease, filter 0.25s ease;
 }
-/* hover 时海报淡出、透出雪碧图帧层，避免硬切闪烁 */
+/* 动图播放时海报淡出、透出雪碧图帧层，避免硬切闪烁 */
 .preview-poster.preview-active {
   opacity: 0;
   filter: brightness(0.98);
@@ -348,6 +364,7 @@ onBeforeUnmount(() => {
   height: 3px;
   background: rgba(0, 0, 0, 0.35);
   z-index: 3;
+  pointer-events: none;
 }
 .preview-progress-fill {
   height: 100%;
