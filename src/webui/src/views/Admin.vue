@@ -4668,6 +4668,8 @@ onUnmounted(() => {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.3s ease;
+  /* 同 .btn：须显式颜色，避免深色背景下黑底黑字 */
+  color: var(--text-primary);
 }
 
 .action-btn svg {
@@ -7144,6 +7146,10 @@ input:checked + .slider:before {
 
   font-weight: 500;
 
+  /* button 不继承父级 color（UA 直接设 buttontext），深色主题下须显式指定，
+     否则深色按钮背景上变成黑底黑字 */
+  color: var(--text-primary);
+
 }
 
 
@@ -7182,7 +7188,7 @@ input:checked + .slider:before {
 
   background: var(--bg-surface-hover);
 
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 
 }
 
@@ -7229,6 +7235,8 @@ input:checked + .slider:before {
   font-size: 13px;
 
   transition: all 0.2s;
+
+  color: var(--text-primary);
 
 }
 

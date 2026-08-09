@@ -311,6 +311,9 @@ export function applyThemeById(id: string): void {
   for (const [k, v] of Object.entries(tokens)) {
     root.style.setProperty(`--${k}`, v)
   }
+  // 同步 color-scheme，否则原生控件（button/input/select）在深色主题下
+  // 仍按 light 渲染：buttontext 为深色，叠在深色按钮背景上变成「黑底黑字」。
+  root.style.colorScheme = def.mode
   root.setAttribute('data-theme', def.id)
   root.setAttribute('data-mode', def.mode)
   // 兼容旧逻辑：body class 仍保留 light/dark，避免遗漏依赖它的样式
