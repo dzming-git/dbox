@@ -361,6 +361,15 @@ def guard_location(location, allowed_ids=None):
                     break
             except Exception:
                 continue
+    # 资源索引 library_id 为 None（未归类）时，图集/视频实体仍可能明确归属某库。
+    # 图集单页经 gallery_folder 匹配到资源索引后，若其未归类，回退用 Gallery 实体的
+    # library_id 判定可见性，避免存量未归类数据导致图集页面 404。
+    if ri is not None and ri.library_id is None:
+        g = Gallery.query.filter_by(resource_index_id=ri.id).first()
+        if g is not None and g.library_id is not None:
+            if g.library_id not in set(allowed_ids):
+                abort_missing()
+            return ri
     if not resource_index_visible(ri, allowed_ids):
         abort_missing()
     return ri
