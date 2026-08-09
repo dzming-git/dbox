@@ -292,7 +292,12 @@ def get_gallery(gallery_hash):
         d = c.to_dict()
         pages = GalleryPage.query.filter_by(gallery_id=c.id).order_by(GalleryPage.page_index).all()
         ver = _gallery_ver_param(c)
-        d['pages'] = [{'index': p.page_index + 1, 'url': _gallery_url(p.file_path) + ver} for p in pages]
+        # resource_id 供前端使用 /resource-file/<rid>/<idx> 加载页面图片，规避含方括号
+        # 等特殊字符的磁盘路径在 URL 路由中 404 的问题（/gallery-page/<path> 仍保留兼容）。
+        d['resource_id'] = c.resource_index_id
+        d['pages'] = [{'index': p.page_index + 1,
+                       'resource_id': c.resource_index_id,
+                       'url': _gallery_url(p.file_path) + ver} for p in pages]
         d['cover_url'] = (c.cover_url or _gallery_url(c.cover_path)) + ver
         if key:
             d['is_liked'] = GalleryInteraction.query.filter_by(

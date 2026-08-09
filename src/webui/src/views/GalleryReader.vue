@@ -40,6 +40,16 @@ const withToken = (url: string) => {
   return userStore.token ? `${url}${sep}token=${userStore.token}` : url
 }
 
+// 页面图片 URL：优先走 /resource-file/<resource_id>/<idx>（用资源索引 id + 页码），
+// 规避目录名含方括号等特殊字符时 /gallery-page/<path> 在 URL 路由中 404 的问题；
+// 无 resource_id 时回退旧的 /gallery-page/<path>。
+const pageImageUrl = (p: any) => {
+  if (p && p.resource_id != null && p.index != null) {
+    return withToken(`/resource-file/${p.resource_id}/${Math.max(0, p.index - 1)}`)
+  }
+  return withToken(p?.url || '')
+}
+
 // 内联占位图（data URI），避免失败图片反复请求不存在的 /placeholder.jpg 造成高频请求
 const PLACEHOLDER =
   'data:image/svg+xml;charset=utf-8,' +
@@ -439,7 +449,7 @@ const handleDelete = async () => {
 }
 
 // 当前页图片（page 模式仅渲染当前页）
-const currentImage = computed(() => pages.value[currentPage.value - 1]?.url || '')
+const currentImage = computed(() => pageImageUrl(pages.value[currentPage.value - 1]))
 
 // 移动端浏览器地址栏/手势栏会动态显隐，固定定位的顶/底工具栏必须贴合“可视区域”
 // 边缘而非布局视口，否则会被地址栏遮住。用 visualViewport 实时计算上/下安全偏移，
@@ -696,7 +706,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         :class="{ active: p.index === currentPage }"
         @click="goToPage(p.index)"
       >
-        <img :src="withToken(p.url)" loading="lazy" @error="onImgError" />
+        <img :src="pageImageUrl(p)" loading="lazy" @error="onImgError" />
         <span class="thumb-idx">{{ p.index }}</span>
       </div>
     </div>
@@ -730,7 +740,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
           class="gallery-page-img"
           :data-page="p.index"
           :style="imgStyle"
-          :src="withToken(p.url)"
+          :src="pageImageUrl(p)"
           :loading="p.index <= resumePrefix ? 'eager' : 'lazy'"
           @load="onImgLoad(p.index)"
           @error="onImgError"
