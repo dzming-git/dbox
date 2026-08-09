@@ -99,7 +99,47 @@ _SERVICE_META = {
         'health_url': None,
         'port': None,
     },
+    'dbox-resource': {
+        'display_name': 'Dbox 资源管理服务',
+        'description': '资源管理微服务 - 资源库扫描、文件监控、索引管理',
+        'health_url': None,
+        'port': None,
+    },
+    'dbox-userd': {
+        'display_name': 'Dbox 用户管理服务',
+        'description': '用户管理微服务 - 用户增删改查与认证',
+        'health_url': None,
+        'port': None,
+    },
+    'dbox-systemd': {
+        'display_name': 'Dbox 系统监控服务',
+        'description': '系统监控微服务 - 监控 CPU、内存、磁盘等系统资源',
+        'health_url': None,
+        'port': None,
+    },
+    'dbox-historyd': {
+        'display_name': 'Dbox 播放历史服务',
+        'description': '播放历史微服务 - 记录播放进度、支持断点续播',
+        'health_url': None,
+        'port': None,
+    },
+    'dbox-collectiond': {
+        'display_name': 'Dbox 收藏夹服务',
+        'description': '收藏夹微服务 - 收藏视频、组织播放列表',
+        'health_url': None,
+        'port': None,
+    },
+    'dbox-searchd': {
+        'display_name': 'Dbox 搜索服务',
+        'description': '搜索微服务 - 全文搜索、视频标签和描述检索',
+        'health_url': None,
+        'port': None,
+    },
 }
+
+# 即使未注册为 Windows 服务也要出现在服务列表中的服务
+# （如以独立进程方式运行的下载器）；其余服务仍以实际扫描结果为准。
+_ALWAYS_LIST_SERVICES = ('dbox-downloader',)
 
 
 class BusServiceMgrAdapter(BaseDBusService):
@@ -162,7 +202,7 @@ class BusServiceMgrAdapter(BaseDBusService):
             # 合并静态元信息中定义的服务（如以独立进程方式运行的下载器），
             # 保证它们始终出现在服务列表中，即使未注册为 Windows 服务。
             merged = list(service_names)
-            for name in _SERVICE_META.keys():
+            for name in _ALWAYS_LIST_SERVICES:
                 if name not in merged:
                     merged.append(name)
             for name in merged:
