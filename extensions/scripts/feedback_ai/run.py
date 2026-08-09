@@ -34,7 +34,18 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))  # 项�
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'scripts'))
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src', 'web', 'backend'))
 
-from feedback_list import find_runtime_dir, load_issues  # noqa: E402
+# 注意：必须用 feedback_db 的运行时目录解析（get_runtime_dir 指向 .../data），
+# 不能用 feedback_list.find_runtime_dir()——后者返回项目根，会令 load_issues
+# 回退读取旧的 data/issues.json 而非真实的 data/databases/feedback.db，
+# 导致 AI 脚本永远看不到新建的真实反馈（表现为新反馈迟迟不进入处理中）。
+from feedback_db import get_runtime_dir as find_runtime_dir  # noqa: E402
+from feedback_list import load_issues as _load_issues_raw  # noqa: E402
+
+
+def load_issues(runtime_dir: str):
+    return _load_issues_raw(runtime_dir)
+
+
 from feedback_db import (  # noqa: E402
     init_feedback_db,
     db_get_extra,
@@ -57,6 +68,8 @@ TASK_PROCESSING = 'processing'
 TASK_DONE = 'done'
 TASK_FAILED = 'failed'
 TASK_SKIPPED = 'skipped'
+
+ISSUE_OPEN = 'open'
 
 VERDICT_RESOLVED = 'resolved'
 VERDICT_NEEDS_DECISION = 'needs_decision'
@@ -152,9 +165,18 @@ def _call_ai(prompt: str) -> str:
     以 bytes 读取后用 utf-8/gbk 双重兜底解码（Windows 下 CLI 输出编码不确定）。
     """
     buddy = os.environ.get('DBOX_BUDDYCN') or r'C:\Users\<用户>\AppData\Roaming\npm\codebuddy.cmd'
+    # 关键：
+    # 1) -p/--print 是非交互纯文本输出模式；
+    # 2) 必须加 --input-format text，并通过【stdin】传 prompt（input=prompt），
+    #    不能把 prompt 放在命令行参数里——Windows 下多行/长中文命令行参数会被
+    #    CLI 解析丢失，导致 AI 拿不到反馈上下文（表现为「你尚未附上具体的用户
+    #    反馈内容」这类默认回复）；
+    # 3) 以 bytes 读取再 utf-8/gbk 兜底解码，避免 Windows 下控制台 GBK 引起乱码/崩溃。
     proc = subprocess.run(
-        [buddy, '-p', prompt],
-        capture_output=True, timeout=AI_TIMEOUT,
+        [buddy, '-p', '--input-format', 'text'],
+        input=prompt.encode('utf-8'),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=AI_TIMEOUT,
     )
     raw = (proc.stdout or b'') + (proc.stderr or b'')
     for enc in ('utf-8', 'gbk', 'utf-8-sig'):
@@ -349,9 +371,33 @@ def recover_and_pick() -> str:
     return pending_id
 
 
+def _auto_enqueue_new():
+    """自动发现「未入队且状态为 open」的反馈并入队，使其进入 AI 处理流程。
+
+    反馈创建时没有任何地方主动调用 enqueue，因此必须在轮询入口兜底扫描，
+    否则新反馈的 feedback_extra 永远为 None，AI 永远不会处理（表现为新增反馈
+    长时间不进入「处理中」）。
+    """
+    runtime_dir = find_runtime_dir()
+    issues = load_issues(runtime_dir)
+    count = 0
+    for it in issues:
+        iid = it.get('id')
+        extra = it.get('feedback_extra')
+        if extra:  # 已入队（含已完成/跳过），跳过
+            continue
+        if it.get('status') != ISSUE_OPEN:
+            continue
+        enqueue(iid)
+        count += 1
+    if count:
+        print(f'自动入队 {count} 条新反馈')
+
+
 def run_once():
-    """被调度器调用时执行的一轮：崩溃恢复 + 处理一条 pending。"""
+    """被调度器调用时执行的一轮：自动入队新反馈 + 崩溃恢复 + 处理一条 pending。"""
     init_feedback_db()
+    _auto_enqueue_new()
     iid = recover_and_pick()
     if iid:
         print(f'处理 {iid}')
