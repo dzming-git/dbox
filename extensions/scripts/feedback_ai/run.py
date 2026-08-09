@@ -14,7 +14,12 @@ stdin 约定（调度器传入）：{"trigger":"poll","context":{}}
 
 AI 调用：
   - 通过 CodeBuddy CLI（buddycn）消费标准化 JSON 契约，超时 AI_TIMEOUT。
-  - 契约：{"verdict":"resolved|needs_decision|blocked","reply":str,"analysis":str,"decision_needed":str|null}
+  - 方向 B：CLI 以 -y --add-dir 运行，AI 拥有本项目源码（src/extensions/scripts/configs）
+    的读写权限，会直接修改文件真正修复反馈，而非仅给建议。
+  - 契约：{"verdict":"resolved|needs_decision|blocked","reply":str,"analysis":str,
+    "changes":[文件路径],"decision_needed":str|null}
+  - 防假结案：verdict=resolved 时脚本会校验工作区是否真有源码改动（排除 data/.git/venv），
+    若无实际改动则降级为 needs_decision，避免「声称已修复实际没改」。
   - 解析失败重试 max_retries 次，仍失败则退回 pending_verification 并附错误说明。
 
 自动回复一律以「自动助手」身份（role=4 FEEDBACK_BOT）写入，符合反馈中心规则。
@@ -58,7 +63,7 @@ AUTO_AUTHOR = '自动助手'
 AUTO_ROLE = 4  # UserRole.FEEDBACK_BOT
 
 # 执行参数
-AI_TIMEOUT = 280           # 单次 AI 调用超时（秒）
+AI_TIMEOUT = 600           # 单次 AI 调用超时（秒），方向 B 需改代码，较纯分析更耗时
 MAX_RETRIES = 3            # 单条任务最大重试次数
 PROCESSING_TIMEOUT = 600   # processing 心跳超时（秒），超时视为崩溃，重置 pending
 
@@ -130,7 +135,7 @@ def _build_prompt(issue: dict) -> str:
             lines.append(f'  [{ctime}] {author}: {ctext}')
         history = '\n'.join(lines)
 
-    return f"""你是 Dplayer 反馈中心的「自动助手」。请分析以下用户反馈，给出处理结论。
+    return f"""你是 Dplayer 反馈中心的「自动助手」，且具备修改代码的权限。请直接定位并修复以下用户反馈对应的源码问题（不要只给建议）。
 
 【反馈标题】{title}
 【反馈内容】
@@ -139,20 +144,30 @@ def _build_prompt(issue: dict) -> str:
 【历史留言】
 {history or '（无）'}
 
-请严格按以下 JSON 格式输出（只输出 JSON，不要输出任何额外文字、不要使用 markdown 代码块包裹）：
+工作目录为项目根（{_PROJECT_ROOT}）。你可以且应当直接编辑相关源码文件来修复该反馈。
+
+★ 修改边界（务必遵守）：
+- 允许修改：src/、scripts/、configs/ 下的源码与配置。
+- 禁止修改：data/（运行时数据、数据库）、.git/、任何密钥/凭证文件、venv/、
+  extensions/scripts/feedback_ai/（本自动处理脚本自身，不得自我修改）。
+- 禁止执行 git commit / git push（代码改动留在工作区即可，由后续流程统一提交，避免错误身份提交）。
+- 修改要聚焦、最小必要，改动后确保不破坏现有功能。
+
+修改完成后，严格按以下 JSON 格式输出（只输出 JSON，不要使用 markdown 代码块包裹）：
 {{
   "verdict": "resolved | needs_decision | blocked",
   "reply": "给用户的回复内容（中文，简洁专业，说明根因或处理方案；若为 bug 请描述根因，若建议请说明如何使用）",
-  "analysis": "内部分析记录（根因定位、影响范围、复现路径，供管理员参考，不展示给用户）",
+  "analysis": "内部分析记录（根因定位、影响范围、修改了哪些文件、复现路径，供管理员参考，不展示给用户）",
+  "changes": ["实际修改的文件相对路径列表，例如 src/web/main.py"],
   "decision_needed": "需要管理员决策的事项（仅当 verdict=needs_decision/blocked 时填写，否则为 null）"
 }}
 
 verdict 取值说明：
-- resolved：已可处理（根因清晰、有明确修复/使用说明），将标记为待验证。
-- needs_decision：需要人工决策（如涉及产品设计取舍），将标记待验证并附决策事项。
+- resolved：已实际修改代码修复（changes 非空），将标记为待验证。
+- needs_decision：需要人工决策（如涉及产品设计取舍，或你判断不应自动改代码），将标记待验证并附决策事项。
 - blocked：被阻塞（如信息不足、需用户补充），将标记待验证并附阻塞原因。
 
-注意：你仅负责分析并生成回复，不要直接修改代码或提交 git。
+注意：只有你确实修改了源码文件时，verdict 才能填 resolved；若仅给建议未改代码，请填 needs_decision。
 """
 
 
@@ -186,6 +201,63 @@ def _is_auth_error(raw: str) -> bool:
     return any(hint in low for hint in _AUTH_ERROR_HINTS)
 
 
+def _has_uncommitted_changes() -> bool:
+    """检测工作区是否有未提交改动（AI 改代码后应非空）。
+
+    用 git status --porcelain 判断；非 git 仓库或命令不可用时返回 False（不阻断流程）。
+    """
+    try:
+        proc = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            cwd=_PROJECT_ROOT,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        out = (proc.stdout or b'').decode('utf-8', errors='replace').strip()
+        return bool(out)
+    except Exception:
+        return False
+
+
+def _should_ignore_change(path: str) -> bool:
+    """AI 改动白名单之外的路径（data/、.git/、venv/、密钥等）应被忽略，不计入有效改动。"""
+    norm = path.replace('\\', '/').lower()
+    if '/.git/' in norm or norm.startswith('.git/'):
+        return True
+    if '/venv/' in norm or norm.startswith('venv/'):
+        return True
+    if '/data/' in norm or norm.startswith('data/'):
+        return True
+    if '/extensions/scripts/feedback_ai/' in norm or norm.startswith('extensions/scripts/feedback_ai/'):
+        return True
+    return False
+
+
+def _effective_changes() -> list:
+    """返回 AI 实际改动的、且落在源码白名单内的文件列表（排除 data/、.git/、venv/）。"""
+    try:
+        proc = subprocess.run(
+            ['git', 'status', '--porcelain', '-uall'],
+            cwd=_PROJECT_ROOT,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        out = (proc.stdout or b'').decode('utf-8', errors='replace')
+    except Exception:
+        return []
+    changed = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # porcelain 格式：XY path（XY 为状态码）
+        body = line[3:].strip() if len(line) > 3 else line
+        if _should_ignore_change(body):
+            continue
+        changed.append(body)
+    return changed
+
+
 def _call_ai(prompt: str) -> str:
     """调用 CodeBuddy CLI 消费契约，返回 AI 的纯文本回复。
 
@@ -204,10 +276,15 @@ def _call_ai(prompt: str) -> str:
     #    不能把 prompt 放在命令行参数里——Windows 下多行/长中文命令行参数会被
     #    CLI 解析丢失，导致 AI 拿不到反馈上下文（表现为「你尚未附上具体的用户
     #    反馈内容」这类默认回复）；
-    # 3) 以 bytes 读取再 utf-8/gbk 兜底解码，避免 Windows 下控制台 GBK 引起乱码/崩溃。
+    # 3) -y / --dangerously-skip-permissions + --add-dir <项目根>：允许 AI 在本项目内
+    #    直接读写源码文件（方向 B：AI 真正修复代码，而非仅给建议）；
+    # 4) cwd 设为项目根，使 AI 的相对路径编辑基于项目根；
+    # 5) 以 bytes 读取再 utf-8/gbk 兜底解码，避免 Windows 下控制台 GBK 引起乱码/崩溃。
     proc = subprocess.run(
-        [buddy, '-p', '--input-format', 'text'],
+        [buddy, '-p', '-y', '--add-dir', _PROJECT_ROOT,
+         '--input-format', 'text', prompt],
         input=prompt.encode('utf-8'),
+        cwd=_PROJECT_ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=AI_TIMEOUT,
     )
@@ -286,6 +363,7 @@ def _validate_contract(data: dict) -> dict:
         'verdict': verdict,
         'reply': reply,
         'analysis': (data.get('analysis') or '').strip(),
+        'changes': data.get('changes') or [],
         'decision_needed': data.get('decision_needed'),
     }
 
@@ -357,6 +435,21 @@ def execute_one(issue_id: str) -> dict:
         return task
 
     verdict = contract['verdict']
+    reply = contract['reply']
+    analysis = contract['analysis']
+    decision = contract.get('decision_needed')
+
+    # 关键验证：AI 声称 resolved（已修复）但工作区实际无代码改动时，不能轻信，
+    # 降级为 needs_decision 并明确告知管理员「未实际改动」，避免再次出现
+    # 「AI 说修好了但实际没改」的假结案（此前 202608090009 即此问题）。
+    if verdict == VERDICT_RESOLVED:
+        effective = _effective_changes()
+        if not effective:
+            verdict = VERDICT_NEEDS_DECISION
+            decision = ('AI 声称已修复，但工作区未检测到任何源码改动（changes 为空或仅落在 '
+                        'data/.git/venv 等禁改区域）。请人工核实是否真需改代码，或确认 AI 误判。')
+            reply = (reply or '') + '\n\n[自动处理提示] 未检测到实际代码改动，已转人工核实。'
+
     task['state'] = TASK_DONE
     task['verdict'] = verdict
     task['finished_at'] = _now_iso()
@@ -364,17 +457,17 @@ def execute_one(issue_id: str) -> dict:
     _save_ai_task(issue_id, task)
 
     db_update_extra(issue_id, {
-        'ai_reply': contract['reply'],
-        'ai_analysis': contract['analysis'],
+        'ai_reply': reply,
+        'ai_analysis': analysis,
         'ai_verdict': verdict,
-        'ai_decision': contract.get('decision_needed'),
+        'ai_decision': decision,
+        'ai_changes': contract.get('changes') or [],
         'ai_processed_at': _now_iso(),
     })
     db_set_status(issue_id, 'pending_verification')
-    db_append_comment(issue_id, AUTO_AUTHOR, AUTO_ROLE, contract['reply'])
+    db_append_comment(issue_id, AUTO_AUTHOR, AUTO_ROLE, reply)
 
     if verdict in (VERDICT_NEEDS_DECISION, VERDICT_BLOCKED):
-        decision = contract.get('decision_needed') or '（未说明）'
         db_append_comment(
             issue_id, AUTO_AUTHOR, AUTO_ROLE,
             f'【自动处理】需人工决策：{decision}',
