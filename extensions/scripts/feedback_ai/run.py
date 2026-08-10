@@ -341,7 +341,11 @@ def _call_ai(prompt: str) -> str:
             break
         except Exception:
             text = raw.decode('utf-8', errors='replace')
-    if _is_auth_error(text):
+    # 认证失败判定只看 CLI 自身的错误流（stderr）：模型回答（stdout）可能因历史
+    # 上下文含「未登录/认证失败」字样而误触发，造成假阳性。CLI 工具级登录提示
+    # 一律输出到 stderr，故以此区分真实故障与正常分析内容。
+    err_text = (proc.stderr or b'').decode('utf-8', errors='replace')
+    if _is_auth_error(err_text):
         raise AuthError(
             'AI 工具（CodeBuddy CLI）认证失败，无法调用模型。'
             '请配置 codebuddy token（run.py set-token）或执行 `codebuddy /login` 登录后重启调度器。'
