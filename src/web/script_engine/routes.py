@@ -234,12 +234,25 @@ def put_script_defaults(script_id):
     return jsonify({'success': True})
 
 
-# ---------- 管理员：Cookie 保险库 ----------
-# cookie 是网站登录凭证，仅管理员可读写；落盘加密，列表不回传 value。
+# ---------- 管理员：通用凭证保险库 ----------
+# 支持 cookie / token / password / apikey 多种类型，仅管理员可读写；落盘加密，
+# 列表不回传 value。复用现有 /api/admin/cookies 路径，避免前端大改。
+from common.credential_vault import CREDENTIAL_KINDS, KIND_COOKIE
+
+
+def _sanitize_cred(rec):
+    """把保险库记录裁剪成列表输出（剔除明文 value）。"""
+    out = {k: rec.get(k) for k in ('id', 'kind', 'name', 'domain', 'format', 'note', 'updated_at')}
+    return out
+
+
 @script_bp.route('/api/admin/cookies', methods=['GET'])
 @admin_required
 def list_cookies():
-    return jsonify({'success': True, 'cookies': mgr.vault.list() if mgr.vault else []})
+    if not mgr.vault:
+        return jsonify({'success': True, 'cookies': []})
+    items = [_sanitize_cred(r) for r in mgr.vault.list_all()]
+    return jsonify({'success': True, 'cookies': items})
 
 
 @script_bp.route('/api/admin/cookies', methods=['POST'])
@@ -248,15 +261,19 @@ def create_cookie():
     if not mgr.vault:
         return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
     data = request.get_json(silent=True) or {}
+    kind = data.get('kind', KIND_COOKIE)
     name = data.get('name')
     domain = data.get('domain')
-    fmt = data.get('format')
     value = data.get('value')
+    note = data.get('note', '')
+    if kind not in CREDENTIAL_KINDS:
+        return jsonify({'success': False, 'message': f'不支持的凭证类型: {kind}'}), 400
     if not name or not domain or not value:
         return jsonify({'success': False, 'message': 'name / domain / value 必填'}), 400
-    if fmt not in ('netscape', 'header'):
-        return jsonify({'success': False, 'message': 'format 必须为 netscape 或 header'}), 400
-    pid = mgr.vault.add(name, domain, fmt, value)
+    fmt = data.get('format') if kind == KIND_COOKIE else 'raw'
+    if kind == KIND_COOKIE and fmt not in ('netscape', 'header', 'json'):
+        return jsonify({'success': False, 'message': 'format 必须为 netscape / header / json'}), 400
+    pid = mgr.vault.add(kind, name, domain, value, note=note, fmt=fmt)
     return jsonify({'success': True, 'id': pid})
 
 
@@ -265,17 +282,23 @@ def create_cookie():
 def update_cookie(cid):
     if not mgr.vault:
         return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
+    old = mgr.vault.get(cid)
+    if not old:
+        return jsonify({'success': False, 'message': '凭证配置不存在'}), 404
     data = request.get_json(silent=True) or {}
-    ok = mgr.vault.update(
-        cid,
-        name=data.get('name'),
-        domain=data.get('domain'),
-        fmt=data.get('format'),
-        value=data.get('value'),
-    )
-    if not ok:
-        return jsonify({'success': False, 'message': 'cookie 配置不存在'}), 404
-    return jsonify({'success': True})
+    kind = data.get('kind', old.get('kind', KIND_COOKIE))
+    name = data.get('name', old.get('name'))
+    domain = data.get('domain', old.get('domain'))
+    value = data.get('value', old.get('value'))
+    note = data.get('note', old.get('note', ''))
+    if kind not in CREDENTIAL_KINDS:
+        return jsonify({'success': False, 'message': f'不支持的凭证类型: {kind}'}), 400
+    fmt = data.get('format') if (data.get('format') or kind == KIND_COOKIE) else old.get('format', 'raw')
+    # 新 CredentialVault 无独立 update：删旧 + 按稳定 pid 覆盖（pid 由 kind|domain|name 派生）。
+    # 若 key 未变则等于原地覆盖；若变了则旧记录被清、新记录生成，无孤儿。
+    mgr.vault.delete(cid)
+    pid = mgr.vault.add(kind, name, domain, value, note=note, fmt=fmt)
+    return jsonify({'success': True, 'id': pid})
 
 
 @script_bp.route('/api/admin/cookies/<cid>', methods=['DELETE'])
@@ -283,7 +306,9 @@ def update_cookie(cid):
 def delete_cookie(cid):
     if not mgr.vault:
         return jsonify({'success': False, 'message': 'vault 未初始化'}), 500
-    ok = mgr.vault.delete(cid)
+    # delete 返回 bool；兼容新旧签名（旧返回 dict，新返回 bool）
+    res = mgr.vault.delete(cid)
+    ok = res if isinstance(res, bool) else bool(res)
     if not ok:
-        return jsonify({'success': False, 'message': 'cookie 配置不存在'}), 404
+        return jsonify({'success': False, 'message': '凭证配置不存在'}), 404
     return jsonify({'success': True})

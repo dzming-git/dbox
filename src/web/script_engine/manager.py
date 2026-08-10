@@ -280,7 +280,7 @@ class ScriptJobManager:
             return None
         for domain in (manifest.get('required_cookies') or []):
             if not self.vault.get_by_domain(domain):
-                return f'缺少 {domain} 的 cookie 配置（请在「Cookie 保险库」中添加）'
+                return f'缺少 {domain} 的凭证配置（请在「凭证保险库」中添加）'
         for p in manifest.get('params', []):
             if p.get('type') == 'cookie_select':
                 pid = params.get(p.get('name'))

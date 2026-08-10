@@ -27,9 +27,11 @@ export interface ScriptInfo {
 
 export interface CookieProfile {
   id: string
+  kind?: string
   name: string
   domain: string
-  format: string
+  format?: string
+  note?: string
   created_at?: string
   updated_at?: string
 }
@@ -85,11 +87,11 @@ export const scriptApi = {
   respondJob: (jobId: string, value: any) =>
     api.post(`/api/scripts/jobs/${jobId}/respond`, { value }),
 
-  // Cookie 保险库（管理员）
+  // 凭证保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),
-  createCookie: (data: { name: string; domain: string; format: string; value: string }) =>
+  createCookie: (data: { kind?: string; name: string; domain: string; format?: string; value: string; note?: string }) =>
     api.post('/api/admin/cookies', data),
-  updateCookie: (id: string, data: { name?: string; domain?: string; format?: string; value?: string }) =>
+  updateCookie: (id: string, data: { kind?: string; name?: string; domain?: string; format?: string; value?: string; note?: string }) =>
     api.put(`/api/admin/cookies/${id}`, data),
   deleteCookie: (id: string) => api.delete(`/api/admin/cookies/${id}`),
 

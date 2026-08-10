@@ -11,7 +11,7 @@
         脚本中心
       </button>
       <button :class="['subtab-btn', activeSub === 'cookies' ? 'active' : '']" @click="activeSub = 'cookies'">
-        Cookie 保险库
+        凭证保险库
       </button>
     </div>
 
@@ -66,7 +66,7 @@
                 </option>
               </select>
               <div v-else-if="p.type === 'cookie_select'" class="param-hint">
-                系统已按域名（{{ p.domain_filter || '对应站点' }}）自动匹配 Cookie 保险库，无需手动选择
+                系统已按域名（{{ p.domain_filter || '对应站点' }}）自动匹配凭证保险库，无需手动选择
               </div>
 
               <select v-else-if="p.type === 'enum'" v-model="form[p.name]">
@@ -147,24 +147,25 @@
       </div>
     </section>
 
-    <!-- Cookie 保险库 -->
+    <!-- 凭证保险库 -->
     <section v-if="activeSub === 'cookies'" class="subpanel">
       <div class="panel-toolbar">
-        <button class="action-btn primary" @click="openCookieForm()">新增 Cookie</button>
-        <span class="hint">Cookie 为网站登录凭证，加密保存，仅管理员可见。运行下载脚本时按需注入临时文件。</span>
+        <button class="action-btn primary" @click="openCookieForm()">新增凭证</button>
+        <span class="hint">凭证加密保存，仅管理员可见。支持 Cookie（网站登录）、Token / API Key / 密码（单行密文），供脚本免登录调用外部服务。</span>
       </div>
 
       <table class="data-table" v-if="cookies.length">
         <thead>
           <tr>
-            <th>名称</th><th>域名</th><th>格式</th><th>更新时间</th><th>操作</th>
+            <th>类型</th><th>名称</th><th>域名</th><th>格式</th><th>更新时间</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="ck in cookies" :key="ck.id">
+            <td>{{ kindLabel(ck.kind) }}</td>
             <td>{{ ck.name }}</td>
             <td>{{ ck.domain }}</td>
-            <td>{{ ck.format }}</td>
+            <td>{{ ck.format || '-' }}</td>
             <td>{{ ck.updated_at || ck.created_at || '-' }}</td>
             <td>
               <button class="action-btn" @click="openCookieForm(ck)">编辑</button>
@@ -173,31 +174,43 @@
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty">暂无 Cookie 配置。</div>
+      <div v-else class="empty">暂无凭证配置。</div>
 
       <!-- 表单弹窗 -->
       <div v-if="showCookieForm" class="modal-mask" @click.self="showCookieForm = false">
         <div class="modal">
-          <div class="modal-title">{{ editingCookie ? '编辑 Cookie' : '新增 Cookie' }}</div>
+          <div class="modal-title">{{ editingCookie ? '编辑凭证' : '新增凭证' }}</div>
+          <div class="form-row">
+            <label>类型</label>
+            <select v-model="ckForm.kind" :disabled="!!editingCookie">
+              <option value="cookie">Cookie（网站登录）</option>
+              <option value="token">Token</option>
+              <option value="apikey">API Key</option>
+              <option value="password">密码</option>
+            </select>
+          </div>
           <div class="form-row">
             <label>名称</label>
-            <input type="text" v-model="ckForm.name" placeholder="如：B站主号" />
+            <input type="text" v-model="ckForm.name" placeholder="如：B站主号 / codebuddy" />
           </div>
           <div class="form-row">
-            <label>域名</label>
-            <input type="text" v-model="ckForm.domain" placeholder="如：.bilibili.com" />
+            <label>域名 / 用途</label>
+            <input type="text" v-model="ckForm.domain" placeholder="如：.bilibili.com / codebuddy" />
           </div>
-          <div class="form-row">
+          <div class="form-row" v-if="ckForm.kind === 'cookie'">
             <label>格式</label>
             <select v-model="ckForm.format">
               <option value="netscape">Netscape cookies.txt</option>
               <option value="header">原始 Cookie 请求头</option>
+              <option value="json">JSON</option>
             </select>
           </div>
           <div class="form-row">
-            <label>内容</label>
-            <textarea v-model="ckForm.value" rows="6"
+            <label>{{ ckForm.kind === 'cookie' ? '内容' : '密文' }}</label>
+            <textarea v-if="ckForm.kind === 'cookie'" v-model="ckForm.value" rows="6"
               :placeholder="ckForm.format === 'header' ? 'SESSDATA=xxx; bili_jct=yyy' : 'Netscape 格式 cookies.txt 全文'"></textarea>
+            <textarea v-else v-model="ckForm.value" rows="3"
+              :placeholder="ckForm.kind === 'token' ? 'Bearer / API token 全文' : (ckForm.kind === 'apikey' ? '第三方服务 API Key' : '账号口令')"></textarea>
           </div>
           <div class="modal-actions">
             <button class="action-btn" @click="showCookieForm = false">取消</button>
@@ -225,9 +238,19 @@ const libraries = ref<{ id: number; name: string }[]>([])
 const cookies = ref<CookieProfile[]>([])
 const showCookieForm = ref(false)
 const editingCookie = ref<CookieProfile | null>(null)
-const ckForm = reactive<{ name: string; domain: string; format: string; value: string }>({
-  name: '', domain: '', format: 'netscape', value: '',
+const ckForm = reactive<{ kind: string; name: string; domain: string; format: string; value: string; note: string }>({
+  kind: 'cookie', name: '', domain: '', format: 'netscape', value: '', note: '',
 })
+
+const KIND_LABELS: Record<string, string> = {
+  cookie: 'Cookie',
+  token: 'Token',
+  apikey: 'API Key',
+  password: '密码',
+}
+function kindLabel(kind?: string): string {
+  return KIND_LABELS[kind || 'cookie'] || (kind || 'Cookie')
+}
 
 const running = ref(false)
 const runningJob = ref<ScriptJob | null>(null)
@@ -463,22 +486,32 @@ async function cancelRun() {
 
 function openCookieForm(ck?: CookieProfile) {
   editingCookie.value = ck || null
+  ckForm.kind = ck?.kind || 'cookie'
   ckForm.name = ck?.name || ''
   ckForm.domain = ck?.domain || ''
-  ckForm.format = ck?.format || 'netscape'
+  ckForm.format = ck?.format || (ck?.kind === 'cookie' ? 'netscape' : 'raw')
   ckForm.value = ''
+  ckForm.note = ck?.note || ''
   showCookieForm.value = true
 }
 
 async function saveCookie() {
   if (!ckForm.name || !ckForm.domain || !ckForm.value) {
-    alert('名称 / 域名 / 内容 必填')
+    alert('名称 / 域名 / 密文 必填')
     return
   }
+  const payload: Record<string, any> = {
+    kind: ckForm.kind,
+    name: ckForm.name,
+    domain: ckForm.domain,
+    value: ckForm.value,
+    note: ckForm.note,
+  }
+  if (ckForm.kind === 'cookie') payload.format = ckForm.format
   if (editingCookie.value) {
-    await scriptApi.updateCookie(editingCookie.value.id, { ...ckForm })
+    await scriptApi.updateCookie(editingCookie.value.id, payload)
   } else {
-    await scriptApi.createCookie({ ...ckForm })
+    await scriptApi.createCookie(payload)
   }
   showCookieForm.value = false
   await loadCookies()
