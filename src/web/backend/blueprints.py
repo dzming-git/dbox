@@ -27,6 +27,11 @@ def register_core_blueprints(app: Flask) -> None:
     app.register_blueprint(system_info_bp)
     app.register_blueprint(suggestion_bp)
 
+    # 通用脚本引擎（含凭证保险库 /admin 接口）；初始化管理器（幂等）。
+    from script_engine import script_bp as _script_bp, init_script_engine as _init_script_engine
+    app.register_blueprint(_script_bp)
+    _init_script_engine(app)
+
 
 def register_domain_blueprints(app: Flask) -> None:
     """注册领域蓝图（延迟导入，避免与核心蓝图循环依赖）。"""
