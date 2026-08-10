@@ -40,10 +40,10 @@ sys.path.insert(
         os.path.join(
             os.path.dirname(__file__), '..', '..', '..', 'src', 'web')))
 try:
-    from common.cookie_vault import CredentialVault, data_dir_for
+    from common.credential_vault import CredentialVault, data_dir_for
 except Exception:  # 兜底：直接相对导入
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-    from common.cookie_vault import CredentialVault, data_dir_for
+    from common.credential_vault import CredentialVault, data_dir_for
 
 # CodeBuddy CLI 消费 token 的环境变量名（token 型登录，免 /login）
 ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'

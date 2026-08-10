@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""通用凭证保险库（cookie / token 统一管理）。
+"""通用凭证保险库（cookie / token / password / apikey 统一管理）。
 
 设计目标：
 - 与具体业务解耦，放在 ``common`` 包，供 ``script_engine``、``feedback_ai``
-  等任意子系统复用，不再依附于脚本引擎。
-- 支持多种凭证类型：
-  * ``cookie``：浏览器 cookie 集合，可物化为 Netscape/cookies.txt、JSON、header。
-  * ``token`` ：API token / bearer key，物化为单文件，便于注入到
+  等任意子系统复用，不依附于任何单一子系统。
+- 支持多种凭证类型（``kind``）：
+  * ``cookie``  ：浏览器 cookie 集合，可物化为 Netscape/cookies.txt、JSON、header。
+  * ``token``   ：API token / bearer key，物化为单文件，便于注入到
     ``ANTHROPIC_API_KEY`` 等环境变量让 CLI 免登录调用模型。
+  * ``password``：账号口令。
+  * ``apikey``  ：第三方服务 API key。
+  后三者都是「单个字符串密文」，存取与物化方式一致。
 - 所有凭证以 AES 加密落盘（密钥自动生成并持久化），避免明文泄露。
 - 物化到磁盘的临时文件应在使用后及时删除（调用方负责清理）。
 """
@@ -33,15 +36,19 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
-_COOKIE_KINDS = ('cookie', 'token')
+KIND_COOKIE = 'cookie'
+KIND_TOKEN = 'token'
+KIND_PASSWORD = 'password'
+KIND_APIKEY = 'apikey'
+
+# 全部受支持的凭证类型
+CREDENTIAL_KINDS = (KIND_COOKIE, KIND_TOKEN, KIND_PASSWORD, KIND_APIKEY)
+# 以「单个字符串」形式存储的类型（区别于 cookie 的 list[dict]）
+_SCALAR_KINDS = (KIND_TOKEN, KIND_PASSWORD, KIND_APIKEY)
 
 
 class CredentialVault:
-    """通用凭证保险库（加密落盘 + 物化）。
-
-    向后兼容：保留 ``get`` / ``get_by_domain`` / ``materialize`` 等旧接口名称，
-    旧调用方无需改动即可继续工作。
-    """
+    """通用凭证保险库（加密落盘 + 物化）。"""
 
     def __init__(self, data_dir: str):
         self._path = os.path.join(data_dir, 'credential_vault.json')
@@ -128,20 +135,18 @@ class CredentialVault:
             note: str = '', fmt: str = 'auto') -> str:
         """新增 / 覆盖一个凭证。
 
-        kind: 'cookie' | 'token'
+        kind: 'cookie' | 'token' | 'password' | 'apikey'
         name: 展示名（用户可读）
         domain: 域名或用途标识（如 'x.com' / 'codebuddy'）
-        value: cookie 为 list[dict]；token 为 str
-        fmt: cookie 物化格式（'netscape'|'json'|'header'）；token 固定忽略
+        value: cookie 为 list[dict]；其余标量类型为 str
+        fmt: cookie 物化格式（'netscape'|'json'|'header'）；标量类型固定忽略
         返回 profile id
         """
-        kind = kind if kind in _COOKIE_KINDS else 'cookie'
+        kind = kind if kind in CREDENTIAL_KINDS else KIND_COOKIE
         pid = 'cred_' + hashlib.sha1(
             f'{kind}|{domain}|{name}'.encode('utf-8')).hexdigest()[:16]
-        if isinstance(value, str) and kind == 'token':
-            raw = value.encode('utf-8')
-        elif kind == 'token':
-            raw = str(value).encode('utf-8')
+        if kind in _SCALAR_KINDS:
+            raw = (value if isinstance(value, str) else str(value)).encode('utf-8')
         else:
             raw = json.dumps(value, ensure_ascii=False).encode('utf-8')
         self._cache['profiles'][pid] = {
@@ -149,7 +154,7 @@ class CredentialVault:
             'kind': kind,
             'name': name,
             'domain': domain,
-            'format': fmt if kind == 'cookie' else 'raw',
+            'format': fmt if kind == KIND_COOKIE else 'raw',
             'secret': self._encrypt(raw),
             'note': note,
             'created_at': _now_iso(),
@@ -189,7 +194,7 @@ class CredentialVault:
     def _decode(self, rec: dict) -> dict:
         out = dict(rec)
         raw = self._decrypt(rec.get('secret', ''))
-        if rec.get('kind') == 'token':
+        if rec.get('kind') in _SCALAR_KINDS:
             out['value'] = raw.decode('utf-8', errors='replace')
         else:
             try:
@@ -198,30 +203,54 @@ class CredentialVault:
                 out['cookies'] = []
         return out
 
+    # ---------- 标量凭证（token / password / apikey）便捷方法 ----------
+    def set_secret(self, kind: str, domain: str, value: str,
+                   name: str = None, note: str = '') -> str:
+        """写入一个标量凭证（token/password/apikey），返回 id。"""
+        if kind not in _SCALAR_KINDS:
+            raise ValueError(f'不支持的标量凭证类型: {kind}')
+        return self.add(kind, name or f'{kind}:{domain}', domain, value,
+                        note=note, fmt='raw')
+
+    def get_secret(self, kind: str, domain: str = None, name: str = None) -> str:
+        """取标量凭证明文；优先按 domain，其次 name。不存在返回 None。"""
+        rec = self.get_by_domain(domain, kind) if domain else None
+        if not rec and name:
+            rec = self.get_by_name(name, kind)
+        return rec.get('value') if rec else None
+
     def set_token(self, domain: str, token: str, name: str = None, note: str = '') -> str:
-        """便捷方法：写入一个 token 类型凭证，返回 id。"""
-        return self.add('token', name or f'token:{domain}', domain, token, note=note, fmt='raw')
+        return self.set_secret(KIND_TOKEN, domain, token, name=name, note=note)
 
     def get_token(self, domain: str = None, name: str = None) -> str:
-        """便捷方法：取 token 明文；优先按 domain，其次 name。"""
-        rec = self.get_by_domain(domain, 'token') if domain else None
-        if not rec and name:
-            rec = self.get_by_name(name, 'token')
-        return rec.get('value') if rec else None
+        return self.get_secret(KIND_TOKEN, domain=domain, name=name)
+
+    def set_password(self, domain: str, password: str, name: str = None, note: str = '') -> str:
+        return self.set_secret(KIND_PASSWORD, domain, password, name=name, note=note)
+
+    def get_password(self, domain: str = None, name: str = None) -> str:
+        return self.get_secret(KIND_PASSWORD, domain=domain, name=name)
+
+    def set_apikey(self, domain: str, apikey: str, name: str = None, note: str = '') -> str:
+        return self.set_secret(KIND_APIKEY, domain, apikey, name=name, note=note)
+
+    def get_apikey(self, domain: str = None, name: str = None) -> str:
+        return self.get_secret(KIND_APIKEY, domain=domain, name=name)
 
     # ---------- 物化（供子进程 / CLI 消费） ----------
     def materialize(self, pid: str, working_dir: str):
         """把凭证物化到 working_dir 临时文件，返回 (path, format)。
 
         cookie：按 rec.format 生成对应文件（netscape/json/header）。
-        token ：写入单文件明文（供读取后注入环境变量）。
+        标量凭证（token/password/apikey）：写入单文件明文（供读取后注入环境变量）。
         """
         rec = self.get(pid)
         if not rec:
             raise KeyError(f'凭证不存在: {pid}')
         os.makedirs(working_dir, exist_ok=True)
-        if rec.get('kind') == 'token':
-            path = os.path.join(working_dir, f'.token_{pid}.txt')
+        kind = rec.get('kind')
+        if kind in _SCALAR_KINDS:
+            path = os.path.join(working_dir, f'.{kind}_{pid}.txt')
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(rec.get('value', ''))
             return path, 'raw'
@@ -265,10 +294,6 @@ class CredentialVault:
         name = c.get('name', '')
         val = c.get('value', '')
         return '\t'.join([domain, include_sub, path, secure, str(expires), name, val])
-
-
-# 兼容旧名（script_engine 历史 import）
-CookieVault = CredentialVault
 
 
 def data_dir_for(vault_subdir: str = '') -> str:

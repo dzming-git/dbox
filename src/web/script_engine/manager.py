@@ -15,7 +15,7 @@ from datetime import datetime
 
 from .manifest import load_all, scripts_base_dir
 from .ingest import ingest_file
-from .cookie_vault import CookieVault
+from common.credential_vault import CredentialVault
 from unified_tasks import init_task_manager as _init_task_manager, sync_job as _tm_sync_job
 
 STATE_FILE = 'script_state.json'  # 持久化 enabled 覆盖，避免 reload 重置
@@ -54,7 +54,7 @@ class ScriptJobManager:
         data_dir = self._data_dir()
         os.makedirs(os.path.join(data_dir, 'script_jobs'), exist_ok=True)
         self._state_path = os.path.join(data_dir, STATE_FILE)
-        self.vault = CookieVault(data_dir)
+        self.vault = CredentialVault(data_dir)
         self._db = sqlite3.connect(os.path.join(data_dir, 'script_jobs.db'),
                                    check_same_thread=False)
         # 用 Row 工厂：列按【列名】访问，避免 SELECT * 与 cols 列表顺序不一致导致错位
