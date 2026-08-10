@@ -60,11 +60,30 @@ const PLACEHOLDER =
     '</svg>'
   )
 
-// 图片加载失败时降级到占位图；用 data-fallback 标记防止 error 事件死循环
+// 图片加载失败处理：
+// 1) 若为 token 鉴权失效（如 401），先用最新 token 重试一次（避免偶发 token 过期导致整张图失败）；
+// 2) 重试仍失败则降级到占位图，但占位图用固定小尺寸（img-error class 限制高度），
+//    绝不被 CSS 拉伸成占据整屏的“幽灵块”，否则会误导用户“还有一张图”并遮挡其它图片。
 const onImgError = (e: any) => {
   const el = e.target
-  if (!el || el.dataset.fallback === '1') return
+  if (!el) return
+  // 第一次失败：尝试用最新 token 重新拼接 URL 重试一次
+  if (el.dataset.fallback !== '1' && el.dataset.retried !== '1') {
+    const original = el.dataset.originalSrc || el.getAttribute('src') || ''
+    el.dataset.retried = '1'
+    // 去掉旧的 token 参数，用当前最新 token 重新生成
+    const base = original.split('?')[0]
+    const sep = base.includes('?') ? '&' : '?'
+    const newSrc = userStore.token ? `${base}${sep}token=${userStore.token}` : base
+    if (newSrc !== original) {
+      el.src = newSrc
+      return
+    }
+  }
+  // 重试无效或无 token：降级为小尺寸占位图，防止拉伸遮挡
+  if (el.dataset.fallback === '1') return
   el.dataset.fallback = '1'
+  el.classList.add('img-error')
   el.src = PLACEHOLDER
 }
 
@@ -832,6 +851,17 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: var(--bg-surface); }
 .page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: var(--bg-surface); position: relative; }
 .gallery-page-img { background: #000; }
+/* 加载失败的图片：固定小高度、不拉伸，避免被 width:100% 撑成占据整屏的“幽灵块”
+   （否则滚动到底会误以为还有一张图，且回滑时该块会遮挡其它图片） */
+.gallery-page-img.img-error {
+  width: auto !important;
+  max-width: 60%;
+  height: 60px !important;
+  object-fit: contain;
+  opacity: 0.35;
+  margin: 4px 0;
+}
+.thumb-item img.img-error { object-fit: contain; opacity: 0.3; }
 .page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 96px; background: rgba(0,0,0,0.4); color: var(--text-on-accent); display: flex; align-items: center; justify-content: center; font-size: 36px; cursor: pointer; border-radius: 8px; user-select: none; }
 .page-nav:hover { background: rgba(0,0,0,0.65); }
 .page-nav.prev { left: 12px; }
