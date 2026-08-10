@@ -31,8 +31,11 @@ const immersive = ref(localStorage.getItem('dbox_gallery_immersive') === '1')
 const controlsVisible = ref(true) // 沉浸式下控件是否可见（点击屏幕切换）
 const readerEl = ref<HTMLElement | null>(null)
 
-const total = computed(() => gallery.value?.page_count || 0)
 const pages = computed(() => gallery.value?.pages || [])
+// 总页数以实际渲染的页面列表为准，page_count 仅在无页面列表时兜底：
+// page_count 是库中冗余列，可能滞后于目录实际内容，若比实际页数大，
+// 进度条/翻页/末页判断都会以为后面还有图片。
+const total = computed(() => pages.value.length || gallery.value?.page_count || 0)
 
 const withToken = (url: string) => {
   if (!url) return ''
@@ -40,12 +43,23 @@ const withToken = (url: string) => {
   return userStore.token ? `${url}${sep}token=${userStore.token}` : url
 }
 
+// 缓存失效版本号：图集「重新加载」后 updated_at 变化，URL 随之变化，
+// 浏览器才会重新拉取；否则 /resource-file/<rid>/<idx> 是稳定 URL，
+// 修好磁盘图片后仍会命中旧的失败缓存。
+const galleryVer = computed(() => {
+  const t = gallery.value?.updated_at
+  const ts = t ? Date.parse(t) : NaN
+  return Number.isNaN(ts) ? '' : `v=${ts}`
+})
+
 // 页面图片 URL：优先走 /resource-file/<resource_id>/<idx>（用资源索引 id + 页码），
 // 规避目录名含方括号等特殊字符时 /gallery-page/<path> 在 URL 路由中 404 的问题；
 // 无 resource_id 时回退旧的 /gallery-page/<path>。
 const pageImageUrl = (p: any) => {
   if (p && p.resource_id != null && p.index != null) {
-    return withToken(`/resource-file/${p.resource_id}/${Math.max(0, p.index - 1)}`)
+    const q = [galleryVer.value, userStore.token ? `token=${userStore.token}` : '']
+      .filter(Boolean).join('&')
+    return `/resource-file/${p.resource_id}/${Math.max(0, p.index - 1)}` + (q ? `?${q}` : '')
   }
   return withToken(p?.url || '')
 }
@@ -60,31 +74,24 @@ const PLACEHOLDER =
     '</svg>'
   )
 
-// 图片加载失败处理：
-// 1) 若为 token 鉴权失效（如 401），先用最新 token 重试一次（避免偶发 token 过期导致整张图失败）；
-// 2) 重试仍失败则降级到占位图，但占位图用固定小尺寸（img-error class 限制高度），
-//    绝不被 CSS 拉伸成占据整屏的“幽灵块”，否则会误导用户“还有一张图”并遮挡其它图片。
+// 缩略图 / 翻页模式的图片失败：直接换成占位图（用 data-fallback 防止 error 事件死循环）。
 const onImgError = (e: any) => {
   const el = e.target
-  if (!el) return
-  // 第一次失败：尝试用最新 token 重新拼接 URL 重试一次
-  if (el.dataset.fallback !== '1' && el.dataset.retried !== '1') {
-    const original = el.dataset.originalSrc || el.getAttribute('src') || ''
-    el.dataset.retried = '1'
-    // 去掉旧的 token 参数，用当前最新 token 重新生成
-    const base = original.split('?')[0]
-    const sep = base.includes('?') ? '&' : '?'
-    const newSrc = userStore.token ? `${base}${sep}token=${userStore.token}` : base
-    if (newSrc !== original) {
-      el.src = newSrc
-      return
-    }
-  }
-  // 重试无效或无 token：降级为小尺寸占位图，防止拉伸遮挡
-  if (el.dataset.fallback === '1') return
+  if (!el || el.dataset.fallback === '1') return
   el.dataset.fallback = '1'
   el.classList.add('img-error')
   el.src = PLACEHOLDER
+}
+
+// 滚动模式的失败页用响应式集合记录，而不是直接改 DOM 的 class/src：
+// 直接改 DOM 时 Vue 并不知情，「重新加载」图集后同一个 img 元素会被复用，
+// 占位图和失败样式会一直残留，磁盘上已经修好的图也再不会显示。
+const failedPages = ref<Set<number>>(new Set())
+const onPageError = (idx: number) => {
+  if (failedPages.value.has(idx)) return
+  const s = new Set(failedPages.value)
+  s.add(idx)
+  failedPages.value = s
 }
 
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -534,6 +541,7 @@ const loadGallery = async (hash: string) => {
   error.value = ''
   // 切换图集时先清空，避免复用组件时残留上一个图集的标题/内容（即使新链接不可见也绝不展示旧标题）
   gallery.value = null
+  failedPages.value = new Set()  // 失败页标记随图集重置，重新加载后已修复的页要能重新显示
   try {
     const res: any = await (await import('../api')).galleryApi.getGallery(hash)
     if (res.success) {
@@ -757,12 +765,13 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
           v-for="p in pages"
           :key="p.index"
           class="gallery-page-img"
+          :class="{ 'img-error': failedPages.has(p.index) }"
           :data-page="p.index"
           :style="imgStyle"
-          :src="pageImageUrl(p)"
+          :src="failedPages.has(p.index) ? PLACEHOLDER : pageImageUrl(p)"
           :loading="p.index <= resumePrefix ? 'eager' : 'lazy'"
           @load="onImgLoad(p.index)"
-          @error="onImgError"
+          @error="onPageError(p.index)"
         />
       </div>
     </div>

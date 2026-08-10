@@ -298,6 +298,10 @@ def get_gallery(gallery_hash):
         d['pages'] = [{'index': p.page_index + 1,
                        'resource_id': c.resource_index_id,
                        'url': _gallery_url(p.file_path) + ver} for p in pages]
+        # 总页数以实际页面记录为准：galleries.page_count 是冗余列，目录变动而未重扫时会偏大，
+        # 前端据此会以为末页之后还有图片，滚到底多出一张必然加载失败的空页。
+        if pages:
+            d['page_count'] = len(pages)
         d['cover_url'] = (c.cover_url or _gallery_url(c.cover_path)) + ver
         if key:
             d['is_liked'] = GalleryInteraction.query.filter_by(
@@ -575,10 +579,16 @@ _IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif')
 
 
 def _gallery_folder_images(ri):
-    """列出 gallery_folder 资源目录下的图片文件（按名称排序）。"""
+    """列出 gallery_folder 资源目录下的图片文件。
+
+    排序必须与扫描器 _list_images 一致（自然序 1,2,10 而非字典序 1,10,2），
+    否则按下标定位时会与入库的 page_index 错位，翻出来的图和页码对不上。
+    """
     if not ri or ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
         return []
-    return sorted(f for f in os.listdir(ri.location) if f.lower().endswith(_IMAGE_EXTS))
+    from backend.gallery.scanner import _natural_key
+    return sorted((f for f in os.listdir(ri.location) if f.lower().endswith(_IMAGE_EXTS)),
+                  key=_natural_key)
 
 
 @gallery_bp.route('/resource-file/<int:rid>/<int:idx>', methods=['GET'])
@@ -588,10 +598,26 @@ def serve_resource_file(rid, idx):
         guard_resource_index(ri)
         if ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
             abort(404)
-        files = _gallery_folder_images(ri)
-        if idx < 0 or idx >= len(files):
+        if idx < 0:
             abort(404)
-        fp = os.path.normpath(os.path.join(ri.location, files[idx]))
+        # 已建图集实体时，以入库的页面记录为准取文件：
+        # 页面记录（file_path / page_index）才是「这本图集有哪几页、第几页是哪张」的权威来源。
+        # 若改用「重新列目录 + 下标」定位，目录内容一旦与入库时不同（增删图片、排序规则不一致），
+        # 尾部下标就会越界 404，阅读器上表现为「明明没有这张图，却多出一页且加载失败」。
+        g = Gallery.query.filter_by(resource_index_id=ri.id).first()
+        if g is not None:
+            p = GalleryPage.query.filter_by(gallery_id=g.id, page_index=idx).first()
+            # 该页无记录或记录指向的文件已不在磁盘上：这一页确实不存在，直接 404，
+            # 不能回退成按下标取相邻文件，否则会串页。
+            if not p or not p.file_path or not os.path.isfile(p.file_path):
+                abort(404)
+            fp = os.path.normpath(p.file_path)
+        else:
+            # 帖子专属 gallery_folder（未建 Gallery 实体、无页面记录）仍按目录下标定位
+            files = _gallery_folder_images(ri)
+            if idx >= len(files):
+                abort(404)
+            fp = os.path.normpath(os.path.join(ri.location, files[idx]))
         root = os.path.normpath(ri.location)
         if not (fp == root or fp.startswith(root + os.sep)):
             abort(403)
