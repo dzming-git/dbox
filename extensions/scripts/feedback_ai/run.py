@@ -33,6 +33,22 @@ import subprocess
 import tempfile
 from datetime import datetime
 
+# 通用凭证保险库（独立模块，不再依附 script_engine）
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__), '..', '..', '..', 'src', 'web')))
+try:
+    from common.cookie_vault import CredentialVault, data_dir_for
+except Exception:  # 兜底：直接相对导入
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+    from common.cookie_vault import CredentialVault, data_dir_for
+
+# CodeBuddy CLI 消费 token 的环境变量名（token 型登录，免 /login）
+ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
+CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
+
 # 路径：把 scripts/ 与 src/web/backend/ 加入 sys.path，复用 feedback_list 与 feedback_db
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))  # 项目根
@@ -258,6 +274,29 @@ def _effective_changes() -> list:
     return changed
 
 
+def _load_codebuddy_token() -> str:
+    """从通用凭证保险库读取 codebuddy token（token 型登录，免 /login）。
+
+    优先顺序：环境变量 ANTHROPIC_API_KEY -> 保险库(codebuddy 域名) -> 保险库
+    内 name 含 'codebuddy' 的 token。返回明文 token 或空串。
+    """
+    env_token = os.environ.get(ANTHROPIC_API_KEY_ENV)
+    if env_token:
+        return env_token.strip()
+    try:
+        vault = CredentialVault(data_dir_for())
+        tok = vault.get_token(domain=CODEBUDDY_TOKEN_DOMAIN)
+        if tok:
+            return tok.strip()
+        # 兜底：按名称模糊匹配
+        for rec in vault.list_all():
+            if rec.get('kind') == 'token' and 'codebuddy' in (rec.get('name') or '').lower():
+                return rec.get('value', '').strip()
+    except Exception:
+        pass
+    return ''
+
+
 def _call_ai(prompt: str) -> str:
     """调用 CodeBuddy CLI 消费契约，返回 AI 的纯文本回复。
 
@@ -270,6 +309,12 @@ def _call_ai(prompt: str) -> str:
     避免把这类无意义的报错当成 AI 分析回复发给用户。
     """
     buddy = os.environ.get('DBOX_BUDDYCN') or r'C:\Users\<用户>\AppData\Roaming\npm\codebuddy.cmd'
+    # token 型登录：若保险库里存有 codebuddy token，则注入到 API key 环境变量，
+    # 让 CLI 免 /login 即可调用模型（token 由管理员配置，可复用通用凭证保险库）。
+    env = dict(os.environ)
+    token = _load_codebuddy_token()
+    if token:
+        env[ANTHROPIC_API_KEY_ENV] = token
     # 关键：
     # 1) -p/--print 是非交互纯文本输出模式；
     # 2) 必须加 --input-format text，并通过【stdin】传 prompt（input=prompt），
@@ -287,6 +332,7 @@ def _call_ai(prompt: str) -> str:
         cwd=_PROJECT_ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=AI_TIMEOUT,
+        env=env,
     )
     raw = (proc.stdout or b'') + (proc.stderr or b'')
     for enc in ('utf-8', 'gbk', 'utf-8-sig'):
@@ -297,8 +343,8 @@ def _call_ai(prompt: str) -> str:
             text = raw.decode('utf-8', errors='replace')
     if _is_auth_error(text):
         raise AuthError(
-            'AI 工具（CodeBuddy CLI）未登录或认证失败，无法调用模型。'
-            '请先执行 `codebuddy /login` 登录后重启调度器。'
+            'AI 工具（CodeBuddy CLI）认证失败，无法调用模型。'
+            '请配置 codebuddy token（run.py set-token）或执行 `codebuddy /login` 登录后重启调度器。'
         )
     return text
 
@@ -600,6 +646,11 @@ def main():
     p_ca.add_argument('issue_id')
     p_ca.set_defaults(func=_cli_cancel)
 
+    p_tok = sub.add_parser('set-token', help='写入 codebuddy token（免 /login 的 token 型登录）')
+    p_tok.add_argument('token', help='codebuddy API token')
+    p_tok.add_argument('--name', default=None, help='可选：凭证展示名（默认 token:codebuddy）')
+    p_tok.set_defaults(func=_cli_set_token)
+
     p_diag = sub.add_parser('diagnose', help='诊断调度器与反馈处理状态（管理员自查用）')
     p_diag.add_argument('issue_id', nargs='?', default=None, help='可选：指定反馈单号查看其状态')
     p_diag.set_defaults(func=_cli_diagnose)
@@ -661,6 +712,30 @@ def _cli_cancel(args):
     task['finished_at'] = _now_iso()
     _save_ai_task(args.issue_id, task)
     print(f'#{args.issue_id} 已取消（skipped），调度器不再处理')
+
+
+def _cli_set_token(args):
+    """写入 codebuddy token 到通用凭证保险库（token 型登录，替代 /login）。"""
+    token = (args.token or '').strip()
+    if not token:
+        print('[X] token 为空，未写入')
+        return
+    try:
+        vault = CredentialVault(data_dir_for())
+        name = args.name or f'token:{CODEBUDDY_TOKEN_DOMAIN}'
+        # 同 domain 已存在则覆盖（add 按 kind|domain|name 生成稳定 id）
+        pid = vault.set_token(CODEBUDDY_TOKEN_DOMAIN, token, name=name,
+                              note='feedback_ai 免登录调用 CodeBuddy CLI')
+        print(f'[OK] 已写入 codebuddy token 到通用凭证保险库（id={pid}）')
+        print('     下次处理反馈时将自动注入 ANTHROPIC_API_KEY，无需 /login。')
+        # 验证：立即读取回显长度，确认落盘成功（不打印明文）
+        saved = vault.get_token(domain=CODEBUDDY_TOKEN_DOMAIN)
+        if saved and saved.strip() == token:
+            print(f'     校验通过（token 长度={len(token)}）')
+        else:
+            print('     [!] 校验失败：读回内容不一致')
+    except Exception as e:
+        print(f'[X] 写入失败: {e}')
 
 
 def _count_scheduler_procs():
@@ -727,6 +802,13 @@ def _cli_diagnose(args):
     if not os.path.exists(buddy):
         print('  → 若 CLI 未安装，需安装并 codebuddy /login 登录；')
         print('    若路径不同，请在环境变量 DBOX_BUDDYCN 中指定正确路径。')
+    # token 型登录检测
+    tok = _load_codebuddy_token()
+    if tok:
+        print(f'  [OK] 已配置 codebuddy token（长度={len(tok)}），将免 /login 调用模型')
+    else:
+        print('  [!] 未检测到 codebuddy token：请用 `run.py set-token <token>` 写入，')
+        print('      或执行 `codebuddy /login` 登录。否则 AI 处理会因认证失败跳过。')
 
     print('-' * 64)
     print('【反馈处理状态】')
