@@ -399,17 +399,30 @@ def execute_one(issue_id: str) -> dict:
         raw = _call_ai(prompt)
         contract = _parse_contract(raw)
     except AuthError as e:
-        # 工具故障（CLI 未登录）：不应把报错回复发给用户，也不进入「待验证」骚扰
-        # 管理员判定反馈本身——它属于自动处理链路自身的问题，需要的是修复工具
-        # 登录态，而非人工决策反馈内容。
+        # 工具故障（CLI 未登录/认证失败）：这是 AI 链路自身问题，反馈内容本身没问题，
+        # 且登录态是可恢复的——不应把反馈卡死在 failed（否则重新打开也不会再处理），
+        # 也不应每条都刷「工具调用失败」留言（会刷屏）。
+        # 策略：未超过重试上限 -> 退回 pending，待 CLI 恢复登录后下一轮自动重试；
+        #       超过上限 -> 转人工待验证，并明确留言告知管理员「AI 工具持续不可用」。
+        retries = task.get('retries', 0)
+        if retries < MAX_RETRIES:
+            task['retries'] = retries + 1
+            task['state'] = TASK_PENDING
+            task['last_error'] = f'第{retries + 1}次 AI 工具调用失败(可恢复): {e}'
+            task['heartbeat_at'] = None
+            task['finished_at'] = None
+            _save_ai_task(issue_id, task)
+            return task
         task['state'] = TASK_FAILED
-        task['last_error'] = str(e)
+        task['last_error'] = f'重试{max(retries, MAX_RETRIES)}次 AI 工具仍不可用: {e}'
         task['finished_at'] = _now_iso()
         _save_ai_task(issue_id, task)
+        db_set_status(issue_id, 'pending_verification')
         db_append_comment(
             issue_id, AUTO_AUTHOR, AUTO_ROLE,
-            f'【自动处理】AI 工具调用失败：{e}\n'
-            f'该反馈未自动处理，请先登录 AI 工具后重启调度器重试，或人工处理本反馈。',
+            f'【自动处理】AI 工具持续不可用（已重试{max(retries, MAX_RETRIES)}次）：{e}\n'
+            f'该反馈未能自动处理，请先确认 AI 工具（CodeBuddy CLI）已登录，'
+            f'再执行反馈脚本的 retry 命令，或人工处理本反馈。',
         )
         return task
     except Exception as e:
@@ -529,15 +542,26 @@ def _auto_enqueue_new():
     count = 0
     for it in issues:
         iid = it.get('id')
-        extra = it.get('feedback_extra')
-        if extra:  # 已入队（含已完成/跳过），跳过
-            continue
         if it.get('status') != ISSUE_OPEN:
             continue
-        enqueue(iid)
-        count += 1
+        extra = it.get('feedback_extra')
+        if not extra:
+            # 全新反馈（feedback_extra 为空）：首次入队
+            enqueue(iid)
+            count += 1
+            continue
+        # 已有 ai_task 的 open 反馈：仅在「失败/已跳过」时重新入队，
+        # 这样管理员在反馈中心把反馈「重新打开」后，调度器下一轮会自动重试，
+        # 不会像旧逻辑那样因 ai_task 残留状态（failed/done）而永久跳过。
+        data = _safe_json(extra)
+        st = (data.get('ai_task') or {}).get('state')
+        if st in (TASK_FAILED, TASK_SKIPPED):
+            task = enqueue(iid, force=True)
+            task['retries'] = 0
+            _save_ai_task(iid, task)
+            count += 1
     if count:
-        print(f'自动入队 {count} 条新反馈')
+        print(f'自动入队 {count} 条待处理反馈')
 
 
 def run_once():
@@ -575,6 +599,10 @@ def main():
     p_ca = sub.add_parser('cancel', help='取消一条任务（置 skipped）')
     p_ca.add_argument('issue_id')
     p_ca.set_defaults(func=_cli_cancel)
+
+    p_diag = sub.add_parser('diagnose', help='诊断调度器与反馈处理状态（管理员自查用）')
+    p_diag.add_argument('issue_id', nargs='?', default=None, help='可选：指定反馈单号查看其状态')
+    p_diag.set_defaults(func=_cli_diagnose)
 
     p_pr = sub.add_parser('process', help='同步处理单条（调试）')
     p_pr.add_argument('issue_id')
@@ -633,6 +661,104 @@ def _cli_cancel(args):
     task['finished_at'] = _now_iso()
     _save_ai_task(args.issue_id, task)
     print(f'#{args.issue_id} 已取消（skipped），调度器不再处理')
+
+
+def _count_scheduler_procs():
+    """返回 (独立实例数, 命令行列表)。
+
+    注意 Windows venv 的 python.exe 是 launcher：NSSM 拉起 venv python 跑
+    poll_scheduler.py 时，launcher 会再 spawn 一个系统 Python 作为真正的 worker，
+    在进程列表里呈现为「venv python（launcher）+ 系统 Python（worker）」两个进程，
+    但它们是同一个调度器实例。因此按进程树去重：若某 poll_scheduler 进程的父进程
+    也是 poll_scheduler 进程，则它是 worker，不计为独立实例。
+    """
+    try:
+        ps = (
+            'powershell -NoProfile -Command "'
+            "Get-CimInstance Win32_Process -Filter \\\"Name='python.exe'\\\" | "
+            "Where-Object { $_.CommandLine -like '*poll_scheduler*' } | "
+            "ForEach-Object { \\\"$($_.ProcessId),$($_.ParentProcessId),$($_.CommandLine)\\\" }"
+            '"'
+        )
+        p = subprocess.run(ps, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=30, text=True, shell=True)
+        procs = []
+        for line in p.stdout.splitlines():
+            line = line.strip()
+            if not line or line.count(',') < 2:
+                continue
+            pid, ppid, cmd = line.split(',', 2)
+            procs.append((pid.strip(), ppid.strip(), cmd.strip()))
+        pids = {pid for pid, _, _ in procs}
+        # 去重：父进程也是 poll_scheduler 进程的，视为 worker（同一实例）
+        independent = [(pid, ppid, cmd) for pid, ppid, cmd in procs if ppid not in pids]
+        return len(independent), [cmd for _, _, cmd in independent]
+    except Exception as e:
+        return -1, [f'查询失败: {e}']
+
+
+def _cli_diagnose(args):
+    """管理员自查：调度器是否在跑、反馈为何没处理。
+
+    输出三类信息：
+      1) 调度器进程数 —— 0=挂了/没启动；>1=重复实例（应只保留 NSSM 的 venv 实例）；
+      2) AI 工具（CodeBuddy CLI）是否可调用；
+      3) 指定反馈（或所有 open 反馈）的 status + ai_task 状态 + 最近错误。
+    """
+    n, lines = _count_scheduler_procs()
+    print('=' * 64)
+    print('【调度器进程】')
+    if n == 0:
+        print('  [X] 未运行任何 poll_scheduler.py 进程 —— 调度器挂了或未启动！')
+        print('    修复：nssm restart dbox-scheduler（或 python scripts/poll_scheduler.py 后台启动）')
+    elif n > 1:
+        print(f'  [!] 发现 {n} 个重复实例（应只有 1 个，且用 venv 的 python）：')
+        for ln in lines:
+            print(f'    - {ln}')
+        print('    修复：手动结束非 venv（系统 Python）的实例，再 nssm restart dbox-scheduler')
+    else:
+        print(f'  [OK] 调度器运行中（1 个实例）')
+
+    print('-' * 64)
+    print('【AI 工具（CodeBuddy CLI）】')
+    buddy = os.environ.get('DBOX_BUDDYCN') or r'C:\Users\<用户>\AppData\Roaming\npm\codebuddy.cmd'
+    print(f'  期望路径: {buddy}')
+    print(f'  存在: {"是" if os.path.exists(buddy) else "否（未安装或未登录路径不对）"}')
+    if not os.path.exists(buddy):
+        print('  → 若 CLI 未安装，需安装并 codebuddy /login 登录；')
+        print('    若路径不同，请在环境变量 DBOX_BUDDYCN 中指定正确路径。')
+
+    print('-' * 64)
+    print('【反馈处理状态】')
+    if args.issue_id:
+        it = _load_issue(args.issue_id)
+        if not it:
+            print(f'  #{args.issue_id} 不存在')
+        else:
+            task = get_ai_task(args.issue_id)
+            print(f'  #{args.issue_id}  status={it.get("status")}')
+            print(f'  ai_task.state={task.get("state")}  retries={task.get("retries")}')
+            if task.get('last_error'):
+                print(f'  last_error={task.get("last_error")}')
+            if task.get('state') in (TASK_FAILED,):
+                print('  → 该反馈处理失败。若是「AI 工具未登录」，请先 codebuddy /login，')
+                print('    再用 `python extensions/scripts/feedback_ai/run.py retry <id>` 重试。')
+            elif task.get('state') == TASK_DONE:
+                print('  → 已处理完成（待验证）。如需重新处理，请在反馈中心重新打开，')
+                print('    调度器会自动重新入队；或执行 retry 强制重跑。')
+    else:
+        # 概览所有 open 反馈及其 ai_task
+        runtime_dir = find_runtime_dir()
+        issues = load_issues(runtime_dir)
+        opens = [i for i in issues if i.get('status') == ISSUE_OPEN]
+        print(f'  open 反馈共 {len(opens)} 条：')
+        for it in opens:
+            iid = it.get('id')
+            task = get_ai_task(iid)
+            print(f'   - #{iid} ai_task={task.get("state")} err={(task.get("last_error") or "")[:40]}')
+        if not opens:
+            print('  （无 open 反馈）')
+    print('=' * 64)
 
 
 if __name__ == '__main__':
