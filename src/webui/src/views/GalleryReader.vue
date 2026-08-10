@@ -74,18 +74,10 @@ const PLACEHOLDER =
     '</svg>'
   )
 
-// 缩略图 / 翻页模式的图片失败：直接换成占位图（用 data-fallback 防止 error 事件死循环）。
-const onImgError = (e: any) => {
-  const el = e.target
-  if (!el || el.dataset.fallback === '1') return
-  el.dataset.fallback = '1'
-  el.classList.add('img-error')
-  el.src = PLACEHOLDER
-}
-
-// 滚动模式的失败页用响应式集合记录，而不是直接改 DOM 的 class/src：
-// 直接改 DOM 时 Vue 并不知情，「重新加载」图集后同一个 img 元素会被复用，
-// 占位图和失败样式会一直残留，磁盘上已经修好的图也再不会显示。
+// 失败页统一用响应式集合记录，而不是直接改 DOM 的 class/src：
+// 直接改 DOM 时 Vue 并不知情，同一个 img 元素被复用时（翻页模式只有一个 img、
+// 「重新加载」图集后滚动模式的 img 也会复用），占位图和失败样式会一直残留，
+// 后续正常的图也会跟着变成小占位块，磁盘上已经修好的图更是再不会显示。
 const failedPages = ref<Set<number>>(new Set())
 const onPageError = (idx: number) => {
   if (failedPages.value.has(idx)) return
@@ -733,7 +725,12 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         :class="{ active: p.index === currentPage }"
         @click="goToPage(p.index)"
       >
-        <img :src="pageImageUrl(p)" loading="lazy" @error="onImgError" />
+        <img
+          :class="{ 'img-error': failedPages.has(p.index) }"
+          :src="failedPages.has(p.index) ? PLACEHOLDER : pageImageUrl(p)"
+          loading="lazy"
+          @error="onPageError(p.index)"
+        />
         <span class="thumb-idx">{{ p.index }}</span>
       </div>
     </div>
@@ -744,11 +741,12 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       <div v-if="mode==='page'" class="page-mode">
         <img
           class="gallery-page-img"
+          :class="{ 'img-error': failedPages.has(currentPage) }"
           :data-page="currentPage"
           :style="imgStyle"
-          :src="withToken(currentImage)"
+          :src="failedPages.has(currentPage) ? PLACEHOLDER : currentImage"
           @load="updateProgress"
-          @error="onImgError"
+          @error="onPageError(currentPage)"
         />
         <div class="page-nav prev" @click.stop="prev" v-if="currentPage>1">‹</div>
         <div class="page-nav next" @click.stop="next" v-if="currentPage<total">›</div>
@@ -801,17 +799,22 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     </div>
   </div>
 
-  <!-- Toast 提示 -->
-  <div v-if="showToastFlag" class="toast" data-testid="gallery-toast">
-    {{ toastMessage }}
-  </div>
-
+  <!-- 加载中 / 加载失败：必须与上面的 .reader(v-if="gallery") 构成同一条
+       v-if / v-else-if / v-else 链，中间不能插入其它元素（如 Toast），
+       否则链会从插入的元素重新开始：图集加载成功后 v-else 依然成立，
+       页面底部会常驻一屏「加载失败」占位，滚到最后一张再下滑就像“还有一张加载失败的图”，
+       回滑时又会盖住正常图片。Toast 已移到分支之后独立渲染。 -->
   <div class="reader-loading" v-else-if="loading">
     <div class="spinner"></div><p>加载中...</p>
   </div>
   <div class="reader-error" v-else>
     <p>{{ error || '加载失败' }}</p>
     <button class="bar-btn" @click="back">返回</button>
+  </div>
+
+  <!-- Toast 提示（独立于上面的分支，自身 fixed 定位，不参与分支链） -->
+  <div v-if="showToastFlag" class="toast" data-testid="gallery-toast">
+    {{ toastMessage }}
   </div>
 </template>
 
@@ -857,7 +860,9 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; }
 .thumb-idx { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.7); color: var(--text-on-accent); font-size: 10px; padding: 0 4px; border-radius: 3px; }
 .reader-body { flex: 1; min-height: 0; overflow: hidden; position: relative; padding-bottom: 44px; }
-.scroll-mode { height: 100%; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: var(--bg-surface); }
+/* overscroll-behavior: contain —— 滚到最后一张再继续下滑时，不把滚动传递给外层文档，
+   避免页面整体被拖动、把阅读区之外的内容拉进视口造成“后面还有一张”的错觉。 */
+.scroll-mode { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: center; background: var(--bg-surface); }
 .page-mode { height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: var(--bg-surface); position: relative; }
 .gallery-page-img { background: #000; }
 /* 加载失败的图片：固定小高度、不拉伸，避免被 width:100% 撑成占据整屏的“幽灵块”
