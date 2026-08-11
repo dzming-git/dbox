@@ -17,11 +17,15 @@
   .input-bar button { background: #4f8cff; color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 14px; cursor: pointer; }
   .input-bar button:disabled { opacity: .5; cursor: not-allowed; }
   .hint { font-size: 12px; color: #888; padding: 6px 12px; }
+  .toolbar { display: flex; justify-content: flex-end; padding: 4px 10px 0; }
+  .toolbar button { background: none; border: 1px solid #d0d4dc; color: #888; border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
+  .toolbar button:hover { color: #4f8cff; border-color: #4f8cff; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="msgs" id="msgs"><div class="hint">使用管理员 token 经后端 /api/ui-proxy 呼叫 AI 服务</div></div>
+  <div class="toolbar"><button id="clear">清空对话</button></div>
+  <div class="msgs" id="msgs"><div class="hint">使用管理员 token 经后端 /api/ai-chat 呼叫 AI 服务；历史记录已本地保存</div></div>
   <div class="input-bar">
     <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
     <button id="send">发送</button>
@@ -47,9 +51,26 @@
   const msgs = document.getElementById('msgs');
   const txt = document.getElementById('txt');
   const send = document.getElementById('send');
+  const clearBtn = document.getElementById('clear');
+
+  // 对话历史持久化到 localStorage：面板关闭/重开或刷新页面后仍能恢复，
+  // 从而使 AI（后端 /api/ai-chat）能持续看到之前的聊天记录。
+  const STORE_KEY = 'ai_chat_history';
+
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function saveHistory() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(history)); } catch (e) {}
+  }
 
   // 本地维护对话历史，每次请求一并发给后端，使 AI 能看到之前的聊天记录
-  let history = [];
+  let history = loadHistory();
 
   function addBubble(text, who) {
     const d = document.createElement('div');
@@ -58,6 +79,25 @@
     msgs.appendChild(d);
     msgs.scrollTop = msgs.scrollHeight;
   }
+
+  // 恢复历史：清空初始提示后按顺序回放气泡
+  function renderHistory() {
+    const hint = msgs.querySelector('.hint');
+    if (hint) hint.remove();
+    history.forEach((h) => {
+      if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+        addBubble(h.content, h.role === 'user' ? 'me' : 'ai');
+      }
+    });
+  }
+  renderHistory();
+  if (history.length) msgs.scrollTop = msgs.scrollHeight;
+
+  clearBtn.addEventListener('click', () => {
+    history = [];
+    saveHistory();
+    msgs.innerHTML = '<div class="hint">对话已清空</div>';
+  });
 
   async function callAI(prompt, history) {
     // 经后端 /api/ai-chat 调用 CodeBuddy CLI（后端用凭证保险库 token 调 CLI）
@@ -93,6 +133,7 @@
     history.push({ role: 'user', content: v });
     // 仅保留最近 20 条，避免历史无限增长拖慢响应
     if (history.length > 20) history = history.slice(-20);
+    saveHistory();
     txt.value = '';
     send.disabled = true;
     try {
@@ -100,9 +141,11 @@
       const reply = await callAI(v, history.slice(0, -1));
       addBubble(reply, 'ai');
       history.push({ role: 'assistant', content: reply });
+      saveHistory();
     } catch (e) {
       // 调用失败则回滚刚加入的用户消息，避免脏历史影响后续对话
       history.pop();
+      saveHistory();
       addBubble('调用失败: ' + e.message, 'ai');
     } finally {
       send.disabled = false;
