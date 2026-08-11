@@ -72,6 +72,54 @@ SERVICES = {
         'description': 'Dbox 服务看门狗（定时 ping 各服务总线，不可达则自动重启，多次失败告警）',
         'port': 0,
     },
+    'bus': {
+        'service_name': 'dbox-bus',
+        'display_name': 'Dbox 服务总线',
+        'description': 'Dbox 服务间通信总线（消息路由/健康检查）',
+        'port': 0,
+    },
+    'collectiond': {
+        'service_name': 'dbox-collectiond',
+        'display_name': 'Dbox 合集服务',
+        'description': 'Dbox 合集/收藏夹管理后台服务',
+        'port': 0,
+    },
+    'historyd': {
+        'service_name': 'dbox-historyd',
+        'display_name': 'Dbox 观看历史服务',
+        'description': 'Dbox 观看历史记录服务',
+        'port': 0,
+    },
+    'resource': {
+        'service_name': 'dbox-resource',
+        'display_name': 'Dbox 资源服务',
+        'description': 'Dbox 资源索引/库管理服务',
+        'port': 0,
+    },
+    'searchd': {
+        'service_name': 'dbox-searchd',
+        'display_name': 'Dbox 搜索服务',
+        'description': 'Dbox 全文搜索服务',
+        'port': 0,
+    },
+    'servicemgr': {
+        'service_name': 'dbox-servicemgr',
+        'display_name': 'Dbox 服务管理器',
+        'description': 'Dbox 服务注册与生命周期管理（servicemgrd）',
+        'port': 0,
+    },
+    'systemd': {
+        'service_name': 'dbox-systemd',
+        'display_name': 'Dbox 系统服务',
+        'description': 'Dbox 系统级后台任务服务',
+        'port': 0,
+    },
+    'userd': {
+        'service_name': 'dbox-userd',
+        'display_name': 'Dbox 用户服务',
+        'description': 'Dbox 用户/账号管理服务',
+        'port': 0,
+    },
 }
 
 
@@ -494,9 +542,20 @@ def main():
   python scripts/service_manager.py restart-all         # 重启所有服务
 
 服务列表:
-  web       - Web API 服务 (port: 8080)
-  thumbnail - 缩略图服务 (port: 5001)
-  webui     - WebUI 前端服务 (port: 5173)
+  web         - Web API 服务 (port: 8080)
+  thumbnail   - 缩略图服务 (port: 5001)
+  webui       - WebUI 前端服务 (port: 5173)
+  downloader  - 资源下载器服务 (port: 8092)
+  scheduler   - 脚本调度器服务
+  watchdog    - 服务看门狗
+  bus         - 服务总线
+  collectiond - 合集服务
+  historyd    - 观看历史服务
+  resource    - 资源服务
+  searchd     - 搜索服务
+  servicemgr  - 服务管理器
+  systemd     - 系统服务
+  userd       - 用户服务
         """
     )
     
