@@ -7,6 +7,7 @@ from backend.thumbnail_helpers import _save_thumb_config
 import threading
 from backend.access import resolve_identity, is_video_visible
 from backend.thumbnail_helpers import _generate_missing_thumbnails
+from backend.thumbnail_helpers import _get_visible_library_ids
 from backend.thumbnail_helpers import _thumb_auto_stop_event
 from backend.thumbnail_helpers import _start_auto_generate
 from backend.thumbnail_helpers import _thumb_auto_thread
@@ -51,7 +52,11 @@ def compute_thumb_stats():
                 seen.add(base)
         total_thumbnails = len(seen)
 
-    db_videos = Video.query.all()
+    visible_ids = _get_visible_library_ids()
+    if visible_ids:
+        db_videos = Video.query.filter(Video.library_id.in_(visible_ids)).all()
+    else:
+        db_videos = []
     no_thumb_count = 0
     for v in db_videos:
         if v.hash:

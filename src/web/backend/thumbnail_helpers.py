@@ -155,6 +155,22 @@ def _start_auto_generate(config=None, app=None):
     _thumb_auto_thread.start()
 
 
+def _get_visible_library_ids():
+    """返回当前「已激活」资源库的 ID 列表，不依赖请求上下文。
+
+    设计原则：资源库管理服务（ResourceLibrary.is_active）掌控着资源的对外出口，
+    缩略图的统计与生成应只针对已激活资源库下的资源，而非扫描全部资源库。
+    本函数直接读取 is_active，可在后台线程（自动生成）中安全调用，避免了
+    access.get_allowed_library_ids() 依赖请求上下文、在子线程中不可用的问题。
+    """
+    try:
+        from core.models import ResourceLibrary
+        return [lib.id for lib in ResourceLibrary.query.filter_by(is_active=True).all()]
+    except Exception as e:
+        log.debug('ERROR', f'获取已激活资源库失败: {e}')
+        return []
+
+
 def _generate_missing_thumbnails(config=None):
     """扫描并生成缺失的缩略图，并实时更新 _thumb_progress 进度快照"""
     if config is None:
@@ -166,7 +182,11 @@ def _generate_missing_thumbnails(config=None):
     task_interval = config.get('task_interval', 3)
 
     from core.models import Video
-    db_videos = Video.query.all()
+    visible_ids = _get_visible_library_ids()
+    if visible_ids:
+        db_videos = Video.query.filter(Video.library_id.in_(visible_ids)).all()
+    else:
+        db_videos = []
 
     missing_videos = []
     for v in db_videos:
