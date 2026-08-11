@@ -10,6 +10,8 @@ from authlib.jose import jwt
 from core.models import UserRole
 
 import os
+import sys
+import subprocess
 
 # 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DBOX_JWT_SECRET，回退内置默认密钥。
 # 直接读取环境变量（而非依赖模块导入），避免在不同进程 / 导入顺序下拿到错误的密钥，
@@ -293,6 +295,108 @@ def ui_proxy():
                         mimetype=resp.headers.get('Content-Type', 'application/json'))
     except Exception as e:
         return jsonify({'success': False, 'message': f'代理请求失败: {e}'}), 502
+
+
+# ---------- AI 助手对话（直接调用 CodeBuddy CLI，免 example 占位） ----------
+# 复用与 feedback_ai 脚本一致的 CodeBuddy 接入方式：
+#   - CLI 路径：环境变量 DBOX_BUDDYCN 或 %APPDATA%\npm\codebuddy.cmd
+#   - 鉴权：从通用凭证保险库读取 codebuddy 域 token，注入 ANTHROPIC_API_KEY
+#   - 调用：codebuddy -p -y --add-dir <项目根> --input-format text <prompt>
+_ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
+_CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
+
+
+def _load_codebuddy_token() -> str:
+    """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。"""
+    env_token = os.environ.get(_ANTHROPIC_API_KEY_ENV)
+    if env_token:
+        return env_token.strip()
+    try:
+        sys_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                '..', '..', 'common')
+        if sys_path not in sys.path:
+            sys.path.insert(0, sys_path)
+        from credential_vault import CredentialVault, data_dir_for  # type: ignore
+        vault = CredentialVault(data_dir_for())
+        tok = vault.get_token(domain=_CODEBUDDY_TOKEN_DOMAIN)
+        if tok:
+            return tok.strip()
+        for rec in vault.list_all():
+            if rec.get('kind') == 'token' and 'codebuddy' in (rec.get('name') or '').lower():
+                return (rec.get('value') or '').strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _project_root() -> str:
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/web/script_engine
+    return os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
+
+
+def _is_auth_error(text: str) -> bool:
+    t = (text or '').lower()
+    return any(k in t for k in ('未登录', '认证失败', 'auth fail', 'unauthorized',
+                                'invalid api key', 'login required', 'please login'))
+
+
+@script_bp.route('/api/ai-chat', methods=['POST'])
+@admin_required
+def ai_chat():
+    """AI 助手对话：后端调用 CodeBuddy CLI 返回纯文本，浏览器面板经此接口对话。
+
+    请求体：{ message: str, history?: [{role,content}] }
+    """
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'success': False, 'message': 'message 必填'}), 400
+
+    buddy = os.environ.get('DBOX_BUDDYCN') or (
+        os.path.expandvars(r'%APPDATA%\npm\codebuddy.cmd'))
+    if not os.path.isfile(buddy):
+        return jsonify({'success': False, 'message': '未找到 CodeBuddy CLI，请确认已安装'}), 502
+
+    # 拼装 prompt：带简短系统约束，要求直接回答用户问题
+    prompt = (
+        '你是一个嵌入在媒体库管理后台里的 AI 助手，请用简体中文简洁回答用户问题。\n'
+        '只输出回答内容本身，不要输出多余的解释或代码块标记。\n\n'
+        '用户问题：' + message
+    )
+
+    env = dict(os.environ)
+    token = _load_codebuddy_token()
+    if token:
+        env[_ANTHROPIC_API_KEY_ENV] = token
+
+    try:
+        proc = subprocess.run(
+            [buddy, '-p', '-y', '--add-dir', _project_root(),
+             '--input-format', 'text', prompt],
+            input=prompt.encode('utf-8'),
+            cwd=_project_root(),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=120,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'message': 'AI 响应超时，请稍后重试'}), 504
+
+    raw = (proc.stdout or b'') + (proc.stderr or b'')
+    text = None
+    for enc in ('utf-8', 'gbk', 'utf-8-sig'):
+        try:
+            text = raw.decode(enc)
+            break
+        except Exception:
+            text = raw.decode('utf-8', errors='replace')
+    err_text = (proc.stderr or b'').decode('utf-8', errors='replace')
+    if _is_auth_error(err_text):
+        return jsonify({
+            'success': False,
+            'message': 'CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login',
+        }), 401
+    return jsonify({'success': True, 'reply': (text or '').strip()})
 
 
 # ---------- 管理员：脚本参数用户默认值 ----------
