@@ -38,7 +38,7 @@
   .ai.pending { color: #999; font-style: italic; }
 
   .input-bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e3e6eb; background: #fff; }
-  .input-bar textarea { flex: 1; resize: none; height: 40px; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; }
+  .input-bar textarea { flex: 1; resize: none; min-height: 40px; max-height: 200px; overflow-y: auto; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; line-height: 1.4; box-sizing: border-box; }
   .input-bar button { background: #4f8cff; color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 14px; cursor: pointer; }
   .input-bar button:disabled { opacity: .5; cursor: not-allowed; }
   .hint { font-size: 12px; color: #888; text-align: center; padding: 10px; }
@@ -300,6 +300,7 @@
     if (!TOKEN) { alert('尚未获取到管理员 token，请稍候重试或重新登录'); return; }
 
     txt.value = '';
+    txt.style.height = 'auto';
     send.disabled = true;
     try {
       const resp = await api('/api/ai-chat', {
@@ -346,6 +347,15 @@
 
   send.addEventListener('click', onSend);
   txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
+
+  // 输入框随内容自动加高（单行起步，超过一行自动撑高，最高 200px 后内部滚动）
+  const TXT_MAX_H = 200;
+  function autoGrow() {
+    txt.style.height = 'auto';
+    txt.style.height = Math.min(txt.scrollHeight, TXT_MAX_H) + 'px';
+  }
+  txt.addEventListener('input', autoGrow);
+  autoGrow();
 
   // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）
   refresh();
