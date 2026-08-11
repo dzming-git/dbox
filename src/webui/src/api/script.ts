@@ -99,4 +99,8 @@ export const scriptApi = {
   getDefaults: (id: string) => api.get(`/api/admin/scripts/${id}/defaults`),
   saveDefaults: (id: string, defaults: Record<string, any>) =>
     api.put(`/api/admin/scripts/${id}/defaults`, { defaults }),
+
+  // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本
+  listExtensions: () => api.get('/api/ui-extensions'),
+  getPanel: (id: string) => api.get(`/api/ui-panel/${id}`),
 }

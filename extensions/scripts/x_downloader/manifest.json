@@ -8,6 +8,14 @@
   "timeout": 600,
   "enabled": true,
   "required_cookies": ["x.com"],
+  "ui": {
+    "mount": "floating",
+    "title": "X 下载预览",
+    "icon": "🐦",
+    "entry": "panel.html",
+    "needs_credential": true,
+    "sandbox": "allow-scripts allow-same-origin allow-forms allow-popups"
+  },
   "params": [
     {
       "name": "url",

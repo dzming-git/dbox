@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>X 下载预览</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #f7f8fa; color: #1f2329; height: 100%; }
+  .wrap { display: flex; flex-direction: column; height: 100vh; }
+  .bar { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid #e3e6eb; background: #fff; }
+  .bar input { flex: 1; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  .bar button { background: #1d9bf0; color: #fff; border: none; border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer; }
+  .preview { flex: 1; overflow-y: auto; padding: 12px; }
+  .card { background: #fff; border: 1px solid #e3e6eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .media { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .media img, .media video { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; background: #000; }
+  .meta { font-size: 12px; color: #888; margin-top: 6px; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .actions button { border: none; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .dl { background: #1d9bf0; color: #fff; }
+  .cancel { background: #eee; color: #555; }
+  .hint { font-size: 12px; color: #888; padding: 6px 12px; }
+  .err { color: #f56c6c; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <input id="url" placeholder="粘贴 X / Twitter 推文链接…" />
+    <button id="preview">预览</button>
+  </div>
+  <div class="preview" id="preview-box">
+    <div class="hint">输入链接后点击「预览」，解析媒体并确认后再下载</div>
+  </div>
+</div>
+<script>
+  let TOKEN = '';
+  let CURRENT = null;
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'DBOX_TOKEN') { TOKEN = e.data.token; }
+  });
+  window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'x_downloader' }, '*');
+
+  const box = document.getElementById('preview-box');
+  const urlInput = document.getElementById('url');
+
+  async function parse(url) {
+    const resp = await fetch('/api/scripts/ui-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': TOKEN },
+      body: JSON.stringify({
+        url: '/api/ui-proxy', // 后端解析接口（由下载器脚本提供）
+        method: 'POST',
+        inject_token: true,
+        body: { url }
+      })
+    });
+    return resp.json().catch(() => ({}));
+  }
+
+  document.getElementById('preview').addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!url) return;
+    if (!TOKEN) { box.innerHTML = '<div class="err">尚未获取到 token</div>'; return; }
+    box.innerHTML = '<div class="hint">解析中…</div>';
+    try {
+      const data = await parse(url);
+      CURRENT = data;
+      render(data);
+    } catch (e) {
+      box.innerHTML = '<div class="err">预览失败: ' + e.message + '</div>';
+    }
+  });
+
+  function render(data) {
+    const medias = data.medias || [];
+    let html = '<div class="card"><div class="meta">' + (data.author || '') + ' · ' + (data.text || '').slice(0, 80) + '</div><div class="media">';
+    for (const m of medias) {
+      if (m.type === 'video') html += '<video src="' + m.url + '" controls></video>';
+      else html += '<img src="' + m.url + '" />';
+    }
+    html += '</div><div class="actions"><button class="dl" id="do-dl">确认下载</button><button class="cancel" id="do-cancel">取消</button></div></div>';
+    box.innerHTML = html;
+    document.getElementById('do-dl').onclick = () => {
+      // 经后端运行实际下载任务
+      fetch('/api/scripts/x_downloader/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': TOKEN },
+        body: JSON.stringify({ params: { url: urlInput.value.trim() } })
+      }).then(() => { box.innerHTML = '<div class="hint">已提交下载任务，请在任务管理器查看进度</div>'; });
+    };
+    document.getElementById('do-cancel').onclick = () => { box.innerHTML = '<div class="hint">已取消</div>'; };
+  }
+</script>
+</body>
+</html>

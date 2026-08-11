@@ -8,6 +8,7 @@ import { applyThemeById, DEFAULT_THEME_ID } from './utils/theme'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
 import { taskApi } from './api/task'
+import ExtensionHost from './components/ExtensionHost.vue'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
 const cachedViews = routes
@@ -285,6 +286,9 @@ const closeUserDropdown = (event: MouseEvent) => {
 
     <!-- 全局 Toast 宿主：后台上传完成等通知 -->
     <div v-if="showToastFlag" class="global-toast">{{ toastMessage }}</div>
+
+    <!-- 扩展脚本 UI 注入宿主（仅管理员已启用的脚本可见） -->
+    <ExtensionHost v-if="userStore.isAdmin" />
   </div>
 </template>
 

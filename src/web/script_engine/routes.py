@@ -4,7 +4,7 @@
 - notify 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
 """
 from functools import wraps
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, Response
 
 from authlib.jose import jwt
 from core.models import UserRole
@@ -81,6 +81,7 @@ def _public_script(sc, include_disabled=False):
         'enabled': bool(sc.get('enabled')),
         'params': sc.get('params', []),
         'required_cookies': sc.get('required_cookies', []),
+        'ui': sc.get('ui'),
     }
     if include_disabled and sc.get('_error'):
         out['error'] = sc['_error']
@@ -205,6 +206,93 @@ def disable_script(script_id):
 def reload_scripts():
     count = mgr.reload()
     return jsonify({'success': True, 'count': count})
+
+
+# ---------- 扩展 UI 注入 ----------
+# 仅当脚本被管理员启用且 manifest 声明了 ui 段时，前端才会挂载其界面元素。
+# 因此扩展 UI 天然只对管理员可见（与「只有管理员有权限」的要求一致）。
+# 路由使用独立命名空间 /api/ui-*，避免与 /api/scripts/<script_id>/* 动态路由冲突。
+@script_bp.route('/api/ui-extensions', methods=['GET'])
+@admin_required
+def list_extensions():
+    """返回当前已启用且声明了 ui 的脚本 UI 元信息，供前端全局挂载悬浮面板/标签页。"""
+    out = []
+    for sc in mgr.scripts.values():
+        if not sc.get('enabled'):
+            continue
+        ui = sc.get('ui')
+        if not ui or not isinstance(ui, dict):
+            continue
+        out.append({
+            'id': sc.get('id'),
+            'name': sc.get('name'),
+            'ui': {
+                'mount': ui.get('mount', 'floating'),
+                'title': ui.get('title', sc.get('name', sc.get('id'))),
+                'icon': ui.get('icon', '🔧'),
+                'entry': ui.get('entry'),
+                'needs_credential': bool(ui.get('needs_credential', False)),
+                'sandbox': ui.get('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups'),
+            },
+        })
+    return jsonify({'success': True, 'extensions': out})
+
+
+@script_bp.route('/api/ui-panel/<script_id>', methods=['GET'])
+@admin_required
+def get_panel(script_id):
+    """返回扩展脚本 UI 入口文件内容（位于脚本目录 ui/<entry>）。前端用 iframe 加载。"""
+    sc = mgr.scripts.get(script_id)
+    if not sc:
+        return jsonify({'success': False, 'message': '脚本不存在'}), 404
+    ui = sc.get('ui') or {}
+    entry = ui.get('entry')
+    if not entry:
+        return jsonify({'success': False, 'message': '该脚本未声明 ui.entry'}), 404
+    # 防目录穿越：仅允许 ui/ 子目录下的相对路径
+    base_dir = sc.get('_dir') or os.path.dirname(sc.get('manifest_path', ''))
+    target = os.path.normpath(os.path.join(base_dir, 'ui', entry))
+    ui_dir = os.path.normpath(os.path.join(base_dir, 'ui'))
+    if not target.startswith(ui_dir + os.sep) and target != ui_dir:
+        return jsonify({'success': False, 'message': '非法路径'}), 400
+    if not os.path.isfile(target):
+        return jsonify({'success': False, 'message': 'UI 入口文件不存在'}), 404
+    with open(target, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return Response(content, mimetype='text/html; charset=utf-8')
+
+
+@script_bp.route('/api/ui-proxy', methods=['POST'])
+@admin_required
+def ui_proxy():
+    """扩展 UI（iframe 内）调用外部服务的代理。可选注入管理员 token 到下游请求头。
+    请求体：{ url, method?, headers?, body?, inject_token? }
+    """
+    import requests as _requests
+    data = request.get_json(silent=True) or {}
+    url = data.get('url')
+    if not url:
+        return jsonify({'success': False, 'message': 'url 必填'}), 400
+    method = (data.get('method') or 'POST').upper()
+    headers = dict(data.get('headers') or {})
+    body = data.get('body')
+    if data.get('inject_token'):
+        headers['Authorization'] = request.headers.get('Authorization', '')
+    try:
+        resp = _requests.request(
+            method, url, headers=headers,
+            json=body if isinstance(body, (dict, list)) else None,
+            data=body if isinstance(body, str) else None,
+            timeout=30, verify=False,
+        )
+        # 透传下游响应（限制体积，避免超大响应）
+        text = resp.text
+        if len(text) > 5 * 1024 * 1024:
+            text = text[:5 * 1024 * 1024]
+        return Response(text, status=resp.status_code,
+                        mimetype=resp.headers.get('Content-Type', 'application/json'))
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'代理请求失败: {e}'}), 502
 
 
 # ---------- 管理员：脚本参数用户默认值 ----------
