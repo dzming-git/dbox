@@ -491,7 +491,11 @@ class AIChatManager:
                 self._finish_emit(task_id, 'failed')
                 return
 
-            reply = ''.join(full).strip()
+            reply = '\n'.join(full).strip()
+            if not reply and proc.returncode in (0, None):
+                # 模型仅执行了工具操作而未产出文本（常见于“直接动手完成”场景），
+                # 此时 stdout 为空。为避免聊天框出现空白气泡，给出友好占位说明。
+                reply = '（任务已执行完成，无文本输出）'
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')

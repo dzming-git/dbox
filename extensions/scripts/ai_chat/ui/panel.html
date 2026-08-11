@@ -144,7 +144,8 @@
     for (let i = allHistory.length - 1; i >= 0; i--) {
       const h = allHistory[i];
       turns.push({ id: h.id, prompt: h.prompt,
-                   reply: h.status === 'failed' ? ('执行失败：' + (h.error || '')) : (h.reply || ''),
+                   reply: h.status === 'failed' ? ('执行失败：' + (h.error || ''))
+                          : ((h.reply && h.reply.trim()) ? h.reply : '（任务已执行完成，无文本输出）'),
                    kind: h.status === 'failed' ? 'err' : 'done' });
     }
     if (state.active) {
@@ -271,7 +272,10 @@
             acc += data;
             updateAiLive(taskId, acc || '正在处理…', true);
           } else if (ev === 'done') {
-            updateAiLive(taskId, data || acc, false);
+            // 若服务端回复为空（模型只执行了工具操作未产出文本），优先保留已流式输出的内容，
+            // 否则回退为友好占位，避免聊天框出现空白气泡。
+            const finalText = (data && data.trim()) ? data : (acc || '（任务已执行完成，无文本输出）');
+            updateAiLive(taskId, finalText, false);
             subscribed.delete(taskId);
             refresh();
             return;
