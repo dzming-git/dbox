@@ -99,9 +99,9 @@
     msgs.innerHTML = '<div class="hint">对话已清空</div>';
   });
 
-  async function callAI(prompt, history) {
-    // 经后端 /api/ai-chat 调用 CodeBuddy CLI（后端用凭证保险库 token 调 CLI）
-    // 本面板只需带管理员 JWT 通过 @admin_required 鉴权，并一并发上对话历史
+  async function callAIStream(prompt, history, onToken) {
+    // 经后端 /api/ai-chat（SSE 流式）调用 CodeBuddy CLI。
+    // 流式读取，实时把增量文本通过 onToken 回调上屏，返回完整文本或抛出错误。
     const headers = { 'Content-Type': 'application/json' };
     if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
     const resp = await fetch('/api/ai-chat', {
@@ -109,11 +109,47 @@
       headers: headers,
       body: JSON.stringify({ message: prompt, history: history })
     });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok || !data.success) {
-      throw new Error(data.message || ('HTTP ' + resp.status));
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const d = await resp.json(); if (d && d.message) msg = d.message; } catch (e) {}
+      throw new Error(msg);
     }
-    return data.reply || '(空回复)';
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    let full = '';
+    let lastEvent = '';
+    let pendingData = '';
+    let done = false;
+    let errMsg = '';
+    while (true) {
+      const { value, done: doneReading } = await reader.read();
+      if (doneReading) break;
+      buf += decoder.decode(value, { stream: true });
+      // 按 SSE 块（空行分隔）切分
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let ev = 'message', dataLines = [];
+        block.split('\n').forEach((ln) => {
+          if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+          else if (ln.startsWith('data:')) dataLines.push(ln.slice(5).replace(/^ /, ''));
+        });
+        const data = dataLines.join('\n');
+        if (ev === 'token') {
+          full += data;
+          if (onToken) onToken(data);
+        } else if (ev === 'done') {
+          done = true;
+          if (data) full = data;
+        } else if (ev === 'error') {
+          errMsg = data;
+        }
+      }
+    }
+    if (errMsg) throw new Error(errMsg);
+    return full.trim();
   }
 
   async function onSend() {
@@ -136,17 +172,25 @@
     saveHistory();
     txt.value = '';
     send.disabled = true;
+    // 先放一个空的助手气泡，随流式输出实时填充
+    const aiBubble = addBubble('思考中…', 'ai');
+    let acc = '';
     try {
       // 历史中不含当前这一条，由后端附带在 prompt 末尾
-      const reply = await callAI(v, history.slice(0, -1));
-      addBubble(reply, 'ai');
-      history.push({ role: 'assistant', content: reply });
+      const reply = await callAIStream(v, history.slice(0, -1), (piece) => {
+        acc += piece;
+        aiBubble.textContent = acc || '思考中…';
+        msgs.scrollTop = msgs.scrollHeight;
+      });
+      const finalText = reply || acc || '(空回复)';
+      aiBubble.textContent = finalText;
+      history.push({ role: 'assistant', content: finalText });
       saveHistory();
     } catch (e) {
       // 调用失败则回滚刚加入的用户消息，避免脏历史影响后续对话
       history.pop();
       saveHistory();
-      addBubble('调用失败: ' + e.message, 'ai');
+      aiBubble.textContent = '调用失败: ' + e.message;
     } finally {
       send.disabled = false;
     }

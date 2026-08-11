@@ -4,7 +4,7 @@
 - notify 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
 """
 from functools import wraps
-from flask import Blueprint, request, jsonify, g, Response
+from flask import Blueprint, request, jsonify, g, Response, stream_with_context
 
 from authlib.jose import jwt
 from core.models import UserRole
@@ -395,9 +395,13 @@ def _is_auth_error(text: str) -> bool:
 @script_bp.route('/api/ai-chat', methods=['POST'])
 @admin_required
 def ai_chat():
-    """AI 助手对话：后端调用 CodeBuddy CLI 返回纯文本，浏览器面板经此接口对话。
+    """AI 助手对话：后端调用 CodeBuddy CLI，以 SSE 流式返回执行过程与最终结果。
 
     请求体：{ message: str, history?: [{role,content}] }
+    返回：text/event-stream，事件类型：
+        - event: token  data: <增量文本>      （AI 生成的文字 / 工具输出摘要）
+        - event: done   data: <完整文本>       （结束）
+        - event: error  data: <错误信息>       （失败）
     """
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '').strip()
@@ -422,9 +426,9 @@ def ai_chat():
                         'message': '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
                                    '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径'}), 502
 
-    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文，让 AI 能看到之前的聊天记录。
-    # 注意：本助手运行在 --permission-mode bypassPermissions + 工具授权模式下，具备真实执行能力，
-    # 因此系统约束从“只回答”改为“直接执行任务”，否则用户布置的任务只会被描述而不被执行。
+    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文。
+    # 本助手运行在 --permission-mode bypassPermissions + 工具授权模式下，具备真实执行能力，
+    # 因此系统约束要求“直接执行任务，完成后简述”，否则用户布置的任务只会被描述而不被执行。
     parts = [
         '你是一个嵌入在媒体库管理后台里的 AI 助手，拥有读写文件、运行命令的真实能力。\n'
         '当用户布置具体任务（如修改代码、创建/删除文件、执行命令等）时，请直接动手完成，'
@@ -457,38 +461,77 @@ def ai_chat():
         env['APPDATA'] = os.path.join(_home, 'AppData', 'Roaming')
         env['LOCALAPPDATA'] = os.path.join(_home, 'AppData', 'Local')
 
-    try:
-        proc = subprocess.run(
-            [buddy, '-p', '-y',
-             '--permission-mode', 'bypassPermissions',
-             '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash',
-             '--max-turns', '30',
-             '--add-dir', _project_root(),
-             '--input-format', 'text', prompt],
-            input=prompt.encode('utf-8'),
-            cwd=_project_root(),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=240,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        return jsonify({'success': False, 'message': 'AI 响应超时，请稍后重试'}), 504
+    # 关键：prompt 仅经 stdin 传入（--input-format text）。经验证，若把 prompt 同时作为
+    # 位置参数传入，CodeBuddy 在 -p 模式下可能忽略 stdin 而不执行任务（只回复“你要我做什么”）。
+    # 因此这里只保留 stdin，不传位置参数。
+    cmd = [
+        buddy, '-p', '-y',
+        '--permission-mode', 'bypassPermissions',
+        '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash',
+        '--max-turns', '60',
+        '--add-dir', _project_root(),
+        '--input-format', 'text',
+    ]
 
-    raw = (proc.stdout or b'') + (proc.stderr or b'')
-    text = None
-    for enc in ('utf-8', 'gbk', 'utf-8-sig'):
+    def _decode_chunk(buf):
+        # Windows 下 CodeBuddy 输出多为 cp936(gbk)，utf-8 失败再回退 gbk
+        for enc in ('utf-8', 'gbk', 'utf-8-sig'):
+            try:
+                return buf.decode(enc)
+            except Exception:
+                continue
+        return buf.decode('utf-8', errors='replace')
+
+    def generate():
+        full = []
         try:
-            text = raw.decode(enc)
-            break
-        except Exception:
-            text = raw.decode('utf-8', errors='replace')
-    err_text = (proc.stderr or b'').decode('utf-8', errors='replace')
-    if _is_auth_error(err_text):
-        return jsonify({
-            'success': False,
-            'message': 'CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login',
-        }), 401
-    return jsonify({'success': True, 'reply': (text or '').strip()})
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=_project_root(),
+                env=env,
+            )
+            # 写入 prompt（仅 stdin），写完后关闭 stdin 告知 CLI 输入结束
+            try:
+                proc.stdin.write(prompt.encode('utf-8'))
+                proc.stdin.close()
+            except Exception:
+                pass
+
+            # 实时流式读取 stdout，按行推送，保证长任务也有即时反馈
+            for raw_line in proc.stdout:
+                try:
+                    line = _decode_chunk(raw_line)
+                except Exception:
+                    line = raw_line.decode('utf-8', errors='replace')
+                if not line:
+                    continue
+                piece = line.rstrip('\n')
+                full.append(piece)
+                yield 'event: token\ndata: ' + piece.replace('\n', '\n') + '\n\n'
+
+            proc.stdout.close()
+            err_text = _decode_chunk(proc.stderr.read() or b'')
+            proc.stderr.close()
+            proc.wait(timeout=30)
+
+            if _is_auth_error(err_text):
+                yield 'event: error\ndata: CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login\n\n'
+                return
+            if proc.returncode not in (0, None):
+                # 非零退出：把 stderr 透出，便于排查
+                err_excerpt = err_text.strip()[:500]
+                yield 'event: error\ndata: AI 执行出错（退出码 %s）: %s\n\n' % (proc.returncode, err_excerpt)
+                return
+
+            yield 'event: done\ndata: ' + ''.join(full).strip() + '\n\n'
+        except Exception as e:
+            yield 'event: error\ndata: 调用失败: ' + str(e) + '\n\n'
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 # ---------- 管理员：脚本参数用户默认值 ----------
