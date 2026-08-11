@@ -126,6 +126,7 @@ watch(openId, (id) => {
       <div
         v-if="ext.ui.mount === 'floating'"
         class="ext-fab"
+        :class="{ 'is-open': openId === ext.id }"
         :title="ext.ui.title"
         @click="toggle(ext.id)"
       >
@@ -173,13 +174,14 @@ watch(openId, (id) => {
   background: rgba(0, 0, 0, 0.12);
   z-index: 8999;
 }
-/* 悬浮入口：默认收成半透明小圆点，悬停才展开成带文字的胶囊，减少对页面的遮挡 */
+/* 悬浮入口：始终为圆形按钮，半透明低遮挡；悬停/展开时仅放大并提升不透明度，
+   不展开成椭圆。文字标签只在悬停时以左侧气泡形式提示，避免遮挡页面 */
 .ext-fab {
   position: fixed;
   right: 16px;
   bottom: 18px;
-  height: 40px;
-  width: 40px;
+  height: 44px;
+  width: 44px;
   padding: 0;
   border-radius: 50%;
   background: var(--accent, #4f8cff);
@@ -191,35 +193,37 @@ watch(openId, (id) => {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   z-index: 9000;
   opacity: 0.82;
-  overflow: hidden;
-  transition: opacity 0.15s, transform 0.15s, width 0.2s, padding 0.2s,
-    box-shadow 0.15s;
+  overflow: visible;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.ext-fab:hover {
+.ext-fab:hover,
+.ext-fab.is-open {
   opacity: 1;
-  width: auto;
-  padding: 0 14px;
-  gap: 6px;
-  transform: scale(1.04);
+  transform: scale(1.08);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 .ext-fab-icon {
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
 }
 .ext-fab-label {
-  font-size: 14px;
+  position: absolute;
+  right: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 13px;
   font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
   white-space: nowrap;
-  max-width: 0;
   opacity: 0;
-  overflow: hidden;
-  transition: max-width 0.2s, opacity 0.2s, margin 0.2s;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
 .ext-fab:hover .ext-fab-label {
-  max-width: 80px;
   opacity: 1;
-  margin-left: 2px;
 }
 .ext-panel {
   position: fixed;
