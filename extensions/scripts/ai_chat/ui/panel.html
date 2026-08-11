@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 助手</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #f7f8fa; color: #1f2329; height: 100%; }
+  .wrap { display: flex; flex-direction: column; height: 100vh; }
+  .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+  .me { align-self: flex-end; background: #4f8cff; color: #fff; border-bottom-right-radius: 4px; }
+  .ai { align-self: flex-start; background: #e9ebf0; color: #1f2329; border-bottom-left-radius: 4px; }
+  .input-bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e3e6eb; background: #fff; }
+  .input-bar textarea { flex: 1; resize: none; height: 40px; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; }
+  .input-bar button { background: #4f8cff; color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 14px; cursor: pointer; }
+  .input-bar button:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { font-size: 12px; color: #888; padding: 6px 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="msgs" id="msgs"><div class="hint">使用管理员 token 经后端 /api/ui-proxy 呼叫 AI 服务</div></div>
+  <div class="input-bar">
+    <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
+    <button id="send">发送</button>
+  </div>
+</div>
+<script>
+  let TOKEN = '';
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'DBOX_TOKEN') { TOKEN = e.data.token; }
+  });
+  // 向宿主请求 token
+  window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
+
+  const msgs = document.getElementById('msgs');
+  const txt = document.getElementById('txt');
+  const send = document.getElementById('send');
+
+  function addBubble(text, who) {
+    const d = document.createElement('div');
+    d.className = 'bubble ' + who;
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  async function callAI(prompt) {
+    // 经后端 /api/ai-chat 调用 CodeBuddy CLI（token 由后端从凭证保险库注入）
+    const resp = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.success) {
+      throw new Error(data.message || ('HTTP ' + resp.status));
+    }
+    return data.reply || '(空回复)';
+  }
+
+  async function onSend() {
+    const v = txt.value.trim();
+    if (!v) return;
+    if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试', 'ai'); return; }
+    addBubble(v, 'me');
+    txt.value = '';
+    send.disabled = true;
+    try {
+      const reply = await callAI(v);
+      addBubble(reply, 'ai');
+    } catch (e) {
+      addBubble('调用失败: ' + e.message, 'ai');
+    } finally {
+      send.disabled = false;
+    }
+  }
+
+  send.addEventListener('click', onSend);
+  txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
+</script>
+</body>
+</html>
