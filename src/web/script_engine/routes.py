@@ -422,10 +422,14 @@ def ai_chat():
                         'message': '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
                                    '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径'}), 502
 
-    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文，让 AI 能看到之前的聊天记录
+    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文，让 AI 能看到之前的聊天记录。
+    # 注意：本助手运行在 --permission-mode bypassPermissions + 工具授权模式下，具备真实执行能力，
+    # 因此系统约束从“只回答”改为“直接执行任务”，否则用户布置的任务只会被描述而不被执行。
     parts = [
-        '你是一个嵌入在媒体库管理后台里的 AI 助手，请用简体中文简洁回答用户问题。\n'
-        '只输出回答内容本身，不要输出多余的解释或代码块标记。'
+        '你是一个嵌入在媒体库管理后台里的 AI 助手，拥有读写文件、运行命令的真实能力。\n'
+        '当用户布置具体任务（如修改代码、创建/删除文件、执行命令等）时，请直接动手完成，'
+        '不要只罗列步骤或描述做法；完成后用简体中文简要说明你做了什么。\n'
+        '若只是闲聊或提问，则正常简洁回答即可。'
     ]
     if history:
         parts.append('以下是之前的对话记录，供你理解上下文：')
@@ -455,12 +459,16 @@ def ai_chat():
 
     try:
         proc = subprocess.run(
-            [buddy, '-p', '-y', '--add-dir', _project_root(),
+            [buddy, '-p', '-y',
+             '--permission-mode', 'bypassPermissions',
+             '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash',
+             '--max-turns', '30',
+             '--add-dir', _project_root(),
              '--input-format', 'text', prompt],
             input=prompt.encode('utf-8'),
             cwd=_project_root(),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=120,
+            timeout=240,
             env=env,
         )
     except subprocess.TimeoutExpired:
