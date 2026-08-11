@@ -102,6 +102,15 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // 是否贴近底部（容差 40px）。用户手动上滑看历史时视为“未贴底”，
+  // 此时不应把滚动条强制拉回底部，避免阅读中被打断。
+  function nearBottom() {
+    return msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight <= 40;
+  }
+  function stickToBottom() {
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
   // 合并渲染数据：队列区 + 对话区
   function render() {
     renderQueue();
@@ -170,10 +179,16 @@
             + '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
             + esc(t.reply) + statusTag + '</div>';
     });
+    // 重绘前记录：用户是否贴底、当前滚动位置，重绘后据此决定是否拉回底部
+    const pinToBottom = nearBottom();
+    const prevScrollTop = msgs.scrollTop;
     msgs.innerHTML = html;
     const em = document.getElementById('expandMore');
     if (em) em.addEventListener('click', expandMore);
-    msgs.scrollTop = msgs.scrollHeight;
+    // 仅当用户原本就贴底（或已展开“更多”）时才自动贴底；
+    // 否则保留当前滚动位置，避免用户在看历史时被拉回底部。
+    if (pinToBottom) stickToBottom();
+    else msgs.scrollTop = prevScrollTop;
   }
 
   // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）
@@ -189,7 +204,8 @@
         node.appendChild(s);
       }
     }
-    msgs.scrollTop = msgs.scrollHeight;
+    // 仅在用户贴底时跟随流式输出滚动到底部；上滑看历史时不打断
+    if (nearBottom()) stickToBottom();
   }
 
   // ---------- 数据拉取 ----------
