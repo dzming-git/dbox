@@ -173,34 +173,53 @@ watch(openId, (id) => {
   background: rgba(0, 0, 0, 0.12);
   z-index: 8999;
 }
+/* 悬浮入口：默认收成半透明小圆点，悬停才展开成带文字的胶囊，减少对页面的遮挡 */
 .ext-fab {
   position: fixed;
-  right: 20px;
-  bottom: 24px;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 22px;
+  right: 16px;
+  bottom: 18px;
+  height: 40px;
+  width: 40px;
+  padding: 0;
+  border-radius: 50%;
   background: var(--accent, #4f8cff);
   color: #fff;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   z-index: 9000;
-  font-size: 14px;
-  transition: transform 0.15s;
+  opacity: 0.82;
+  overflow: hidden;
+  transition: opacity 0.15s, transform 0.15s, width 0.2s, padding 0.2s,
+    box-shadow 0.15s;
 }
 .ext-fab:hover {
-  transform: scale(1.05);
+  opacity: 1;
+  width: auto;
+  padding: 0 14px;
+  gap: 6px;
+  transform: scale(1.04);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 .ext-fab-icon {
   font-size: 18px;
+  line-height: 1;
 }
 .ext-fab-label {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width 0.2s, opacity 0.2s, margin 0.2s;
+}
+.ext-fab:hover .ext-fab-label {
+  max-width: 80px;
+  opacity: 1;
+  margin-left: 2px;
 }
 .ext-panel {
   position: fixed;
