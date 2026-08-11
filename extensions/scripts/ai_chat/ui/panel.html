@@ -8,24 +8,50 @@
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #f7f8fa; color: #1f2329; height: 100%; }
   .wrap { display: flex; flex-direction: column; height: 100vh; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #e3e6eb; background: #fff; }
+  .toolbar .title { font-weight: 600; font-size: 14px; }
+  .toolbar button { background: none; border: 1px solid #d0d4dc; color: #888; border-radius: 6px; font-size: 12px; padding: 3px 10px; cursor: pointer; }
+  .toolbar button:hover { color: #4f8cff; border-color: #4f8cff; }
+
+  .queue { background: #fff; border-bottom: 1px solid #e3e6eb; padding: 8px 12px; font-size: 13px; }
+  .queue .qhead { display: flex; align-items: center; gap: 8px; color: #555; font-weight: 600; margin-bottom: 6px; }
+  .queue .qempty { color: #aaa; font-size: 12px; padding: 2px 0; }
+  .qitem { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px dashed #eee; }
+  .qitem:first-of-type { border-top: none; }
+  .qbadge { font-size: 11px; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
+  .b-running { background: #e6f4ea; color: #1a7f37; }
+  .b-pending { background: #fff4e5; color: #b26a00; }
+  .qtext { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+  .qdel { border: none; background: #ffe9e9; color: #d33; border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
+  .qdel:hover { background: #ffd6d6; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #1a7f37; display: inline-block; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%{opacity:1} 50%{opacity:.3} 100%{opacity:1} }
+
   .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-  .bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+  .expand { text-align: center; margin-bottom: 4px; }
+  .expand button { border: 1px solid #d0d4dc; background: #fff; color: #4f8cff; border-radius: 14px; font-size: 12px; padding: 3px 14px; cursor: pointer; }
+  .bubble { max-width: 82%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
   .me { align-self: flex-end; background: #4f8cff; color: #fff; border-bottom-right-radius: 4px; }
   .ai { align-self: flex-start; background: #e9ebf0; color: #1f2329; border-bottom-left-radius: 4px; }
+  .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
+  .ai.err { background: #ffe9e9; color: #b00; }
+  .ai.pending { color: #999; font-style: italic; }
+
   .input-bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e3e6eb; background: #fff; }
   .input-bar textarea { flex: 1; resize: none; height: 40px; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; }
   .input-bar button { background: #4f8cff; color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 14px; cursor: pointer; }
   .input-bar button:disabled { opacity: .5; cursor: not-allowed; }
-  .hint { font-size: 12px; color: #888; padding: 6px 12px; }
-  .toolbar { display: flex; justify-content: flex-end; padding: 4px 10px 0; }
-  .toolbar button { background: none; border: 1px solid #d0d4dc; color: #888; border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
-  .toolbar button:hover { color: #4f8cff; border-color: #4f8cff; }
+  .hint { font-size: 12px; color: #888; text-align: center; padding: 10px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="toolbar"><button id="clear">清空对话</button></div>
-  <div class="msgs" id="msgs"><div class="hint">使用管理员 token 经后端 /api/ai-chat 呼叫 AI 服务；历史记录已本地保存</div></div>
+  <div class="toolbar">
+    <span class="title">AI 助手</span>
+    <button id="clear">清空对话</button>
+  </div>
+  <div class="queue" id="queue"></div>
+  <div class="msgs" id="msgs"></div>
   <div class="input-bar">
     <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
     <button id="send">发送</button>
@@ -45,119 +71,225 @@
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; }
   });
-  // 向宿主请求 token（作为兜底，若直读失败再靠注入）
   window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
 
+  const queueEl = document.getElementById('queue');
   const msgs = document.getElementById('msgs');
   const txt = document.getElementById('txt');
   const send = document.getElementById('send');
   const clearBtn = document.getElementById('clear');
 
-  // 对话历史持久化到 localStorage：面板关闭/重开或刷新页面后仍能恢复，
-  // 从而使 AI（后端 /api/ai-chat）能持续看到之前的聊天记录。
-  const STORE_KEY = 'ai_chat_history';
+  // UI 无状态：不本地保存历史、不上传历史。所有状态以服务端为准，仅做渲染与下发。
+  // state 仅用于前端渲染；刷新或重开面板会重新从服务端拉取完整状态。
+  let state = { pending: [], active: null, history: [], has_more: false,
+                older: [], nextCursor: null, canExpand: false };
+  const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
+  let pollTimer = null;
 
-  function loadHistory() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return [];
-      const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? arr : [];
-    } catch (e) { return []; }
-  }
-  function saveHistory() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(history)); } catch (e) {}
-  }
-
-  // 本地维护对话历史，每次请求一并发给后端，使 AI 能看到之前的聊天记录
-  let history = loadHistory();
-
-  function addBubble(text, who) {
-    const d = document.createElement('div');
-    d.className = 'bubble ' + who;
-    d.textContent = text;
-    msgs.appendChild(d);
-    msgs.scrollTop = msgs.scrollHeight;
-    return d;
-  }
-
-  // 恢复历史：清空初始提示后按顺序回放气泡
-  function renderHistory() {
-    const hint = msgs.querySelector('.hint');
-    if (hint) hint.remove();
-    history.forEach((h) => {
-      if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-        addBubble(h.content, h.role === 'user' ? 'me' : 'ai');
-      }
-    });
-  }
-  renderHistory();
-  if (history.length) msgs.scrollTop = msgs.scrollHeight;
-
-  clearBtn.addEventListener('click', () => {
-    history = [];
-    saveHistory();
-    msgs.innerHTML = '<div class="hint">对话已清空</div>';
-  });
-
-  async function callAIStream(prompt, history, onToken) {
-    // 经后端 /api/ai-chat（SSE 流式）调用 CodeBuddy CLI。
-    // 流式读取，实时把增量文本通过 onToken 回调上屏，返回完整文本或抛出错误。
+  function api(path, opts) {
     const headers = { 'Content-Type': 'application/json' };
     if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
-    const resp = await fetch('/api/ai-chat', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ message: prompt, history: history })
-    });
-    if (!resp.ok) {
-      let msg = 'HTTP ' + resp.status;
-      try { const d = await resp.json(); if (d && d.message) msg = d.message; } catch (e) {}
-      throw new Error(msg);
-    }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buf = '';
-    let full = '';
-    let lastEvent = '';
-    let pendingData = '';
-    let done = false;
-    let errMsg = '';
-    while (true) {
-      const { value, done: doneReading } = await reader.read();
-      if (doneReading) break;
-      buf += decoder.decode(value, { stream: true });
-      // 按 SSE 块（空行分隔）切分
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) !== -1) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        let ev = 'message', dataLines = [];
-        block.split('\n').forEach((ln) => {
-          if (ln.startsWith('event:')) ev = ln.slice(6).trim();
-          else if (ln.startsWith('data:')) dataLines.push(ln.slice(5).replace(/^ /, ''));
-        });
-        const data = dataLines.join('\n');
-        if (ev === 'token') {
-          full += data;
-          if (onToken) onToken(data);
-        } else if (ev === 'done') {
-          done = true;
-          if (data) full = data;
-        } else if (ev === 'error') {
-          errMsg = data;
-        }
-      }
-    }
-    if (errMsg) throw new Error(errMsg);
-    return full.trim();
+    return fetch(path, Object.assign({ headers }, opts || {}));
   }
 
+  function esc(s) {
+    return (s == null ? '' : String(s))
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // 合并渲染数据：队列区 + 对话区
+  function render() {
+    renderQueue();
+    renderMsgs();
+  }
+
+  function renderQueue() {
+    const items = [];
+    if (state.active) {
+      items.push({ id: state.active.id, status: 'running', prompt: state.active.prompt });
+    }
+    state.pending.forEach(p => items.push({ id: p.id, status: 'pending', prompt: p.prompt }));
+
+    if (!items.length) {
+      queueEl.innerHTML = '<div class="qhead">任务队列</div><div class="qempty">暂无排队任务</div>';
+      return;
+    }
+    let html = '<div class="qhead">任务队列（' + items.length + '）</div>';
+    items.forEach((it, i) => {
+      const isRun = it.status === 'running';
+      const badge = isRun
+        ? '<span class="dot"></span><span class="qbadge b-running">正在处理</span>'
+        : '<span class="qbadge b-pending">排队 ' + (i + (state.active ? 0 : 1)) + '</span>';
+      html += '<div class="qitem" data-id="' + esc(it.id) + '">'
+            + badge
+            + '<span class="qtext" title="' + esc(it.prompt) + '">' + esc(it.prompt) + '</span>'
+            + '<button class="qdel" data-del="' + esc(it.id) + '">删除</button>'
+            + '</div>';
+    });
+    queueEl.innerHTML = html;
+    queueEl.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', () => deleteTask(btn.getAttribute('data-del')));
+    });
+  }
+
+  function renderMsgs() {
+    // 对话区：历史（倒序->正序）+ 正在处理 + 排队中，时间正序展示
+    const allHistory = state.history.concat(state.older); // 均为新->旧
+    const turns = [];
+    for (let i = allHistory.length - 1; i >= 0; i--) {
+      const h = allHistory[i];
+      turns.push({ id: h.id, prompt: h.prompt,
+                   reply: h.status === 'failed' ? ('执行失败：' + (h.error || '')) : (h.reply || ''),
+                   kind: h.status === 'failed' ? 'err' : 'done' });
+    }
+    if (state.active) {
+      turns.push({ id: state.active.id, prompt: state.active.prompt,
+                   reply: state.active.stream || '正在处理…', kind: 'running' });
+    }
+    state.pending.forEach(p => {
+      turns.push({ id: p.id, prompt: p.prompt, reply: '排队中，等待处理…', kind: 'pending' });
+    });
+
+    let html = '';
+    if (state.canExpand) {
+      html += '<div class="expand"><button id="expandMore">展开更多</button></div>';
+    }
+    if (!turns.length) {
+      html += '<div class="hint">发送消息开始与 AI 助手对话；任务由底层队列串行处理</div>';
+    }
+    turns.forEach(t => {
+      const aiCls = 'ai' + (t.kind === 'err' ? ' err' : (t.kind === 'pending' ? ' pending' : ''));
+      const statusTag = t.kind === 'running' ? '<span class="aistatus">● 正在处理</span>' : '';
+      html += '<div class="bubble me">' + esc(t.prompt) + '</div>'
+            + '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
+            + esc(t.reply) + statusTag + '</div>';
+    });
+    msgs.innerHTML = html;
+    const em = document.getElementById('expandMore');
+    if (em) em.addEventListener('click', expandMore);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）
+  function updateAiLive(id, text, running) {
+    const node = document.getElementById('ai-' + id);
+    if (!node) { renderMsgs(); return; }
+    node.textContent = text;
+    if (running) {
+      const tag = node.querySelector('.aistatus');
+      if (!tag) {
+        const s = document.createElement('span');
+        s.className = 'aistatus'; s.textContent = '● 正在处理';
+        node.appendChild(s);
+      }
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // ---------- 数据拉取 ----------
+  async function refresh() {
+    try {
+      const resp = await api('/api/ai-chat/tasks?limit=10');
+      if (!resp.ok) return;
+      const d = await resp.json();
+      if (!d.success) return;
+      state.pending = d.pending || [];
+      state.active = d.active || null;
+      // 仅当未加载过历史（或清空后）时用服务端历史覆盖；展开更多的结果保留在 state.older
+      if (state.older.length === 0) {
+        state.history = d.history || [];
+      } else {
+        // 首页历史中比 oldest older 新的部分更新，保留已展开的更早记录
+        state.history = (d.history || []).filter(h => true);
+      }
+      state.canExpand = !!d.has_more || state.canExpand;
+      if (state.nextCursor == null) state.nextCursor = state.canExpand ? (d.history && d.history.length ? d.history[d.history.length - 1].created_at : null) : null;
+      render();
+      // 若正在处理的任务尚未订阅，则订阅以续接流式输出（刷新重连）
+      if (state.active && !subscribed.has(state.active.id)) {
+        subscribe(state.active.id);
+      }
+    } catch (e) { /* 网络抖动忽略，下个周期重试 */ }
+  }
+
+  async function expandMore() {
+    if (state.nextCursor == null) return;
+    try {
+      const resp = await api('/api/ai-chat/history?cursor=' + encodeURIComponent(state.nextCursor) + '&limit=10');
+      const d = await resp.json();
+      if (d.success && d.history && d.history.length) {
+        // 更早的页面插到 older 前面（older 始终为“更旧”的一侧）
+        state.older = d.history.concat(state.older);
+        state.canExpand = !!d.has_more;
+        state.nextCursor = d.has_more ? d.next_cursor : null;
+        render();
+      } else {
+        state.canExpand = false;
+        render();
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- SSE 订阅 ----------
+  async function subscribe(taskId) {
+    if (subscribed.has(taskId)) return;
+    subscribed.add(taskId);
+    let acc = '';
+    let running = false;
+    try {
+      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/stream');
+      if (!resp.ok) { subscribed.delete(taskId); return; }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          let ev = 'message', dataLines = [];
+          block.split('\n').forEach(ln => {
+            if (ln.startsWith('event:')) ev = ln.slice(6).trim();
+            else if (ln.startsWith('data:')) dataLines.push(ln.slice(5).replace(/^ /, ''));
+          });
+          const data = dataLines.join('\n');
+          if (ev === 'queued') {
+            // 排队中：等待被处理
+          } else if (ev === 'status' && data === 'running') {
+            running = true;
+            updateAiLive(taskId, acc || '正在处理…', true);
+          } else if (ev === 'token') {
+            running = true;
+            acc += data;
+            updateAiLive(taskId, acc || '正在处理…', true);
+          } else if (ev === 'done') {
+            updateAiLive(taskId, data || acc, false);
+            subscribed.delete(taskId);
+            refresh();
+            return;
+          } else if (ev === 'error') {
+            const node = document.getElementById('ai-' + taskId);
+            if (node) { node.textContent = data; node.classList.add('err'); node.classList.remove('pending'); }
+            subscribed.delete(taskId);
+            refresh();
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      // 连接断开：标记未订阅，稍后由 refresh 重新订阅以续接
+      subscribed.delete(taskId);
+    }
+  }
+
+  // ---------- 发送 ----------
   async function onSend() {
     const v = txt.value.trim();
     if (!v) return;
     if (!TOKEN) {
-      // 先尝试直读 localStorage，失败再依赖 postMessage 注入并短等
       TOKEN = readToken();
       if (!TOKEN) {
         window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
@@ -165,40 +297,59 @@
         if (!TOKEN) TOKEN = readToken();
       }
     }
-    if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试或重新登录', 'ai'); return; }
-    addBubble(v, 'me');
-    history.push({ role: 'user', content: v });
-    // 仅保留最近 20 条，避免历史无限增长拖慢响应
-    if (history.length > 20) history = history.slice(-20);
-    saveHistory();
+    if (!TOKEN) { alert('尚未获取到管理员 token，请稍候重试或重新登录'); return; }
+
     txt.value = '';
     send.disabled = true;
-    // 先放一个空的助手气泡，随流式输出实时填充
-    const aiBubble = addBubble('思考中…', 'ai');
-    let acc = '';
     try {
-      // 历史中不含当前这一条，由后端附带在 prompt 末尾
-      const reply = await callAIStream(v, history.slice(0, -1), (piece) => {
-        acc += piece;
-        aiBubble.textContent = acc || '思考中…';
-        msgs.scrollTop = msgs.scrollHeight;
+      const resp = await api('/api/ai-chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: v })
       });
-      const finalText = reply || acc || '(空回复)';
-      aiBubble.textContent = finalText;
-      history.push({ role: 'assistant', content: finalText });
-      saveHistory();
+      if (!resp.ok) {
+        let msg = 'HTTP ' + resp.status;
+        try { const d = await resp.json(); if (d && d.message) msg = d.message; } catch (e) {}
+        alert('入队失败：' + msg);
+        return;
+      }
+      const d = await resp.json();
+      const taskId = d.task_id;
+      // 立即刷新队列（任务进入 pending），并订阅其流式输出
+      refresh();
+      if (taskId) subscribe(taskId);
     } catch (e) {
-      // 调用失败则回滚刚加入的用户消息，避免脏历史影响后续对话
-      history.pop();
-      saveHistory();
-      aiBubble.textContent = '调用失败: ' + e.message;
+      alert('入队失败：' + e.message);
     } finally {
       send.disabled = false;
     }
   }
 
+  // ---------- 删除 / 取消 ----------
+  async function deleteTask(taskId) {
+    try {
+      subscribed.delete(taskId);
+      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId), { method: 'DELETE' });
+      refresh();
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- 清空对话 ----------
+  clearBtn.addEventListener('click', async () => {
+    if (!confirm('确定清空全部对话（含排队与历史）？')) return;
+    try {
+      subscribed.clear();
+      await api('/api/ai-chat/clear', { method: 'POST' });
+      state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
+      render();
+    } catch (e) { /* ignore */ }
+  });
+
   send.addEventListener('click', onSend);
   txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
+
+  // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）
+  refresh();
+  pollTimer = setInterval(refresh, 2000);
 </script>
 </body>
 </html>

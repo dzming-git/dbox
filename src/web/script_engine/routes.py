@@ -32,6 +32,7 @@ def _resolve_jwt_secrets():
 _JWT_SECRETS = _resolve_jwt_secrets()
 
 from .manager import mgr, ScriptJobManager
+from .ai_chat import ai_mgr
 
 script_bp = Blueprint('script', __name__)
 
@@ -39,6 +40,18 @@ script_bp = Blueprint('script', __name__)
 def init_script_engine(app):
     """由 main.py 在 app 创建后调用，初始化管理器。"""
     mgr.init(app)
+    # 初始化 AI 助手对话队列管理器（独立 data 目录，与脚本引擎一致）
+    try:
+        import os as _os
+        env = _os.environ.get('DBOX_DATA_DIR')
+        if env:
+            _data_dir = env
+        else:
+            pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+            _data_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(pkg_dir))), 'data')
+        ai_mgr.init(_data_dir)
+    except Exception as e:
+        print('[script_engine] 初始化 AI 对话管理器失败: %s' % e)
 
 
 def admin_required(f):
@@ -297,241 +310,91 @@ def ui_proxy():
         return jsonify({'success': False, 'message': f'代理请求失败: {e}'}), 502
 
 
-# ---------- AI 助手对话（直接调用 CodeBuddy CLI，免 example 占位） ----------
-# 复用与 feedback_ai 脚本一致的 CodeBuddy 接入方式：
-#   - CLI 路径：环境变量 DBOX_BUDDYCN 或 %APPDATA%\npm\codebuddy.cmd
-#   - 鉴权：从通用凭证保险库读取 codebuddy 域 token，注入 ANTHROPIC_API_KEY
-#   - 调用：codebuddy -p -y --add-dir <项目根> --input-format text <prompt>
-_ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
-_CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
-
-
-def _load_codebuddy_token() -> str:
-    """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。"""
-    env_token = os.environ.get(_ANTHROPIC_API_KEY_ENV)
-    if env_token:
-        return env_token.strip()
-    try:
-        sys_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                '..', '..', 'common')
-        if sys_path not in sys.path:
-            sys.path.insert(0, sys_path)
-        from credential_vault import CredentialVault, data_dir_for  # type: ignore
-        vault = CredentialVault(data_dir_for())
-        tok = vault.get_token(domain=_CODEBUDDY_TOKEN_DOMAIN)
-        if tok:
-            return tok.strip()
-        for rec in vault.list_all():
-            if rec.get('kind') == 'token' and 'codebuddy' in (rec.get('name') or '').lower():
-                return (rec.get('value') or '').strip()
-    except Exception:
-        pass
-    return ''
-
-
-def _project_root() -> str:
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/web/script_engine
-    return os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
-
-
-def _resolve_buddy_cli() -> str:
-    """定位 codebuddy CLI 绝对路径。
-
-    服务可能以不同用户（如 LocalSystem）运行，%APPDATA% 解析到的目录
-    并不含 npm，故需在常见位置逐一回退；找不到时再尝试 PATH 搜索。
-    """
-    cands = []
-    env_buddy = os.environ.get('DBOX_BUDDYCN')
-    if env_buddy:
-        cands.append(env_buddy)
-    appdata = os.environ.get('APPDATA')
-    if appdata:
-        cands.append(os.path.join(appdata, 'npm', 'codebuddy.cmd'))
-    # 常见用户绝对路径（与本项目实际运行用户一致）
-    for uname in ('<用户ID>',):
-        cands.append(r'C:\Users\%s\AppData\Roaming\npm\codebuddy.cmd' % uname)
-        cands.append(r'C:\Users\%s\AppData\Local\npm\codebuddy.cmd' % uname)
-    # 项目内的 codebuddy（若在 PATH 或本地）
-    try:
-        import shutil
-        on_path = shutil.which('codebuddy.cmd') or shutil.which('codebuddy')
-        if on_path:
-            cands.append(on_path)
-    except Exception:
-        pass
-    seen = set()
-    for c in cands:
-        if not c or c in seen:
-            continue
-        seen.add(c)
-        if os.path.isfile(c):
-            return c
-    return ''
-
-
-def _codebuddy_user_home() -> str:
-    """返回存放 CodeBuddy 登录会话的交互用户家目录。
-
-    主服务可能以 SYSTEM/服务账户运行，其本地登录会话位于交互用户（如 <用户ID>）
-    的 ~/.codebuddy 下。优先用环境变量 DBOX_BUDDYCN_HOME 指定，否则回退到
-    硬编码的常见用户名家目录；找不到则返回空串（沿用调用方环境）。
-    """
-    env_home = os.environ.get('DBOX_BUDDYCN_HOME')
-    if env_home and os.path.isdir(env_home):
-        return env_home
-    for uname in ('<用户ID>',):
-        home = r'C:\Users\%s' % uname
-        if os.path.isdir(home):
-            return home
-    return ''
-
-
-def _is_auth_error(text: str) -> bool:
-    t = (text or '').lower()
-    return any(k in t for k in ('未登录', '认证失败', 'auth fail', 'unauthorized',
-                                'invalid api key', 'login required', 'please login'))
+# ---------- AI 助手对话（底层 FIFO 队列 + UI 无状态） ----------
+# 设计：
+#   - UI 无状态：不持有历史，仅做渲染与下发；对话上下文由服务端持久化。
+#   - 底层用 FIFO 队列堆积未处理任务，单 worker 串行执行 CodeBuddy CLI。
+#   - 三个逻辑队列（pending / active / history）由一张表（data/ai_chat.db）承载。
+# 接口：
+#   POST /api/ai-chat                      -> 仅入队，返回 { task_id }（立即返回，不阻塞）
+#   GET  /api/ai-chat/tasks                -> 返回 pending + active + 最近 history
+#   GET  /api/ai-chat/history?cursor=&limit -> 分页获取更早历史（展开更多）
+#   GET  /api/ai-chat/tasks/<id>/stream    -> 按 task_id 订阅 SSE（token/done/error/queued/status）
+#   DELETE /api/ai-chat/tasks/<id>         -> 取消排队中的任务 / 取消正在处理的任务 / 删除终态历史
+#   POST /api/ai-chat/clear                -> 清空全部对话（重置上下文）
 
 
 @script_bp.route('/api/ai-chat', methods=['POST'])
 @admin_required
-def ai_chat():
-    """AI 助手对话：后端调用 CodeBuddy CLI，以 SSE 流式返回执行过程与最终结果。
-
-    请求体：{ message: str, history?: [{role,content}] }
-    返回：text/event-stream，事件类型：
-        - event: token  data: <增量文本>      （AI 生成的文字 / 工具输出摘要）
-        - event: done   data: <完整文本>       （结束）
-        - event: error  data: <错误信息>       （失败）
-    """
+def ai_chat_enqueue():
+    """入队一条用户消息，立即返回 task_id（不阻塞、不流式）。"""
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '').strip()
     if not message:
         return jsonify({'success': False, 'message': 'message 必填'}), 400
+    task_id, err = ai_mgr.enqueue(message, g.user_id)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'task_id': task_id})
 
-    # 读取并清洗历史对话，用于让 AI 理解上下文（仅保留最近的若干轮，避免 prompt 过长）
-    history = []
-    raw_history = data.get('history')
-    if isinstance(raw_history, list):
-        for item in raw_history[-20:]:
-            if not isinstance(item, dict):
-                continue
-            role = item.get('role')
-            content = (item.get('content') or '').strip()
-            if role in ('user', 'assistant') and content:
-                history.append((role, content))
 
-    buddy = _resolve_buddy_cli()
-    if not buddy:
-        return jsonify({'success': False,
-                        'message': '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
-                                   '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径'}), 502
+@script_bp.route('/api/ai-chat/tasks', methods=['GET'])
+@admin_required
+def ai_chat_tasks():
+    """返回当前任务全景：排队中（FIFO）、正在处理、最近历史。"""
+    try:
+        limit = int(request.args.get('limit', 10))
+    except (TypeError, ValueError):
+        limit = 10
+    out = ai_mgr.list_tasks(history_limit=max(1, min(limit, 50)))
+    return jsonify({'success': True, **out})
 
-    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文。
-    # 本助手运行在 --permission-mode bypassPermissions + 工具授权模式下，具备真实执行能力，
-    # 因此系统约束要求“直接执行任务，完成后简述”，否则用户布置的任务只会被描述而不被执行。
-    parts = [
-        '你是一个嵌入在媒体库管理后台里的 AI 助手，拥有读写文件、运行命令的真实能力。\n'
-        '当用户布置具体任务（如修改代码、创建/删除文件、执行命令等）时，请直接动手完成，'
-        '不要只罗列步骤或描述做法；完成后用简体中文简要说明你做了什么。\n'
-        '若只是闲聊或提问，则正常简洁回答即可。'
-    ]
-    if history:
-        parts.append('以下是之前的对话记录，供你理解上下文：')
-        for role, content in history:
-            name = '用户' if role == 'user' else '助手'
-            parts.append(name + '：' + content)
-        parts.append('')
-    parts.append('用户问题：' + message)
-    prompt = '\n'.join(parts)
 
-    env = dict(os.environ)
-    token = _load_codebuddy_token()
-    if token:
-        env[_ANTHROPIC_API_KEY_ENV] = token
-
-    # CodeBuddy 的登录会话存放于交互用户家目录的 .codebuddy（如 C:\Users\<用户>\.codebuddy）。
-    # 主服务常以 SYSTEM/服务账户运行，其 USERPROFILE 指向不同目录，导致 codebuddy
-    # 找不到登录会话而报 “Authentication required”。此处把 HOME/USERPROFILE 指回
-    # 交互用户的家目录，复用其已登录会话；若缺失则回退到服务自身环境。
-    _home = _codebuddy_user_home()
-    if _home and os.path.isdir(_home):
-        env['USERPROFILE'] = _home
-        env['HOME'] = _home
-        # 部分 CLI 以 APPDATA 定位配置/缓存，一并指回交互用户
-        env['APPDATA'] = os.path.join(_home, 'AppData', 'Roaming')
-        env['LOCALAPPDATA'] = os.path.join(_home, 'AppData', 'Local')
-
-    # 关键：prompt 仅经 stdin 传入（--input-format text）。经验证，若把 prompt 同时作为
-    # 位置参数传入，CodeBuddy 在 -p 模式下可能忽略 stdin 而不执行任务（只回复“你要我做什么”）。
-    # 因此这里只保留 stdin，不传位置参数。
-    cmd = [
-        buddy, '-p', '-y',
-        '--permission-mode', 'bypassPermissions',
-        '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash',
-        '--max-turns', '60',
-        '--add-dir', _project_root(),
-        '--input-format', 'text',
-    ]
-
-    def _decode_chunk(buf):
-        # Windows 下 CodeBuddy 输出多为 cp936(gbk)，utf-8 失败再回退 gbk
-        for enc in ('utf-8', 'gbk', 'utf-8-sig'):
-            try:
-                return buf.decode(enc)
-            except Exception:
-                continue
-        return buf.decode('utf-8', errors='replace')
-
-    def generate():
-        full = []
+@script_bp.route('/api/ai-chat/history', methods=['GET'])
+@admin_required
+def ai_chat_history():
+    """分页获取更早的历史（展开更多）。cursor 为上一页末条 created_at。"""
+    try:
+        limit = int(request.args.get('limit', 10))
+    except (TypeError, ValueError):
+        limit = 10
+    cursor = request.args.get('cursor')
+    if cursor:
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=_project_root(),
-                env=env,
-            )
-            # 写入 prompt（仅 stdin），写完后关闭 stdin 告知 CLI 输入结束
-            try:
-                proc.stdin.write(prompt.encode('utf-8'))
-                proc.stdin.close()
-            except Exception:
-                pass
+            cursor = float(cursor)
+        except (TypeError, ValueError):
+            cursor = None
+    out = ai_mgr.history_page(cursor=cursor, limit=max(1, min(limit, 50)))
+    return jsonify({'success': True, **out})
 
-            # 实时流式读取 stdout，按行推送，保证长任务也有即时反馈
-            for raw_line in proc.stdout:
-                try:
-                    line = _decode_chunk(raw_line)
-                except Exception:
-                    line = raw_line.decode('utf-8', errors='replace')
-                if not line:
-                    continue
-                piece = line.rstrip('\n')
-                full.append(piece)
-                yield 'event: token\ndata: ' + piece.replace('\n', '\n') + '\n\n'
 
-            proc.stdout.close()
-            err_text = _decode_chunk(proc.stderr.read() or b'')
-            proc.stderr.close()
-            proc.wait(timeout=30)
-
-            if _is_auth_error(err_text):
-                yield 'event: error\ndata: CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login\n\n'
-                return
-            if proc.returncode not in (0, None):
-                # 非零退出：把 stderr 透出，便于排查
-                err_excerpt = err_text.strip()[:500]
-                yield 'event: error\ndata: AI 执行出错（退出码 %s）: %s\n\n' % (proc.returncode, err_excerpt)
-                return
-
-            yield 'event: done\ndata: ' + ''.join(full).strip() + '\n\n'
-        except Exception as e:
-            yield 'event: error\ndata: 调用失败: ' + str(e) + '\n\n'
-
-    return Response(stream_with_context(generate()), mimetype='text/event-stream',
+@script_bp.route('/api/ai-chat/tasks/<task_id>/stream', methods=['GET'])
+@admin_required
+def ai_chat_stream(task_id):
+    """按 task_id 订阅该任务流式输出（SSE）。支持多端订阅与刷新重连。"""
+    return Response(stream_with_context(ai_mgr.subscribe(task_id)),
+                    mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@script_bp.route('/api/ai-chat/tasks/<task_id>', methods=['DELETE'])
+@admin_required
+def ai_chat_delete(task_id):
+    """删除/取消任务：排队中->取消排队；处理中->取消执行；终态->从历史删除。"""
+    ok = ai_mgr.delete_task(task_id)
+    if ok is None:
+        return jsonify({'success': False, 'message': '任务取消中'}), 409
+    if ok is False:
+        return jsonify({'success': False, 'message': '任务不存在'}), 404
+    return jsonify({'success': True})
+
+
+@script_bp.route('/api/ai-chat/clear', methods=['POST'])
+@admin_required
+def ai_chat_clear():
+    """清空全部对话（含排队与历史），重置多轮上下文。"""
+    ai_mgr.clear()
+    return jsonify({'success': True})
 
 
 # ---------- 管理员：脚本参数用户默认值 ----------
