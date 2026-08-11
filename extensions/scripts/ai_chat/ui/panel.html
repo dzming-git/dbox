@@ -69,7 +69,12 @@
   }
   let TOKEN = readToken();
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; }
+    if (!e.data) return;
+    if (e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; }
+    // 宿主回填上次收起时未发送的输入内容（面板重新挂载后恢复草稿）
+    if (e.data.type === 'DBOX_DRAFT' && typeof e.data.text === 'string') {
+      if (!txt.value) { txt.value = e.data.text; autoGrow(); }
+    }
   });
   window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
 
@@ -301,6 +306,7 @@
 
     txt.value = '';
     txt.style.height = 'auto';
+    syncDraft();
     send.disabled = true;
     try {
       const resp = await api('/api/ai-chat', {
@@ -354,7 +360,11 @@
     txt.style.height = 'auto';
     txt.style.height = Math.min(txt.scrollHeight, TXT_MAX_H) + 'px';
   }
-  txt.addEventListener('input', autoGrow);
+  // 实时把未发送的内容同步给宿主，收起面板（iframe 被销毁）后不会丢失
+  function syncDraft() {
+    window.parent.postMessage({ type: 'DBOX_DRAFT_SAVE', extId: 'ai_chat', text: txt.value }, '*');
+  }
+  txt.addEventListener('input', () => { autoGrow(); syncDraft(); });
   autoGrow();
 
   // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）

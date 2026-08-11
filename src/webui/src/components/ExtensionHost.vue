@@ -21,6 +21,8 @@ const extensions = ref<Extension[]>([])
 const panelHtml = ref<Record<string, string>>({})
 const openId = ref<string | null>(null)
 const token = ref('')
+// 面板收起后暂存各扩展未发送的输入草稿，重新展开时回填（避免误触收起丢失已输入内容）
+const drafts = ref<Record<string, string>>({})
 
 async function loadToken() {
   // 从 localStorage 读取当前管理员的 access token（与 axios 拦截器一致）
@@ -63,6 +65,7 @@ function pushToken(id: string) {
   const iframe = document.getElementById(`ext-frame-${id}`) as HTMLIFrameElement | null
   if (iframe?.contentWindow) {
     iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: token.value }, '*')
+    iframe.contentWindow.postMessage({ type: 'DBOX_DRAFT', text: drafts.value[id] || '' }, '*')
   }
 }
 
@@ -72,6 +75,16 @@ function onMessage(e: MessageEvent) {
     const id = e.data.extId
     if (id) pushToken(id)
   }
+  // iframe 同步未发送的输入内容，供收起后再展开时恢复
+  if (e.data?.type === 'DBOX_DRAFT_SAVE') {
+    const id = e.data.extId
+    if (id) drafts.value[id] = typeof e.data.text === 'string' ? e.data.text : ''
+  }
+}
+
+// 点击面板以外（遮罩层）时自动收起；遮罩同时拦截点击，避免误触到后面的页面内容
+function closePanel() {
+  openId.value = null
 }
 
 onMounted(async () => {
@@ -87,6 +100,9 @@ watch(openId, (id) => {
 
 <template>
   <div class="ext-host">
+    <!-- 展开时的遮罩：拦截对页面内容的点击，点击遮罩收起面板 -->
+    <div v-if="openId" class="ext-mask" @click="closePanel"></div>
+
     <template v-for="ext in extensions" :key="ext.id">
       <!-- 悬浮球入口 -->
       <div
@@ -133,6 +149,12 @@ watch(openId, (id) => {
 </template>
 
 <style scoped>
+.ext-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.12);
+  z-index: 8999;
+}
 .ext-fab {
   position: fixed;
   right: 20px;
