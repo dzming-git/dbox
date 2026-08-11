@@ -48,10 +48,13 @@
   }
 
   async function callAI(prompt) {
-    // 经后端 /api/ai-chat 调用 CodeBuddy CLI（token 由后端从凭证保险库注入）
+    // 经后端 /api/ai-chat 调用 CodeBuddy CLI（后端用凭证保险库 token 调 CLI）
+    // 本面板只需带管理员 JWT 通过 @admin_required 鉴权
+    const headers = { 'Content-Type': 'application/json' };
+    if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
     const resp = await fetch('/api/ai-chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify({ message: prompt })
     });
     const data = await resp.json().catch(() => ({}));
@@ -64,6 +67,11 @@
   async function onSend() {
     const v = txt.value.trim();
     if (!v) return;
+    if (!TOKEN) {
+      // token 可能尚未经 postMessage 注入，主动再请求并短等
+      window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
+      for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
+    }
     if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试', 'ai'); return; }
     addBubble(v, 'me');
     txt.value = '';
