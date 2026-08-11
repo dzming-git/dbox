@@ -41,6 +41,9 @@
                 <input type="checkbox" :checked="sc.enabled" @change="toggleEnabled(sc)" />
                 <span>{{ sc.enabled ? '已启用' : '已禁用' }}</span>
               </label>
+              <button v-if="sc.ui && sc.ui.mount === 'panel'" class="action-btn" :disabled="!sc.enabled" @click="togglePanel(sc)">
+                {{ panelOpenId === sc.id ? '收起面板' : '打开面板' }}
+              </button>
               <button v-if="!(selected && selected.id === sc.id)" class="action-btn" :disabled="!sc.enabled" @click="selectScript(sc)">配置参数</button>
               <button v-else class="action-btn" @click="collapseScript(sc)">收起</button>
             </div>
@@ -143,6 +146,16 @@
               </div>
             </div>
           </div>
+
+          <!-- 内嵌 UI 面板（mount=panel 的扩展，如 X 下载预览） -->
+          <div v-if="sc.ui && sc.ui.mount === 'panel' && panelOpenId === sc.id" class="script-panel">
+            <iframe
+              :id="`ext-panel-frame-${sc.id}`"
+              class="script-panel-frame"
+              :sandbox="sc.ui.sandbox"
+              :srcdoc="panelHtml[sc.id] || ''"
+            ></iframe>
+          </div>
         </div>
       </div>
     </section>
@@ -223,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onUnmounted, onMounted } from 'vue'
+import { ref, reactive, onUnmounted, onMounted, nextTick } from 'vue'
 import { scriptApi, type ScriptInfo, type CookieProfile, type ScriptJob } from '../api/script'
 import { libraryApi } from '../api'
 
@@ -256,6 +269,41 @@ const running = ref(false)
 const runningJob = ref<ScriptJob | null>(null)
 const defaultHint = ref('')
 let pollTimer: any = null
+
+// 内嵌 UI 面板（mount=panel 的扩展，如 X 下载预览）
+const panelOpenId = ref<string | null>(null)
+const panelHtml = ref<Record<string, string>>({})
+const token = ref('')
+
+async function loadToken() {
+  const raw = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token')
+  token.value = raw || ''
+}
+
+async function togglePanel(sc: ScriptInfo) {
+  if (panelOpenId.value === sc.id) {
+    panelOpenId.value = null
+    return
+  }
+  panelOpenId.value = sc.id
+  if (!panelHtml.value[sc.id]) {
+    try {
+      const res: any = await scriptApi.getPanel(sc.id)
+      panelHtml.value[sc.id] = res
+    } catch (e) {
+      panelHtml.value[sc.id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
+    }
+  }
+  await nextTick()
+  pushPanelToken(sc.id)
+}
+
+function pushPanelToken(id: string) {
+  const iframe = document.getElementById(`ext-panel-frame-${id}`) as HTMLIFrameElement | null
+  if (iframe?.contentWindow) {
+    iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: token.value }, '*')
+  }
+}
 
 // 脚本分阶段交互态
 const interaction = ref<any>(null)
@@ -524,6 +572,7 @@ async function removeCookie(ck: CookieProfile) {
 }
 
 onMounted(() => {
+  loadToken()
   loadScripts()
   loadCookies()
   loadLibraries()
@@ -559,6 +608,14 @@ onUnmounted(() => {
 .script-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
 .script-cookies { color: var(--warning); font-size: 12px; margin-top: 4px; }
 .script-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.script-panel {
+  margin: 14px 0 0; background: var(--bg-base);
+  border: 1px solid var(--border-default); border-radius: 10px;
+  overflow: hidden; min-height: 320px;
+}
+.script-panel-frame {
+  width: 100%; height: 420px; border: none; background: #fff; display: block;
+}
 .switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary); cursor: pointer; }
 .run-form {
   margin: 14px auto 0; background: var(--bg-base);

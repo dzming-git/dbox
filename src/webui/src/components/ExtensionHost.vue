@@ -96,6 +96,7 @@ watch(openId, (id) => {
         @click="toggle(ext.id)"
       >
         <span class="ext-fab-icon">{{ ext.ui.icon }}</span>
+        <span class="ext-fab-label">{{ ext.ui.title }}</span>
       </div>
 
       <!-- 展开的面板 -->
@@ -136,22 +137,30 @@ watch(openId, (id) => {
   position: fixed;
   right: 20px;
   bottom: 24px;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
   background: var(--accent, #4f8cff);
   color: #fff;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 9000;
-  font-size: 22px;
+  font-size: 14px;
   transition: transform 0.15s;
 }
 .ext-fab:hover {
-  transform: scale(1.08);
+  transform: scale(1.05);
+}
+.ext-fab-icon {
+  font-size: 18px;
+}
+.ext-fab-label {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .ext-panel {
   position: fixed;

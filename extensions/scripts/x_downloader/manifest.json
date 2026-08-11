@@ -9,7 +9,7 @@
   "enabled": true,
   "required_cookies": ["x.com"],
   "ui": {
-    "mount": "floating",
+    "mount": "panel",
     "title": "X 下载预览",
     "icon": "🐦",
     "entry": "panel.html",

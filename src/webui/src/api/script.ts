@@ -13,6 +13,15 @@ export interface ScriptParam {
   user_defaultable?: boolean
 }
 
+export interface ScriptUI {
+  mount?: string
+  title?: string
+  icon?: string
+  entry?: string
+  needs_credential?: boolean
+  sandbox?: string
+}
+
 export interface ScriptInfo {
   id: string
   name: string
@@ -23,6 +32,7 @@ export interface ScriptInfo {
   params: ScriptParam[]
   required_cookies?: string[]
   error?: string
+  ui?: ScriptUI
 }
 
 export interface CookieProfile {

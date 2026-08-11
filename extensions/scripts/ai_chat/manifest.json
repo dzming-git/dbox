@@ -1,0 +1,16 @@
+{
+  "id": "ai_chat",
+  "name": "AI 助手对话",
+  "description": "右下角悬浮球，点击展开与 AI 的对话面板，使用凭证保险库中的 token 直接呼叫",
+  "enabled": true,
+  "runtime": "none",
+  "interface": "ui",
+  "ui": {
+    "mount": "floating",
+    "title": "AI 助手",
+    "icon": "💬",
+    "entry": "panel.html",
+    "needs_credential": true,
+    "sandbox": "allow-scripts allow-same-origin allow-forms allow-popups"
+  }
+}
