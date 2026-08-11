@@ -28,11 +28,20 @@
   </div>
 </div>
 <script>
-  let TOKEN = '';
+  // 面板 iframe 与宿主同源（sandbox 开启 allow-same-origin），
+  // 优先直接读取 localStorage 中的 access token，避免 postMessage 注入竞态导致 token 为空触发 401。
+  function readToken() {
+    try {
+      return localStorage.getItem('token')
+        || localStorage.getItem('access_token')
+        || sessionStorage.getItem('token') || '';
+    } catch (e) { return ''; }
+  }
+  let TOKEN = readToken();
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'DBOX_TOKEN') { TOKEN = e.data.token; }
+    if (e.data && e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; }
   });
-  // 向宿主请求 token
+  // 向宿主请求 token（作为兜底，若直读失败再靠注入）
   window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
 
   const msgs = document.getElementById('msgs');
@@ -68,11 +77,15 @@
     const v = txt.value.trim();
     if (!v) return;
     if (!TOKEN) {
-      // token 可能尚未经 postMessage 注入，主动再请求并短等
-      window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
-      for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
+      // 先尝试直读 localStorage，失败再依赖 postMessage 注入并短等
+      TOKEN = readToken();
+      if (!TOKEN) {
+        window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
+        for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
+        if (!TOKEN) TOKEN = readToken();
+      }
     }
-    if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试', 'ai'); return; }
+    if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试或重新登录', 'ai'); return; }
     addBubble(v, 'me');
     txt.value = '';
     send.disabled = true;

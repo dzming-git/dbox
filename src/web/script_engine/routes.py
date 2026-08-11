@@ -369,6 +369,23 @@ def _resolve_buddy_cli() -> str:
     return ''
 
 
+def _codebuddy_user_home() -> str:
+    """返回存放 CodeBuddy 登录会话的交互用户家目录。
+
+    主服务可能以 SYSTEM/服务账户运行，其本地登录会话位于交互用户（如 <用户ID>）
+    的 ~/.codebuddy 下。优先用环境变量 DBOX_BUDDYCN_HOME 指定，否则回退到
+    硬编码的常见用户名家目录；找不到则返回空串（沿用调用方环境）。
+    """
+    env_home = os.environ.get('DBOX_BUDDYCN_HOME')
+    if env_home and os.path.isdir(env_home):
+        return env_home
+    for uname in ('<用户ID>',):
+        home = r'C:\Users\%s' % uname
+        if os.path.isdir(home):
+            return home
+    return ''
+
+
 def _is_auth_error(text: str) -> bool:
     t = (text or '').lower()
     return any(k in t for k in ('未登录', '认证失败', 'auth fail', 'unauthorized',
@@ -404,6 +421,18 @@ def ai_chat():
     token = _load_codebuddy_token()
     if token:
         env[_ANTHROPIC_API_KEY_ENV] = token
+
+    # CodeBuddy 的登录会话存放于交互用户家目录的 .codebuddy（如 C:\Users\<用户>\.codebuddy）。
+    # 主服务常以 SYSTEM/服务账户运行，其 USERPROFILE 指向不同目录，导致 codebuddy
+    # 找不到登录会话而报 “Authentication required”。此处把 HOME/USERPROFILE 指回
+    # 交互用户的家目录，复用其已登录会话；若缺失则回退到服务自身环境。
+    _home = _codebuddy_user_home()
+    if _home and os.path.isdir(_home):
+        env['USERPROFILE'] = _home
+        env['HOME'] = _home
+        # 部分 CLI 以 APPDATA 定位配置/缓存，一并指回交互用户
+        env['APPDATA'] = os.path.join(_home, 'AppData', 'Roaming')
+        env['LOCALAPPDATA'] = os.path.join(_home, 'AppData', 'Local')
 
     try:
         proc = subprocess.run(
