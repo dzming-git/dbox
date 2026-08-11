@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { scriptApi, type ScriptInfo } from '../api/script'
 
 interface ExtensionUI {
@@ -91,10 +91,28 @@ onMounted(async () => {
   await loadToken()
   await loadExtensions()
   window.addEventListener('message', onMessage)
+  syncScrollLock()
 })
+
+onUnmounted(() => {
+  window.removeEventListener('message', onMessage)
+  // 组件卸载（理论上为全局常驻）时释放背景滚动锁，避免残留锁定
+  document.body.classList.remove('ext-no-scroll')
+})
+
+// 呼出悬浮面板（带遮罩）时锁定背景滚动，避免面板后的页面跟随鼠标滚轮/触摸上下滑动
+function syncScrollLock() {
+  const ext = openId.value ? extensions.value.find((e) => e.id === openId.value) : null
+  if (openId.value && ext?.ui?.mount === 'floating') {
+    document.body.classList.add('ext-no-scroll')
+  } else {
+    document.body.classList.remove('ext-no-scroll')
+  }
+}
 
 watch(openId, (id) => {
   if (id) pushToken(id)
+  syncScrollLock()
 })
 </script>
 
@@ -235,5 +253,12 @@ watch(openId, (id) => {
   background: var(--bg-elevated, #1e1e22);
   z-index: 9002;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+}
+</style>
+
+<!-- 全局（非 scoped）：悬浮面板呼出时锁定背景滚动，需作用在 body 上 -->
+<style>
+body.ext-no-scroll {
+  overflow: hidden;
 }
 </style>
