@@ -29,13 +29,26 @@ def compute_thumb_stats():
 
     抽成独立函数，供配置接口与自动生成状态轮询接口复用，确保进度推进时
     缺失数量能实时下降（卡片数字之前只在页面加载时计算一次，从不刷新）。
+
+    设计原则：资源库管理服务（ResourceLibrary.is_active）掌控着资源的对外出口，
+    缩略图统计只应计入「已激活」资源库下的资源，而非磁盘上全部缩略图文件。
+    因此「已有缩略图」也按视频 hash 归属过滤，仅统计属于已激活库视频的缩略图。
     """
     from core.models import Video
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+
+    # 先确定「已激活」资源库，拿到其下视频的 hash 集合，作为缩略图归属过滤依据
+    visible_ids = _get_visible_library_ids()
+    if visible_ids:
+        db_videos = Video.query.filter(Video.library_id.in_(visible_ids)).all()
+    else:
+        db_videos = []
+    valid_hashes = {v.hash for v in db_videos if v.hash}
+
+    # 统计「已生成缩略图的视频数」：仅计入属于已激活资源库视频的缩略图文件，
+    # sprite.jpg 与 vtt 是附属于 poster 的预览产物，不单独计为「有缩略图」。
     total_thumbnails = 0
     if os.path.exists(thumb_dir):
-        # 统计「已生成缩略图的视频数」：以每个 hash 的 poster(jpg)/gif/png 为准，
-        # sprite.jpg 与 vtt 是附属于 poster 的预览产物，不单独计为「有缩略图」。
         seen = set()
         for f in os.listdir(thumb_dir):
             low = f.lower()
@@ -48,15 +61,10 @@ def compute_thumb_stats():
                 if low.endswith(ext):
                     base = f[:-len(ext)]
                     break
-            if base:
+            if base and base in valid_hashes:
                 seen.add(base)
         total_thumbnails = len(seen)
 
-    visible_ids = _get_visible_library_ids()
-    if visible_ids:
-        db_videos = Video.query.filter(Video.library_id.in_(visible_ids)).all()
-    else:
-        db_videos = []
     no_thumb_count = 0
     for v in db_videos:
         if v.hash:
