@@ -334,6 +334,41 @@ def _project_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
 
 
+def _resolve_buddy_cli() -> str:
+    """定位 codebuddy CLI 绝对路径。
+
+    服务可能以不同用户（如 LocalSystem）运行，%APPDATA% 解析到的目录
+    并不含 npm，故需在常见位置逐一回退；找不到时再尝试 PATH 搜索。
+    """
+    cands = []
+    env_buddy = os.environ.get('DBOX_BUDDYCN')
+    if env_buddy:
+        cands.append(env_buddy)
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        cands.append(os.path.join(appdata, 'npm', 'codebuddy.cmd'))
+    # 常见用户绝对路径（与本项目实际运行用户一致）
+    for uname in ('<用户ID>',):
+        cands.append(r'C:\Users\%s\AppData\Roaming\npm\codebuddy.cmd' % uname)
+        cands.append(r'C:\Users\%s\AppData\Local\npm\codebuddy.cmd' % uname)
+    # 项目内的 codebuddy（若在 PATH 或本地）
+    try:
+        import shutil
+        on_path = shutil.which('codebuddy.cmd') or shutil.which('codebuddy')
+        if on_path:
+            cands.append(on_path)
+    except Exception:
+        pass
+    seen = set()
+    for c in cands:
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        if os.path.isfile(c):
+            return c
+    return ''
+
+
 def _is_auth_error(text: str) -> bool:
     t = (text or '').lower()
     return any(k in t for k in ('未登录', '认证失败', 'auth fail', 'unauthorized',
@@ -352,10 +387,11 @@ def ai_chat():
     if not message:
         return jsonify({'success': False, 'message': 'message 必填'}), 400
 
-    buddy = os.environ.get('DBOX_BUDDYCN') or (
-        os.path.expandvars(r'%APPDATA%\npm\codebuddy.cmd'))
-    if not os.path.isfile(buddy):
-        return jsonify({'success': False, 'message': '未找到 CodeBuddy CLI，请确认已安装'}), 502
+    buddy = _resolve_buddy_cli()
+    if not buddy:
+        return jsonify({'success': False,
+                        'message': '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
+                                   '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径'}), 502
 
     # 拼装 prompt：带简短系统约束，要求直接回答用户问题
     prompt = (
