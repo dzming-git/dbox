@@ -22,6 +22,7 @@
   .b-running { background: #e6f4ea; color: #1a7f37; }
   .b-pending { background: #fff4e5; color: #b26a00; }
   .qtext { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+  .qtime { font-size: 11px; color: #aaa; white-space: nowrap; }
   .qdel { border: none; background: #ffe9e9; color: #d33; border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
   .qdel:hover { background: #ffd6d6; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #1a7f37; display: inline-block; animation: pulse 1s infinite; }
@@ -36,6 +37,7 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
+  .time { align-self: center; font-size: 11px; color: #b0b4bb; margin: 2px 0; user-select: none; }
 
   .input-bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e3e6eb; background: #fff; }
   .input-bar textarea { flex: 1; resize: none; min-height: 40px; max-height: 200px; overflow-y: auto; border: 1px solid #d0d4dc; border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit; line-height: 1.4; box-sizing: border-box; }
@@ -102,6 +104,20 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
+  function fmtTime(ts) {
+    if (!ts && ts !== 0) return '';
+    const d = new Date(ts * 1000);
+    if (isNaN(d.getTime())) return '';
+    const pad = n => (n < 10 ? '0' + n : '' + n);
+    const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const now = new Date();
+    const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    if (sameDay) return hm;
+    if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + hm;
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm;
+  }
+
   // 是否贴近底部（容差 40px）。用户手动上滑看历史时视为“未贴底”，
   // 此时不应把滚动条强制拉回底部，避免阅读中被打断。
   function nearBottom() {
@@ -120,7 +136,7 @@
   function renderQueue() {
     const items = [];
     if (state.active) {
-      items.push({ id: state.active.id, status: 'running', prompt: state.active.prompt });
+      items.push({ id: state.active.id, status: 'running', prompt: state.active.prompt, created_at: state.active.created_at });
     }
     state.pending.forEach(p => items.push({ id: p.id, status: 'pending', prompt: p.prompt }));
 
@@ -137,6 +153,7 @@
       html += '<div class="qitem" data-id="' + esc(it.id) + '">'
             + badge
             + '<span class="qtext" title="' + esc(it.prompt) + '">' + esc(it.prompt) + '</span>'
+            + (it.created_at != null ? '<span class="qtime">' + esc(fmtTime(it.created_at)) + '</span>' : '')
             + '<button class="qdel" data-del="' + esc(it.id) + '">删除</button>'
             + '</div>';
     });
@@ -155,14 +172,17 @@
       turns.push({ id: h.id, prompt: h.prompt,
                    reply: h.status === 'failed' ? ('执行失败：' + (h.error || ''))
                           : ((h.reply && h.reply.trim()) ? h.reply : '（任务已执行完成，无文本输出）'),
-                   kind: h.status === 'failed' ? 'err' : 'done' });
+                   kind: h.status === 'failed' ? 'err' : 'done',
+                   created_at: h.created_at });
     }
     if (state.active) {
       turns.push({ id: state.active.id, prompt: state.active.prompt,
-                   reply: state.active.stream || '正在处理…', kind: 'running' });
+                   reply: state.active.stream || '正在处理…', kind: 'running',
+                   created_at: state.active.created_at });
     }
     state.pending.forEach(p => {
-      turns.push({ id: p.id, prompt: p.prompt, reply: '排队中，等待处理…', kind: 'pending' });
+      turns.push({ id: p.id, prompt: p.prompt, reply: '排队中，等待处理…', kind: 'pending',
+                   created_at: p.created_at });
     });
 
     let html = '';
@@ -175,7 +195,9 @@
     turns.forEach(t => {
       const aiCls = 'ai' + (t.kind === 'err' ? ' err' : (t.kind === 'pending' ? ' pending' : ''));
       const statusTag = t.kind === 'running' ? '<span class="aistatus">● 正在处理</span>' : '';
-      html += '<div class="bubble me">' + esc(t.prompt) + '</div>'
+      const timeLabel = (t.created_at != null) ? '<div class="time">' + esc(fmtTime(t.created_at)) + '</div>' : '';
+      html += timeLabel
+            + '<div class="bubble me">' + esc(t.prompt) + '</div>'
             + '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
             + esc(t.reply) + statusTag + '</div>';
     });
