@@ -404,18 +404,37 @@ def ai_chat():
     if not message:
         return jsonify({'success': False, 'message': 'message 必填'}), 400
 
+    # 读取并清洗历史对话，用于让 AI 理解上下文（仅保留最近的若干轮，避免 prompt 过长）
+    history = []
+    raw_history = data.get('history')
+    if isinstance(raw_history, list):
+        for item in raw_history[-20:]:
+            if not isinstance(item, dict):
+                continue
+            role = item.get('role')
+            content = (item.get('content') or '').strip()
+            if role in ('user', 'assistant') and content:
+                history.append((role, content))
+
     buddy = _resolve_buddy_cli()
     if not buddy:
         return jsonify({'success': False,
                         'message': '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
                                    '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径'}), 502
 
-    # 拼装 prompt：带简短系统约束，要求直接回答用户问题
-    prompt = (
+    # 拼装 prompt：带简短系统约束，并附上历史对话作为上下文，让 AI 能看到之前的聊天记录
+    parts = [
         '你是一个嵌入在媒体库管理后台里的 AI 助手，请用简体中文简洁回答用户问题。\n'
-        '只输出回答内容本身，不要输出多余的解释或代码块标记。\n\n'
-        '用户问题：' + message
-    )
+        '只输出回答内容本身，不要输出多余的解释或代码块标记。'
+    ]
+    if history:
+        parts.append('以下是之前的对话记录，供你理解上下文：')
+        for role, content in history:
+            name = '用户' if role == 'user' else '助手'
+            parts.append(name + '：' + content)
+        parts.append('')
+    parts.append('用户问题：' + message)
+    prompt = '\n'.join(parts)
 
     env = dict(os.environ)
     token = _load_codebuddy_token()

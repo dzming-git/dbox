@@ -48,6 +48,9 @@
   const txt = document.getElementById('txt');
   const send = document.getElementById('send');
 
+  // 本地维护对话历史，每次请求一并发给后端，使 AI 能看到之前的聊天记录
+  let history = [];
+
   function addBubble(text, who) {
     const d = document.createElement('div');
     d.className = 'bubble ' + who;
@@ -56,15 +59,15 @@
     msgs.scrollTop = msgs.scrollHeight;
   }
 
-  async function callAI(prompt) {
+  async function callAI(prompt, history) {
     // 经后端 /api/ai-chat 调用 CodeBuddy CLI（后端用凭证保险库 token 调 CLI）
-    // 本面板只需带管理员 JWT 通过 @admin_required 鉴权
+    // 本面板只需带管理员 JWT 通过 @admin_required 鉴权，并一并发上对话历史
     const headers = { 'Content-Type': 'application/json' };
     if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
     const resp = await fetch('/api/ai-chat', {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ message: prompt })
+      body: JSON.stringify({ message: prompt, history: history })
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.success) {
@@ -87,12 +90,19 @@
     }
     if (!TOKEN) { addBubble('尚未获取到管理员 token，请稍候重试或重新登录', 'ai'); return; }
     addBubble(v, 'me');
+    history.push({ role: 'user', content: v });
+    // 仅保留最近 20 条，避免历史无限增长拖慢响应
+    if (history.length > 20) history = history.slice(-20);
     txt.value = '';
     send.disabled = true;
     try {
-      const reply = await callAI(v);
+      // 历史中不含当前这一条，由后端附带在 prompt 末尾
+      const reply = await callAI(v, history.slice(0, -1));
       addBubble(reply, 'ai');
+      history.push({ role: 'assistant', content: reply });
     } catch (e) {
+      // 调用失败则回滚刚加入的用户消息，避免脏历史影响后续对话
+      history.pop();
       addBubble('调用失败: ' + e.message, 'ai');
     } finally {
       send.disabled = false;
