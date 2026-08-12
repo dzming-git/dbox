@@ -24,9 +24,9 @@ def _internal_key_path():
     env = os.environ.get('DBOX_DATA_DIR')
     if env:
         return os.path.join(env, '.dbox_internal_key')
-    # 本包在 src/extensions_host，向上三级为项目根
+    # 本包在 src/extensions_host，向上两级为项目根 (dbox)
     here = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    root = os.path.dirname(os.path.dirname(here))
     return os.path.join(root, 'data', '.dbox_internal_key')
 
 

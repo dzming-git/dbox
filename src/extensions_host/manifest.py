@@ -15,7 +15,7 @@ def scripts_base_dir():
     本包位于 <root>/src/extensions_host，故从包目录向上 3 级到达项目根。
     """
     pkg_dir = os.path.dirname(os.path.abspath(__file__))        # src/extensions_host
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
+    project_root = os.path.dirname(os.path.dirname(pkg_dir))      # 向上两级 -> 项目根 (dbox)
     return os.path.join(project_root, 'extensions', 'scripts')
 
 

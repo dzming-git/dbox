@@ -5,7 +5,10 @@
 服务（8080）完全解耦——本模块不直接 import 任何 src/web 业务代码，仅通过
 platform_client 以 HTTP 调用主服务暴露的内部契约接口完成业务副作用。
 
-- 除 notify / input 外，所有接口仅管理员可访问（与 main.py 的 admin_required 一致的 JWT 校验）。
+- 脚本管理类接口（增删改、启用/禁用、参数默认值、执行、ui-proxy 等）仅管理员可访问
+  （admin_required，与 main.py 一致的 JWT 角色校验）。
+- 面向全体登录用户的 UI 注入类接口（扩展悬浮面板列表 / 面板内容、AI 助手对话等）仅要求
+  已登录（login_required），普通用户也应能使用 AI 助手悬浮球，不应被管理员权限拦截。
 - notify / input 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
 """
 from functools import wraps
@@ -90,6 +93,38 @@ def admin_required(f):
         g.username = payload.get('username')
         if g.role < ADMIN_ROLE:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def login_required(f):
+    """仅校验 JWT 有效（用户已登录）即可访问，不限制角色。
+
+    用于面向全体登录用户的 UI 注入类接口（扩展悬浮面板列表/面板内容、
+    AI 助手对话等）——这些功能普通用户也应可用，不应要求管理员权限。
+    管理员专属的脚本管理/代理能力仍使用 admin_required。
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        _auth = request.headers.get('Authorization', '')
+        token = _auth[7:] if _auth.startswith('Bearer ') else _auth
+        if not token:
+            return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+        payload = None
+        last_err = None
+        for secret in _JWT_SECRETS:
+            try:
+                payload = jwt.decode(token, secret)
+                break
+            except Exception as e:
+                last_err = e
+        if payload is None:
+            return jsonify({'success': False, 'message': f'无效的 token: {last_err}', 'code': 401}), 401
+        if payload.get('type') != 'access':
+            return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
+        g.user_id = payload.get('user_id')
+        g.role = payload.get('role', 0)
+        g.username = payload.get('username')
         return f(*args, **kwargs)
     return decorated
 
@@ -238,7 +273,7 @@ def reload_scripts():
 # 因此扩展 UI 天然只对管理员可见（与「只有管理员有权限」的要求一致）。
 # 路由使用独立命名空间 /api/ui-*，避免与 /api/scripts/<script_id>/* 动态路由冲突。
 @script_bp.route('/api/ui-extensions', methods=['GET'])
-@admin_required
+@login_required
 def list_extensions():
     """返回当前已启用且声明了 ui 的脚本 UI 元信息，供前端全局挂载悬浮面板/标签页。"""
     out = []
@@ -264,7 +299,7 @@ def list_extensions():
 
 
 @script_bp.route('/api/ui-panel/<script_id>', methods=['GET'])
-@admin_required
+@login_required
 def get_panel(script_id):
     """返回扩展脚本 UI 入口文件内容（位于脚本目录 ui/<entry>）。前端用 iframe 加载。"""
     sc = mgr.scripts.get(script_id)
@@ -338,7 +373,7 @@ def ui_proxy():
 
 
 @script_bp.route('/api/ai-chat', methods=['POST'])
-@admin_required
+@login_required
 def ai_chat_enqueue():
     """入队一条用户消息，立即返回 task_id（不阻塞、不流式）。"""
     data = request.get_json(silent=True) or {}
@@ -352,7 +387,7 @@ def ai_chat_enqueue():
 
 
 @script_bp.route('/api/ai-chat/tasks', methods=['GET'])
-@admin_required
+@login_required
 def ai_chat_tasks():
     """返回当前任务全景：排队中（FIFO）、正在处理、最近历史。"""
     try:
@@ -364,7 +399,7 @@ def ai_chat_tasks():
 
 
 @script_bp.route('/api/ai-chat/history', methods=['GET'])
-@admin_required
+@login_required
 def ai_chat_history():
     """分页获取更早的历史（展开更多）。cursor 为上一页末条 created_at。"""
     try:
@@ -382,7 +417,7 @@ def ai_chat_history():
 
 
 @script_bp.route('/api/ai-chat/tasks/<task_id>/stream', methods=['GET'])
-@admin_required
+@login_required
 def ai_chat_stream(task_id):
     """按 task_id 订阅该任务流式输出（SSE）。支持多端订阅与刷新重连。"""
     return Response(stream_with_context(ai_mgr.subscribe(task_id)),
@@ -391,7 +426,7 @@ def ai_chat_stream(task_id):
 
 
 @script_bp.route('/api/ai-chat/tasks/<task_id>', methods=['DELETE'])
-@admin_required
+@login_required
 def ai_chat_delete(task_id):
     """删除/取消任务：排队中->取消排队；处理中->取消执行；终态->从历史删除。"""
     ok = ai_mgr.delete_task(task_id)
@@ -403,7 +438,7 @@ def ai_chat_delete(task_id):
 
 
 @script_bp.route('/api/ai-chat/clear', methods=['POST'])
-@admin_required
+@login_required
 def ai_chat_clear():
     """清空全部对话（含排队与历史），重置多轮上下文。"""
     ai_mgr.clear()
@@ -417,7 +452,7 @@ def ai_chat_clear():
 # 解析逻辑驻留在主服务（backend/internal_api 的 /internal/resource-resolve），本接口经
 # platform_client 回调，避免拓展宿主直接 import 主服务的 core.models。
 @script_bp.route('/api/ai-chat/resource-resolve', methods=['GET'])
-@admin_required
+@login_required
 def ai_chat_resource_resolve():
     """根据 AI 回复中的资源引用 (type, ref) 解析出可跳转详情页路径与封面。"""
     rtype = (request.args.get('type') or '').strip().lower()
