@@ -90,10 +90,6 @@ const showToast = (message: string) => {
         <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
       </svg>
       <p>暂无观看记录</p>
-      <div class="browse-links">
-        <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
-      </div>
     </div>
 
     <div v-else class="history-grid">
@@ -173,21 +169,6 @@ const showToast = (message: string) => {
 }
 .empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
-.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-.browse-link {
-  padding: 10px 24px;
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: var(--text-on-accent);
-  font-size: 14px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.browse-link:hover { background: var(--accent-active); }
-.browse-link.gallery { background: #ff9800; }
-.browse-link.gallery:hover { background: #e68a00; }
 .history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

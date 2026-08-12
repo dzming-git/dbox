@@ -60,10 +60,6 @@ const showToast = (message: string) => {
         <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
       </svg>
       <p>暂无点赞内容</p>
-      <div class="browse-links">
-        <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
-      </div>
     </div>
 
     <div v-else class="likes-grid">
@@ -129,21 +125,6 @@ const showToast = (message: string) => {
 }
 .empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
-.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-.browse-link {
-  padding: 10px 24px;
-  background: #ff4757;
-  border: none;
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 14px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.browse-link:hover { background: #e03e4c; }
-.browse-link.gallery { background: #ff9800; }
-.browse-link.gallery:hover { background: #e68a00; }
 .likes-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
