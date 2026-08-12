@@ -37,6 +37,16 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
+  /* 过长消息折叠：仅显示部分，底部渐隐 + “查看全部”按钮；不影响流式输出（running）气泡 */
+  .bubble.ai.collapsed {
+    max-height: 220px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+    mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  }
+  .ai-fold { text-align: center; margin: -4px 0 2px; }
+  .ai-fold button { border: 1px solid #d0d4dc; background: #fff; color: #4f8cff; border-radius: 14px; font-size: 12px; padding: 3px 14px; cursor: pointer; }
+  .ai-fold button:hover { border-color: #4f8cff; }
   .time { align-self: center; font-size: 11px; color: #b0b4bb; margin: 2px 0; user-select: none; }
 
   .input-bar { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e3e6eb; background: #fff; }
@@ -91,7 +101,9 @@
   let state = { pending: [], active: null, history: [], has_more: false,
                 older: [], nextCursor: null, canExpand: false };
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
+  const expandedIds = new Set();  // 用户已手动“查看全部”的对话 id，跨重绘保留展开态
   let pollTimer = null;
+  const COLLAPSE_MAX = 220;       // 气泡超过此高度(px)则折叠为部分展示
 
   function api(path, opts) {
     const headers = { 'Content-Type': 'application/json' };
@@ -211,6 +223,27 @@
     // 否则保留当前滚动位置，避免用户在看历史时被拉回底部。
     if (pinToBottom) stickToBottom();
     else msgs.scrollTop = prevScrollTop;
+
+    // 过长消息折叠：仅当该条已渲染高度超出阈值、且用户未手动展开过时，
+    // 才折叠为部分展示并附“查看全部”按钮（流式输出 running 气泡不折叠）。
+    msgs.querySelectorAll('.bubble.ai').forEach(node => {
+      if (node.classList.contains('running') || node.classList.contains('pending')) return;
+      const tid = node.id.slice(3);
+      if (expandedIds.has(tid)) return;
+      if (node.scrollHeight > COLLAPSE_MAX + 8) {
+        node.classList.add('collapsed');
+        const fold = document.createElement('div');
+        fold.className = 'ai-fold';
+        fold.innerHTML = '<button>查看全部</button>';
+        node.after(fold);
+        fold.querySelector('button').addEventListener('click', () => {
+          node.classList.remove('collapsed');
+          fold.remove();
+          expandedIds.add(tid);
+          if (nearBottom()) stickToBottom();
+        });
+      }
+    });
   }
 
   // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）
@@ -387,6 +420,7 @@
     if (!confirm('确定清空全部对话（含排队与历史）？')) return;
     try {
       subscribed.clear();
+      expandedIds.clear();
       await api('/api/ai-chat/clear', { method: 'POST' });
       state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
       render();
