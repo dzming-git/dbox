@@ -26,6 +26,24 @@ const openId = ref<string | null>(null)
 const token = ref('')
 // 面板收起后暂存各扩展未发送的输入草稿，重新展开时回填（避免误触收起丢失已输入内容）
 const drafts = ref<Record<string, string>>({})
+// AI 助手忙碌态：气泡入口的灵动反馈。由宿主侧轻量轮询后端任务接口得到「是否有正在处理/
+// 排队的 AI 任务」，与面板 iframe 生命周期解耦——即使面板收起（iframe 被卸载），
+// 气泡也能在 AI 后台工作时持续显示忙碌动画。
+const busyMap = ref<Record<string, boolean>>({})
+function fabBusy(id: string) { return !!busyMap.value[id] }
+let busyTimer: any = null
+async function pollAiBusy() {
+  const hasAi = extensions.value.some((e) => e.id === 'ai_chat' && e.ui?.mount === 'floating')
+  if (!hasAi) { busyMap.value = {}; return }
+  try {
+    const headers: Record<string, string> = {}
+    if (token.value) headers['Authorization'] = 'Bearer ' + token.value
+    const resp = await fetch('/api/ai-chat/tasks?limit=1', { headers })
+    if (!resp.ok) return
+    const d: any = await resp.json()
+    busyMap.value = { ai_chat: !!(d.active) || (d.pending && d.pending.length > 0) }
+  } catch (e) { /* 网络抖动忽略，下个周期重试 */ }
+}
 
 async function loadToken() {
   // 从 localStorage 读取当前管理员的 access token（与 axios 拦截器一致）
@@ -104,10 +122,14 @@ onMounted(async () => {
   await loadExtensions()
   window.addEventListener('message', onMessage)
   syncScrollLock()
+  // 轻量轮询 AI 忙碌态以驱动气泡入口动画（即使面板收起也持续生效）
+  pollAiBusy()
+  busyTimer = setInterval(pollAiBusy, 2000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('message', onMessage)
+  if (busyTimer) clearInterval(busyTimer)
   // 组件卸载（理论上为全局常驻）时释放背景滚动锁，避免残留锁定
   document.body.classList.remove('ext-no-scroll')
 })
@@ -138,12 +160,12 @@ watch(openId, (id) => {
       <div
         v-if="ext.ui.mount === 'floating'"
         class="ext-fab"
-        :class="{ 'is-open': openId === ext.id }"
+        :class="{ 'is-open': openId === ext.id, 'is-busy': fabBusy(ext.id) }"
         :title="ext.ui.title"
         @click="toggle(ext.id)"
       >
         <span class="ext-fab-icon">{{ ext.ui.icon }}</span>
-        <span class="ext-fab-label">{{ ext.ui.title }}</span>
+        <span class="ext-fab-label">{{ fabBusy(ext.id) ? 'AI 正在思考…' : ext.ui.title }}</span>
       </div>
 
       <!-- 展开的面板 -->
@@ -217,6 +239,40 @@ watch(openId, (id) => {
 .ext-fab-icon {
   font-size: 20px;
   line-height: 1;
+}
+/* AI 忙碌态：外部气泡入口的灵动反馈——旋转光环 + 呼吸光晕 + 图标轻浮，
+   与面板内 AI 头像的「旋转光环」视觉语言保持一致；空闲/错误态完全静态，不打扰。 */
+.ext-fab.is-busy {
+  animation: fab-breathe 1.8s ease-in-out infinite;
+}
+.ext-fab.is-busy::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(79, 140, 255, 0) 0deg, rgba(79, 140, 255, 0) 220deg, var(--accent, #4f8cff) 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+  animation: fab-spin 1.1s linear infinite;
+  pointer-events: none;
+}
+.ext-fab.is-busy .ext-fab-icon {
+  animation: fab-bob 1.8s ease-in-out infinite;
+}
+@keyframes fab-spin { to { transform: rotate(360deg); } }
+@keyframes fab-breathe {
+  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+  50% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0.16), 0 6px 18px rgba(79, 140, 255, 0.5); }
+}
+@keyframes fab-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ext-fab.is-busy,
+  .ext-fab.is-busy::after,
+  .ext-fab.is-busy .ext-fab-icon { animation: none; }
+  .ext-fab.is-busy::after { opacity: 0.6; }
 }
 .ext-fab-label {
   position: absolute;
