@@ -20,17 +20,17 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.feedback_db import init_feedback_db
     init_feedback_db()
 
+    # 主服务内部 API：生成内部密钥并注册，供独立运行的 extensions_host 回调业务
+    from backend.internal_api import internal_bp as _internal_bp, init_internal_key as _init_internal_key
+    _init_internal_key(app)
+    app.register_blueprint(_internal_bp)
+
     app.register_blueprint(auth_v2_bp)
     app.register_blueprint(shared_watch_bp)
     app.register_blueprint(gallery_bp)
     app.register_blueprint(markers_bp)
     app.register_blueprint(system_info_bp)
     app.register_blueprint(suggestion_bp)
-
-    # 通用脚本引擎（含凭证保险库 /admin 接口）；初始化管理器（幂等）。
-    from script_engine import script_bp as _script_bp, init_script_engine as _init_script_engine
-    app.register_blueprint(_script_bp)
-    _init_script_engine(app)
 
 
 def register_domain_blueprints(app: Flask) -> None:
