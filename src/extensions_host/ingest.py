@@ -4,7 +4,7 @@
 服务（backend/internal_ingest），本模块仅把调用转发给主服务的平台内部接口
 /platform/ingest（经 platform_client），保持与主模块解耦。
 """
-from platform_client import ingest_file as _platform_ingest
+from .platform_client import ingest_file as _platform_ingest
 
 
 def ingest_file(library_id, path, app=None, kind=None, modes=('video',),
