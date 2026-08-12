@@ -854,14 +854,12 @@ const toggleResourceHidden = async (item: any) => {
   }
   togglingHidden.value = rid
   try {
+    // 后端成功即返回 2xx（axios 非 2xx 会抛异常进入 catch）；
+    // 响应体为 resource_index.to_dict()（含 hidden 字段，无 success 包裹），故直接读取 res.hidden。
     const res: any = await resourceApi.setHidden(rid, !item.hidden) as any
-    if (res && res.success) {
-      const updated = res.hidden
-      item.hidden = updated
-      showToast(updated ? '已隐藏' : '已显示')
-    } else {
-      showToast((res && res.message) || '操作失败')
-    }
+    const updated = res && typeof res.hidden === 'boolean' ? res.hidden : !item.hidden
+    item.hidden = updated
+    showToast(updated ? '已隐藏' : '已显示')
   } catch (e: any) {
     showToast(e?.response?.data?.message || e?.message || '操作失败')
   } finally {
