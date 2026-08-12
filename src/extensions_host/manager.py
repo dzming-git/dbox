@@ -1,4 +1,10 @@
-"""外部脚本任务管理器：发现脚本、执行子进程、解析进度、持久化任务、入库通知。"""
+"""外部脚本任务管理器：发现脚本、执行子进程、解析进度、持久化任务、入库通知。
+
+本模块运行于独立的拓展宿主进程（extensions_host），不直接 import 主服务的
+core.models / library_watcher / backend.access 等业务模块：涉及资源库磁盘目标、
+帖子生成等副作用，一律通过 platform_client 以 HTTP 调用主服务的内部契约接口完成，
+从而实现拓展管理与主模块的彻底解耦。
+"""
 import os
 import sys
 import json
@@ -13,10 +19,10 @@ import subprocess
 import concurrent.futures
 from datetime import datetime
 
-from .manifest import load_all, scripts_base_dir
-from .ingest import ingest_file
-from common.credential_vault import CredentialVault
-from unified_tasks import init_task_manager as _init_task_manager, sync_job as _tm_sync_job
+from manifest import load_all, scripts_base_dir
+from ingest import ingest_file
+from shared.credential_vault import CredentialVault
+from shared.unified_tasks import init_task_manager as _init_task_manager, sync_job as _tm_sync_job
 
 STATE_FILE = 'script_state.json'  # 持久化 enabled 覆盖，避免 reload 重置
 
@@ -82,7 +88,7 @@ class ScriptJobManager:
         env = os.environ.get('DBOX_DATA_DIR')
         if env:
             return env
-        pkg_dir = os.path.dirname(os.path.abspath(__file__))    # src/web/script_engine
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))    # src/extensions_host
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
         return os.path.join(project_root, 'data')
 
@@ -263,12 +269,10 @@ class ScriptJobManager:
         except Exception:
             return None
         try:
-            from library_watcher import get_watcher
-            w = get_watcher()
-            if w:
-                targets = w.library_disk_targets(lib_id)
-                if targets:
-                    return {'id': lib_id, 'type': sel.get('media_type', 'any'), 'path': targets[0]}
+            from platform_client import library_disk_targets
+            targets = library_disk_targets(lib_id)
+            if targets:
+                return {'id': lib_id, 'type': sel.get('media_type', 'any'), 'path': targets[0]}
         except Exception:
             pass
         return {'id': lib_id, 'type': sel.get('media_type', 'any'), 'path': ''}
@@ -535,12 +539,10 @@ class ScriptJobManager:
         if not library_id:
             return []
         try:
-            from library_watcher import get_watcher
-            w = get_watcher()
-            if w:
-                targets = w.library_disk_targets(library_id)
-                if targets:
-                    return [{'id': library_id, 'type': 'any', 'path': targets[0]}]
+            from platform_client import library_disk_targets
+            targets = library_disk_targets(library_id)
+            if targets:
+                return [{'id': library_id, 'type': 'any', 'path': targets[0]}]
         except Exception:
             pass
         return [{'id': library_id, 'type': 'any', 'path': ''}]
@@ -575,6 +577,7 @@ class ScriptJobManager:
         """把脚本产出文件从临时目录移动到资源库路径（跨盘安全），再按 modes 入库。
 
         返回移动后的最终路径列表。同组（group）的资源会被聚合成一条帖子（组合模式）。
+        涉及资源库磁盘目标与帖子生成等副作用，通过 platform_client 调用主服务完成。
         """
         final_paths = []
         post_groups = {}  # group_key -> {'title':..., 'ids':[...]}
@@ -661,19 +664,20 @@ class ScriptJobManager:
         # 聚合帖子：同组资源合成一条帖子（例：图文+视频一体的下载）
         if post_groups:
             try:
-                with self.app.app_context():
-                    from core.models import upsert_post_by_group
-                    for gk, g in post_groups.items():
-                        if g['ids']:
-                            gk_clean = gk if gk and gk != '_default_' else None
-                            d = upsert_post_by_group(gk_clean,
-                                                     g.get('title') or '',
-                                                     g.get('content'), g['ids'], user_id=owner_id,
-                                                     author_name=g.get('author_name'),
-                                                     author_url=g.get('author_url'),
-                                                     source_url=g.get('source_url'))
-                            self._append_log(job_id, 'info',
-                                             f'已生成帖子 #{d.id}（{len(g["ids"])} 个资源）')
+                from platform_client import upsert_post_by_group
+                for gk, g in post_groups.items():
+                    if g['ids']:
+                        gk_clean = gk if gk and gk != '_default_' else None
+                        d = upsert_post_by_group(gk_clean,
+                                                 g.get('title') or '',
+                                                 g.get('content'), g['ids'], user_id=owner_id,
+                                                 author_name=g.get('author_name'),
+                                                 author_url=g.get('author_url'),
+                                                 source_url=g.get('source_url'))
+                        # 兼容不同返回形态：dict 或 ORM 对象
+                        _pid = d.get('post_id') if isinstance(d, dict) else getattr(d, 'id', None)
+                        self._append_log(job_id, 'info',
+                                         f'已生成帖子 #{_pid}（{len(g["ids"])} 个资源）')
             except Exception as e:
                 self._append_log(job_id, 'error', f'生成帖子失败: {e}')
         return final_paths
