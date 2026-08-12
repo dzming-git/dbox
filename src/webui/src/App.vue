@@ -9,6 +9,7 @@ import { routes } from './router'
 import { useToast } from './composables/useToast'
 import { taskApi } from './api/task'
 import ExtensionHost from './components/ExtensionHost.vue'
+import PullToRefresh from './components/PullToRefresh.vue'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
 const cachedViews = routes
@@ -277,11 +278,13 @@ const closeUserDropdown = (event: MouseEvent) => {
       </div>
     </nav>
     <main class="main-content" :class="{ 'no-nav': isLoginPage }">
-      <RouterView v-slot="{ Component }">
-        <KeepAlive :include="cachedViews">
-          <component :is="Component" />
-        </KeepAlive>
-      </RouterView>
+      <PullToRefresh>
+        <RouterView v-slot="{ Component }">
+          <KeepAlive :include="cachedViews">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
+      </PullToRefresh>
     </main>
 
     <!-- 全局 Toast 宿主：后台上传完成等通知 -->
@@ -305,6 +308,8 @@ body {
   color: var(--text-primary);
   overflow-x: hidden;
   max-width: 100vw;
+  /* 关闭浏览器自带的「下拉刷新 / 橡皮筋」，避免与自定义下拉刷新手势冲突 */
+  overscroll-behavior-y: contain;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
