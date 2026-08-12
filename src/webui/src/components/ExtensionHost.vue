@@ -83,9 +83,14 @@ function onMessage(e: MessageEvent) {
     const id = e.data.extId
     if (id) drafts.value[id] = typeof e.data.text === 'string' ? e.data.text : ''
   }
-  // iframe 请求父页面跳转（如 AI 助手面板中点击反馈单引用，跳转到反馈中心详情）
+  // iframe 请求父页面跳转（如 AI 助手面板中点击反馈单引用，跳转到反馈中心详情）。
+  // 任何聊天框内的跳转都遵循同一逻辑：跳转后自动收起聊天窗口，避免遮挡目标页。
   if (e.data?.type === 'DBOX_NAVIGATE' && e.data.path) {
     router.push(e.data.path)
+    // 除非显式声明 keepPanel，否则跳转后收起面板（统一逻辑，供未来各类资源跳转复用）
+    if (e.data.keepPanel !== true) {
+      openId.value = null
+    }
   }
 }
 
