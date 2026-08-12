@@ -60,6 +60,12 @@ SERVICES = {
         'description': 'Dbox 独立下载器服务（外部脚本，与主服务解耦）',
         'port': 8092,
     },
+    'extensions': {
+        'service_name': 'dbox-extensions',
+        'display_name': 'Dbox 拓展管理宿主',
+        'description': 'Dbox 拓展管理宿主（脚本引擎/UI扩展/AI助手/凭证库，与主服务解耦，8093）',
+        'port': 8093,
+    },
     'scheduler': {
         'service_name': 'dbox-scheduler',
         'display_name': 'Dbox 脚本调度器',
