@@ -147,7 +147,7 @@ def _file_feedback(ftype: str, title: str, content: str):
     使本模块无需直接依赖主服务的 backend.feedback_db。
     """
     try:
-        from .platform_client import file_feedback
+        from platform_client import file_feedback
         if ftype not in ('bug', 'suggestion'):
             ftype = 'suggestion'
         title = (title or '').strip()

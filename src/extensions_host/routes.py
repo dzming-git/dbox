@@ -41,8 +41,8 @@ def _resolve_jwt_secrets():
 
 _JWT_SECRETS = _resolve_jwt_secrets()
 
-from .manager import mgr, ScriptJobManager
-from .ai_chat import ai_mgr
+from manager import mgr, ScriptJobManager
+from ai_chat import ai_mgr
 
 script_bp = Blueprint('script', __name__)
 

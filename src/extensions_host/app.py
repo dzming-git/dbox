@@ -18,7 +18,7 @@ _SRC_DIR = os.path.dirname(_THIS_DIR)                             # src/
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from .routes import script_bp, init_script_engine
+from routes import script_bp, init_script_engine
 
 
 def create_app():

@@ -12,10 +12,14 @@ UI 扩展面板渲染、AI 对话助手、凭证保险库。与主 Web 服务（
 import os
 import sys
 
-# 保证本包与共享库可被 import（extensions_host / shared 均在 src/ 下）
+# 保证本包与共享库可被 import（extensions_host / shared 均在 src/ 下）。
+# 同时把本包目录本身加入 sys.path，使子模块既可用「包内相对导入」（python -m 模式），
+# 也可直接用「绝对导入」（python src/extensions_host/app.py 直接运行模式，NSSM 即如此启动）。
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))           # src/extensions_host
 _SRC_DIR = os.path.dirname(_THIS_DIR)                            # src/
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
 
 __all__ = ['create_app']
