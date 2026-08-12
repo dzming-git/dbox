@@ -89,7 +89,7 @@ class ScriptJobManager:
         if env:
             return env
         pkg_dir = os.path.dirname(os.path.abspath(__file__))    # src/extensions_host
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
+        project_root = os.path.dirname(os.path.dirname(pkg_dir))  # 向上两级 -> 项目根 (dbox)
         return os.path.join(project_root, 'data')
 
     def _init_db(self):

@@ -65,7 +65,7 @@ def _load_codebuddy_token() -> str:
 
 def _project_root() -> str:
     pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/extensions_host
-    return os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
+    return os.path.dirname(os.path.dirname(pkg_dir))             # 向上两级 -> 项目根 (dbox)
 
 
 def _resolve_buddy_cli() -> str:
