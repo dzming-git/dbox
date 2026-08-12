@@ -1,10 +1,12 @@
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
+import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
@@ -482,11 +484,41 @@ const pageRange = computed(() => {
 
 const shuffling = ref(false)
 
-const handleShuffle = async () => {
-  shuffling.value = true
-  await videoStore.shuffleVideos()
-  shuffling.value = false
+// 顶部下拉刷新：推荐排序下等效「换一批」（重新随机排序），其余排序保持原规则原地刷新
+const galleryStore = useGalleryStore()
+const postsRef = ref<any>(null)
+const textsRef = ref<any>(null)
+const ptr = usePullToRefresh()
+
+async function ptrRefresh() {
+  if (mediaTab.value === 'video') {
+    if (videoStore.sortBy === 'recommended') {
+      await videoStore.shuffleVideos()
+    } else {
+      // 非推荐排序：保留当前排序规则刷新，不重置为推荐、不弹出撤回
+      await videoStore.fetchVideos(true)
+    }
+  } else if (mediaTab.value === 'gallery') {
+    await galleryStore.fetchGallerys(true)
+  } else if (mediaTab.value === 'mixed') {
+    postsRef.value?.reload?.()
+  } else if (mediaTab.value === 'text') {
+    textsRef.value?.reload?.()
+  }
 }
+
+function registerPtr() {
+  // 仅推荐排序的下拉刷新才是「换一批」语义，其余均为普通刷新
+  ptr.setHandler(ptrRefresh, videoStore.sortBy === 'recommended' ? 'shuffle' : 'reload')
+}
+
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
+// 切换媒体类型或排序后，下拉刷新的语义（换一批 / 刷新）随之变化
+watch(mediaTab, registerPtr)
+watch(() => videoStore.sortBy, registerPtr)
 
 const handleUndo = async () => {
   shuffling.value = true
@@ -634,18 +666,8 @@ const listThumbUrl = (video: Video): string => {
             {{ lib.name }}
           </option>
         </select>
-        <!-- 换一批按钮 -->
-        <button class="shuffle-btn" @click="handleShuffle" :disabled="shuffling" title="换一批">
-          <svg class="shuffle-icon" :class="{ spinning: shuffling }" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l4.4-6c.6-.9 1.9-1.4 3-1.1l5.8 1.6"/>
-            <path d="M22 6h-1.4c-1.3 0-2.5.6-3.3 1.7l-4.4 6c-.6.9-1.9 1.4-3 1.1l-5.8-1.6"/>
-            <path d="M7.5 12L5 8l9 4-2.5 4"/>
-            <path d="M16.5 12L19 16l-9-4 2.5-4"/>
-          </svg>
-          <span class="shuffle-text">{{ shuffling ? '换选中...' : '换一批' }}</span>
-        </button>
         <!-- 撤回按钮 -->
-        <button v-if="hasPreviousVideos" class="undo-btn" @click="handleUndo" :disabled="shuffling" title="撤回">
+        <button v-if="hasPreviousVideos && currentSort === 'recommended'" class="undo-btn" @click="handleUndo" :disabled="shuffling" title="撤回">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
             <path d="M7 6L3 10l4 4"/>
@@ -906,9 +928,9 @@ const listThumbUrl = (video: Video): string => {
     <!-- 图集内容（仅图集 tab 显示） -->
     <Gallerys v-else-if="mediaTab === 'gallery'" />
     <!-- 帖子（Post）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
-    <Posts v-else-if="mediaTab === 'mixed'" />
+    <Posts v-else-if="mediaTab === 'mixed'" ref="postsRef" />
     <!-- 文本模式（未来内容管理，复用同一套资源索引机制） -->
-    <Texts v-else-if="mediaTab === 'text'" />
+    <Texts v-else-if="mediaTab === 'text'" ref="textsRef" />
 
     <!-- 编辑抽屉（视频/图集通用） -->
     <ItemEditDrawer
@@ -1412,57 +1434,9 @@ const listThumbUrl = (video: Video): string => {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 
-/* 换一批按钮 */
-.shuffle-btn {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--accent-border);
-  border-radius: 18px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.shuffle-btn:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border-color: var(--accent);
-  box-shadow: 0 0 20px rgba(234, 88, 12, 0.2);
-  transform: translateY(-1px);
-}
-
-.shuffle-btn:active:not(:disabled) {
-  transform: scale(0.96) translateY(0);
-}
-
-.shuffle-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.shuffle-icon {
-  flex-shrink: 0;
-  transition: transform 0.3s ease;
-}
-
-.shuffle-icon.spinning {
-  animation: spin 0.8s linear infinite;
-}
-
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.shuffle-text {
-  letter-spacing: 0.3px;
 }
 
 /* 撤回按钮 */
@@ -1906,25 +1880,11 @@ const listThumbUrl = (video: Video): string => {
     margin-left: 0;
   }
 
-  .shuffle-btn,
   .undo-btn,
   .batch-toggle-btn {
     flex: 1 1 auto;
     justify-content: center;
     height: 38px;
-  }
-  
-  /* 移动端换一批按钮 */
-  .shuffle-btn {
-    height: 32px;
-    padding: 0 10px;
-    font-size: 12px;
-    gap: 4px;
-  }
-
-  .shuffle-btn svg {
-    width: 14px;
-    height: 14px;
   }
 
   .undo-btn {
