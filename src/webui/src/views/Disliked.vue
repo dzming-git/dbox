@@ -101,10 +101,6 @@ const showToast = (message: string) => {
         <path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/>
       </svg>
       <p>暂无屏蔽的内容</p>
-      <div class="browse-links">
-        <router-link to="/" class="browse-link">去浏览视频</router-link>
-        <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
-      </div>
     </div>
 
     <div v-else class="disliked-grid">
@@ -174,21 +170,6 @@ const showToast = (message: string) => {
 }
 .empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
-.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-.browse-link {
-  padding: 10px 24px;
-  background: #ffd93d;
-  border: none;
-  border-radius: 8px;
-  color: var(--bg-surface-2);
-  font-size: 14px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.browse-link:hover { background: #e6c233; }
-.browse-link.gallery { background: #ff9800; color: var(--text-primary); }
-.browse-link.gallery:hover { background: #e68a00; }
 .disliked-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
