@@ -425,7 +425,7 @@ def get_health():
                 health = svc.get('health_status', 'unknown')
                 if win not in ('RUNNING', 'PAUSED'):
                     svc_status = 'down'
-                elif health == 'unhealthy':
+                elif health in ('unhealthy', 'timeout', 'offline'):
                     svc_status = 'down'
                 else:
                     svc_status = 'healthy'
