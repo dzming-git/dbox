@@ -19,8 +19,8 @@ import subprocess
 import concurrent.futures
 from datetime import datetime
 
-from .manifest import load_all, scripts_base_dir
-from .ingest import ingest_file
+from manifest import load_all, scripts_base_dir
+from ingest import ingest_file
 from shared.credential_vault import CredentialVault
 from shared.unified_tasks import init_task_manager as _init_task_manager, sync_job as _tm_sync_job
 
@@ -269,7 +269,7 @@ class ScriptJobManager:
         except Exception:
             return None
         try:
-            from .platform_client import library_disk_targets
+            from platform_client import library_disk_targets
             targets = library_disk_targets(lib_id)
             if targets:
                 return {'id': lib_id, 'type': sel.get('media_type', 'any'), 'path': targets[0]}
@@ -539,7 +539,7 @@ class ScriptJobManager:
         if not library_id:
             return []
         try:
-            from .platform_client import library_disk_targets
+            from platform_client import library_disk_targets
             targets = library_disk_targets(library_id)
             if targets:
                 return [{'id': library_id, 'type': 'any', 'path': targets[0]}]
@@ -664,7 +664,7 @@ class ScriptJobManager:
         # 聚合帖子：同组资源合成一条帖子（例：图文+视频一体的下载）
         if post_groups:
             try:
-                from .platform_client import upsert_post_by_group
+                from platform_client import upsert_post_by_group
                 for gk, g in post_groups.items():
                     if g['ids']:
                         gk_clean = gk if gk and gk != '_default_' else None
