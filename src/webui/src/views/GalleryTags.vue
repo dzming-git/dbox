@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { galleryApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 
 const router = useRouter()
 const tags = ref<any[]>([])
@@ -32,6 +33,16 @@ const viewGallerys = (tag: any) => {
 }
 
 onMounted(loadTags)
+
+// 顶部下拉刷新：重新加载图集标签
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(loadTags)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 </script>
 
 <template>

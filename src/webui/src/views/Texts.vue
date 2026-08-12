@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch, onActivated, onDeactivated } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { TextResource } from '../types'
 import PlainListRow from '../components/PlainListRow.vue'
 
@@ -31,6 +32,20 @@ const fetchTexts = async () => {
 }
 
 onMounted(fetchTexts)
+
+// 顶部下拉刷新：仅作为独立路由（/texts）时注册，嵌入首页时不接管手势
+const route = useRoute()
+const ptr = usePullToRefresh()
+function registerPtr() {
+  if (route.name !== 'Texts') return
+  ptr.setHandler(fetchTexts)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
+// 供首页 text 标签调用
+defineExpose({ reload: fetchTexts })
 
 let searchTimer: number | null = null
 watch(searchQuery, () => {

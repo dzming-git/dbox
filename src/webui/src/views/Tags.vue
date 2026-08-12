@@ -1,8 +1,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'Tags' })
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onActivated, onDeactivated } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useTagStore } from '../stores/tagStore'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { tagApi } from '../api/tag'
 import { libraryApi } from '../api/library'
 import type { Tag } from '../types'
@@ -126,6 +127,16 @@ onMounted(async () => {
   await fetchAllTags()
   if (isAdmin) await loadLibraries()
 })
+
+// 顶部下拉刷新：重新拉取标签
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(fetchAllTags)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 // 展开/收起
 const toggleExpand = (tagId: number) => {

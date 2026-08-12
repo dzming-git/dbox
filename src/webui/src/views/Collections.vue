@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { collectionSetApi, videoApi, galleryApi } from '../api'
 import { useUserStore } from '../stores/userStore'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 
 const route = useRoute()
@@ -238,6 +239,16 @@ watch(
   () => route.query.c,
   () => loadCollections(),
 )
+
+// 顶部下拉刷新：重新拉取合集列表
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(loadCollections)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 </script>
 
 <template>

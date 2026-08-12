@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated } from 'vue'
 import { videoApi, galleryApi } from '../api'
 import { fetchLikes, type MediaItem } from '../utils/media'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 
 const likes = ref<MediaItem[]>([])
@@ -21,6 +22,16 @@ const loadLikes = async () => {
 }
 
 onMounted(loadLikes)
+
+// 顶部下拉刷新：重新加载点赞列表
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(loadLikes)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 const onAction = async (payload: { name: string; item: MediaItem }) => {
   const { name, item } = payload

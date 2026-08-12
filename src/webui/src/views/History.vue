@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchHistory, type MediaItem } from '../utils/media'
 import { historyApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
 const history = ref<MediaItem[]>([])
 const loading = ref(false)
 
-onMounted(async () => {
+const reloadHistory = async () => {
   loading.value = true
   try {
     history.value = await fetchHistory()
@@ -19,7 +20,19 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(reloadHistory)
+
+// 顶部下拉刷新：重新加载观看历史
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(reloadHistory)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 // 视频与图集历史均以后端为唯一数据源，删除/清空走后端接口。
 const onAction = async (payload: { name: string; item: MediaItem }) => {
