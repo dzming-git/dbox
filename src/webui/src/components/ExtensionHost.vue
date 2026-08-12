@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { scriptApi, type ScriptInfo } from '../api/script'
+
+const router = useRouter()
 
 interface ExtensionUI {
   mount: string
@@ -79,6 +82,10 @@ function onMessage(e: MessageEvent) {
   if (e.data?.type === 'DBOX_DRAFT_SAVE') {
     const id = e.data.extId
     if (id) drafts.value[id] = typeof e.data.text === 'string' ? e.data.text : ''
+  }
+  // iframe 请求父页面跳转（如 AI 助手面板中点击反馈单引用，跳转到反馈中心详情）
+  if (e.data?.type === 'DBOX_NAVIGATE' && e.data.path) {
+    router.push(e.data.path)
   }
 }
 

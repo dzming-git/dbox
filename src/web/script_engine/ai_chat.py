@@ -14,6 +14,7 @@
 """
 import os
 import sys
+import re
 import json
 import time
 import uuid
@@ -147,13 +148,89 @@ def _sse_block(event: str, data) -> str:
     return 'event: %s\n' % event + ''.join('data: ' + ln + '\n' for ln in lines) + '\n'
 
 
+def _file_feedback(ftype: str, title: str, content: str):
+    """在反馈中心建一条反馈单，返回新单号；失败返回 None。
+
+    仅由 _maybe_file_feedback 在 AI 判定为「新反馈」时调用。
+    身份遵循项目准则：反馈中心交互使用「自动助手」身份
+    （submitter='自动助手'、source='ai_assistant'、auto_classified=True）。
+    """
+    try:
+        from backend.feedback_db import db_create_issue, init_feedback_db
+        init_feedback_db()
+        if ftype not in ('bug', 'suggestion'):
+            ftype = 'suggestion'
+        title = (title or '').strip()
+        content = (content or '').strip()
+        if not title and not content:
+            return None
+        return db_create_issue(
+            title=title, content=content, category=ftype,
+            submitter='自动助手', source='ai_assistant', auto_classified=True,
+        )
+    except Exception as e:
+        try:
+            from liblog import get_service_logger
+            get_service_logger('dbox-web').warning('AI 助手建单失败: %s' % e)
+        except Exception:
+            pass
+        return None
+
+
+def _maybe_file_feedback(reply: str):
+    """若 AI 回复内含 feedback-request 块，则建单并回填单号、剥离该块。
+
+    返回处理后的回复文本（始终为字符串）。解析/建单失败时保留原回复、仅剥离块。
+    """
+    if not reply:
+        return reply
+    m = _FB_RE.search(reply)
+    if not m:
+        return reply
+    issue_id = None
+    try:
+        data = json.loads(m.group(1).strip())
+        ftype = data.get('type')
+        title = data.get('title')
+        content = data.get('content')
+        if isinstance(ftype, str) and isinstance(title, str) and isinstance(content, str):
+            issue_id = _file_feedback(ftype, title, content)
+    except Exception:
+        issue_id = None
+    # 剥离 feedback-request 围栏块（避免在前端露出原始 JSON）
+    reply = (reply[:m.start()] + reply[m.end():]).strip()
+    if issue_id:
+        token = '#(待分配)'
+        if token in reply:
+            reply = reply.replace(token, '#' + issue_id, 1)
+        else:
+            reply = reply + ('\n\n📋 已提交反馈单：#%s' % issue_id)
+    return reply
+
+
 # 对话系统约束：本助手具备真实执行能力，要求直接动手而非只描述。
 _SYSTEM_PROMPT = (
     '你是一个嵌入在媒体库管理后台里的 AI 助手，拥有读写文件、运行命令的真实能力。\n'
     '当用户布置具体任务（如修改代码、创建/删除文件、执行命令等）时，请直接动手完成，'
     '不要只罗列步骤或描述做法；完成后用简体中文简要说明你做了什么。\n'
-    '若只是闲聊或提问，则正常简洁回答即可。'
+    '若只是闲聊或提问，则正常简洁回答即可。\n'
+    '\n'
+    '【提交反馈】当用户的消息是在向本产品提交一条新的反馈（例如报告一个 bug、或提出一个'
+    '建议 / 功能诉求）时：\n'
+    '- 不要把它当作「需要你去修复或实现的任务」，也不要只描述做法；\n'
+    '- 把反馈整理为简洁的 title 与 content，并在你回复的【最末尾】追加一个如下格式的围栏代码块：\n'
+    '  ```feedback-request\n'
+    '  {"type":"bug 或 suggestion","title":"一句话标题","content":"反馈的详细描述"}\n'
+    '  ```\n'
+    '- 在你的正文里用占位符 #(待分配) 表示反馈单号，并告知用户已提交、可在反馈中心查看；'
+    '例如：「已为你提交反馈单 #(待分配)（类型：bug），我们会跟进处理。」\n'
+    '- 若用户只是普通提问、闲聊，或让你执行某项任务，则按正常规则处理，不要输出 feedback-request 块。\n'
+    '- 若用户引用了某个已有反馈单（形如 #202608120001），正常与其讨论该问题即可，该单号可被点击跳转。'
 )
+
+
+# 解析 AI 回复中的 feedback-request 围栏块（AI 用其对反馈中心提单，后端执行建单并回填单号）
+_FB_RE = re.compile(r'```feedback-request\s*\n(.*?)```', re.DOTALL)
 
 
 class AIChatManager:
@@ -507,6 +584,9 @@ class AIChatManager:
                 # 模型仅执行了工具操作而未产出文本（常见于“直接动手完成”场景），
                 # 此时 stdout 为空。为避免聊天框出现空白气泡，给出友好占位说明。
                 reply = '（任务已执行完成，无文本输出）'
+            # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
+            # 回填真实单号并剥离该块，再存库与下发。
+            reply = _maybe_file_feedback(reply)
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')

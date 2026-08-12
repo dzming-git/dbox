@@ -78,6 +78,10 @@
   .bubble.ai.md .md-code { margin: 6px 0; padding: 8px 10px; background: #2b2f36; color: #e6e6e6; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.45; white-space: pre; }
   .bubble.ai.md code.md-inline { background: #d8dce3; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; color: #c0331d; }
   .bubble.ai.md a { color: #2f6fd0; text-decoration: underline; }
+  /* 反馈单引用：#单号 渲染为可点击链接，点击跳转反馈中心对应详情 */
+  .bubble.ai .fb-ref { color: #2f6fd0; background: #eaf2ff; border-radius: 4px; padding: 0 4px; cursor: pointer; text-decoration: none; font-weight: 600; }
+  .bubble.ai .fb-ref:hover { background: #d6e6ff; }
+  .fbhint { font-size: 11.5px; color: #9aa0a6; text-align: center; padding: 4px 10px 0; user-select: none; }
 </style>
 </head>
 <body>
@@ -91,6 +95,7 @@
   </div>
   <div class="queue" id="queue"></div>
   <div class="msgs" id="msgs"></div>
+  <div class="fbhint" id="fbhint">可在此提交 bug / 建议，AI 会自动建单并在反馈中心跟踪</div>
   <div class="input-bar">
     <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
     <button id="send">发送</button>
@@ -228,6 +233,24 @@
     return text;
   }
 
+  // 剥离 AI 回复中的 feedback-request 围栏块（提单指令，不应向用户展示原始 JSON）
+  function stripFeedbackBlock(src) {
+    return (src || '').replace(/```feedback-request[\s\S]*?```/g, '').trim();
+  }
+
+  // 将回复中的反馈单引用（# + 12 位数字，如 #202608120001）渲染为可点击链接，
+  // 点击后通知宿主跳转到反馈中心详情页。
+  function linkifyFeedback(html) {
+    return (html || '').replace(/#(\d{12})/g, function (m, id) {
+      return '<a class="fb-ref" data-id="' + id + '" href="javascript:void(0)">#' + id + '</a>';
+    });
+  }
+
+  // 渲染 AI 回复的标准管线：剥离提单块 -> Markdown -> 反馈单引用可点击
+  function renderContent(src) {
+    return linkifyFeedback(mdToHtml(stripFeedbackBlock(src)));
+  }
+
   // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
   function fmtTime(ts) {
     if (!ts && ts !== 0) return '';
@@ -327,7 +350,7 @@
             + '<div class="ai-row" data-ai="' + esc(t.id) + '">'
             +   '<div class="ai-avatar' + (isRun ? ' running' : '') + '">' + avatarGlyph + '</div>'
             +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
-            +      mdToHtml(t.reply) + statusTag
+            +      renderContent(t.reply) + statusTag
             +   '</div>'
             + '</div>';
     });
@@ -402,7 +425,7 @@
     if (!node) { renderMsgs(); return; }
     // 流式内容同样按 Markdown 渲染；running 时追加“正在处理”状态标签
     const status = running ? '<span class="aistatus">● 正在处理</span>' : '';
-    node.innerHTML = mdToHtml(text) + status;
+    node.innerHTML = renderContent(text) + status;
     // AI 思考/执行中：头像外圈显示旋转光环；结束后移除
     const avatar = node.closest('.ai-row') && node.closest('.ai-row').querySelector('.ai-avatar');
     if (avatar) avatar.classList.toggle('running', !!running);
@@ -606,6 +629,13 @@
     window.parent.postMessage({ type: 'DBOX_DRAFT_SAVE', extId: 'ai_chat', text: txt.value }, '*');
   }
   txt.addEventListener('input', () => { autoGrow(); syncDraft(); });
+  // 反馈单引用点击：通知宿主（父页面）跳转到反馈中心对应详情
+  msgs.addEventListener('click', function (e) {
+    const a = e.target.closest && e.target.closest('.fb-ref');
+    if (a && a.dataset.id) {
+      window.parent.postMessage({ type: 'DBOX_NAVIGATE', path: '/feedback/' + a.dataset.id }, '*');
+    }
+  });
   autoGrow();
 
   // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）

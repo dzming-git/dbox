@@ -17,7 +17,7 @@ from core.models import UserRole
 from backend.access import resolve_identity
 from backend.feedback_db import (
     init_feedback_db, get_session, FeedbackIssue, FeedbackComment,
-    issue_to_dict, STATUS_MAP,
+    issue_to_dict, STATUS_MAP, db_create_issue, db_append_comment,
 )
 
 suggestion_bp = Blueprint('suggestion_api', __name__)
@@ -51,24 +51,6 @@ def make_title(content, max_len=40):
     if len(first) > max_len:
         return first[:max_len].rstrip() + '…'
     return first
-
-
-def generate_issue_id(date=None):
-    """生成 yyyymmdd + 4 位流水号，按当天最大序号 +1。"""
-    date = date or datetime.now()
-    date_str = date.strftime('%Y%m%d')
-    max_seq = 0
-    with get_session() as session:
-        for issue in session.query(FeedbackIssue).all():
-            iid = issue.id or ''
-            if isinstance(iid, str) and iid.startswith(date_str) and len(iid) == 12:
-                try:
-                    seq = int(iid[8:12])
-                    if seq > max_seq:
-                        max_seq = seq
-                except ValueError:
-                    pass
-    return f"{date_str}{max_seq + 1:04d}"
 
 
 def migrate_if_needed():
@@ -221,34 +203,23 @@ def create_issue():
         author_role = int(UserRole.GUEST)
         author_id = None
 
-    issue = FeedbackIssue(
-        id=generate_issue_id(),
-        title=title,
-        content=content,
-        status='open',
-        submitter=author,
-        category=ftype,
-        source='web',
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+    # 建单逻辑统一走 feedback_db.db_create_issue（AI 助手提单亦复用同一函数）
+    new_id = db_create_issue(
+        title=title, content=content, category=ftype,
+        submitter=author, source='web', auto_classified=False,
     )
     # 兼容历史：把游客联系方式暂存进 classification 之外的 meta 不合适，
     # 这里保留 contact 仅在 admin 可见——通过 submitter 备注不够，故在评论区不展示。
     # 由于 DB 模型无 contact 列，将联系方式作为首条系统留言（仅管理员可见由 _strip_contact 控制）。
     if contact:
-        issue.comments.append(FeedbackComment(
-            author='系统',
-            author_role=int(UserRole.ROOT),
-            content=f'联系方式：{contact}',
-            created_at=datetime.now(),
-        ))
+        db_append_comment(
+            new_id, '系统', int(UserRole.ROOT), f'联系方式：{contact}',
+        )
 
     with get_session() as session:
-        session.add(issue)
-        session.commit()
-        new_id = issue.id
+        issue = session.get(FeedbackIssue, new_id)
         # 必须在 session 关闭前序列化，否则访问 issue.comments 会因 detached 抛出 500
-        out = issue_to_dict(issue)
+        out = issue_to_dict(issue) if issue else {'id': new_id}
         out['type'] = out.get('category') or 'suggestion'
         out['author'] = author
         out['author_id'] = author_id
