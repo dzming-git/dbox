@@ -2448,7 +2448,6 @@ onUnmounted(() => {
               v-for="r in resources"
               :key="r.type + ':' + r.id"
               class="res-card"
-              :class="{ 'is-hidden': r.hidden }"
             >
               <div class="res-card-cover">
                 <img
@@ -4347,7 +4346,6 @@ onUnmounted(() => {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   border-color: var(--border-default);
 }
-.res-card.is-hidden { opacity: 0.58; }
 
 /* 封面区 */
 .res-card-cover {
