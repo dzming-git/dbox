@@ -37,12 +37,13 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
-  /* 过长消息折叠：仅显示部分，底部渐隐 + “查看全部”按钮；不影响流式输出（running）气泡 */
+  /* 过长消息折叠：仅显示部分，底部渐隐 + “查看全部”按钮；不影响流式输出（running）气泡。
+     max-height 由 JS 按行高对齐到整行设置，mask 仅对最后约 2 行做柔和淡出，
+     使截断落在行边界、淡出自然，避免“截断在半行/显示不全”的突兀感。 */
   .bubble.ai.collapsed {
-    max-height: 220px;
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
-    mask-image: linear-gradient(to bottom, #000 72%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
   }
   .ai-fold { text-align: center; margin: -4px 0 2px; }
   .ai-fold button { border: 1px solid #d0d4dc; background: #fff; color: #4f8cff; border-radius: 14px; font-size: 12px; padding: 3px 14px; cursor: pointer; }
@@ -103,7 +104,7 @@
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
   const expandedIds = new Set();  // 用户已手动“查看全部”的对话 id，跨重绘保留展开态
   let pollTimer = null;
-  const COLLAPSE_MAX = 220;       // 气泡超过此高度(px)则折叠为部分展示
+  const COLLAPSE_LINES = 10;      // 气泡超过此行数则折叠为部分展示（按行高对齐到整行）
 
   function api(path, opts) {
     const headers = { 'Content-Type': 'application/json' };
@@ -219,25 +220,35 @@
     msgs.innerHTML = html;
     const em = document.getElementById('expandMore');
     if (em) em.addEventListener('click', expandMore);
+    // 先折叠过长气泡（在恢复滚动位置之前完成）：折叠会改变内容总高度，
+    // 若放在 scrollTop 设定之后执行，浏览器会对 scrollTop 重新钳制到底部，造成“瞬移跳转”。
+    applyCollapse();
     // 仅当用户原本就贴底（或已展开“更多”）时才自动贴底；
     // 否则保留当前滚动位置，避免用户在看历史时被拉回底部。
     if (pinToBottom) stickToBottom();
     else msgs.scrollTop = prevScrollTop;
+  }
 
-    // 过长消息折叠：仅当该条已渲染高度超出阈值、且用户未手动展开过时，
-    // 才折叠为部分展示并附“查看全部”按钮（流式输出 running 气泡不折叠）。
+  // 过长消息折叠：仅当该条自然高度超出“行数阈值”、且用户未手动展开过时，
+  // 才折叠为部分展示（按行高对齐到整行，避免截断在半行显得突兀）并附“查看全部”按钮。
+  // 流式输出（running/pending）气泡不折叠；已展开（expandedIds）的不重复折叠。
+  function applyCollapse() {
     msgs.querySelectorAll('.bubble.ai').forEach(node => {
       if (node.classList.contains('running') || node.classList.contains('pending')) return;
       const tid = node.id.slice(3);
       if (expandedIds.has(tid)) return;
-      if (node.scrollHeight > COLLAPSE_MAX + 8) {
+      const lh = parseFloat(getComputedStyle(node).lineHeight) || 21;
+      const maxH = Math.round(lh * COLLAPSE_LINES);
+      if (node.scrollHeight > maxH + 8) {
         node.classList.add('collapsed');
+        node.style.maxHeight = maxH + 'px';
         const fold = document.createElement('div');
         fold.className = 'ai-fold';
         fold.innerHTML = '<button>查看全部</button>';
         node.after(fold);
         fold.querySelector('button').addEventListener('click', () => {
           node.classList.remove('collapsed');
+          node.style.maxHeight = '';
           fold.remove();
           expandedIds.add(tid);
           if (nearBottom()) stickToBottom();
