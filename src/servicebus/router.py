@@ -151,11 +151,13 @@ class BusRouter:
         msg_type = msg.type
 
         if msg_type == MessageType.HELLO:
-            # 服务注册
+            # 服务注册（周期性 HELLO 会重复调用，仅在首次或 identity 变化时打印）
             sender = msg.sender or msg.params.get('service', '')
             interfaces = msg.params.get('interfaces', [])
+            is_new = not self._registry.has_service(sender)
             self._registry.register(sender, sender_identity, interfaces)
-            print(f"[BusRouter] 服务注册: {sender} (interfaces: {interfaces})")
+            if is_new:
+                print(f"[BusRouter] 服务注册: {sender} (interfaces: {interfaces})")
 
         elif msg_type == MessageType.METHOD_CALL:
             # 方法调用 → 转发到目标服务

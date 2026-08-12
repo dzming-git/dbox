@@ -76,6 +76,11 @@ class BaseDBusService:
     INTERFACES: List[str] = []   # 支持的接口列表
     OBJECT_PATH: str = ""        # D-Bus 对象路径，如 '/com/dbox/thumbnail'
 
+    # 服务启动时只 HELLO 一次；总线（路由器）重启后 DEALER 会自动重连，
+    # 但新路由器的注册表已被清空。若服务不重新 HELLO，servicemgrd 等服务将
+    # 长期不可达，导致服务管理页拿不到任何状态。故在接收循环中周期性重新 HELLO。
+    _REHELLO_INTERVAL = 10  # 秒
+
     def __init__(self, host: str = DEFAULT_HOST,
                  rpc_port: int = DEFAULT_RPC_PORT,
                  pub_port: int = DEFAULT_PUB_PORT):
@@ -114,8 +119,7 @@ class BaseDBusService:
         self._dealer.connect(f"tcp://{self._host}:{self._rpc_port}")
 
         # 发送 HELLO 消息注册到总线（模拟 D-Bus bus.request_name()）
-        hello_msg = BusMessage.hello(self.BUS_NAME, self.INTERFACES)
-        self._dealer.send(hello_msg.to_json())
+        self._send_hello()
 
         # PUB socket：发送信号
         self._publisher = self._ctx.socket(zmq.PUB)
@@ -142,6 +146,18 @@ class BaseDBusService:
             self._publisher.close(linger=0)
         if self._ctx:
             self._ctx.term()
+
+    def _send_hello(self):
+        """发送 HELLO 注册消息（启动与路由器重启后重新登记都走这里）"""
+        try:
+            if self._dealer is not None:
+                hello_msg = BusMessage.hello(self.BUS_NAME, self.INTERFACES)
+                with self._send_lock:
+                    self._dealer.send(hello_msg.to_json())
+        except Exception:
+            # 路由器暂时不可达时发送会失败（DEALER 异步排队），忽略，
+            # 下个周期会再次尝试，直到路由器恢复。
+            pass
 
     @property
     def running(self) -> bool:
@@ -231,9 +247,16 @@ class BaseDBusService:
         """
         poller = zmq.Poller()
         poller.register(self._dealer, zmq.POLLIN)
+        last_hello = time.time()
 
         while self._running:
             try:
+                # 周期性重新 HELLO：路由器重启后注册表被清空，靠此机制重新登记，
+                # 使 servicemgrd 等服务在总线恢复后又能被索引到。
+                if time.time() - last_hello >= self._REHELLO_INTERVAL:
+                    self._send_hello()
+                    last_hello = time.time()
+
                 events = dict(poller.poll(1000))
                 for sock, mask in events.items():
                     if mask & zmq.POLLIN:

@@ -303,9 +303,45 @@ def get_services():
         bus_elapsed = (time.time() - bus_start) * 1000
         log.debug('WARN', f'总线查询失败 ({bus_elapsed:.0f}ms): {e}')
 
-    # 2. Fallback：如果总线不可用，返回静态服务列表（不调用 Windows API 扫描）
-    # 这是正确的架构：不应该在 API 请求时重新扫描服务，应该信任 servicemgrd 的缓存
-    log.debug('WARN', 'servicemgrd 不可用，返回静态服务列表')
+    # 2. Fallback：总线 / servicemgrd 不可用时，直接扫描 Windows 服务真实状态。
+    #    servicemgrd 仍是权威来源（source='bus' 优先），但路由器重启等情况下它会
+    #    暂时不可达——若只返回全 unknown，前端所有服务的操作按钮都会消失，页面像
+    #    "卡死"。这里回退为真实系统扫描，保证页面始终可见真实 RUNNING/STOPPED。
+    log.debug('WARN', 'servicemgrd 不可用，回退为直接扫描 Windows 服务状态')
+    try:
+        from backend.system_helpers import _scan_services, _get_service_status
+        scanned = _scan_services()
+    except Exception as e:
+        log.debug('WARN', f'服务扫描失败: {e}')
+        scanned = []
+
+    if scanned:
+        services = []
+        for svc_name in scanned:
+            meta = _SERVICE_META.get(svc_name, {})
+            st = _get_service_status(svc_name)
+            services.append({
+                'service_name': svc_name,
+                'display_name': meta.get('display_name', svc_name),
+                'description': meta.get('description', ''),
+                'port': meta.get('port'),
+                'system_status': st.get('status', 'unknown'),
+                'pid': st.get('pid'),
+                'memory_mb': st.get('memory_mb'),
+                'cpu_percent': st.get('cpu_percent'),
+                'health_status': 'unknown',
+                'health_latency_ms': None,
+                'health_detail': '服务管理器不可用，已直接扫描系统状态',
+            })
+        return jsonify({
+            'success': True,
+            'services': services,
+            'source': 'scan',  # 直接扫描得到的真实状态（可能不含健康检查）
+            'warning': 'servicemgrd 不可用，状态由直接扫描系统服务获得',
+        })
+
+    # 3. 扫描也失败，退回静态列表（仅展示元信息，状态 unknown）
+    log.debug('WARN', '服务扫描也失败，返回静态服务列表')
     services = []
     for svc_name, meta in _SERVICE_META.items():
         services.append({

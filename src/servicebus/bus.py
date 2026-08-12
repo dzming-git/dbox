@@ -300,6 +300,11 @@ class BusEndpoint:
         # DEALER socket：用于方法调用（请求/回复）
         self._dealer = self._ctx.socket(zmq.DEALER)
         self._dealer.setsockopt_string(zmq.IDENTITY, self.service_name)
+        # 总线重启后由 zmq 自动重连底层 TCP，上层服务再周期重发 HELLO 完成登记
+        self._dealer.setsockopt(zmq.RECONNECT_IVL, 200)
+        self._dealer.setsockopt(zmq.RECONNECT_IVL_MAX, 2000)
+        self._dealer.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self._dealer.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 30)
         self._dealer.connect(self.rpc_addr)
         self._poller.register(self._dealer, zmq.POLLIN)
 
