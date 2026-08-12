@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { scriptApi, type ScriptInfo } from '../api/script'
 
 const router = useRouter()
+const route = useRoute()
 
 interface ExtensionUI {
   mount: string
@@ -120,7 +121,9 @@ function onMessage(e: MessageEvent) {
   // iframe 请求父页面跳转（如 AI 助手面板中点击反馈单引用，跳转到反馈中心详情）。
   // 任何聊天框内的跳转都遵循同一逻辑：跳转后自动收起聊天窗口，避免遮挡目标页。
   if (e.data?.type === 'DBOX_NAVIGATE' && e.data.path) {
-    router.push(e.data.path)
+    // '__back__' 为全屏页「退出全屏」语义：返回进入全屏前的页面（悬浮面板所在页）
+    if (e.data.path === '__back__') router.back()
+    else router.push(e.data.path)
     // 除非显式声明 keepPanel，否则跳转后收起面板（统一逻辑，供未来各类资源跳转复用）
     if (e.data.keepPanel !== true) {
       openId.value = null
@@ -178,7 +181,7 @@ watch(openId, (id) => {
     <template v-for="ext in extensions" :key="ext.id">
       <!-- 悬浮球入口 -->
       <div
-        v-if="ext.ui.mount === 'floating'"
+        v-if="ext.ui.mount === 'floating' && !(ext.id === 'ai_chat' && route.path === '/ai-chat')"
         class="ext-fab"
         :class="{ 'is-open': openId === ext.id, 'is-busy': fabBusy(ext.id) }"
         :title="ext.ui.title"
