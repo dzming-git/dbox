@@ -36,10 +36,6 @@ for _p in (_SRC_DIR, _CONFIGS_DIR, _SERVICES_DIR, _ROOT_DIR):
 # configs/services 已在 sys.path，可直接导入启动守卫
 from launcher_guard import check_service_launch
 
-# 解析用户数据区（与 web 主服务保持一致：环境变量 > 平台系统数据区）
-import backend.paths as _paths  # noqa: E402
-_paths._ensure_user_dirs()
-
 # 启动守卫：生产环境要求经由 NSSM 启动；开发环境（DBOX_DEV_MODE=1）才允许直接运行
 try:
     check_service_launch('Dbox Resource Downloader', 'src/downloader/main.py')
