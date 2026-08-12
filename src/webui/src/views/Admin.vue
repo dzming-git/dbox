@@ -5053,11 +5053,12 @@ input:checked + .slider:before {
   bottom: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 24px 16px;
 }
 
 .modal-content {
@@ -5067,6 +5068,7 @@ input:checked + .slider:before {
   max-width: 500px;
   max-height: 90vh;
   overflow: hidden;
+  margin: auto 0;
   animation: modalIn 0.3s ease;
 }
 
