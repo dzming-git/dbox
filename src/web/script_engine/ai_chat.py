@@ -39,6 +39,17 @@ _ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
 _CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
 
 
+# TODO(凭证集中管理): 把 codebuddy 凭证纳入「凭证保险箱」统一管理的需求暂未实现，延后处理。
+#   背景：反馈中心要求 codebuddy 的凭证能在拓展管理→凭证保险箱里看到并集中管理。
+#   现状：当前 codebuddy 实际走 ~/.codebuddy 的 OAuth 登录会话鉴权（见 _codebuddy_user_home），
+#        并非 ANTHROPIC_API_KEY 环境变量；且本函数里保险库目录路径拼成了 src/common（应为
+#        src/web/common），导致 from credential_vault import 始终异常、被静默吞掉，保险库分支从未生效。
+#   待办：重新设计凭证来源——
+#        1) 若 codebuddy 提供可用的 API token，让保险箱作为唯一权威来源（注入环境变量）；
+#        2) 否则在保险箱 UI 呈现 ~/.codebuddy 登录会话的管理入口（已登录账号/重新登录）；
+#        3) 修正保险库目录路径，使保险库读取真正生效。
+#   注：此前一次「凭证保险库集中管理 codebuddy token」提交已回退（基于错误前提，视为死代码）。
+
 def _load_codebuddy_token() -> str:
     """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。"""
     env_token = os.environ.get(_ANTHROPIC_API_KEY_ENV)
