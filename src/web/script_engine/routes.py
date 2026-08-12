@@ -276,7 +276,10 @@ def get_panel(script_id):
         return jsonify({'success': False, 'message': 'UI 入口文件不存在'}), 404
     with open(target, 'r', encoding='utf-8') as f:
         content = f.read()
-    return Response(content, mimetype='text/html; charset=utf-8')
+    # 面板由悬浮窗 iframe 加载、不走 vite HMR，浏览器可能缓存旧版本导致新功能不生效，
+    # 故强制不缓存，保证每次打开都拉取最新 panel.html。
+    return Response(content, mimetype='text/html; charset=utf-8',
+                    headers={'Cache-Control': 'no-store'})
 
 
 @script_bp.route('/api/ui-proxy', methods=['POST'])

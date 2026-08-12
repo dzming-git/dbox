@@ -275,9 +275,25 @@
     });
   }
 
-  // 渲染 AI 回复的标准管线：剥离提单块 -> Markdown -> 反馈单引用可点击
+  // 渲染 AI 回复的标准管线：剥离提单块 -> Markdown -> 反馈单引用可点击 -> 兜底把残留的 dbox:// 资源裸链接转卡片
   function renderContent(src) {
-    return linkifyFeedback(mdToHtml(stripFeedbackBlock(src)));
+    return resourceifyHtml(linkifyFeedback(mdToHtml(stripFeedbackBlock(src))));
+  }
+
+  // 兜底：模型可能不会严格按 [文字](dbox://resource/类型/标识) 的 Markdown 形式输出，
+  // 而是直接给出裸 URL（如 dbox://resource/video/xxx）或放在代码块里。inlineMd 的链接规则
+  // 只识别标准 Markdown 链接，漏掉这些情况会导致聊天里显示成原始文本。这里在最终 HTML 上
+  // 做一次全局兜底：把仍残留的 dbox://resource/... 裸链接也渲染成可点击的资源卡片。
+  // 已渲染成 <span class="res-ref"> 的内容不含完整 "dbox://resource/" 串（只有 data-type/data-ref），
+  // 因此全局替换安全、不会重复包裹。
+  function resourceifyHtml(html) {
+    return (html || '').replace(/(dbox:\/\/resource\/([a-z]+)\/([^\s<)"'\]]+))/gi, function (m, full, type, ref) {
+      type = type.toLowerCase();
+      // 裸链接无显示名，先用类型标签占位，enrichResourceRefs 解析到真实标题后回填 .rr-title。
+      return '<span class="res-ref" data-type="' + esc(type) + '" data-ref="' + esc(ref) + '">'
+           + '<span class="rr-ico">' + typeIcon(type) + '</span>'
+           + '<span class="rr-title">' + typeLabel(type) + '</span></span>';
+    });
   }
 
   // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
@@ -702,6 +718,9 @@
         el.classList.add('found');
         if (d.url) el.dataset.url = d.url;
         if (d.title) el.title = d.title;
+        // 裸链接卡片的占位标题（.rr-title）回填为资源真实标题
+        const ttl = el.querySelector('.rr-title');
+        if (ttl && d.title) ttl.textContent = d.title;
         if (d.cover_url && !el.querySelector('.rr-cover')) {
           const img = document.createElement('img');
           img.className = 'rr-cover'; img.src = d.cover_url; img.alt = '';
