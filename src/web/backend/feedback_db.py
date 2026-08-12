@@ -345,3 +345,56 @@ def db_update_extra(issue_id: str, patch: dict) -> bool:
         issue.updated_at = datetime.now()
         session.commit()
         return True
+
+
+# ============ 建单辅助（供 AI 助手 / 后端 / 自动处理共用） ============
+def generate_issue_id(date=None):
+    """生成 yyyymmdd + 4 位流水号，按当天最大序号 +1。"""
+    date = date or datetime.now()
+    date_str = date.strftime('%Y%m%d')
+    max_seq = 0
+    with get_session() as session:
+        for issue in session.query(FeedbackIssue).all():
+            iid = issue.id or ''
+            if isinstance(iid, str) and iid.startswith(date_str) and len(iid) == 12:
+                try:
+                    seq = int(iid[8:12])
+                    if seq > max_seq:
+                        max_seq = seq
+                except ValueError:
+                    pass
+    return f"{date_str}{max_seq + 1:04d}"
+
+
+def db_create_issue(title: str, content: str, category: str = 'suggestion',
+                    submitter: str = '游客', source: str = 'web',
+                    auto_classified: bool = False, classification: str = None) -> str:
+    """创建一条反馈，返回新单号（yyyymmdd+4 位）。
+
+    线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
+    AI 助手提单时使用 submitter='自动助手'、source='ai_assistant'、auto_classified=True，
+    与项目「反馈中心交互使用自动助手身份」的准则一致。
+    """
+    init_feedback_db()
+    t = (title or '').strip()
+    if not t:
+        t = '(无标题)'
+    now = datetime.now()
+    issue = FeedbackIssue(
+        id=generate_issue_id(),
+        title=t,
+        content=(content or '').strip(),
+        status='open',
+        submitter=submitter,
+        category=category if category in ('bug', 'suggestion', 'other') else 'suggestion',
+        source=source,
+        auto_classified=auto_classified,
+        classification=classification,
+        created_at=now,
+        updated_at=now,
+    )
+    with get_session() as session:
+        session.add(issue)
+        session.commit()
+        new_id = issue.id
+    return new_id
