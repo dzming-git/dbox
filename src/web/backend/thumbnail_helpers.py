@@ -171,13 +171,89 @@ def _get_visible_library_ids():
         return []
 
 
+# 判定某字符串是否为「封面服务 URL / 路由」而非本地文件路径。
+# 缩略图服务只负责把图生成进「默认文件夹」，但每张资源都有自己的索引
+# （ResourceIndex），索引可通过 meta.thumbnail / cover 规定该资源缩略图的
+# 实际路径——可以指向默认文件夹，也可以指向别处。因此判断「资源有没有
+# 缩略图、缩略图在哪」必须以资源索引为准，而不是去扫描默认文件夹再按 hash 反推。
+_URL_PREFIXES = ('http://', 'https://', '/thumbnail/', '/gallery-cover/', 'data:', 'blob:')
+
+
+def _is_url_like(value):
+    if not isinstance(value, str) or not value:
+        return True
+    return value.startswith(_URL_PREFIXES)
+
+
+def resolve_thumbnail_path_for_video(video):
+    """返回某视频「索引文件所规定的」缩略图磁盘路径（绝对路径，或 None）。
+
+    解析优先级：
+      1) ResourceIndex.meta['thumbnail'] 为本地文件路径（绝对，或相对 DATA_DIR）→ 采用；
+      2) ResourceIndex.cover 为本地文件路径（非服务 URL / 路由）→ 采用；
+      3) 回退到默认文件夹下的 {hash}.{jpg|png|gif}（缩略图服务的默认落点）；
+      4) 都没有 → None。
+
+    调用方应结合 os.path.exists() 判定「是否真的有缩略图」——索引只规定路径，
+    文件可能因为生成未完成 / 生成失败而尚不存在。
+    """
+    if not video or not getattr(video, 'hash', None):
+        return None
+    ri = getattr(video, 'resource_index', None)
+    if ri is not None:
+        try:
+            m = ri.get_meta()
+            tp = m.get('thumbnail')
+            if tp and not _is_url_like(tp):
+                cand = tp if os.path.isabs(tp) else os.path.join(DATA_DIR, tp)
+                return cand
+            cov = ri.cover
+            if cov and not _is_url_like(cov):
+                cand = cov if os.path.isabs(cov) else os.path.join(DATA_DIR, cov)
+                return cand
+        except Exception as e:
+            log.debug('ERROR', f'读取资源索引缩略图路径失败: {e}')
+
+    # 默认文件夹回退（缩略图服务的默认命名）
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    for ext in ('jpg', 'png', 'gif'):
+        path = os.path.join(thumb_dir, f'{video.hash}.{ext}')
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _record_thumbnail_path_in_index(video, force=False):
+    """把缩略图「默认落点路径」写回资源索引，使索引成为缩略图位置的权威来源。
+
+    默认仅在索引尚未记录时才写入，避免覆盖用户自定义（cover / meta.thumbnail 可能指向
+    默认文件夹之外）。force=True 用于「正在（重新）生成」的场景：此时索引应改指向
+    新生成到默认文件夹的缩略图，即便原先记录的是一条已失效的自定义路径。
+    写的是相对 DATA_DIR 的路径（如 thumbnails/{hash}.jpg），
+    resolve_thumbnail_path_for_video 会按 DATA_DIR 还原成绝对路径。
+    """
+    ri = getattr(video, 'resource_index', None)
+    if ri is None or not getattr(video, 'hash', None):
+        return
+    try:
+        m = ri.get_meta()
+        if not force and m.get('thumbnail'):
+            return
+        m['thumbnail'] = f'thumbnails/{video.hash}.jpg'
+        ri.meta = json.dumps(m, ensure_ascii=False)
+        from core.models import db
+        db.session.add(ri)
+        db.session.commit()
+    except Exception as e:
+        log.debug('ERROR', f'记录缩略图路径到资源索引失败: {e}')
+
+
 def _generate_missing_thumbnails(config=None):
     """扫描并生成缺失的缩略图，并实时更新 _thumb_progress 进度快照"""
     if config is None:
         config = _load_thumb_config()
 
     import time
-    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     max_workers = config.get('max_workers', 2)
     task_interval = config.get('task_interval', 3)
 
@@ -190,13 +266,17 @@ def _generate_missing_thumbnails(config=None):
 
     missing_videos = []
     for v in db_videos:
-        if v.hash and v.local_path and os.path.exists(v.local_path):
-            has_thumb = any(
-                os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
-                for ext in THUMB_EXTENSIONS
-            )
-            if not has_thumb:
-                missing_videos.append(v)
+        if not (v.hash and v.local_path and os.path.exists(v.local_path)):
+            continue
+        # 以资源索引规定的路径为准判断缺失（而非扫描默认文件夹按 hash 反推）；
+        # 索引记录的路径若文件尚不存在，即视为缺失、需要生成。
+        existing = resolve_thumbnail_path_for_video(v)
+        if existing and os.path.exists(existing):
+            continue
+        # 把缩略图「默认落点路径」写回资源索引（force：即便是已失效的自定义路径也改指新生成文件），
+        # 使索引成为缩略图位置的权威来源
+        _record_thumbnail_path_in_index(v, force=True)
+        missing_videos.append(v)
 
     # 初始化进度快照
     _thumb_progress.update({
