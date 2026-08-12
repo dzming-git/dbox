@@ -31,10 +31,16 @@ const drafts = ref<Record<string, string>>({})
 // 气泡也能在 AI 后台工作时持续显示忙碌动画。
 const busyMap = ref<Record<string, boolean>>({})
 function fabBusy(id: string) { return !!busyMap.value[id] }
+// AI 助手未读提醒：面板收起期间若有任务产出结果（history 顶部变化），累计未读数，
+// 悬浮气泡入口显示角标，避免用户忘记曾布置过任务。打开面板即清空未读。
+const unreadMap = ref<Record<string, number>>({})
+function fabUnread(id: string) { return unreadMap.value[id] || 0 }
+let lastHistoryTop: string | null = null  // 上一次轮询到的最近已完成任务 id
+let seeded = false                         // 首次轮询仅建立基线，不误报未读
 let busyTimer: any = null
 async function pollAiBusy() {
   const hasAi = extensions.value.some((e) => e.id === 'ai_chat' && e.ui?.mount === 'floating')
-  if (!hasAi) { busyMap.value = {}; return }
+  if (!hasAi) { busyMap.value = {}; unreadMap.value = {}; lastHistoryTop = null; seeded = false; return }
   try {
     const headers: Record<string, string> = {}
     if (token.value) headers['Authorization'] = 'Bearer ' + token.value
@@ -42,6 +48,16 @@ async function pollAiBusy() {
     if (!resp.ok) return
     const d: any = await resp.json()
     busyMap.value = { ai_chat: !!(d.active) || (d.pending && d.pending.length > 0) }
+    // 完成态检测：最新一条已完成对话（history 顶部）发生变化 = 有任务刚产出结果。
+    // 若此时面板处于收起状态（用户没在看），记为一条未读；首次轮询只建基线不计数。
+    const topId = d.history && d.history.length ? d.history[0].id : null
+    if (topId && topId !== lastHistoryTop) {
+      if (seeded && openId.value !== 'ai_chat') {
+        unreadMap.value = { ...unreadMap.value, ai_chat: (unreadMap.value.ai_chat || 0) + 1 }
+      }
+      lastHistoryTop = topId
+    }
+    seeded = true
   } catch (e) { /* 网络抖动忽略，下个周期重试 */ }
 }
 
@@ -145,7 +161,11 @@ function syncScrollLock() {
 }
 
 watch(openId, (id) => {
-  if (id) pushToken(id)
+  if (id) {
+    pushToken(id)
+    // 打开面板即视为已查看：清空该扩展未读角标
+    if (unreadMap.value[id]) unreadMap.value = { ...unreadMap.value, [id]: 0 }
+  }
   syncScrollLock()
 })
 </script>
@@ -165,6 +185,7 @@ watch(openId, (id) => {
         @click="toggle(ext.id)"
       >
         <span class="ext-fab-icon">{{ ext.ui.icon }}</span>
+        <span v-if="fabUnread(ext.id)" class="ext-fab-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
         <span class="ext-fab-label">{{ fabBusy(ext.id) ? 'AI 正在思考…' : ext.ui.title }}</span>
       </div>
 
@@ -240,6 +261,32 @@ watch(openId, (id) => {
   font-size: 20px;
   line-height: 1;
 }
+/* 未读角标：面板收起期间有任务产出结果时，悬浮入口右上角显示红点计数，
+   提醒用户曾布置过任务；带轻微脉冲以吸引注意，但足够克制不打扰。 */
+.ext-fab-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #f5455c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  border: 2px solid var(--bg-elevated, #1e1e22);
+  box-sizing: content-box;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: fab-badge-pulse 1.8s ease-in-out infinite;
+}
+@keyframes fab-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
 /* AI 忙碌态：外部气泡入口的灵动反馈——旋转光环 + 呼吸光晕 + 图标轻浮，
    与面板内 AI 头像的「旋转光环」视觉语言保持一致；空闲/错误态完全静态，不打扰。 */
 .ext-fab.is-busy {
@@ -273,6 +320,7 @@ watch(openId, (id) => {
   .ext-fab.is-busy::after,
   .ext-fab.is-busy .ext-fab-icon { animation: none; }
   .ext-fab.is-busy::after { opacity: 0.6; }
+  .ext-fab-badge { animation: none; }
 }
 .ext-fab-label {
   position: absolute;
