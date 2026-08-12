@@ -2510,12 +2510,15 @@ onUnmounted(() => {
                 >
                   <svg v-if="r.hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  <span class="btn-label">{{ r.hidden ? '显示' : '隐藏' }}</span>
                 </button>
                 <button class="icon-btn" @click="editResource(r)" title="编辑">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <span class="btn-label">编辑</span>
                 </button>
                 <button class="icon-btn danger" @click="deleteResource(r)" title="删除">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  <span class="btn-label">删除</span>
                 </button>
               </td>
             </tr>
@@ -4438,17 +4441,59 @@ onUnmounted(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* 操作按钮：整行显示，靠右，不显示标签 */
+  /* 操作按钮：整行底部工具栏，等分分布、带分隔线，图标+文字 */
   .resource-table-wrap .res-row td[data-label="操作"] {
     grid-template-columns: 1fr;
     display: flex;
-    justify-content: flex-end;
-    gap: 4px;
-    padding-top: 8px;
+    justify-content: space-around;
+    align-items: stretch;
+    gap: 0;
+    margin-top: 4px;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--border-subtle);
     overflow: visible;
   }
   .resource-table-wrap .res-row td[data-label="操作"]::before {
     content: none;
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn {
+    width: auto;
+    height: auto;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 2px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn:hover {
+    background: var(--bg-surface);
+    color: var(--accent);
+    border-color: transparent;
+    transform: none;
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.active {
+    background: transparent;
+    color: var(--accent);
+    border-color: transparent;
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.danger {
+    color: var(--danger);
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.danger:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .resource-table-wrap .res-row td[data-label="操作"] .btn-label {
+    display: block;
+    font-size: 12px;
+    line-height: 1;
   }
 }
 
@@ -4521,6 +4566,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* 操作按钮文字标签：桌面端隐藏，移动端卡片内显示 */
+.btn-label {
+  display: none;
 }
 
 .data-table th,
