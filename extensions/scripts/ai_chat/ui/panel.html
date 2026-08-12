@@ -43,8 +43,8 @@
      使截断落在行边界、淡出自然，避免“截断在半行/显示不全”的突兀感。 */
   .bubble.ai.collapsed {
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   }
   .ai-fold { text-align: center; margin: -4px 0 2px; }
   .ai-fold button { border: 1px solid #d0d4dc; background: #fff; color: #4f8cff; border-radius: 14px; font-size: 12px; padding: 3px 14px; cursor: pointer; }
@@ -110,7 +110,8 @@
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
   const expandedIds = new Set();  // 用户已手动展开过的对话 id，跨重绘保留展开态
   let pollTimer = null;
-  const COLLAPSE_LINES = 10;      // 气泡超过此行数则折叠为部分展示（按行高对齐到整行）
+  const COLLAPSE_LINES = 6;       // 单条长消息默认折叠时展示的行数（按行高对齐到整行，足够看清大意）
+  const COLLAPSE_ALL_LINES = 4;   // “收起全部”时每条 AI 气泡的预览行数（紧凑概览，但仍保留内容提示）
 
   function api(path, opts) {
     const headers = { 'Content-Type': 'application/json' };
@@ -237,21 +238,23 @@
   }
 
   // AI 聊天内容收起/展开：
-  // - 默认仅对超过行数阈值（COLLAPSE_LINES）的长消息折叠为部分展示（“收起全部”视角下的长消息）。
-  // - collapsedAllMode 为 true 时强制折叠全部 AI 气泡（收起全部）。
+  // - 默认仅对超过预览行数（COLLAPSE_LINES）的长消息折叠为“部分展示”，顶部保留若干行作为内容预览。
+  // - collapsedAllMode 为 true 时（“收起全部”）所有 AI 气泡都按更小的预览行数（COLLAPSE_ALL_LINES）
+  //   折叠成紧凑概览，但仍露出开头几行“意思一下”，不会整条消失。
   // - expandedIds 记录用户手动展开过的气泡：无论默认折叠还是收起全部，展开后都保持展开，跨重绘保留。
-  // - 长消息展开后提供“收起”按钮，可重新折叠；用户可自由收起/展开，不必刷新。
-  // 流式输出（running/pending）气泡不折叠。
+  // - 仅当内容确实超出预览高度时才挂折叠/展开按钮；短消息不强行折叠、也不显示多余按钮。
+  // - 流式输出（running/pending）气泡不折叠。
   function applyCollapse() {
     msgs.querySelectorAll('.bubble.ai').forEach(node => {
       if (node.classList.contains('running') || node.classList.contains('pending')) return;
       const tid = node.id.slice(3);
       const lh = parseFloat(getComputedStyle(node).lineHeight) || 21;
-      const maxH = Math.round(lh * COLLAPSE_LINES);
-      const isLong = node.scrollHeight > maxH + 8;
+      const previewLines = collapsedAllMode ? COLLAPSE_ALL_LINES : COLLAPSE_LINES;
+      const maxH = Math.round(lh * previewLines);
+      const needsFold = node.scrollHeight > maxH + 8; // 内容是否真的超出预览高度
       const userExpanded = expandedIds.has(tid);
-      const shouldCollapse = (isLong || collapsedAllMode) && !userExpanded;
-      if (shouldCollapse) {
+      if (!userExpanded && needsFold) {
+        // 折叠为部分展示：顶部预览若干行，底部柔和淡出 + “展开全部”
         node.classList.add('collapsed');
         node.style.maxHeight = maxH + 'px';
         addFold(node, '展开全部', () => {
@@ -259,9 +262,10 @@
           renderMsgs();
         });
       } else {
+        // 完整展示（短消息 / 已手动展开）：仅当内容超标时提供“收起”按钮
         node.classList.remove('collapsed');
         node.style.maxHeight = '';
-        if (isLong || collapsedAllMode) {
+        if (needsFold) {
           addFold(node, '收起', () => {
             expandedIds.delete(tid);
             renderMsgs();
