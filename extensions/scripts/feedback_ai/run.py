@@ -275,43 +275,23 @@ def _effective_changes() -> list:
 
 
 def _load_codebuddy_token() -> str:
-    """从通用凭证保险库读取 codebuddy token（集中管理）。
+    """从通用凭证保险库读取 codebuddy token（token 型登录，免 /login）。
 
-    凭证保险库是 codebuddy token 的唯一权威来源：
-    - 优先读保险库（domain='codebuddy'，token 型，兼容 apikey 型）；
-    - 保险库为空且环境变量 ANTHROPIC_API_KEY 存在时，自动把环境变量里的
-      token 迁移（写回）保险库，使凭证在「凭证保险箱」界面可见、可集中管理；
-    - 仅在保险库与环境变量都缺失时，再按 name 模糊兜底（遗留数据）。
+    优先顺序：环境变量 ANTHROPIC_API_KEY -> 保险库(codebuddy 域名) -> 保险库
+    内 name 含 'codebuddy' 的 token。返回明文 token 或空串。
     """
-    try:
-        vault = CredentialVault(data_dir_for())
-        vault_tok = vault.get_token(domain=CODEBUDDY_TOKEN_DOMAIN)
-        if not vault_tok:
-            vault_tok = vault.get_apikey(domain=CODEBUDDY_TOKEN_DOMAIN)
-        if vault_tok:
-            return vault_tok.strip()
-        # 保险库为空：把环境变量 token 迁移进保险库，集中管理
-        env_token = os.environ.get(ANTHROPIC_API_KEY_ENV)
-        if env_token and env_token.strip():
-            env_token = env_token.strip()
-            vault.set_token(
-                domain=CODEBUDDY_TOKEN_DOMAIN,
-                token=env_token,
-                name='CodeBuddy API',
-                note='由环境变量 ANTHROPIC_API_KEY 自动迁移至凭证保险库集中管理',
-            )
-            return env_token
-    except Exception:
-        pass
-    # 兜底：环境变量（保持兼容）或按 name 模糊匹配保险库
     env_token = os.environ.get(ANTHROPIC_API_KEY_ENV)
     if env_token:
         return env_token.strip()
     try:
         vault = CredentialVault(data_dir_for())
+        tok = vault.get_token(domain=CODEBUDDY_TOKEN_DOMAIN)
+        if tok:
+            return tok.strip()
+        # 兜底：按名称模糊匹配
         for rec in vault.list_all():
-            if rec.get('kind') in ('token', 'apikey') and 'codebuddy' in (rec.get('name') or '').lower():
-                return (rec.get('value') or '').strip()
+            if rec.get('kind') == 'token' and 'codebuddy' in (rec.get('name') or '').lower():
+                return rec.get('value', '').strip()
     except Exception:
         pass
     return ''
