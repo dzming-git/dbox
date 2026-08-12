@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWatchLaterStore, type WatchLaterItem, type WatchLaterType } from '../stores/watchLaterStore'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { withThumbToken } from '../utils/media'
 
 const router = useRouter()
@@ -39,6 +40,16 @@ const clearAll = () => {
 onMounted(() => {
   store.init()
 })
+
+// 顶部下拉刷新：重新拉取「稍后再看」列表
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(() => store.init())
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 </script>
 
 <template>

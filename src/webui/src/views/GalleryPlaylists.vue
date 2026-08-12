@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { galleryApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import GalleryCard from '../components/GalleryCard.vue'
 
 const router = useRouter()
@@ -61,6 +62,16 @@ const del = async () => {
 const goGallery = (c: any) => router.push({ name: 'Gallery', params: { hash: c.hash } })
 
 onMounted(load)
+
+// 顶部下拉刷新：重新加载图集播放列表
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(load)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 </script>
 
 <template>

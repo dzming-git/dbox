@@ -1,9 +1,10 @@
 <script setup lang="ts">
 defineOptions({ name: 'Gallerys' })
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, onActivated, onDeactivated } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import GalleryCard from '../components/GalleryCard.vue'
 import ResourceListRow from '../components/ResourceListRow.vue'
 import type { Gallery } from '../types'
@@ -167,6 +168,17 @@ onMounted(async () => {
     ])
   }
 })
+
+// 顶部下拉刷新：仅作为独立路由（/galleries）时注册，嵌入首页时不接管手势
+const ptr = usePullToRefresh()
+function registerPtr() {
+  if (route.name !== 'Gallerys') return
+  ptr.setHandler(() => galleryStore.fetchGallerys(true))
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 // 监听路由 query 变化（处理浏览器后退/前进或 URL 直接访问场景）
 watch(() => route.query, async (newQuery) => {

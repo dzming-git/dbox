@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, nextTick, onActivated, onDeactivated } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { postApi, resourceApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 import WatchLaterButton from '../components/WatchLaterButton.vue'
@@ -64,6 +65,20 @@ const fetchPosts = async () => {
 }
 
 onMounted(fetchPosts)
+
+// 顶部下拉刷新：仅作为独立路由（/posts）时注册，嵌入首页时不接管手势
+const route = useRoute()
+const ptr = usePullToRefresh()
+function registerPtr() {
+  if (route.name !== 'Posts') return
+  ptr.setHandler(fetchPosts)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
+// 供首页 mixed 标签调用
+defineExpose({ reload: fetchPosts })
 
 // ============ 新建 / 编辑 ============
 const dialogVisible = ref(false)

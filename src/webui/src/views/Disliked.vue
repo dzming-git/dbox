@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onActivated, onDeactivated } from 'vue'
 import { videoApi, galleryApi } from '../api'
 import { fetchDisliked, type MediaItem } from '../utils/media'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 import { useUserStore } from '../stores/userStore'
 
@@ -24,6 +25,16 @@ const loadDisliked = async () => {
 }
 
 onMounted(loadDisliked)
+
+// 顶部下拉刷新：重新加载「我不喜欢」列表
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(loadDisliked)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 // 管理员可见的操作：删除（永久删除资源）+ 普通用户的取消屏蔽
 const cardActions = computed(() => (isAdmin.value ? ['restore', 'delete'] : ['restore']))

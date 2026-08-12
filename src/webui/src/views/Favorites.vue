@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { videoApi, galleryApi } from '../api'
 import { fetchFavorites, type MediaItem } from '../utils/media'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 
 const router = useRouter()
@@ -65,6 +66,19 @@ onMounted(async () => {
   await loadCollections()
   await loadFavorites()
 })
+
+// 顶部下拉刷新：重新加载收藏夹与收藏内容
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(async () => {
+    await loadCollections()
+    await loadFavorites()
+  })
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 
 // 切换收藏夹
 const selectCollection = async (id: number | null) => {

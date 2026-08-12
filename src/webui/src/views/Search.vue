@@ -1,8 +1,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'Search' })
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, onActivated, onDeactivated } from 'vue'
 import { useRoute } from 'vue-router'
 import { videoApi, galleryApi, postApi, textApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
 
@@ -103,6 +104,16 @@ watch(q, () => {
 watch(activeTab, () => {})
 
 onMounted(search)
+
+// 顶部下拉刷新：按当前关键词重新搜索
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(search)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
 </script>
 
 <template>
