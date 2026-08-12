@@ -190,10 +190,6 @@ const showToast = (message: string) => {
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
           <p>暂无收藏内容</p>
-          <div class="browse-links">
-            <router-link to="/" class="browse-link">去浏览视频</router-link>
-            <router-link to="/galleries" class="browse-link gallery">去浏览图集</router-link>
-          </div>
         </div>
 
         <div v-else class="favorites-grid">
@@ -357,21 +353,6 @@ const showToast = (message: string) => {
 }
 .empty-icon { margin-bottom: 16px; color: var(--border-strong); }
 .empty-state p { font-size: 16px; margin-bottom: 16px; }
-.browse-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-.browse-link {
-  padding: 10px 24px;
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: var(--text-on-accent);
-  font-size: 14px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.browse-link:hover { background: var(--accent-active); }
-.browse-link.gallery { background: #ff9800; }
-.browse-link.gallery:hover { background: #e68a00; }
 .favorites-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
