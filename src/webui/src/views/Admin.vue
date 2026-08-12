@@ -1836,6 +1836,9 @@ const version = computed(() => {
   return systemInfo.value?.version || '2.0.0'
 })
 
+// 作者开源仓库
+const repoUrl = 'https://github.com/dzming-git/dbox'
+
 // ============ 切换标签页 ============
 const switchTab = (tab: string) => {
   activeTab.value = tab
@@ -2062,6 +2065,10 @@ onUnmounted(() => {
               <div class="info-row" v-if="installInfo?.is_update">
                 <span class="label">升级状态</span>
                 <span class="value update-badge">已升级</span>
+              </div>
+              <div class="info-row">
+                <span class="label">开源仓库</span>
+                <a class="value repo-link" :href="repoUrl" target="_blank" rel="noopener noreferrer">{{ repoUrl }}</a>
               </div>
             </div>
           </div>
@@ -3871,6 +3878,15 @@ onUnmounted(() => {
   color: white;
   border-radius: 4px;
   font-size: 11px;
+}
+
+.repo-link {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.repo-link:hover {
+  text-decoration: underline;
 }
 
 /* 统计卡片样式 */
