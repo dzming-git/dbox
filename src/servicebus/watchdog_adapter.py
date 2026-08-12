@@ -132,6 +132,7 @@ class WatchdogService(BaseDBusService):
                 'display': item.get('display', item['win']),
                 'status': 'unknown',        # healthy / down / restarting / critical / unknown
                 'windows_status': 'unknown',
+                'health_status': 'unknown', # servicemgr 探活结果：healthy/unhealthy/timeout/offline/unknown
                 'bus_reachable': None,      # True/False/None(无 bus)
                 'consecutive_failures': 0,
                 'restart_count': 0,
@@ -207,14 +208,16 @@ class WatchdogService(BaseDBusService):
                 snap = states_snapshot.get(win_name, {})
                 win_status = snap.get('windows_status', 'unknown')
                 bus_reachable = snap.get('bus_reachable')   # True/False/None
+                health_status = snap.get('health_status', 'unknown')
                 st['windows_status'] = win_status
                 st['bus_reachable'] = bus_reachable
+                st['health_status'] = health_status
 
                 # 是否处于重启宽限期
                 in_grace = (st['last_restart'] is not None
                             and (now - st['last_restart']) < self._restart_grace)
 
-                reachable = self._is_reachable(win_status, bus_reachable)
+                reachable = self._is_reachable(win_status, bus_reachable, health_status)
                 if reachable:
                     st['last_success'] = now
                     st['last_error'] = None
@@ -233,7 +236,11 @@ class WatchdogService(BaseDBusService):
                         continue
                     st['last_failure'] = now
                     st['consecutive_failures'] += 1
-                    reason = snap.get('last_error') or ('windows_status=%s' % win_status)
+                    # 优先用服务管理器探活给出的明确失败原因（如下载器 HTTP 探活失败）
+                    if health_status in ('unhealthy', 'timeout', 'offline'):
+                        reason = 'health check failed: %s' % health_status
+                    else:
+                        reason = snap.get('last_error') or ('windows_status=%s' % win_status)
                     st['last_error'] = reason
 
                     if st['consecutive_failures'] >= self._fail_threshold:
@@ -294,7 +301,7 @@ class WatchdogService(BaseDBusService):
                 _log.info('总体健康状态变更 → %s', overall)
 
     @staticmethod
-    def _is_reachable(win_status: str, bus_reachable) -> bool:
+    def _is_reachable(win_status: str, bus_reachable, health_status=None) -> bool:
         if win_status not in ('RUNNING', 'PAUSED'):
             return False
         # 有 bus 的服务以 bus ping 为准
@@ -303,7 +310,11 @@ class WatchdogService(BaseDBusService):
         if bus_reachable is False:
             return False
         # None：无 bus 服务 / 服务在线但不支持 Ping（旧版本未加载新代码）
-        # → 以 Windows 状态为准（此时 windows 已为 RUNNING）
+        # → 若服务管理器已通过 HTTP 探活明确判定该服务不可达（如下载器
+        #   进程虽 RUNNING 但 /api/health 不通），同样视为不可达，避免汇总
+        #   状态误报「全部正常」。
+        if health_status in ('unhealthy', 'timeout', 'offline'):
+            return False
         return True
 
     def _compute_overall(self) -> str:
@@ -319,16 +330,23 @@ class WatchdogService(BaseDBusService):
     # ============ 状态采集 ============
 
     def _query_service_states(self) -> Dict[str, Dict[str, Any]]:
-        """采集每个被监控服务的可达状态。优先走 servicemgr 总线，失败则直查。"""
+        """采集每个被监控服务的可达状态。优先走 servicemgr 总线，失败则直查。
+        除了 Windows 状态 / 总线可达性，还会带上服务管理器的 HTTP 探活结果
+        （health_status），使汇总状态能反映「进程在跑但服务实际不可用」的情况。
+        """
         result: Dict[str, Dict[str, Any]] = {}
         client = self._new_bus_client()
         try:
-            # 先尝试通过 servicemgr 拿 Windows 状态
-            win_states = self._query_via_servicemgr(client) if client else {}
-            if not win_states:
-                win_states = self._query_win32_direct()
+            # 先尝试通过 servicemgr 拿 Windows 状态 + 探活结果
+            svc_states = self._query_via_servicemgr(client) if client else {}
+            if not svc_states:
+                svc_states = self._query_win32_direct()
             for win_name, st in self._states.items():
-                entry = {'windows_status': win_states.get(win_name, 'unknown')}
+                snap = svc_states.get(win_name, {})
+                entry = {
+                    'windows_status': snap.get('windows_status', 'unknown'),
+                    'health_status': snap.get('health_status', 'unknown'),
+                }
                 bus_name = st.get('bus')
                 if bus_name and client:
                     reachable, err = self._ping_bus(client, bus_name)
@@ -346,7 +364,8 @@ class WatchdogService(BaseDBusService):
                     pass
         return result
 
-    def _query_via_servicemgr(self, client) -> Dict[str, str]:
+    def _query_via_servicemgr(self, client) -> Dict[str, Dict[str, str]]:
+        """经服务管理器总线取 {name: {windows_status, health_status}}。"""
         if not client:
             return {}
         try:
@@ -357,36 +376,58 @@ class WatchdogService(BaseDBusService):
                 return {}
             out = {}
             for svc in resp['services']:
-                out[svc.get('name')] = svc.get('status', 'unknown')
+                out[svc.get('name')] = {
+                    'windows_status': svc.get('status', 'unknown'),
+                    'health_status': svc.get('health_status', 'unknown'),
+                }
             return out
         except Exception as e:
             _log.debug('通过 servicemgr 查询失败，回退直查: %s', e)
             return {}
 
-    def _query_win32_direct(self) -> Dict[str, str]:
+    def _query_win32_direct(self) -> Dict[str, Dict[str, str]]:
+        """直查 Windows 服务状态；对已知 health_url 的服务额外做 HTTP 探活。"""
+        status_map = {
+            1: 'STOPPED', 2: 'START_PENDING', 3: 'STOP_PENDING',
+            4: 'RUNNING', 5: 'CONTINUE_PENDING', 6: 'PAUSE_PENDING',
+            7: 'PAUSED',
+        }
         out = {}
         try:
             import win32service
             scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
             try:
                 for win_name in self._states:
+                    health = 'unknown'
                     try:
                         svc = win32service.OpenService(
                             scm, win_name, win32service.SERVICE_QUERY_STATUS)
                         st = win32service.QueryServiceStatus(svc)[1]
-                        out[win_name] = {
-                            1: 'STOPPED', 2: 'START_PENDING', 3: 'STOP_PENDING',
-                            4: 'RUNNING', 5: 'CONTINUE_PENDING', 6: 'PAUSE_PENDING',
-                            7: 'PAUSED',
-                        }.get(st, 'UNKNOWN(%d)' % st)
+                        win = status_map.get(st, 'UNKNOWN(%d)' % st)
                         win32service.CloseServiceHandle(svc)
                     except Exception:
-                        out[win_name] = 'not_found'
+                        win = 'not_found'
+                    # 进程在跑的服务，额外验证其 HTTP 探活端点是否真可用
+                    if win == 'RUNNING' and win_name in _KNOWN_HEALTH_URLS:
+                        health = self._http_health(_KNOWN_HEALTH_URLS[win_name])
+                    out[win_name] = {'windows_status': win, 'health_status': health}
             finally:
                 win32service.CloseServiceHandle(scm)
         except Exception as e:
             _log.debug('直查 win32 失败: %s', e)
         return out
+
+    @staticmethod
+    def _http_health(url: str) -> str:
+        """对已知 health url 发起 HTTP 探活，返回 health_status 字符串。"""
+        import requests
+        try:
+            resp = requests.get(url, timeout=1.5)
+            return 'healthy' if resp.status_code == 200 else 'unhealthy'
+        except requests.exceptions.Timeout:
+            return 'timeout'
+        except Exception:
+            return 'offline'
 
     def _ping_bus(self, client, bus_name: str):
         """
@@ -493,6 +534,7 @@ class WatchdogService(BaseDBusService):
                     'bus_name': st['bus'],
                     'status': st['status'],
                     'windows_status': st['windows_status'],
+                    'health_status': st['health_status'],
                     'bus_reachable': st['bus_reachable'],
                     'consecutive_failures': st['consecutive_failures'],
                     'restart_count': st['restart_count'],
