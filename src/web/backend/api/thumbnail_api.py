@@ -3,17 +3,20 @@ from core.models import LibraryPermission
 from core.models import LibraryUserGroupMember
 from core.models import Video
 from core.models import UserRole
+from core.models import db
 from backend.thumbnail_helpers import _save_thumb_config
 import threading
 from backend.access import resolve_identity, is_video_visible
 from backend.thumbnail_helpers import _generate_missing_thumbnails
 from backend.thumbnail_helpers import _get_visible_library_ids
+from backend.thumbnail_helpers import resolve_thumbnail_path_for_video
 from backend.thumbnail_helpers import _thumb_auto_stop_event
 from backend.thumbnail_helpers import _start_auto_generate
 from backend.thumbnail_helpers import _thumb_auto_thread
 from backend.thumbnail_helpers import get_auto_generate_progress
 from backend.thumbnail_helpers import _load_thumb_config
 import os
+import json
 from backend.access import admin_required
 from backend.paths import DATA_DIR
 from backend.runtime import runtime
@@ -35,73 +38,66 @@ def compute_thumb_stats():
     因此「已有缩略图」也按视频 hash 归属过滤，仅统计属于已激活库视频的缩略图。
     """
     from core.models import Video
-    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    from backend.thumbnail_helpers import resolve_thumbnail_path_for_video
 
-    # 先确定「已激活」资源库，拿到其下视频的 hash 集合，作为缩略图归属过滤依据
+    # 先确定「已激活」资源库
     visible_ids = _get_visible_library_ids()
     if visible_ids:
         db_videos = Video.query.filter(Video.library_id.in_(visible_ids)).all()
     else:
         db_videos = []
-    valid_hashes = {v.hash for v in db_videos if v.hash}
 
-    # 统计「已生成缩略图的视频数」：仅计入属于已激活资源库视频的缩略图文件，
-    # sprite.jpg 与 vtt 是附属于 poster 的预览产物，不单独计为「有缩略图」。
     total_thumbnails = 0
-    if os.path.exists(thumb_dir):
-        seen = set()
-        for f in os.listdir(thumb_dir):
-            low = f.lower()
-            base = None
-            if low.endswith('.sprite.jpg'):
-                continue
-            if low.endswith('.vtt'):
-                continue
-            for ext in ('.gif', '.jpg', '.png'):
-                if low.endswith(ext):
-                    base = f[:-len(ext)]
-                    break
-            if base and base in valid_hashes:
-                seen.add(base)
-        total_thumbnails = len(seen)
-
-    no_thumb_count = 0
+    no_thumbnail_count = 0
     for v in db_videos:
-        if v.hash:
-            has_thumb = any(
-                os.path.exists(os.path.join(thumb_dir, f'{v.hash}.{ext}'))
-                for ext in ['jpg', 'gif', 'png']
-            )
-            if not has_thumb:
-                no_thumb_count += 1
+        if not v.hash:
+            # 没有 hash 的资源无法生成缩略图，归入缺失
+            no_thumbnail_count += 1
+            continue
+        # 逐资源解析索引规定的缩略图路径，并验证文件真实存在；
+        # 不以文件夹内文件数代替——索引才是缩略图位置的权威来源。
+        path = resolve_thumbnail_path_for_video(v)
+        if path and os.path.exists(path):
+            total_thumbnails += 1
+        else:
+            no_thumbnail_count += 1
 
     return {
         'total_videos': len(db_videos),
         'total_thumbnails': total_thumbnails,
-        'no_thumbnail_count': no_thumb_count,
+        'no_thumbnail_count': no_thumbnail_count,
     }
 
 @bp.route('/thumbnail/<video_hash>')
 def get_thumbnail(video_hash):
     """获取缩略图，支持懒加载生成 - 需要检查资源库权限"""
-    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
-
     # 权限必须先于文件读取：缩略图缓存文件以 hash 命名且长期驻留磁盘，
     # 若先返回文件再校验，未激活资源库的封面仍可被直接取走。
     video = Video.query.filter_by(hash=video_hash).first()
     if not is_video_visible(video):
         abort(404)
 
-    # 已存在缓存则直接返回。新默认是静态 poster（jpg，无闪烁、零额外带宽）；
-    # 旧版 gif 保留兼容，作为 jpg/png 缺失时的回退。
+    # 以资源索引规定的路径为准取图（可指向默认文件夹之外）；
+    # 索引未规定时回退到默认文件夹下的 {hash}.{jpg|png|gif}。
+    resolved = resolve_thumbnail_path_for_video(video) if video else None
+    if resolved and os.path.exists(resolved):
+        ext = os.path.splitext(resolved)[1].lstrip('.').lower() or 'jpg'
+        mime = 'image/jpeg' if ext == 'jpg' else f'image/{ext}'
+        resp = send_file(resolved, mimetype=mime)
+        # 缩略图文件会在重新生成时改变内容（同 hash），固定 1h 缓存会导致用户
+        # 即便在服务端重建后仍长时间看到旧图。缩到 60s 并强制协商，兼顾性能
+        # 与修复后的即时可见性。
+        resp.cache_control.max_age = 60
+        resp.cache_control.must_revalidate = True
+        return resp
+
+    # 默认文件夹回退（兼容索引未记录路径的老数据）
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     for ext in ['jpg', 'png', 'gif']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
             mime = 'image/jpeg' if ext == 'jpg' else f'image/{ext}'
             resp = send_file(path, mimetype=mime)
-            # 缩略图文件会在重新生成时改变内容（同 hash），固定 1h 缓存会导致用户
-            # 即便在服务端重建后仍长时间看到旧图。缩到 60s 并强制协商，兼顾性能
-            # 与修复后的即时可见性。
             resp.cache_control.max_age = 60
             resp.cache_control.must_revalidate = True
             return resp
@@ -181,7 +177,21 @@ def get_thumbnail_status(video_hash):
     """检查缩略图是否存在（已简化，不触发生成，由后端自动生成）"""
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
 
-    # 检查文件是否存在（poster jpg 优先，旧 gif 兼容）
+    # 优先按资源索引规定的路径判断 poster 是否存在（可指向默认文件夹之外）
+    video = Video.query.filter_by(hash=video_hash).first()
+    resolved = resolve_thumbnail_path_for_video(video) if video else None
+    if resolved and os.path.exists(resolved):
+        ext = os.path.splitext(resolved)[1].lstrip('.').lower() or 'jpg'
+        return jsonify({
+            'success': True,
+            'status': 'ready',
+            'url': f'/thumbnail/{video_hash}',
+            'format': ext,
+            'has_sprite': os.path.exists(os.path.join(thumb_dir, f'{video_hash}.sprite.jpg')),
+            'has_vtt': os.path.exists(os.path.join(thumb_dir, f'{video_hash}.vtt')),
+        })
+
+    # 兼容：回退到默认文件夹按 hash 判断
     for ext in ['jpg', 'png', 'gif']:
         path = os.path.join(thumb_dir, f'{video_hash}.{ext}')
         if os.path.exists(path):
@@ -207,7 +217,7 @@ def delete_thumbnail(video_hash):
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
 
     deleted = False
-    # 删除所有格式的缩略图文件（含 poster/sprite/vtt 全集）
+    # 删除所有默认命名格式的缩略图文件（含 poster/sprite/vtt 全集）
     for fname in [f'{video_hash}.gif', f'{video_hash}.jpg', f'{video_hash}.png',
                   f'{video_hash}.sprite.jpg', f'{video_hash}.vtt']:
         path = os.path.join(thumb_dir, fname)
@@ -218,6 +228,29 @@ def delete_thumbnail(video_hash):
             except Exception as e:
                 log.debug('ERROR', f"删除缩略图文件失败: {e}")
 
+    # 同时删除索引规定的自定义路径缩略图（指向默认文件夹之外的情况）
+    video = Video.query.filter_by(hash=video_hash).first()
+    resolved = resolve_thumbnail_path_for_video(video) if video else None
+    if resolved and os.path.exists(resolved):
+        default_files = {os.path.join(thumb_dir, f'{video_hash}.{ext}') for ext in ('gif', 'jpg', 'png')}
+        if resolved not in default_files:
+            try:
+                os.remove(resolved)
+                deleted = True
+            except Exception as e:
+                log.debug('ERROR', f"删除索引规定的缩略图文件失败: {e}")
+
+    # 清除索引中记录的缩略图路径，保持索引权威且不残留失效路径
+    if video and video.resource_index is not None:
+        try:
+            m = video.resource_index.get_meta()
+            if m.pop('thumbnail', None) is not None:
+                video.resource_index.meta = json.dumps(m, ensure_ascii=False)
+                db.session.add(video.resource_index)
+                db.session.commit()
+        except Exception as e:
+            log.debug('ERROR', f"清除索引缩略图路径失败: {e}")
+
     if deleted:
         return jsonify({'success': True, 'message': '缩略图已删除'})
     else:
@@ -226,8 +259,14 @@ def delete_thumbnail(video_hash):
 @bp.route('/api/thumbnail/regenerate/<video_hash>', methods=['POST'])
 def regenerate_thumbnail(video_hash):
     """重新生成指定视频的缩略图"""
-    # 先删除旧缩略图（含 poster/sprite/vtt 全集）
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+
+    # 查找视频
+    video = Video.query.filter_by(hash=video_hash).first()
+    if not video or not video.local_path:
+        return jsonify({'success': False, 'message': '视频不存在或无本地路径'}), 404
+
+    # 先删除旧缩略图（含默认命名 poster/sprite/vtt 全集）
     for fname in [f'{video_hash}.gif', f'{video_hash}.jpg', f'{video_hash}.png',
                   f'{video_hash}.sprite.jpg', f'{video_hash}.vtt']:
         path = os.path.join(thumb_dir, fname)
@@ -237,10 +276,26 @@ def regenerate_thumbnail(video_hash):
             except Exception as e:
                 log.debug('ERROR', f"删除旧缩略图失败: {e}")
 
-    # 查找视频
-    video = Video.query.filter_by(hash=video_hash).first()
-    if not video or not video.local_path:
-        return jsonify({'success': False, 'message': '视频不存在或无本地路径'}), 404
+    # 同时删除索引规定的自定义路径缩略图（指向默认文件夹之外的情况）
+    resolved = resolve_thumbnail_path_for_video(video)
+    if resolved and os.path.exists(resolved):
+        default_files = {os.path.join(thumb_dir, f'{video_hash}.{ext}') for ext in ('gif', 'jpg', 'png')}
+        if resolved not in default_files:
+            try:
+                os.remove(resolved)
+            except Exception as e:
+                log.debug('ERROR', f"删除索引规定的旧缩略图失败: {e}")
+
+    # 清除索引中记录的旧缩略图路径，待重新生成后再由索引重新规定
+    if video.resource_index is not None:
+        try:
+            m = video.resource_index.get_meta()
+            if m.pop('thumbnail', None) is not None:
+                video.resource_index.meta = json.dumps(m, ensure_ascii=False)
+                db.session.add(video.resource_index)
+                db.session.commit()
+        except Exception as e:
+            log.debug('ERROR', f"清除索引旧缩略图路径失败: {e}")
 
     # 调用缩略图服务重新生成
     if runtime.thumbnail_bus:
