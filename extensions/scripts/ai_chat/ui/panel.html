@@ -38,6 +38,14 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
+  /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
+  .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; }
+  .ai-row .bubble.ai { flex: 1 1 auto; flex-shrink: 1; max-width: 100%; }
+  .ai-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; background: #4f8cff; color: #fff;
+               display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; margin-top: 2px; }
+  .ai-avatar.running::after { content: ''; position: absolute; inset: -3px; border-radius: 50%;
+               border: 2px solid transparent; border-top-color: #4f8cff; animation: ai-spin 1s linear infinite; }
+  @keyframes ai-spin { to { transform: rotate(360deg); } }
   /* 过长消息折叠：仅显示部分，底部渐隐 + “展开全部/收起”按钮；不影响流式输出（running）气泡。
      max-height 由 JS 按行高对齐到整行设置，mask 仅对最后约 2 行做柔和淡出，
      使截断落在行边界、淡出自然，避免“截断在半行/显示不全”的突兀感。 */
@@ -310,12 +318,18 @@
     }
     turns.forEach(t => {
       const aiCls = 'ai md' + (t.kind === 'err' ? ' err' : (t.kind === 'pending' ? ' pending' : ''));
-      const statusTag = t.kind === 'running' ? '<span class="aistatus">● 正在处理</span>' : '';
+      const isRun = t.kind === 'running';
+      const statusTag = isRun ? '<span class="aistatus">● 正在处理</span>' : '';
+      const avatarGlyph = t.kind === 'err' ? '⚠' : '🤖';
       const timeLabel = (t.created_at != null) ? '<div class="time">' + esc(fmtTime(t.created_at)) + '</div>' : '';
       html += timeLabel
             + '<div class="bubble me">' + esc(t.prompt) + '</div>'
-            + '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
-            + mdToHtml(t.reply) + statusTag + '</div>';
+            + '<div class="ai-row" data-ai="' + esc(t.id) + '">'
+            +   '<div class="ai-avatar' + (isRun ? ' running' : '') + '">' + avatarGlyph + '</div>'
+            +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
+            +      mdToHtml(t.reply) + statusTag
+            +   '</div>'
+            + '</div>';
     });
     // 重绘前记录：用户是否贴底、当前滚动位置，重绘后据此决定是否拉回底部
     const pinToBottom = nearBottom();
@@ -376,7 +390,9 @@
     const fold = document.createElement('div');
     fold.className = 'ai-fold';
     fold.innerHTML = '<button>' + esc(label) + '</button>';
-    node.after(fold);
+    // node（气泡）位于 .ai-row 内，按钮应插到整行之后，避免与头像同行错位
+    const row = node.closest('.ai-row') || node;
+    row.after(fold);
     fold.querySelector('button').addEventListener('click', onClick);
   }
 
@@ -387,6 +403,9 @@
     // 流式内容同样按 Markdown 渲染；running 时追加“正在处理”状态标签
     const status = running ? '<span class="aistatus">● 正在处理</span>' : '';
     node.innerHTML = mdToHtml(text) + status;
+    // AI 思考/执行中：头像外圈显示旋转光环；结束后移除
+    const avatar = node.closest('.ai-row') && node.closest('.ai-row').querySelector('.ai-avatar');
+    if (avatar) avatar.classList.toggle('running', !!running);
     // 仅在用户贴底时跟随流式输出滚动到底部；上滑看历史时不打断
     if (nearBottom()) stickToBottom();
   }
