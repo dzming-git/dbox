@@ -15,8 +15,29 @@ Dbox - 服务启动守卫
 
 import os
 import sys
-import subprocess
 from pathlib import Path
+
+
+def _iter_parent_chain():
+    """向上遍历进程树，逐个返回祖先进程对象（从父进程开始）。"""
+    try:
+        import psutil
+    except Exception:
+        return
+    try:
+        proc = psutil.Process()
+    except Exception:
+        return
+    seen = set()
+    while proc is not None and proc.pid not in seen:
+        seen.add(proc.pid)
+        try:
+            proc = proc.parent()
+        except Exception:
+            return
+        if proc is None:
+            return
+        yield proc
 
 
 def _get_parent_process_name() -> str | None:
@@ -36,19 +57,44 @@ def _is_dev_mode() -> bool:
     return os.environ.get('DBOX_DEV_MODE') == '1'
 
 
+def _is_service_mode_env() -> bool:
+    """检测是否通过服务相关环境变量声明（install.py / 手动配置均可）。
+
+    任何 DBOX_ENV / DBOX_SERVICE_MODE 取值都视为“由服务管理器托管”，
+    避免非标准的 DBOX_ENV=production 这类配置导致守卫误杀生产服务。
+    """
+    if os.environ.get('DBOX_SERVICE_MODE') == '1':
+        return True
+    if os.environ.get('DBOX_ENV'):
+        return True
+    return False
+
+
+def _parent_chain_has_nssm() -> bool:
+    """沿进程树向上查找 nssm / services / svchost（NSSM 工作进程的最终祖先）。"""
+    nssm_markers = ('nssm', 'services.exe', 'svchost')
+    for proc in _iter_parent_chain():
+        try:
+            name = proc.name().lower()
+        except Exception:
+            continue
+        if any(m in name for m in nssm_markers):
+            return True
+    return False
+
+
 def _is_running_under_nssm() -> bool:
-    """检测是否通过 NSSM 启动"""
+    """检测是否通过 NSSM 启动（多重判定，任一命中即视为受托管）。"""
     # 1. 检查 NSSM 设置的环境变量
     if os.environ.get('NSSM_SERVICE_NAME'):
         return True
 
-    # 2. 检查父进程是否为 nssm.exe
-    parent = _get_parent_process_name()
-    if parent and 'nssm' in parent:
+    # 2. 检查父进程链是否包含 nssm / services / svchost
+    if _parent_chain_has_nssm():
         return True
 
-    # 3. 检查自定义环境变量（install.py 注册服务时设置）
-    if os.environ.get('DBOX_SERVICE_MODE') == '1':
+    # 3. 检查服务模式环境变量（install.py 或手动配置均可）
+    if _is_service_mode_env():
         return True
 
     # 4. 检查开发模式环境变量（dev 模式下允许直接运行）
