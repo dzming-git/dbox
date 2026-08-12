@@ -233,10 +233,15 @@ _SYSTEM_PROMPT = (
     '<类型> 为 video / gallery / post / text 之一；<标识> 优先用资源的真实标识——'
     '视频/图集用其 hash（64 位十六进制字符串，videos/galleries 表的 hash 列），帖子/文本用整数 id（posts/texts 表的 id 列）。'
     '若你只知道资源标题，也可把 <标识> 写成标题关键字，系统会按标题模糊匹配解析。\n'
-    '要在库里查找资源的真实标识，可用 Bash 工具直接查询媒体库数据库（Python 内置 sqlite3，无需额外依赖）：\n'
-    '  python -c "import sqlite3,os; p=os.path.join(os.environ.get(\'DBOX_DATA_DIR\',\'data\'),\'databases\',\'dbox.db\'); c=sqlite3.connect(p); [print(r) for r in c.execute(\"SELECT hash,title FROM videos WHERE title LIKE \'%关键字%\' LIMIT 5\")]"\n'
-    '（图集表为 galleries、帖子表 posts、文本表 texts；posts/texts 取 id 列即可。）\n'
-    '仅在确实引用到某个具体资源时才使用此链接；闲聊或泛泛而谈时不要编造引用。'
+    '要在库里查找资源的真实标识，可用 Bash 工具直接查询媒体库数据库（Python 内置 sqlite3，无需额外依赖）。\n'
+    '【重要】你「能看到的资源列表必须与资源管理器一致」：只能引用归属「已激活资源库」的资源，'
+    '不得暴露已停用（is_active=0）资源库里的内容。因此查询必须 JOIN 已激活库并排除隐藏/已删除资源，例如：\n'
+    '  python -c "import sqlite3,os; p=os.path.join(os.environ.get(\'DBOX_DATA_DIR\',\'data\'),\'databases\',\'dbox.db\'); c=sqlite3.connect(p); [print(r) for r in c.execute(\"SELECT v.hash, v.title FROM videos v JOIN resource_index ri ON v.resource_index_id=ri.id JOIN resource_libraries rl ON ri.library_id=rl.id WHERE rl.is_active=1 AND ri.hidden=0 AND v.in_trash=0 AND v.title LIKE \'%关键字%\' LIMIT 5\")]"\n'
+    '（图集表 galleries 同构，把 v 换成 g、v.resource_index_id 换成 g.resource_index_id 即可；'
+    '帖子表 posts 用 p.library_id 关联 resource_libraries 且 p.in_trash=0，文本表 texts 经 resource_index 关联；'
+    '所有查询都务必带 rl.is_active=1 这一条件。）\n'
+    '仅在确实引用到某个具体资源时才使用此链接；闲聊或泛泛而谈时不要编造引用；'
+    '若某资源归属的库已停用，不要引用它。'
 )
 
 

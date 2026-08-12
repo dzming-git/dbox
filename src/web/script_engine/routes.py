@@ -409,6 +409,39 @@ def ai_chat_clear():
 _HEX64 = re.compile(r'^[0-9a-fA-F]{64}$')
 
 
+def _ai_resource_visible(entity, rtype):
+    """AI 引用资源的可见性门禁：与资源管理器（资源管理页）对外可见口径一致——
+
+    仅当资源归属「已激活资源库」、且未删除、未隐藏时，才允许被 AI 引用并渲染成
+    可点击卡片。归属未激活（is_active=False）资源库的资源一律视为不可见
+    （found=False），杜绝通过 AI 聊天窗口泄露已停用的资源库内容。
+
+    使用 backend.access.get_allowed_library_ids() 复用资源管理器的唯一可见性收敛点，
+    因此天然跟随「按当前管理员权限 + 仅激活库」的口径，与首页/库列表等公开视图一致。
+    """
+    from backend.access import get_allowed_library_ids
+    allowed = set(get_allowed_library_ids())
+    if rtype in ('video', 'gallery'):
+        if getattr(entity, 'in_trash', False):
+            return False
+        ri = getattr(entity, 'resource_index', None)
+        if ri is not None and getattr(ri, 'hidden', False):
+            return False
+        return entity.library_id in allowed
+    if rtype == 'post':
+        if getattr(entity, 'in_trash', False):
+            return False
+        return getattr(entity, 'library_id', None) in allowed
+    if rtype == 'text':
+        ri = getattr(entity, 'resource_index', None)
+        if ri is not None:
+            if getattr(ri, 'hidden', False):
+                return False
+            return ri.library_id in allowed
+        return getattr(entity, 'library_id', None) in allowed
+    return False
+
+
 @script_bp.route('/api/ai-chat/resource-resolve', methods=['GET'])
 @admin_required
 def ai_chat_resource_resolve():
@@ -445,10 +478,13 @@ def ai_chat_resource_resolve():
             if not v:
                 v = Video.query.filter(Video.title.ilike('%' + ref + '%')).first()
             if v:
-                ri = ResourceIndex.query.get(v.resource_index_id) if v.resource_index_id else None
-                result = {'type': 'video', 'id': v.id, 'hash': v.hash, 'title': v.title,
-                          'cover_url': _cover(ri) or v.thumbnail,
-                          'url': '/video/' + (v.hash or str(v.id))}
+                if not _ai_resource_visible(v, 'video'):
+                    v = None
+                else:
+                    ri = ResourceIndex.query.get(v.resource_index_id) if v.resource_index_id else None
+                    result = {'type': 'video', 'id': v.id, 'hash': v.hash, 'title': v.title,
+                              'cover_url': _cover(ri) or v.thumbnail,
+                              'url': '/video/' + (v.hash or str(v.id))}
         elif rtype in ('gallery',):
             g = None
             if _HEX64.match(ref):
@@ -458,10 +494,13 @@ def ai_chat_resource_resolve():
             if not g:
                 g = Gallery.query.filter(Gallery.title.ilike('%' + ref + '%')).first()
             if g:
-                ri = ResourceIndex.query.get(g.resource_index_id) if g.resource_index_id else None
-                result = {'type': 'gallery', 'id': g.id, 'hash': g.hash, 'title': g.title,
-                          'cover_url': _cover(ri),
-                          'url': '/gallery/' + (g.hash or str(g.id))}
+                if not _ai_resource_visible(g, 'gallery'):
+                    g = None
+                else:
+                    ri = ResourceIndex.query.get(g.resource_index_id) if g.resource_index_id else None
+                    result = {'type': 'gallery', 'id': g.id, 'hash': g.hash, 'title': g.title,
+                              'cover_url': _cover(ri),
+                              'url': '/gallery/' + (g.hash or str(g.id))}
         elif rtype in ('post',):
             p = None
             if ref.isdigit():
@@ -469,9 +508,12 @@ def ai_chat_resource_resolve():
             if not p:
                 p = Post.query.filter(Post.title.ilike('%' + ref + '%')).first()
             if p:
-                result = {'type': 'post', 'id': p.id, 'title': p.title or '(无标题)',
-                          'cover_url': (p.cover_url if hasattr(p, 'cover_url') else None),
-                          'url': '/post/' + str(p.id)}
+                if not _ai_resource_visible(p, 'post'):
+                    p = None
+                else:
+                    result = {'type': 'post', 'id': p.id, 'title': p.title or '(无标题)',
+                              'cover_url': (p.cover_url if hasattr(p, 'cover_url') else None),
+                              'url': '/post/' + str(p.id)}
         elif rtype in ('text',):
             t = None
             if ref.isdigit():
@@ -479,9 +521,12 @@ def ai_chat_resource_resolve():
             if not t:
                 t = Text.query.filter(Text.summary.ilike('%' + ref + '%')).first()
             if t:
-                ri = ResourceIndex.query.get(t.resource_index_id) if t.resource_index_id else None
-                result = {'type': 'text', 'id': t.id, 'title': _text_title(ri, t.summary),
-                          'cover_url': _cover(ri), 'url': '/text/' + str(t.id)}
+                if not _ai_resource_visible(t, 'text'):
+                    t = None
+                else:
+                    ri = ResourceIndex.query.get(t.resource_index_id) if t.resource_index_id else None
+                    result = {'type': 'text', 'id': t.id, 'title': _text_title(ri, t.summary),
+                              'cover_url': _cover(ri), 'url': '/text/' + str(t.id)}
         # 未知类型：不解析
     except Exception as e:
         return jsonify({'success': False, 'found': False, 'message': str(e)})
