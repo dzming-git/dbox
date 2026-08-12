@@ -1590,6 +1590,24 @@ const isOperating = (serviceName: string) => {
   return s || pending
 }
 
+// 停止/重启二次确认，防止误触
+const showServiceConfirm = ref(false)
+const serviceConfirmName = ref('')
+const serviceConfirmAction = ref<'stop' | 'restart'>('stop')
+
+const openServiceControlConfirm = (svc: any, action: 'stop' | 'restart') => {
+  serviceConfirmName.value = svc.service_name
+  serviceConfirmAction.value = action
+  showServiceConfirm.value = true
+}
+
+const confirmServiceControl = () => {
+  const name = serviceConfirmName.value
+  const action = serviceConfirmAction.value
+  showServiceConfirm.value = false
+  controlService(name, action)
+}
+
 // 编辑视频
 const editVideo = async (video: any) => {
   editingVideo.value = { ...video }
@@ -2813,14 +2831,14 @@ onUnmounted(() => {
               <template v-else-if="canStop(svc)">
                 <button
                   class="action-btn danger"
-                  @click="controlService(svc.service_name, 'stop')"
+                  @click="openServiceControlConfirm(svc, 'stop')"
                   :disabled="isOperating(svc.service_name)"
                 >
                   ⏹ 停止
                 </button>
                 <button
                   class="action-btn"
-                  @click="controlService(svc.service_name, 'restart')"
+                  @click="openServiceControlConfirm(svc, 'restart')"
                   :disabled="isOperating(svc.service_name)"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -3525,6 +3543,23 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- 停止/重启服务二次确认对话框 -->
+    <div v-if="showServiceConfirm" class="dialog-overlay" @click.self="showServiceConfirm = false">
+      <div class="dialog">
+        <h3>确认操作</h3>
+        <p>
+          确定要对服务「<strong>{{ serviceConfirmName }}</strong>」执行
+          <strong>{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</strong>
+          操作吗？
+        </p>
+        <p class="dialog-tip">{{ serviceConfirmAction === 'stop' ? '停止后该服务将不再运行，可能影响相关功能。' : '重启会先停止再启动该服务，期间服务会短暂不可用。' }}</p>
+        <div class="dialog-buttons">
+          <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
+          <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 批量删除确认对话框 -->
     <div v-if="showBatchDeleteConfirm" class="dialog-overlay" @click.self="showBatchDeleteConfirm = false">
       <div class="dialog">
@@ -3622,6 +3657,13 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.dialog-tip {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .btn-secondary {
