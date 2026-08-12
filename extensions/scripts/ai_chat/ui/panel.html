@@ -12,6 +12,7 @@
   .toolbar .title { font-weight: 600; font-size: 14px; }
   .toolbar button { background: none; border: 1px solid #d0d4dc; color: #888; border-radius: 6px; font-size: 12px; padding: 3px 10px; cursor: pointer; }
   .toolbar button:hover { color: #4f8cff; border-color: #4f8cff; }
+  .toolbar .tools { display: flex; gap: 8px; }
 
   .queue { background: #fff; border-bottom: 1px solid #e3e6eb; padding: 8px 12px; font-size: 13px; }
   .queue .qhead { display: flex; align-items: center; gap: 8px; color: #555; font-weight: 600; margin-bottom: 6px; }
@@ -37,7 +38,7 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
-  /* 过长消息折叠：仅显示部分，底部渐隐 + “查看全部”按钮；不影响流式输出（running）气泡。
+  /* 过长消息折叠：仅显示部分，底部渐隐 + “展开全部/收起”按钮；不影响流式输出（running）气泡。
      max-height 由 JS 按行高对齐到整行设置，mask 仅对最后约 2 行做柔和淡出，
      使截断落在行边界、淡出自然，避免“截断在半行/显示不全”的突兀感。 */
   .bubble.ai.collapsed {
@@ -61,7 +62,10 @@
 <div class="wrap">
   <div class="toolbar">
     <span class="title">AI 助手</span>
-    <button id="clear">清空对话</button>
+    <div class="tools">
+      <button id="toggleAll">收起全部</button>
+      <button id="clear">清空对话</button>
+    </div>
   </div>
   <div class="queue" id="queue"></div>
   <div class="msgs" id="msgs"></div>
@@ -96,13 +100,15 @@
   const txt = document.getElementById('txt');
   const send = document.getElementById('send');
   const clearBtn = document.getElementById('clear');
+  const toggleAllBtn = document.getElementById('toggleAll');
 
   // UI 无状态：不本地保存历史、不上传历史。所有状态以服务端为准，仅做渲染与下发。
   // state 仅用于前端渲染；刷新或重开面板会重新从服务端拉取完整状态。
   let state = { pending: [], active: null, history: [], has_more: false,
                 older: [], nextCursor: null, canExpand: false };
+  let collapsedAllMode = false; // true 时强制折叠全部 AI 气泡（收起全部）；false 时仅长消息默认折叠
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
-  const expandedIds = new Set();  // 用户已手动“查看全部”的对话 id，跨重绘保留展开态
+  const expandedIds = new Set();  // 用户已手动展开过的对话 id，跨重绘保留展开态
   let pollTimer = null;
   const COLLAPSE_LINES = 10;      // 气泡超过此行数则折叠为部分展示（按行高对齐到整行）
 
@@ -223,38 +229,55 @@
     // 先折叠过长气泡（在恢复滚动位置之前完成）：折叠会改变内容总高度，
     // 若放在 scrollTop 设定之后执行，浏览器会对 scrollTop 重新钳制到底部，造成“瞬移跳转”。
     applyCollapse();
-    // 仅当用户原本就贴底（或已展开“更多”）时才自动贴底；
-    // 否则保留当前滚动位置，避免用户在看历史时被拉回底部。
+    // 工具栏按钮文案随模式更新：收起全部模式显示“展开全部”，否则“收起全部”
+    toggleAllBtn.textContent = collapsedAllMode ? '展开全部' : '收起全部';
+    // 仅当用户原本就贴底时才自动贴底；否则保留当前滚动位置，避免用户在看历史时被拉回底部。
     if (pinToBottom) stickToBottom();
     else msgs.scrollTop = prevScrollTop;
   }
 
-  // 过长消息折叠：仅当该条自然高度超出“行数阈值”、且用户未手动展开过时，
-  // 才折叠为部分展示（按行高对齐到整行，避免截断在半行显得突兀）并附“查看全部”按钮。
-  // 流式输出（running/pending）气泡不折叠；已展开（expandedIds）的不重复折叠。
+  // AI 聊天内容收起/展开：
+  // - 默认仅对超过行数阈值（COLLAPSE_LINES）的长消息折叠为部分展示（“收起全部”视角下的长消息）。
+  // - collapsedAllMode 为 true 时强制折叠全部 AI 气泡（收起全部）。
+  // - expandedIds 记录用户手动展开过的气泡：无论默认折叠还是收起全部，展开后都保持展开，跨重绘保留。
+  // - 长消息展开后提供“收起”按钮，可重新折叠；用户可自由收起/展开，不必刷新。
+  // 流式输出（running/pending）气泡不折叠。
   function applyCollapse() {
     msgs.querySelectorAll('.bubble.ai').forEach(node => {
       if (node.classList.contains('running') || node.classList.contains('pending')) return;
       const tid = node.id.slice(3);
-      if (expandedIds.has(tid)) return;
       const lh = parseFloat(getComputedStyle(node).lineHeight) || 21;
       const maxH = Math.round(lh * COLLAPSE_LINES);
-      if (node.scrollHeight > maxH + 8) {
+      const isLong = node.scrollHeight > maxH + 8;
+      const userExpanded = expandedIds.has(tid);
+      const shouldCollapse = (isLong || collapsedAllMode) && !userExpanded;
+      if (shouldCollapse) {
         node.classList.add('collapsed');
         node.style.maxHeight = maxH + 'px';
-        const fold = document.createElement('div');
-        fold.className = 'ai-fold';
-        fold.innerHTML = '<button>查看全部</button>';
-        node.after(fold);
-        fold.querySelector('button').addEventListener('click', () => {
-          node.classList.remove('collapsed');
-          node.style.maxHeight = '';
-          fold.remove();
+        addFold(node, '展开全部', () => {
           expandedIds.add(tid);
-          if (nearBottom()) stickToBottom();
+          renderMsgs();
         });
+      } else {
+        node.classList.remove('collapsed');
+        node.style.maxHeight = '';
+        if (isLong || collapsedAllMode) {
+          addFold(node, '收起', () => {
+            expandedIds.delete(tid);
+            renderMsgs();
+          });
+        }
       }
     });
+  }
+
+  // 在某条 AI 气泡后插入一个折叠/展开按钮（每次重绘 innerHTML 重建，无残留）
+  function addFold(node, label, onClick) {
+    const fold = document.createElement('div');
+    fold.className = 'ai-fold';
+    fold.innerHTML = '<button>' + esc(label) + '</button>';
+    node.after(fold);
+    fold.querySelector('button').addEventListener('click', onClick);
   }
 
   // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）
@@ -426,12 +449,29 @@
     } catch (e) { /* ignore */ }
   }
 
+  // ---------- 收起全部 / 展开全部 ----------
+  function toggleAll() {
+    if (collapsedAllMode) {
+      // 展开全部：退出强制折叠，并把当前可见的长消息全部记入已展开，保持展开
+      collapsedAllMode = false;
+      msgs.querySelectorAll('.bubble.ai').forEach(n => {
+        if (!n.classList.contains('running') && !n.classList.contains('pending')) expandedIds.add(n.id.slice(3));
+      });
+    } else {
+      // 收起全部：强制折叠所有 AI 气泡，并清空已展开记录
+      collapsedAllMode = true;
+      expandedIds.clear();
+    }
+    renderMsgs();
+  }
+
   // ---------- 清空对话 ----------
   clearBtn.addEventListener('click', async () => {
     if (!confirm('确定清空全部对话（含排队与历史）？')) return;
     try {
       subscribed.clear();
       expandedIds.clear();
+      collapsedAllMode = false;
       await api('/api/ai-chat/clear', { method: 'POST' });
       state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
       render();
@@ -439,6 +479,7 @@
   });
 
   send.addEventListener('click', onSend);
+  toggleAllBtn.addEventListener('click', toggleAll);
   txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
 
   // 输入框随内容自动加高（单行起步，超过一行自动撑高，最高 200px 后内部滚动）
