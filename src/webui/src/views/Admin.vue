@@ -705,16 +705,6 @@ const onCoverError = (r: any) => {
   }
 }
 
-// 空状态行的跨列数：随当前子标签动态计算（类型 + 标题 + 各类型独有列 + 资源库 + 更新时间 + 操作）
-const resourceColspan = computed(() => {
-  let base = 1 + 1 + 1 + 1 + 1 // 类型 + 标题 + 资源库 + 更新时间 + 操作
-  if (resourceTypeFilter.value === '' || resourceTypeFilter.value === 'video') base += 3 // 大小+时长+分辨率
-  if (resourceTypeFilter.value === 'gallery') base += 1 // 图片个数
-  if (resourceTypeFilter.value === 'post') base += 1 // 正文字数
-  if (resourceTypeFilter.value === 'text') base += 1 // 字数
-  return base
-})
-
 const resourceTotalPages = computed(() => Math.ceil(resourceTotal.value / RESOURCE_PAGE_SIZE) || 1)
 
 const resourcePageRange = computed(() => {
@@ -2453,78 +2443,67 @@ onUnmounted(() => {
           <span>显示已隐藏的资源</span>
         </label>
 
-        <div v-if="resourceLoading" class="loading">加载中...</div>
+        <div v-if="resourceLoading" class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>
         <div v-else class="resource-table-wrap">
-        <table class="data-table">
-          <thead class="res-thead">
-            <tr>
-              <th data-label="类型">类型</th>
-              <th data-label="标题">标题</th>
-              <!-- 视频独有属性 -->
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="大小">大小</th>
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="时长">时长</th>
-              <th v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="分辨率">分辨率</th>
-              <!-- 图集独有属性 -->
-              <th v-if="resourceTypeFilter === 'gallery'" data-label="图片个数">图片个数</th>
-              <!-- 帖子独有属性 -->
-              <th v-if="resourceTypeFilter === 'post'" data-label="正文字数">正文字数</th>
-              <!-- 文本独有属性 -->
-              <th v-if="resourceTypeFilter === 'text'" data-label="字数">字数</th>
-              <th data-label="资源库">资源库</th>
-              <th data-label="更新时间">更新时间</th>
-              <th data-label="操作">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in resources" :key="r.type + ':' + r.id" class="res-row">
-              <td data-label="类型" class="res-type">
-                <span class="type-badge" :class="'type-' + r.type">
-                  <span class="type-badge-icon">{{ typeIcon(r.type) }}</span>{{ typeLabel(r.type) }}
-                </span>
-              </td>
-              <td data-label="标题" class="res-title">
-                <img v-if="r.cover && !isCoverBroken(r)" :src="withThumbToken(r.cover)" class="res-thumb" @error="onCoverError(r)" />
-                <span v-else class="res-thumb-placeholder">{{ typeIcon(r.type) }}</span>
-                <span :title="r.title">{{ r.title }}</span>
-                <span v-if="r.hidden" class="hidden-badge">已隐藏</span>
-              </td>
-              <!-- 视频独有属性 -->
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="大小">{{ formatSize(r.file_size) }}</td>
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="时长">{{ formatDuration(r.duration) }}</td>
-              <td v-if="resourceTypeFilter === '' || resourceTypeFilter === 'video'" data-label="分辨率">{{ formatResolution(r.width, r.height) }}</td>
-              <!-- 图集独有属性 -->
-              <td v-if="resourceTypeFilter === 'gallery'" data-label="图片个数">{{ formatCount(r.page_count) }}</td>
-              <!-- 帖子独有属性 -->
-              <td v-if="resourceTypeFilter === 'post'" data-label="正文字数">{{ formatCount(r.content_length) }}</td>
-              <!-- 文本独有属性 -->
-              <td v-if="resourceTypeFilter === 'text'" data-label="字数">{{ formatCount(r.char_count) }}</td>
-              <td data-label="资源库">{{ libraryName(r.library_id) }}</td>
-              <td data-label="更新时间">{{ formatDate(r.updated_at) }}</td>
-              <td data-label="操作" class="row-actions">
-                <button
-                  class="icon-btn"
-                  :class="{ active: r.hidden }"
-                  @click="toggleResourceHidden(r)"
-                  :title="r.hidden ? '已隐藏，点击显示' : '点击隐藏'"
-                  :disabled="togglingHidden === r.resource_index_id"
-                >
-                  <svg v-if="r.hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  <span class="btn-label">{{ r.hidden ? '显示' : '隐藏' }}</span>
-                </button>
-                <button class="icon-btn" @click="editResource(r)" title="编辑">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  <span class="btn-label">编辑</span>
-                </button>
-                <button class="icon-btn danger" @click="deleteResource(r)" title="删除">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  <span class="btn-label">删除</span>
-                </button>
-              </td>
-            </tr>
-            <tr v-if="resources.length === 0"><td :colspan="resourceColspan" class="empty">暂无资源</td></tr>
-          </tbody>
-        </table>
+          <div class="res-grid">
+            <div
+              v-for="r in resources"
+              :key="r.type + ':' + r.id"
+              class="res-card"
+              :class="{ 'is-hidden': r.hidden }"
+            >
+              <div class="res-card-cover">
+                <img
+                  v-if="r.cover && !isCoverBroken(r)"
+                  :src="withThumbToken(r.cover)"
+                  class="res-card-img"
+                  @error="onCoverError(r)"
+                />
+                <div v-else class="res-card-img res-card-placeholder">{{ typeIcon(r.type) }}</div>
+                <span class="res-card-type" :class="'type-' + r.type">{{ typeLabel(r.type) }}</span>
+                <span v-if="r.hidden" class="res-card-hidden">已隐藏</span>
+              </div>
+              <div class="res-card-body">
+                <div class="res-card-title" :title="r.title">{{ r.title }}</div>
+                <div class="res-card-meta">
+                  <template v-if="r.type === 'video'">
+                    <span>{{ formatSize(r.file_size) }}</span>
+                    <span>{{ formatDuration(r.duration) }}</span>
+                    <span>{{ formatResolution(r.width, r.height) }}</span>
+                  </template>
+                  <span v-else-if="r.type === 'gallery'">{{ formatCount(r.page_count) }} 张</span>
+                  <span v-else-if="r.type === 'post'">{{ formatCount(r.content_length) }} 字</span>
+                  <span v-else-if="r.type === 'text'">{{ formatCount(r.char_count) }} 字</span>
+                </div>
+                <div class="res-card-foot">
+                  <span class="res-card-lib">{{ libraryName(r.library_id) }}</span>
+                  <span>{{ formatDate(r.updated_at) }}</span>
+                </div>
+                <div class="res-card-actions">
+                  <button
+                    class="res-act"
+                    :class="{ active: r.hidden }"
+                    @click="toggleResourceHidden(r)"
+                    :title="r.hidden ? '已隐藏，点击显示' : '点击隐藏'"
+                    :disabled="togglingHidden === r.resource_index_id"
+                  >
+                    <svg v-if="r.hidden" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    <span class="btn-label">{{ r.hidden ? '显示' : '隐藏' }}</span>
+                  </button>
+                  <button class="res-act" @click="editResource(r)" title="编辑">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span class="btn-label">编辑</span>
+                  </button>
+                  <button class="res-act danger" @click="deleteResource(r)" title="删除">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    <span class="btn-label">删除</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-if="resources.length === 0" class="res-empty">暂无资源</div>
+          </div>
         </div>
 
         <Pagination
@@ -4348,230 +4327,179 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* 移动端（≤768px）：资源表格改为纵向卡片布局，取消横向滚动，列对齐 */
-@media (max-width: 768px) {
-  .resource-table-wrap {
-    overflow-x: hidden;
-    max-width: 100%;
-    width: 100%;
-  }
-  .resource-table-wrap .data-table {
-    min-width: unset;
-    display: block !important;
-    width: 100% !important;
-    table-layout: fixed;
-  }
-  .resource-table-wrap .data-table tbody,
-  .resource-table-wrap .data-table tbody tr.res-row {
-    display: block !important;
-    width: 100% !important;
-    max-width: 100%;
-  }
-  .resource-table-wrap .res-thead {
-    display: none !important;
-  }
-  .resource-table-wrap .res-row {
-    display: block !important;
-    padding: 14px 16px;
-    margin-bottom: 10px;
-    border-radius: 10px;
-    background: var(--bg-surface-hover);
-    border: 1px solid var(--bg-surface);
-    width: 100% !important;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-  /* 每个 td 用 grid：固定标签列 + 弹性内容列，min-width:0 防止内容撑开 */
-  .resource-table-wrap .res-row td {
-    display: grid !important;
-    grid-template-columns: 56px minmax(0, 1fr) !important;
-    align-items: baseline;
-    column-gap: 8px;
-    padding: 4px 0;
-    border-bottom: none;
-    text-align: left;
-    width: 100% !important;
-    max-width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-  .resource-table-wrap .res-row td::before {
-    content: attr(data-label);
-    font-weight: 600;
-    color: var(--text-tertiary);
-    font-size: 12px;
-    white-space: nowrap;
-    text-align: right;
-    overflow: hidden;
-  }
-  /* 内容子元素：弹性收缩 + 截断，防止长文本撑开 grid */
-  .resource-table-wrap .res-row td > *:not(.res-thumb):not(.res-thumb-placeholder) {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* 标题列：缩略图+标题+隐藏标记，占满整行，不显示标签 */
-  .resource-table-wrap .res-row td[data-label="标题"] {
-    grid-template-columns: 1fr;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 8px;
-    overflow: hidden;
-  }
-  .resource-table-wrap .res-row td[data-label="标题"]::before {
-    content: none;
-  }
-  .resource-table-wrap .res-row td[data-label="标题"] .res-thumb,
-  .resource-table-wrap .res-row td[data-label="标题"] .res-thumb-placeholder {
-    flex: 0 0 auto;
-    width: 48px;
-    height: 36px;
-    object-fit: cover;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .resource-table-wrap .res-row td[data-label="标题"] > span:not(.res-thumb-placeholder):not(.res-thumb) {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* 操作按钮：整行底部工具栏，等分分布、带分隔线，图标+文字 */
-  .resource-table-wrap .res-row td[data-label="操作"] {
-    grid-template-columns: 1fr;
-    display: flex;
-    justify-content: space-around;
-    align-items: stretch;
-    gap: 0;
-    margin-top: 4px;
-    padding: 8px 0 0;
-    border-top: 1px solid var(--border-subtle);
-    overflow: visible;
-  }
-  .resource-table-wrap .res-row td[data-label="操作"]::before {
-    content: none;
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn {
-    width: auto;
-    height: auto;
-    flex: 1 1 0;
-    min-width: 0;
-    flex-direction: column;
-    gap: 4px;
-    padding: 4px 2px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-secondary);
-    overflow: visible;
-    white-space: normal;
-    text-overflow: clip;
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn:hover {
-    background: var(--bg-surface);
-    color: var(--accent);
-    border-color: transparent;
-    transform: none;
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.active {
-    background: transparent;
-    color: var(--accent);
-    border-color: transparent;
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.danger {
-    color: var(--danger);
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .icon-btn.danger:hover {
-    background: var(--danger-soft);
-    color: var(--danger);
-  }
-  .resource-table-wrap .res-row td[data-label="操作"] .btn-label {
-    display: block;
-    font-size: 12px;
-    line-height: 1;
-  }
+/* 资源管理：响应式卡片网格（封面优先的现代媒体库布局，桌面/移动统一） */
+.res-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  width: 100%;
 }
 
-/* 资源管理标签页 */
-.resource-table-wrap {
+.res-card {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
-
-.resource-table-wrap .data-table {
-  border-collapse: separate;
-  border-spacing: 0;
+.res-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  border-color: var(--border-default);
 }
+.res-card.is-hidden { opacity: 0.58; }
 
-.resource-table-wrap .res-thead th {
+/* 封面区 */
+.res-card-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
   background: var(--bg-surface-hover);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  border-bottom: 1px solid var(--border-default);
-  padding: 14px 16px;
+  overflow: hidden;
 }
-
-.resource-table-wrap .res-row {
-  transition: background 0.15s ease, transform 0.15s ease;
+.res-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
-
-.resource-table-wrap .res-row:hover {
-  background: var(--bg-surface-hover);
-}
-
-.resource-table-wrap .res-row td {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  vertical-align: middle;
-}
-
-.type-badge {
-  display: inline-flex;
+.res-card-cover .res-card-placeholder {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
+  justify-content: center;
+  font-size: 40px;
   line-height: 1;
 }
-.type-badge.type-video { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-.type-badge.type-gallery { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
-.type-badge.type-post { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-.type-badge.type-text { background: rgba(16, 185, 129, 0.15); color: #34d399; }
-.type-badge-icon { font-size: 13px; }
-.res-type { white-space: nowrap; }
-.res-title { display: flex; align-items: center; gap: 12px; max-width: 460px; }
-.res-thumb { width: 48px; height: 36px; object-fit: cover; border-radius: 8px; background: var(--bg-surface-hover); flex-shrink: 0; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08); }
-.res-thumb-placeholder { width: 48px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--bg-surface-hover); flex-shrink: 0; font-size: 18px; line-height: 1; }
-.res-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text-primary); }
-.hidden-badge { background: var(--warning-soft); color: var(--warning); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+.res-card-type {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(15, 18, 25, 0.55);
+  backdrop-filter: blur(4px);
+}
+.res-card-type.type-video { box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.6); }
+.res-card-type.type-gallery { box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.6); }
+.res-card-type.type-post { box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.6); }
+.res-card-type.type-text { box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.6); }
+.res-card-hidden {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+/* 信息区 */
+.res-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  flex: 1;
+}
+.res-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.res-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.res-card-meta span {
+  background: var(--bg-surface-hover);
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.res-card-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.res-card-foot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.res-card-foot .res-card-lib { color: var(--text-secondary); }
+
+/* 空状态 */
+.res-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 64px 20px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 14px;
+  font-size: 14px;
+}
+
+/* 操作栏：卡片底部始终可见，均分分布、带分隔线，不再挤在角落 */
+.res-card-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.res-act {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  border-radius: 9px;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.res-act .btn-label { display: inline; line-height: 1; }
+.res-act:hover { color: var(--accent); border-color: var(--accent); }
+.res-act.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.res-act.danger { color: var(--danger); }
+.res-act.danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.res-act:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 较宽屏：卡片略小、列更多 */
+@media (min-width: 1600px) {
+  .res-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+}
+
+/* 资源管理容器（卡片网格外包） */
+.resource-table-wrap { width: 100%; }
+
 .show-hidden-toggle { display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 8px; padding: 8px 12px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-secondary); font-size: 13px; cursor: pointer; user-select: none; transition: all 0.2s; }
 .show-hidden-toggle:hover { border-color: var(--accent); color: var(--accent); }
 .show-hidden-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
 .muted { color: var(--text-tertiary); font-weight: 400; font-size: 13px; }
-
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 操作按钮文字标签：桌面端隐藏，移动端卡片内显示 */
-.btn-label {
-  display: none;
-}
 
 .data-table th,
 .data-table td {
