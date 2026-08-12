@@ -79,8 +79,17 @@
   .bubble.ai.md code.md-inline { background: #d8dce3; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; color: #c0331d; }
   .bubble.ai.md a { color: #2f6fd0; text-decoration: underline; }
   /* 反馈单引用：#单号 渲染为可点击链接，点击跳转反馈中心对应详情 */
-  .bubble.ai .fb-ref { color: #2f6fd0; background: #eaf2ff; border-radius: 4px; padding: 0 4px; cursor: pointer; text-decoration: none; font-weight: 600; }
+  .bubble.ai   .fb-ref { color: #2f6fd0; background: #eaf2ff; border-radius: 4px; padding: 0 4px; cursor: pointer; text-decoration: none; font-weight: 600; }
   .bubble.ai .fb-ref:hover { background: #d6e6ff; }
+  /* 资源引用：AI 回复中可点击跳转资源详情页的卡片式胶囊 */
+  .bubble.ai .res-ref { display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    background: #eef3ff; color: #2f54eb; border: 1px solid #d6e0ff; border-radius: 6px;
+    padding: 1px 8px; margin: 0 2px; cursor: pointer; font-weight: 600; text-decoration: none; vertical-align: middle; }
+  .bubble.ai .res-ref:hover { background: #dde7ff; }
+  .bubble.ai .res-ref .rr-ico { font-size: 12px; line-height: 1; }
+  .bubble.ai .res-ref .rr-cover { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; }
+  .bubble.ai .res-ref .rr-type { font-size: 10px; color: #1a7f37; background: #e8f5e9; border-radius: 4px; padding: 0 4px; }
+  .bubble.ai .res-ref.missing { background: #fbeaea; color: #b00; border-color: #f3c2c2; cursor: default; }
   .fbhint { font-size: 11.5px; color: #9aa0a6; text-align: center; padding: 4px 10px 0; user-select: none; }
 </style>
 </head>
@@ -225,12 +234,32 @@
     text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     text = text.replace(/_([^_]+)_/g, '<em>$1</em>');
     text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, t, u) {
+      // 资源库引用：dbox://resource/<类型>/<标识> -> 可点击跳转的资源卡片胶囊
+      if (/^dbox:\/\/resource\//.test(u)) {
+        const seg = u.slice('dbox://resource/'.length).split('/');
+        const rtype = seg.shift() || '';
+        const rref = seg.join('/');
+        return '<span class="res-ref" data-type="' + esc(rtype) + '" data-ref="' + esc(rref) + '">'
+             + '<span class="rr-ico">' + typeIcon(rtype) + '</span>' + t + '</span>';
+      }
       const safe = sanitizeUrl(u);
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + t + '</a>';
     });
     text = text.replace(/C(\d+)/g, function (m, n) { return '<code class="md-inline">' + codes[+n] + '</code>'; });
     text = text.replace(/\n/g, '<br>');
     return text;
+  }
+
+  // 资源类型对应的图标与中文标签
+  function typeIcon(type) {
+    if (type === 'video') return '🎬';
+    if (type === 'gallery') return '🖼️';
+    if (type === 'post') return '📝';
+    if (type === 'text') return '📄';
+    return '🔗';
+  }
+  function typeLabel(type) {
+    return ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' })[type] || type;
   }
 
   // 剥离 AI 回复中的 feedback-request 围栏块（提单指令，不应向用户展示原始 JSON）
@@ -363,6 +392,8 @@
     // 先折叠过长气泡（在恢复滚动位置之前完成）：折叠会改变内容总高度，
     // 若放在 scrollTop 设定之后执行，浏览器会对 scrollTop 重新钳制到底部，造成“瞬移跳转”。
     applyCollapse();
+    // 补全 AI 回复中资源引用的封面/标题/类型标签
+    enrichResourceRefs();
     // 工具栏按钮文案随模式更新：收起全部模式显示“展开全部”，否则“收起全部”
     toggleAllBtn.textContent = collapsedAllMode ? '展开全部' : '收起全部';
     // 仅当用户原本就贴底时才自动贴底；否则保留当前滚动位置，避免用户在看历史时被拉回底部。
@@ -426,6 +457,8 @@
     // 流式内容同样按 Markdown 渲染；running 时追加“正在处理”状态标签
     const status = running ? '<span class="aistatus">● 正在处理</span>' : '';
     node.innerHTML = renderContent(text) + status;
+    // 流式输出中也补全资源引用卡片（解析结果已缓存，不会重复请求）
+    enrichResourceRefs();
     // AI 思考/执行中：头像外圈显示旋转光环；结束后移除
     const avatar = node.closest('.ai-row') && node.closest('.ai-row').querySelector('.ai-avatar');
     if (avatar) avatar.classList.toggle('running', !!running);
@@ -629,13 +662,59 @@
     window.parent.postMessage({ type: 'DBOX_DRAFT_SAVE', extId: 'ai_chat', text: txt.value }, '*');
   }
   txt.addEventListener('input', () => { autoGrow(); syncDraft(); });
-  // 反馈单引用点击：通知宿主（父页面）跳转到反馈中心对应详情
+  // 反馈单 / 资源引用点击：通知宿主（父页面）跳转；跳转后宿主会自动收起面板
   msgs.addEventListener('click', function (e) {
     const a = e.target.closest && e.target.closest('.fb-ref');
     if (a && a.dataset.id) {
       window.parent.postMessage({ type: 'DBOX_NAVIGATE', path: '/feedback/' + a.dataset.id }, '*');
+      return;
+    }
+    const r = e.target.closest && e.target.closest('.res-ref');
+    if (r && r.dataset.type && r.dataset.ref != null) {
+      navigateResource(r);
     }
   });
+
+  // 资源引用解析缓存（同一 (type,ref) 只请求一次）
+  const refCache = {};
+  function resolveResource(type, ref) {
+    const key = type + '|' + ref;
+    if (Object.prototype.hasOwnProperty.call(refCache, key)) return Promise.resolve(refCache[key]);
+    return api('/api/ai-chat/resource-resolve?type=' + encodeURIComponent(type) + '&ref=' + encodeURIComponent(ref))
+      .then(r => r.json()).then(d => { refCache[key] = d; return d; })
+      .catch(() => ({ found: false }));
+  }
+  function navigateResource(el) {
+    const type = el.dataset.type, ref = el.dataset.ref;
+    const url = el.dataset.url;
+    if (url) { window.parent.postMessage({ type: 'DBOX_NAVIGATE', path: url }, '*'); return; }
+    resolveResource(type, ref).then(d => {
+      if (d && d.found && d.url) { el.dataset.url = d.url; window.parent.postMessage({ type: 'DBOX_NAVIGATE', path: d.url }, '*'); }
+    }).catch(() => {});
+  }
+  // 渲染后异步补全资源卡片的封面/标题/类型标签（已解析过的走缓存，不会重复请求）
+  function enrichResourceRefs() {
+    msgs.querySelectorAll('.res-ref').forEach(el => {
+      const type = el.dataset.type, ref = el.dataset.ref;
+      if (!type || ref == null) return;
+      resolveResource(type, ref).then(d => {
+        if (!d || !d.found) { el.classList.add('missing'); return; }
+        el.classList.add('found');
+        if (d.url) el.dataset.url = d.url;
+        if (d.title) el.title = d.title;
+        if (d.cover_url && !el.querySelector('.rr-cover')) {
+          const img = document.createElement('img');
+          img.className = 'rr-cover'; img.src = d.cover_url; img.alt = '';
+          el.insertBefore(img, el.firstChild);
+        }
+        if (!el.querySelector('.rr-type')) {
+          const tag = document.createElement('span');
+          tag.className = 'rr-type'; tag.textContent = typeLabel(type);
+          el.appendChild(tag);
+        }
+      }).catch(() => {});
+    });
+  }
   autoGrow();
 
   // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）
