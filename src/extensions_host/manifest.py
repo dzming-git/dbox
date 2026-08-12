@@ -12,9 +12,9 @@ except Exception:  # pragma: no cover
 def scripts_base_dir():
     """extensions/scripts 目录（位于项目根目录下）。
 
-    本包位于 <root>/src/web/script_engine，故从包目录向上 3 级到达项目根。
+    本包位于 <root>/src/extensions_host，故从包目录向上 3 级到达项目根。
     """
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))        # src/web/script_engine
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))        # src/extensions_host
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
     return os.path.join(project_root, 'extensions', 'scripts')
 

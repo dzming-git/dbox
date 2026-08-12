@@ -128,20 +128,25 @@ with app.app_context():
 # 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变
 from backend.blueprints import register_core_blueprints, register_domain_blueprints
 register_core_blueprints(app)
-# 注：通用外部脚本接口（下载器）已迁移至独立的「资源下载器」服务（src/downloader/main.py，端口 8092），
-#     主服务作为网关将脚本相关接口反向代理过去（见下方 _gateway_script_routes）。
-#     前端仍统一访问 8080（开发/生产一致），主服务不直接执行脚本代码：
-#     即使下载器崩溃，主服务也只返回 503 而不会抛异常、不影响其他功能。
+# 注：「拓展管理」（外部脚本执行引擎、脚本管理、UI 扩展面板、AI 助手、凭证保险库）
+#     已完全独立为 extensions_host 进程（src/extensions_host，端口 8093）。
+#     主 Web 服务不再注册任何 script_engine 蓝图，仅作为网关把相关接口反向代理过去
+#     （见下方 _gateway_extensions_routes），彻底实现拓展管理与主模块的解耦：
+#     即使拓展宿主崩溃，主服务只返回 503 而不影响视频/图集/帖子等核心功能。
+#     下载器（src/downloader，端口 8092）复用同一份引擎代码作为独立崩溃域，
+#     但前端统一走 8093，脚本执行/回调均在 8093 内自洽。
 
-# ===== 资源下载器网关代理 =====
-_DOWNLOADER_BASE_URL = 'http://127.0.0.1:8092'
-_SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies')
+# ===== 拓展管理宿主网关代理 =====
+_EXTENSIONS_HOST_URL = 'http://127.0.0.1:8093'
+_SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies',
+                    '/api/ui-extensions', '/api/ui-panel', '/api/ui-proxy',
+                    '/api/ai-chat')
 
 
-def _proxy_to_downloader(path):
-    """将请求原样转发给资源下载器服务（8092），透传方法/头/查询/Body/Cookie。"""
+def _proxy_to_extensions_host(path):
+    """将请求原样转发给拓展管理宿主（8093），透传方法/头/查询/Body/Cookie。"""
     import requests as _requests
-    target = _DOWNLOADER_BASE_URL + path
+    target = _EXTENSIONS_HOST_URL + path
     _hop = {'host', 'content-length', 'connection', 'transfer-encoding'}
     fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _hop}
     try:
@@ -158,7 +163,7 @@ def _proxy_to_downloader(path):
     except _requests.exceptions.RequestException:
         return jsonify({
             'success': False,
-            'message': '资源下载器服务不可用，请检查下载器进程是否运行',
+            'message': '拓展管理宿主不可用，请检查 extensions_host 进程是否运行',
             'code': 503,
         }), 503
     _excluded = {'content-length', 'transfer-encoding', 'connection', 'content-encoding'}
@@ -167,12 +172,12 @@ def _proxy_to_downloader(path):
 
 
 @app.before_request
-def _gateway_script_routes():
-    """脚本/下载器相关接口统一经主服务网关转发到独立下载器进程。"""
+def _gateway_extensions_routes():
+    """拓展管理相关接口统一经主服务网关转发到独立的 extensions_host 进程。"""
     path = request.path
     for _p in _SCRIPT_PREFIXES:
         if path == _p or path.startswith(_p + '/'):
-            return _proxy_to_downloader(path)
+            return _proxy_to_extensions_host(path)
     return None
 
 # ============ 操作审计日志 ============

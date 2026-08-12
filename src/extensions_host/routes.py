@@ -1,13 +1,17 @@
 """外部脚本接口 API（Blueprint）。
 
-- 除 notify 外，所有接口仅管理员可访问（与 main.py 的 admin_required 一致的 JWT 校验）。
-- notify 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
+本模块运行于独立的拓展宿主进程（extensions_host），承载「拓展管理」的全部对外
+接口：脚本执行引擎、脚本管理、UI 扩展面板、AI 助手对话、凭证保险库。与主 Web
+服务（8080）完全解耦——本模块不直接 import 任何 src/web 业务代码，仅通过
+platform_client 以 HTTP 调用主服务暴露的内部契约接口完成业务副作用。
+
+- 除 notify / input 外，所有接口仅管理员可访问（与 main.py 的 admin_required 一致的 JWT 校验）。
+- notify / input 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
 """
 from functools import wraps
 from flask import Blueprint, request, jsonify, g, Response, stream_with_context
 
 from authlib.jose import jwt
-from core.models import UserRole
 
 import os
 import re
@@ -19,6 +23,10 @@ import subprocess
 # 直接读取环境变量（而非依赖模块导入），避免在不同进程 / 导入顺序下拿到错误的密钥，
 # 从而导致脚本接口 401 把用户踢出登录。
 _DEFAULT_JWT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
+
+# 角色阈值：本地常量，避免直接 import 主服务的 core.models。
+# 需与 core.models.UserRole.ADMIN 的数值保持一致（管理员=100）。
+ADMIN_ROLE = 100
 
 
 def _resolve_jwt_secrets():
@@ -33,14 +41,14 @@ def _resolve_jwt_secrets():
 
 _JWT_SECRETS = _resolve_jwt_secrets()
 
-from .manager import mgr, ScriptJobManager
-from .ai_chat import ai_mgr
+from manager import mgr, ScriptJobManager
+from ai_chat import ai_mgr
 
 script_bp = Blueprint('script', __name__)
 
 
 def init_script_engine(app):
-    """由 main.py 在 app 创建后调用，初始化管理器。"""
+    """由 extensions_host 应用工厂在 app 创建后调用，初始化管理器。"""
     mgr.init(app)
     # 初始化 AI 助手对话队列管理器（独立 data 目录，与脚本引擎一致）
     try:
@@ -53,7 +61,7 @@ def init_script_engine(app):
             _data_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(pkg_dir))), 'data')
         ai_mgr.init(_data_dir)
     except Exception as e:
-        print('[script_engine] 初始化 AI 对话管理器失败: %s' % e)
+        print('[extensions_host] 初始化 AI 对话管理器失败: %s' % e)
 
 
 def admin_required(f):
@@ -80,7 +88,7 @@ def admin_required(f):
         g.user_id = payload.get('user_id')
         g.role = payload.get('role', 0)
         g.username = payload.get('username')
-        if g.role < UserRole.ADMIN:
+        if g.role < ADMIN_ROLE:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
         return f(*args, **kwargs)
     return decorated
@@ -406,42 +414,8 @@ def ai_chat_clear():
 # AI 在回复里用 [显示名](dbox://resource/<类型>/<标识>) 引用媒体库资源，前端渲染后可点击跳转。
 # 该接口把 (类型, 标识) 解析为可跳转的 SPA 路径与封面，供面板渲染资源卡片。
 # <标识> 支持三种形态：64 位 hex（视频/图集的 hash）、纯数字（帖子/文本 id）、或其它字符串（按标题模糊匹配）。
-_HEX64 = re.compile(r'^[0-9a-fA-F]{64}$')
-
-
-def _ai_resource_visible(entity, rtype):
-    """AI 引用资源的可见性门禁：与资源管理器（资源管理页）对外可见口径一致——
-
-    仅当资源归属「已激活资源库」、且未删除、未隐藏时，才允许被 AI 引用并渲染成
-    可点击卡片。归属未激活（is_active=False）资源库的资源一律视为不可见
-    （found=False），杜绝通过 AI 聊天窗口泄露已停用的资源库内容。
-
-    使用 backend.access.get_allowed_library_ids() 复用资源管理器的唯一可见性收敛点，
-    因此天然跟随「按当前管理员权限 + 仅激活库」的口径，与首页/库列表等公开视图一致。
-    """
-    from backend.access import get_allowed_library_ids
-    allowed = set(get_allowed_library_ids())
-    if rtype in ('video', 'gallery'):
-        if getattr(entity, 'in_trash', False):
-            return False
-        ri = getattr(entity, 'resource_index', None)
-        if ri is not None and getattr(ri, 'hidden', False):
-            return False
-        return entity.library_id in allowed
-    if rtype == 'post':
-        if getattr(entity, 'in_trash', False):
-            return False
-        return getattr(entity, 'library_id', None) in allowed
-    if rtype == 'text':
-        ri = getattr(entity, 'resource_index', None)
-        if ri is not None:
-            if getattr(ri, 'hidden', False):
-                return False
-            return ri.library_id in allowed
-        return getattr(entity, 'library_id', None) in allowed
-    return False
-
-
+# 解析逻辑驻留在主服务（backend/internal_api 的 /internal/resource-resolve），本接口经
+# platform_client 回调，避免拓展宿主直接 import 主服务的 core.models。
 @script_bp.route('/api/ai-chat/resource-resolve', methods=['GET'])
 @admin_required
 def ai_chat_resource_resolve():
@@ -450,89 +424,10 @@ def ai_chat_resource_resolve():
     ref = (request.args.get('ref') or '').strip()
     if not ref:
         return jsonify({'success': True, 'found': False})
-
-    from core.models import Video, Gallery, Post, Text, ResourceIndex
-
-    def _cover(ri):
-        if ri and ri.cover:
-            return ri.cover
-        return None
-
-    def _text_title(ri, fallback):
-        title = ''
-        if ri and ri.meta:
-            try:
-                title = (json.loads(ri.meta) or {}).get('title', '') or ''
-            except Exception:
-                title = ''
-        return title or (fallback or '')[:40] or '文本'
-
-    result = None
-    try:
-        if rtype in ('video',):
-            v = None
-            if _HEX64.match(ref):
-                v = Video.query.filter_by(hash=ref).first()
-            elif ref.isdigit():
-                v = Video.query.get(int(ref))
-            if not v:
-                v = Video.query.filter(Video.title.ilike('%' + ref + '%')).first()
-            if v:
-                if not _ai_resource_visible(v, 'video'):
-                    v = None
-                else:
-                    ri = ResourceIndex.query.get(v.resource_index_id) if v.resource_index_id else None
-                    result = {'type': 'video', 'id': v.id, 'hash': v.hash, 'title': v.title,
-                              'cover_url': _cover(ri) or v.thumbnail,
-                              'url': '/video/' + (v.hash or str(v.id))}
-        elif rtype in ('gallery',):
-            g = None
-            if _HEX64.match(ref):
-                g = Gallery.query.filter_by(hash=ref).first()
-            elif ref.isdigit():
-                g = Gallery.query.get(int(ref))
-            if not g:
-                g = Gallery.query.filter(Gallery.title.ilike('%' + ref + '%')).first()
-            if g:
-                if not _ai_resource_visible(g, 'gallery'):
-                    g = None
-                else:
-                    ri = ResourceIndex.query.get(g.resource_index_id) if g.resource_index_id else None
-                    result = {'type': 'gallery', 'id': g.id, 'hash': g.hash, 'title': g.title,
-                              'cover_url': _cover(ri),
-                              'url': '/gallery/' + (g.hash or str(g.id))}
-        elif rtype in ('post',):
-            p = None
-            if ref.isdigit():
-                p = Post.query.get(int(ref))
-            if not p:
-                p = Post.query.filter(Post.title.ilike('%' + ref + '%')).first()
-            if p:
-                if not _ai_resource_visible(p, 'post'):
-                    p = None
-                else:
-                    result = {'type': 'post', 'id': p.id, 'title': p.title or '(无标题)',
-                              'cover_url': (p.cover_url if hasattr(p, 'cover_url') else None),
-                              'url': '/post/' + str(p.id)}
-        elif rtype in ('text',):
-            t = None
-            if ref.isdigit():
-                t = Text.query.get(int(ref))
-            if not t:
-                t = Text.query.filter(Text.summary.ilike('%' + ref + '%')).first()
-            if t:
-                if not _ai_resource_visible(t, 'text'):
-                    t = None
-                else:
-                    ri = ResourceIndex.query.get(t.resource_index_id) if t.resource_index_id else None
-                    result = {'type': 'text', 'id': t.id, 'title': _text_title(ri, t.summary),
-                              'cover_url': _cover(ri), 'url': '/text/' + str(t.id)}
-        # 未知类型：不解析
-    except Exception as e:
-        return jsonify({'success': False, 'found': False, 'message': str(e)})
-
-    if result:
-        return jsonify({'success': True, 'found': True, **result})
+    from platform_client import resource_resolve
+    r = resource_resolve(rtype, ref)
+    if isinstance(r, dict) and r.get('success'):
+        return jsonify(r)
     return jsonify({'success': True, 'found': False})
 
 
@@ -566,7 +461,7 @@ def put_script_defaults(script_id):
 # ---------- 管理员：通用凭证保险库 ----------
 # 支持 cookie / token / password / apikey 多种类型，仅管理员可读写；落盘加密，
 # 列表不回传 value。复用现有 /api/admin/cookies 路径，避免前端大改。
-from common.credential_vault import CREDENTIAL_KINDS, KIND_COOKIE
+from shared.credential_vault import CREDENTIAL_KINDS, KIND_COOKIE
 
 
 def _sanitize_cred(rec):

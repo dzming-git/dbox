@@ -11,6 +11,10 @@
 
 数据落在 data/ai_chat.db（独立表 ai_tasks），并轻量镜像到统一任务表（kind='ai_chat'），
 使全局任务管理器也能看到正在处理的 AI 任务。
+
+本模块运行于独立的拓展宿主进程（extensions_host），不直接 import 主服务的业务模块：
+- 反馈中心的建单经由 platform_client 以 HTTP 转发给主服务的内部接口完成；
+- codebuddy 凭证经由共享库 shared.credential_vault 读取（中立、无业务依赖）。
 """
 import os
 import sys
@@ -40,28 +44,13 @@ _ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
 _CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
 
 
-# TODO(凭证集中管理): 把 codebuddy 凭证纳入「凭证保险箱」统一管理的需求暂未实现，延后处理。
-#   背景：反馈中心要求 codebuddy 的凭证能在拓展管理→凭证保险箱里看到并集中管理。
-#   现状：当前 codebuddy 实际走 ~/.codebuddy 的 OAuth 登录会话鉴权（见 _codebuddy_user_home），
-#        并非 ANTHROPIC_API_KEY 环境变量；且本函数里保险库目录路径拼成了 src/common（应为
-#        src/web/common），导致 from credential_vault import 始终异常、被静默吞掉，保险库分支从未生效。
-#   待办：重新设计凭证来源——
-#        1) 若 codebuddy 提供可用的 API token，让保险箱作为唯一权威来源（注入环境变量）；
-#        2) 否则在保险箱 UI 呈现 ~/.codebuddy 登录会话的管理入口（已登录账号/重新登录）；
-#        3) 修正保险库目录路径，使保险库读取真正生效。
-#   注：此前一次「凭证保险库集中管理 codebuddy token」提交已回退（基于错误前提，视为死代码）。
-
 def _load_codebuddy_token() -> str:
     """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。"""
     env_token = os.environ.get(_ANTHROPIC_API_KEY_ENV)
     if env_token:
         return env_token.strip()
     try:
-        sys_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                '..', '..', 'common')
-        if sys_path not in sys.path:
-            sys.path.insert(0, sys_path)
-        from credential_vault import CredentialVault, data_dir_for  # type: ignore
+        from shared.credential_vault import CredentialVault, data_dir_for
         vault = CredentialVault(data_dir_for())
         tok = vault.get_token(domain=_CODEBUDDY_TOKEN_DOMAIN)
         if tok:
@@ -75,7 +64,7 @@ def _load_codebuddy_token() -> str:
 
 
 def _project_root() -> str:
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/web/script_engine
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/extensions_host
     return os.path.dirname(os.path.dirname(os.path.dirname(pkg_dir)))
 
 
@@ -154,24 +143,22 @@ def _file_feedback(ftype: str, title: str, content: str):
     仅由 _maybe_file_feedback 在 AI 判定为「新反馈」时调用。
     身份遵循项目准则：反馈中心交互使用「自动助手」身份
     （submitter='自动助手'、source='ai_assistant'、auto_classified=True）。
+    建单经 platform_client 转发给主服务的内部接口 /internal/feedback 完成，
+    使本模块无需直接依赖主服务的 backend.feedback_db。
     """
     try:
-        from backend.feedback_db import db_create_issue, init_feedback_db
-        init_feedback_db()
+        from platform_client import file_feedback
         if ftype not in ('bug', 'suggestion'):
             ftype = 'suggestion'
         title = (title or '').strip()
         content = (content or '').strip()
         if not title and not content:
             return None
-        return db_create_issue(
-            title=title, content=content, category=ftype,
-            submitter='自动助手', source='ai_assistant', auto_classified=True,
-        )
+        return file_feedback(ftype, title, content)
     except Exception as e:
         try:
-            from liblog import get_service_logger
-            get_service_logger('dbox-web').warning('AI 助手建单失败: %s' % e)
+            import logging
+            logging.getLogger('extensions_host').warning('AI 助手建单失败: %s' % e)
         except Exception:
             pass
         return None
@@ -289,7 +276,7 @@ class AIChatManager:
         self._recover_stale_tasks()
         # 尝试挂接统一任务管理器（失败不影响对话功能）
         try:
-            from unified_tasks import init_task_manager as _init_tm
+            from shared.unified_tasks import init_task_manager as _init_tm
             _init_tm(data_dir)
             self._ut = True
         except Exception:
@@ -373,7 +360,7 @@ class AIChatManager:
         if not self._ut:
             return
         try:
-            from unified_tasks import create_task
+            from shared.unified_tasks import create_task
             title = (prompt or '').strip().replace('\n', ' ')
             if len(title) > 60:
                 title = title[:60] + '…'
@@ -387,7 +374,7 @@ class AIChatManager:
         if not self._ut:
             return
         try:
-            from unified_tasks import update_task, get_task as ut_get
+            from shared.unified_tasks import update_task, get_task as ut_get
             ut_id = 'ai:' + task_id
             if ut_get(ut_id) is None:
                 t = self.get_task(task_id)
@@ -402,7 +389,7 @@ class AIChatManager:
         if not self._ut:
             return
         try:
-            from unified_tasks import delete_task
+            from shared.unified_tasks import delete_task
             delete_task('ai:' + task_id, is_admin=True)
         except Exception:
             pass
@@ -835,7 +822,7 @@ class AIChatManager:
         # 同步清理统一任务表中的 ai_chat 镜像
         if self._ut:
             try:
-                from unified_tasks import get_tasks as ut_get_all
+                from shared.unified_tasks import get_tasks as ut_get_all
                 for t in ut_get_all(role='admin', limit=200):
                     if (t.get('kind') == 'ai_chat') or str(t.get('task_id', '')).startswith('ai:'):
                         self._remove_from_unified(t['task_id'].split(':', 1)[-1] if str(t['task_id']).startswith('ai:') else t['task_id'])
