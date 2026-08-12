@@ -159,6 +159,15 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '拓展脚本', requiresAuth: true, requiresAdmin: true }
   },
   {
+    // 拓展插件式全屏页：复用扩展自身的 panel.html，让其独享一个界面。
+    // AI 助手经此路由获得专属 URL /ai-chat（仅管理员可见，与悬浮面板一致）。
+    path: '/ai-chat',
+    name: 'AiChat',
+    component: () => import('../views/ExtensionStandalone.vue'),
+    props: { id: 'ai_chat' },
+    meta: { title: 'AI 助手', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/NotFound.vue'),

@@ -153,3 +153,4 @@ extensions/scripts/*/
 !extensions/scripts/demo_download/
 !extensions/scripts/x_downloader/
 !extensions/scripts/feedback_ai/
+!extensions/scripts/ai_chat/
