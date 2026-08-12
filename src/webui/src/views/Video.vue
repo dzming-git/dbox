@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, reactive, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { tagApi, videoApi, collectionSetApi, resourceApi, historyApi } from '../api'
+import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
@@ -415,6 +416,16 @@ onMounted(async () => {
   document.addEventListener('fullscreenchange', updateFullscreenState)
 })
 
+// 顶部下拉刷新：重新加载当前视频及其推荐
+const ptr = usePullToRefresh()
+function registerPtr() {
+  ptr.setHandler(loadVideo)
+}
+onMounted(registerPtr)
+onActivated(registerPtr)
+onUnmounted(() => ptr.clearHandler())
+onDeactivated(() => ptr.clearHandler())
+
 function onDocClickCloseMenu(e: Event) {
   if (!moreMenuOpen.value) return
   const wrap = document.querySelector('.more-menu-wrap')
@@ -448,11 +459,6 @@ const fetchRecommendedVideos = async () => {
   } finally {
     recommendedLoading.value = false
   }
-}
-
-// 换一批推荐
-const shuffleRecommendations = async () => {
-  await fetchRecommendedVideos()
 }
 
 // 点击推荐视频
@@ -2316,16 +2322,9 @@ const handleDelete = async () => {
 
     <!-- 推荐视频区域（桌面端位于视频右侧，移动端自动移至下方） -->
     <div class="recommendations-section">
-      <div class="recommendations-header">
-        <span class="recommendations-title">推荐视频</span>
-        <button class="shuffle-btn" @click="shuffleRecommendations" :disabled="recommendedLoading">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M23 4v6h-6M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          换一批
-        </button>
-      </div>
+    <div class="recommendations-header">
+      <span class="recommendations-title">推荐视频</span>
+    </div>
       <div v-if="recommendedLoading" class="recommendations-loading">
         <div class="spinner-small"></div>
         <span>加载中...</span>
@@ -2529,30 +2528,6 @@ const handleDelete = async () => {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-}
-
-.shuffle-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.shuffle-btn:hover:not(:disabled) {
-  background: var(--bg-surface-2);
-  color: var(--accent);
-}
-
-.shuffle-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .recommendations-loading {
