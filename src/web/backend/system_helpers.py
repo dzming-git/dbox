@@ -317,6 +317,12 @@ _SERVICE_META = {
         'health_url': None,
         'port': None,
     },
+    'dbox-scheduler': {
+        'display_name': 'Dbox 定时任务服务',
+        'description': '通用脚本轮询调度器 - 按各脚本 manifest 声明的 interval 周期执行',
+        'health_url': None,
+        'port': None,
+    },
 }
 
 # 即使未注册为 Windows 服务也要出现在服务列表中的服务
