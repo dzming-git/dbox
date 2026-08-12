@@ -36,6 +36,9 @@ function fabBusy(id: string) { return !!busyMap.value[id] }
 // 悬浮气泡入口显示角标，避免用户忘记曾布置过任务。打开面板即清空未读。
 const unreadMap = ref<Record<string, number>>({})
 function fabUnread(id: string) { return unreadMap.value[id] || 0 }
+// 用户「正在看 AI 对话」的两种情形：悬浮面板展开 / 全屏对话页（/ai-chat 路由）。
+// 两者都算已查看，未读角标不应增长也不应残留。
+const aiChatViewing = computed(() => openId.value === 'ai_chat' || route.path === '/ai-chat')
 let lastHistoryTop: string | null = null  // 上一次轮询到的最近已完成任务 id
 let seeded = false                         // 首次轮询仅建立基线，不误报未读
 let busyTimer: any = null
@@ -53,7 +56,8 @@ async function pollAiBusy() {
     // 若此时面板处于收起状态（用户没在看），记为一条未读；首次轮询只建基线不计数。
     const topId = d.history && d.history.length ? d.history[0].id : null
     if (topId && topId !== lastHistoryTop) {
-      if (seeded && openId.value !== 'ai_chat') {
+      // 悬浮面板未展开「且」未处于全屏对话页时，才累计未读；正在看则不算未读
+      if (seeded && !aiChatViewing.value) {
         unreadMap.value = { ...unreadMap.value, ai_chat: (unreadMap.value.ai_chat || 0) + 1 }
       }
       lastHistoryTop = topId
@@ -170,6 +174,13 @@ watch(openId, (id) => {
     if (unreadMap.value[id]) unreadMap.value = { ...unreadMap.value, [id]: 0 }
   }
   syncScrollLock()
+})
+
+// 进入全屏对话页（/ai-chat）即视为已查看：清空未读角标，避免退出后仍提示未读
+watch(aiChatViewing, (v) => {
+  if (v && unreadMap.value['ai_chat']) {
+    unreadMap.value = { ...unreadMap.value, ai_chat: 0 }
+  }
 })
 </script>
 
