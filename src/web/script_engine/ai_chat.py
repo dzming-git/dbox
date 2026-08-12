@@ -225,7 +225,18 @@ _SYSTEM_PROMPT = (
     '- 在你的正文里用占位符 #(待分配) 表示反馈单号，并告知用户已提交、可在反馈中心查看；'
     '例如：「已为你提交反馈单 #(待分配)（类型：bug），我们会跟进处理。」\n'
     '- 若用户只是普通提问、闲聊，或让你执行某项任务，则按正常规则处理，不要输出 feedback-request 块。\n'
-    '- 若用户引用了某个已有反馈单（形如 #202608120001），正常与其讨论该问题即可，该单号可被点击跳转。'
+    '- 若用户引用了某个已有反馈单（形如 #202608120001），正常与其讨论该问题即可，该单号可被点击跳转。\n'
+    '\n'
+    '【引用资源库资源】当你的回复涉及本媒体库里的具体资源（视频 / 图集 / 帖子 / 文本），'
+    '请用 Markdown 链接形式引用，用户点击即可跳转到该资源详情页：\n'
+    '  [资源显示名](dbox://resource/<类型>/<标识>)\n'
+    '<类型> 为 video / gallery / post / text 之一；<标识> 优先用资源的真实标识——'
+    '视频/图集用其 hash（64 位十六进制字符串，videos/galleries 表的 hash 列），帖子/文本用整数 id（posts/texts 表的 id 列）。'
+    '若你只知道资源标题，也可把 <标识> 写成标题关键字，系统会按标题模糊匹配解析。\n'
+    '要在库里查找资源的真实标识，可用 Bash 工具直接查询媒体库数据库（Python 内置 sqlite3，无需额外依赖）：\n'
+    '  python -c "import sqlite3,os; p=os.path.join(os.environ.get(\'DBOX_DATA_DIR\',\'data\'),\'databases\',\'dbox.db\'); c=sqlite3.connect(p); [print(r) for r in c.execute(\"SELECT hash,title FROM videos WHERE title LIKE \'%关键字%\' LIMIT 5\")]"\n'
+    '（图集表为 galleries、帖子表 posts、文本表 texts；posts/texts 取 id 列即可。）\n'
+    '仅在确实引用到某个具体资源时才使用此链接；闲聊或泛泛而谈时不要编造引用。'
 )
 
 

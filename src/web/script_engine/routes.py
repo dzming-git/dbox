@@ -10,7 +10,9 @@ from authlib.jose import jwt
 from core.models import UserRole
 
 import os
+import re
 import sys
+import json
 import subprocess
 
 # 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DBOX_JWT_SECRET，回退内置默认密钥。
@@ -395,6 +397,95 @@ def ai_chat_clear():
     """清空全部对话（含排队与历史），重置多轮上下文。"""
     ai_mgr.clear()
     return jsonify({'success': True})
+
+
+# ---------- AI 回复中的资源引用解析 ----------
+# AI 在回复里用 [显示名](dbox://resource/<类型>/<标识>) 引用媒体库资源，前端渲染后可点击跳转。
+# 该接口把 (类型, 标识) 解析为可跳转的 SPA 路径与封面，供面板渲染资源卡片。
+# <标识> 支持三种形态：64 位 hex（视频/图集的 hash）、纯数字（帖子/文本 id）、或其它字符串（按标题模糊匹配）。
+_HEX64 = re.compile(r'^[0-9a-fA-F]{64}$')
+
+
+@script_bp.route('/api/ai-chat/resource-resolve', methods=['GET'])
+@admin_required
+def ai_chat_resource_resolve():
+    """根据 AI 回复中的资源引用 (type, ref) 解析出可跳转详情页路径与封面。"""
+    rtype = (request.args.get('type') or '').strip().lower()
+    ref = (request.args.get('ref') or '').strip()
+    if not ref:
+        return jsonify({'success': True, 'found': False})
+
+    from core.models import Video, Gallery, Post, Text, ResourceIndex
+
+    def _cover(ri):
+        if ri and ri.cover:
+            return ri.cover
+        return None
+
+    def _text_title(ri, fallback):
+        title = ''
+        if ri and ri.meta:
+            try:
+                title = (json.loads(ri.meta) or {}).get('title', '') or ''
+            except Exception:
+                title = ''
+        return title or (fallback or '')[:40] or '文本'
+
+    result = None
+    try:
+        if rtype in ('video',):
+            v = None
+            if _HEX64.match(ref):
+                v = Video.query.filter_by(hash=ref).first()
+            elif ref.isdigit():
+                v = Video.query.get(int(ref))
+            if not v:
+                v = Video.query.filter(Video.title.ilike('%' + ref + '%')).first()
+            if v:
+                ri = ResourceIndex.query.get(v.resource_index_id) if v.resource_index_id else None
+                result = {'type': 'video', 'id': v.id, 'hash': v.hash, 'title': v.title,
+                          'cover_url': _cover(ri) or v.thumbnail,
+                          'url': '/video/' + (v.hash or str(v.id))}
+        elif rtype in ('gallery',):
+            g = None
+            if _HEX64.match(ref):
+                g = Gallery.query.filter_by(hash=ref).first()
+            elif ref.isdigit():
+                g = Gallery.query.get(int(ref))
+            if not g:
+                g = Gallery.query.filter(Gallery.title.ilike('%' + ref + '%')).first()
+            if g:
+                ri = ResourceIndex.query.get(g.resource_index_id) if g.resource_index_id else None
+                result = {'type': 'gallery', 'id': g.id, 'hash': g.hash, 'title': g.title,
+                          'cover_url': _cover(ri),
+                          'url': '/gallery/' + (g.hash or str(g.id))}
+        elif rtype in ('post',):
+            p = None
+            if ref.isdigit():
+                p = Post.query.get(int(ref))
+            if not p:
+                p = Post.query.filter(Post.title.ilike('%' + ref + '%')).first()
+            if p:
+                result = {'type': 'post', 'id': p.id, 'title': p.title or '(无标题)',
+                          'cover_url': (p.cover_url if hasattr(p, 'cover_url') else None),
+                          'url': '/post/' + str(p.id)}
+        elif rtype in ('text',):
+            t = None
+            if ref.isdigit():
+                t = Text.query.get(int(ref))
+            if not t:
+                t = Text.query.filter(Text.summary.ilike('%' + ref + '%')).first()
+            if t:
+                ri = ResourceIndex.query.get(t.resource_index_id) if t.resource_index_id else None
+                result = {'type': 'text', 'id': t.id, 'title': _text_title(ri, t.summary),
+                          'cover_url': _cover(ri), 'url': '/text/' + str(t.id)}
+        # 未知类型：不解析
+    except Exception as e:
+        return jsonify({'success': False, 'found': False, 'message': str(e)})
+
+    if result:
+        return jsonify({'success': True, 'found': True, **result})
+    return jsonify({'success': True, 'found': False})
 
 
 # ---------- 管理员：脚本参数用户默认值 ----------
