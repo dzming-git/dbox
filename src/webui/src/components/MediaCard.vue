@@ -133,13 +133,7 @@ const onAction = (name: string, e: Event) => {
       </div>
     </div>
 
-    <div v-if="actions?.includes('continue') || actions?.includes('delete')" class="media-actions">
-      <button
-        v-if="actions?.includes('continue') && item.progress && item.progress > 0"
-        class="continue-btn"
-        @click="onAction('continue', $event)"
-        data-testid="continue-button"
-      >继续</button>
+    <div v-if="actions?.includes('delete')" class="media-actions">
       <button
         v-if="actions?.includes('delete')"
         class="delete-btn"
@@ -269,17 +263,6 @@ const onAction = (name: string, e: Event) => {
   display: flex;
   gap: 8px;
 }
-.continue-btn {
-  padding: 6px 14px;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-on-accent);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-.continue-btn:hover { background: var(--accent-hover); }
 .delete-btn {
   display: inline-flex;
   align-items: center;
