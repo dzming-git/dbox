@@ -150,6 +150,43 @@ def _build_reply(out_lines, err_text, returncode):
     return '', False
 
 
+# 宿主在 _build_prompt 里把「意图提示 / 阶段指令」等控制备注与用户问题拼成同一段
+# 纯文本（buddy CLI 在 --input-format text 下无 system 角色隔离），模型可能把这些
+# 仅供内部判断的备注当作对话内容回显进回复。此处统一在捕获后剥离，彻底阻断其进入
+# 气泡、存库与跨阶段传播。
+_CONTROL_LINE_RE = re.compile(
+    r'^\s*（系统初步判定本条用户意图为：[^）]*）\s*$'
+    r'|^\s*（本条为「继续」意图：.*?）\s*$'
+    r'|^\s*【本阶段任务：.*?】.*$'
+)
+
+
+def _strip_control_lines(text):
+    """剔除回显进回复的宿主控制备注行，返回清理后的正文（可能为空）。"""
+    if not text:
+        return ''
+    out = []
+    for line in text.split('\n'):
+        if _CONTROL_LINE_RE.match(line):
+            continue
+        out.append(line)
+    return '\n'.join(out).strip()
+
+
+# AI 某阶段确实未返回任何有效内容时使用的占位提示（区分于「任务完成」）：
+# 旧文案「（任务已执行完成，无文本输出）」会把「空输出」误报成「完成」，已替换为
+# 更准确的表述，避免误导用户以为任务已正常收尾。
+_PLACEHOLDER_AI_EMPTY = '（AI 未返回有效内容，请重试或查看运行日志）'
+
+
+def _is_placeholder_text(text):
+    """判定文本是否仅为空输出占位提示（任何版本），供续写/回复逻辑跳过它。"""
+    return bool(text) and (
+        text.startswith('（任务已执行完成')
+        or text.startswith(_PLACEHOLDER_AI_EMPTY[:6])
+    )
+
+
 def _sse_block(event: str, data) -> str:
     """构造一段合规的 SSE 文本块。
 
@@ -1075,6 +1112,8 @@ class AIChatManager:
             返回 (phase_index, reply, cancelled)。"""
             idx = begin(label, 'cli')
             reply, _, err, rc, cancelled = self._run_cli(prompt, task_id, max_turns)
+            # 捕获后立即剥离模型可能回显的宿主控制备注，避免其进入气泡/存库/跨阶段传播。
+            reply = _strip_control_lines(reply)
             if cancelled:
                 self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
                 self._emit(task_id, 'error', '任务已取消')
@@ -1110,7 +1149,7 @@ class AIChatManager:
             if cancelled:
                 return
             if not reply:
-                reply = '（任务已执行完成，无文本输出）'
+                reply = _PLACEHOLDER_AI_EMPTY
             reply, _ = _maybe_file_feedback(reply)
             end(ci, body=reply)
             self._finish_completed(task_id)
@@ -1144,7 +1183,7 @@ class AIChatManager:
         if cancelled:
             return
         if not reply:
-            reply = '（任务已执行完成，无文本输出）'
+            reply = _PLACEHOLDER_AI_EMPTY
         # 若 AI 在回复中携带 feedback-request 块（罕见，任务中误判为提交反馈），则建单、
         # 回填真实单号并剥离该块，再存库与下发。
         reply, filed_id = _maybe_file_feedback(reply)
@@ -1190,7 +1229,7 @@ class AIChatManager:
                 r_txt = (reply or '').strip()
                 if a_txt == '（分析阶段无文本输出）':
                     a_txt = ''
-                if r_txt.startswith('（任务已执行完成'):
+                if _is_placeholder_text(r_txt):
                     r_txt = ''
                 ok_a = _add_feedback_comment(ref_id, a_txt) if a_txt else True
                 ok_r = _add_feedback_comment(ref_id, r_txt) if r_txt else True
