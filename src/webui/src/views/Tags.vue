@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Tags' })
-import { ref, onMounted, computed, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useUserStore } from '../stores/userStore'
 import { useTagStore } from '../stores/tagStore'
 import { usePullToRefresh } from '../composables/usePullToRefresh'

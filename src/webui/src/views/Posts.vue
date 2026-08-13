@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, nextTick, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { postApi, resourceApi } from '../api'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Gallerys' })
-import { ref, onMounted, computed, watch, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, computed, watch, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
