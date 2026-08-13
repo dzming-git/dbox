@@ -129,6 +129,27 @@ def _is_auth_error(text: str) -> bool:
                                 'invalid api key', 'login required', 'please login'))
 
 
+def _build_reply(out_lines, err_text, returncode):
+    """从 stdout 行与 stderr 文本构造最终回复，返回 (reply, fell_back_stdout)。
+
+    - stdout 有内容时优先采用；
+    - stdout 为空、退出码正常、且 stderr 承载了助手正文时，回退采用 stderr，
+      避免聊天框出现「（任务已执行完成，无文本输出）」占位。buddy 在部分运行
+      环境（非 TTY 管道）下会把最终回复写到 stderr 而非 stdout，此前只读 stdout
+      导致正文被丢弃、频繁出现空输出。
+    - 认证错误 / 崩溃栈已由调用方在 returncode 非 0 或 _is_auth_error 时拦截，
+      此处 stderr 内容即助手正文，可直接采用。
+    """
+    reply = '\n'.join(out_lines or []).strip()
+    if reply:
+        return reply, False
+    if returncode in (0, None) and err_text and not _is_auth_error(err_text):
+        err_reply = err_text.strip()
+        if err_reply:
+            return err_reply, True
+    return '', False
+
+
 def _sse_block(event: str, data) -> str:
     """构造一段合规的 SSE 文本块。
 
@@ -498,9 +519,19 @@ class AIChatManager:
         """启动反馈建单 spool 的周期重放：确保主服务离线期间积压的跟踪单/反馈单
         在其恢复后被自动补建，从而在结构上保证「AI 处理必有反馈中心单跟踪」不丢单。"""
         try:
-            from platform_client import flush_feedback_spool
+            from platform_client import flush_feedback_spool, _internal_secret
         except Exception:
             return
+
+        # 启动即诊断内部密钥是否可发现：若读不到密钥，所有 /internal/* 调用都会 401，
+        # 建单会全部静默失败。明确告警，避免再次出现「机制完全不生效却无提示」。
+        if not _internal_secret():
+            _logger.error(
+                '反馈建单诊断：未找到主服务内部密钥（.dbox_internal_key）。'
+                '拓展宿主与主服务数据目录不一致会导致 /internal/* 调用被 401 拒绝，'
+                'AI 处理将无法正常在反馈中心建单。请检查 DBOX_DATA_DIR 或 '
+                '%s\\Dbox\\data 下的密钥文件。' % (os.environ.get('ProgramData', 'C:\\ProgramData'))
+            )
 
         def _loop():
             while True:
@@ -818,11 +849,14 @@ class AIChatManager:
                 self._finish_emit(task_id, 'failed')
                 return
 
-            reply = '\n'.join(full).strip()
-            if not reply and proc.returncode in (0, None):
-                # 模型仅执行了工具操作而未产出文本（常见于“直接动手完成”场景），
-                # 此时 stdout 为空。为避免聊天框出现空白气泡，给出友好占位说明。
+            reply, fell_back = _build_reply(full, err_text, proc.returncode)
+            if not reply:
+                # 模型仅执行了工具操作而未产出任何文本（常见于“直接动手完成”场景），
+                # 给出友好占位说明，避免聊天框出现空白气泡。
                 reply = '（任务已执行完成，无文本输出）'
+            elif fell_back:
+                _logger.warning('AI 任务 stdout 为空，已回退采用 stderr 正文（%d 字符），避免「无文本输出」',
+                                len(reply))
             # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
             # 回填真实单号并剥离该块，再存库与下发。
             reply, filed_id = _maybe_file_feedback(reply)
