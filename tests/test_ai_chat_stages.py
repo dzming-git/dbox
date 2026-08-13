@@ -13,6 +13,7 @@
 import os
 import sys
 import io
+import json
 import queue
 import tempfile
 import unittest
@@ -23,6 +24,31 @@ if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 import ai_chat as m
+
+
+class IntentClassifyTest(unittest.TestCase):
+    """意图判定（建议 / 缺陷 / 继续 / 闲聊）确定性测试。"""
+    def test_defect(self):
+        self.assertEqual(m._classify_intent('稍后再看里有个视频删了又出现，排查一下'), 'defect')
+        self.assertEqual(m._classify_intent('下载服务异常，状态显示不正确'), 'defect')
+
+    def test_suggestion(self):
+        self.assertEqual(m._classify_intent('建议增加一个批量导出功能'), 'suggestion')
+        self.assertEqual(m._classify_intent('希望优化一下脚本流程'), 'suggestion')
+
+    def test_continue(self):
+        self.assertEqual(m._classify_intent('继续上面的修复'), 'continue')
+        self.assertEqual(m._classify_intent('刚才那个问题再处理一下'), 'continue')
+
+    def test_chat(self):
+        self.assertEqual(m._classify_intent('你好'), 'chat')
+        self.assertEqual(m._classify_intent('谢谢'), 'chat')
+
+    def test_work_category_from_intent(self):
+        # 反馈中心类型应复用意图判定：缺陷 -> bug，建议 -> suggestion
+        self.assertEqual(m._classify_work_category('下载服务异常，排查一下'), 'bug')
+        self.assertEqual(m._classify_work_category('建议增加批量导出'), 'suggestion')
+        self.assertEqual(m._classify_work_category('继续上面的修复'), 'other')
 
 
 class _FakeProc:
@@ -77,12 +103,16 @@ class StageEmitTest(unittest.TestCase):
 
         stage_labels = [d for (k, d) in events if k == 'stage']
         self.assertTrue(stage_labels, '应至少发射一个 stage 事件')
-        # 阶段应按处理顺序出现：首项为加载上下文、末项为处理完成，
-        # 且中间覆盖做事前核查与启动执行等关键阶段。
-        self.assertIn('加载对话上下文并构造任务提示', stage_labels[0])
+        # 阶段应按处理顺序出现：首项为「判断用户意图」（结构化 JSON，含结论）、
+        # 末项为处理完成，且中间覆盖做事前核查与启动执行等关键阶段。
+        self.assertIn('判断用户意图', stage_labels[0])
         self.assertIn('处理完成', stage_labels[-1])
         self.assertTrue(any('检查 git 仓库状态' in s for s in stage_labels), '应含做事前核查阶段')
         self.assertTrue(any('启动 AI 执行' in s for s in stage_labels), '应含启动执行阶段')
+        # 意图判断阶段应为结构化 JSON，并携带结论
+        first = json.loads(stage_labels[0])
+        self.assertEqual(first['text'], '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）')
+        self.assertIn('判断结果', first.get('conclusion', ''))
         # 任务应正常完成
         self.assertEqual(mgr.get_task(tid)['status'], m.AIChatManager.STATUS_COMPLETED)
 
