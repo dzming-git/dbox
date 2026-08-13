@@ -162,7 +162,7 @@ def _sse_block(event: str, data) -> str:
 
 
 def _file_feedback(ftype: str, title: str, content: str, extra: dict = None,
-                  status: str = 'open'):
+                  status: str = 'open', comment: str = None):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
     仅由 _maybe_file_feedback / _maybe_create_tracking_ticket 调用。
@@ -180,7 +180,8 @@ def _file_feedback(ftype: str, title: str, content: str, extra: dict = None,
         content = (content or '').strip()
         if not title and not content:
             return None
-        return file_feedback(ftype, title, content, extra=extra, status=status)
+        return file_feedback(ftype, title, content, extra=extra, status=status,
+                             comment=comment)
     except Exception as e:
         try:
             import logging
@@ -356,6 +357,43 @@ def _classify_work_category(prompt: str) -> str:
     return 'other'
 
 
+# 标题提炼时去除的开头命令/填充词（这些不属于「问题概括」本身）。
+_TITLE_LEAD_FILLERS = (
+    '你来解决这个问题', '你来解决', '你来处理', '排查一下', '排查', '修复一下', '修复',
+    '优化一下', '优化', '改一下', '改下', '看一下', '看看', '继续', '帮我', '请',
+    '现在', '稍后', '我怀疑', '你说', '刚才', '当前', '最近', '这个', '那个',
+)
+
+
+def _make_ticket_title(prompt: str) -> str:
+    """从用户诉求中结构化提炼一句话「概括」作为反馈单标题（不依赖模型输出）。
+
+    反馈单标题应是对问题的概括，而非原始诉求的整段照抄。本函数取首行首句、
+    剥离开头命令/填充词、截断到合适长度，得到一个干净的问题概括标题。
+    """
+    if not prompt or not prompt.strip():
+        return 'AI 处理任务'
+    # 取首行，并按首个断句符截断到更紧凑的概括
+    line = prompt.strip().split('\n', 1)[0].strip()
+    for sep in ('。', '；', ';', '？', '?', '！', '!'):
+        if sep in line:
+            line = line.split(sep, 1)[0].strip()
+            break
+    # 去掉开头的命令/填充词，保留问题本质
+    for f in _TITLE_LEAD_FILLERS:
+        if line.startswith(f):
+            line = line[len(f):].strip()
+            break
+    # 剥离开头残留的冒号/标点（如「你来解决这个问题：...」）
+    line = line.lstrip('：: ').strip()
+    line = line.strip(' ，,。.：:')
+    if not line:
+        line = prompt.strip().split('\n', 1)[0].strip()
+    if len(line) > 40:
+        line = line[:40] + '…'
+    return line or 'AI 处理任务'
+
+
 def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
                                    git_clean=True):
     """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
@@ -375,24 +413,24 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
     # 本回合已通过反馈块建单，则不再重复建跟踪单
     if filed_id:
         return reply, None
-    title_src = (prompt or '').strip().split('\n')[0].strip()
-    if len(title_src) > 50:
-        title_src = title_src[:50] + '…'
-    title = 'AI 处理：' + (title_src or '(无标题)')
-    summary = (reply or '').strip().replace('\n', ' ')
-    if len(summary) > 400:
-        summary = summary[:400] + '…'
-    content = (
-        'AI 助手已处理该任务并完成代码提交。\n'
-        '提交哈希：' + head_after + '\n'
-        '用户诉求：' + (prompt or '').strip() + '\n'
-        '处理摘要：' + summary
-    )
+    # 标题=对问题的概括（结构性提炼，不照抄原始诉求）；
+    # 内容=问题描述（用户诉求原文）；
+    # 留言（comment）= AI 实际做了什么/修复内容（来自本次回复）。
+    title = _make_ticket_title(prompt)
+    content = (prompt or '').strip() or '(无问题描述)'
+    # 处理说明：以「自动助手」身份写入首条留言，承载 AI 的修复/处理动作。
+    # 去掉末尾追加的「已创建跟踪单」提示，避免留言里出现自引用。
+    action_note = ('\n\n📋 已创建处理跟踪单' in (reply or ''))
+    comment_src = (reply or '').strip()
+    if action_note:
+        comment_src = comment_src.split('\n\n📋 已创建处理跟踪单')[0].strip()
+    if len(comment_src) > 4000:
+        comment_src = comment_src[:4000] + '…（已截断）'
     extra = {'git_commit': head_after, 'task_id': task_id,
              'owner_id': owner_id, 'track': True, 'git_clean': git_clean}
     track_id = _file_feedback(
         _classify_work_category(prompt), title, content,
-        extra=extra, status='pending_verification')
+        extra=extra, status='pending_verification', comment=comment_src)
     if track_id:
         note = '\n\n📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
         reply = (reply or '') + note

@@ -369,7 +369,8 @@ def generate_issue_id(date=None):
 def db_create_issue(title: str, content: str, category: str = 'suggestion',
                     submitter: str = '游客', source: str = 'web',
                     auto_classified: bool = False, classification: str = None,
-                    status: str = 'open', extra: dict = None) -> str:
+                    status: str = 'open', extra: dict = None,
+                    comment: str = None) -> str:
     """创建一条反馈，返回新单号（yyyymmdd+4 位）。
 
     线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
@@ -379,6 +380,10 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
     status / extra 为可选扩展：AI 助手处理完成后的「跟踪单」可传入
     status='pending_verification' 与 extra={'git_commit': ..., 'task_id': ...} 等，
     便于反馈中心展示「待验证」状态并关联处理动作。
+
+    comment 为可选首条留言：传入后作为「自动助手」身份的首条 reply 写入 feedback_comments，
+    用于承载「AI 做了什么 / 修复内容」等处理说明，使反馈单结构为
+    「标题=概括、内容=问题描述、留言=AI 的处理动作」。
     """
     init_feedback_db()
     t = (title or '').strip()
@@ -401,6 +406,15 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
         updated_at=now,
         feedback_extra=json.dumps(extra, ensure_ascii=False) if extra else None,
     )
+    # 若存在首条留言（AI 的处理说明），以「自动助手」身份写入 feedback_comments。
+    # 与项目准则一致：反馈中心交互使用自动助手身份（author_role=2）。
+    if comment and comment.strip():
+        issue.comments.append(FeedbackComment(
+            author='自动助手',
+            author_role=2,
+            content=comment.strip(),
+            created_at=now,
+        ))
     with get_session() as session:
         session.add(issue)
         session.commit()
