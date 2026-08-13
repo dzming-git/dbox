@@ -541,6 +541,9 @@ class AIChatManager:
         self._skip = set()                   # 已在排队但被用户删除的 task_id
         self._subscribers = {}               # task_id -> [queue.Queue, ...]（SSE 订阅者）
         self._buffers = {}                    # task_id -> [token, ...]（运行期已产出的 token，供重连续接）
+        self._stages = {}                     # task_id -> [(etype, data), ...]（运行期已发射的 stage/step 事件，
+                                             #   持久化缓冲，供 SSE 重连与 2s 轮询重建完整分阶段时间线，
+                                             #   根治「早期阶段在 SSE 连上前已发射而丢失」的问题）
         self._initialized = False
         # 统一任务表镜像（轻量，仅状态展示）
         self._ut = None
@@ -782,7 +785,7 @@ class AIChatManager:
             turns = turns[-limit:]
         return turns
 
-    def _build_prompt(self, message, intent=None):
+    def _build_prompt(self, message, intent=None, phase=None, analysis=None):
         parts = [_SYSTEM_PROMPT]
         turns = self._context_turns()
         if turns:
@@ -796,62 +799,36 @@ class AIChatManager:
         if intent:
             label = _INTENT_LABELS.get(intent, intent)
             parts.append('（系统初步判定本条用户意图为：%s，供你参考）' % label)
+        # 分阶段控制：宿主脚本驱动处理流程，每个阶段只让 AI 产出该阶段内容（即「给出分支」）。
+        # 这样一条命令会被拆成「分析定位 -> 执行处理」等多个可见阶段，而非一次性抛出大段文本。
+        if phase == 'analyze':
+            parts.append('【本阶段任务：仅做分析与定位，不要修改任何文件】'
+                         '请基于用户问题定位根因、列出涉及的代码文件、给出修复方案，'
+                         '用简体中文条理清晰地说明。不要执行任何写操作。')
+        elif phase == 'execute':
+            if analysis:
+                parts.append('【本阶段任务：执行修改】以下为上一阶段（分析定位）的结论，'
+                             '请直接据此执行修改：\n' + analysis)
+            parts.append('请执行修改（必要时创建/编辑文件、运行命令验证），完成后提交 git'
+                         '（提交消息用文件方式写 UTF-8 中文、保持原有提交身份、清理临时脚本），'
+                         '并用简体中文简要说明你做了什么。')
+        elif phase == 'chat':
+            parts.append('【本阶段任务：生成回复】用户为闲聊或普通提问，直接简洁回答即可。')
         return '\n'.join(parts)
 
-    def _process(self, task_id):
-        task = self.get_task(task_id)
-        if not task:
-            return
-        with self._lock:
-            self._buffers[task_id] = []
-            self._set_status(task_id, self.STATUS_RUNNING)
-            self._emit(task_id, 'status', 'running')
+    def _run_cli(self, prompt, task_id, max_turns):
+        """运行一次 buddy CLI（一个处理阶段），实时把产出 token 推送给订阅者。
 
-        # 第一阶段：判断用户意图（建议 / 缺陷 / 继续 / 闲聊）。
-        # 由宿主进程基于关键词确定性判定（不依赖模型输出）；结论作为首个「分阶段回复」
-        # 直接呈现到聊天窗口，满足「判断过程中显示当前阶段、判断成功后回复本阶段结论」。
-        intent = _classify_intent(task['prompt'])
-        is_task = intent in ('defect', 'suggestion', 'continue')
-        s_intent = '判断用户意图：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他')
-        self._emit_phase(task_id, '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）', step=s_intent)
+        返回 (reply, fell_back, err_text, returncode, cancelled)。脚本驱动的阶段状态机
+        对每个需要智能的阶段分别调用本方法：分析定位阶段只读取、执行处理阶段才改代码，
+        从而把一条用户命令拆成多个可见阶段，AI 在每个阶段只给出该阶段的内容（分支）。
 
-        # 第二阶段：加载对话上下文并构造任务提示（意图已判定，附意图提示供模型对齐）
-        self._emit(task_id, 'stage', '加载对话上下文并构造任务提示')
-
+        看门狗与子进程清理逻辑沿用原 _process 的单次调用实现，避免 worker 因 CLI 拉起
+        子进程导致 stdout 管道不关闭而卡死。
+        """
         buddy = _resolve_buddy_cli()
         if not buddy:
-            self._set_status(task_id, self.STATUS_FAILED,
-                             error='未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy，'
-                                   '或设置环境变量 DBOX_BUDDYCN 指向 codebuddy.cmd 绝对路径')
-            self._emit(task_id, 'error', '未找到 CodeBuddy CLI，请在凭证保险库配置 codebuddy')
-            self._finish_emit(task_id, 'failed')
-            return
-
-        prompt = self._build_prompt(task['prompt'], intent=intent)
-
-        # 处理前快照仓库 HEAD 与脏文件基线：若本回合 AI 实际改动代码产生新提交
-        # （HEAD 变化），则在末尾结构性保证于反馈中心建一张「跟踪单」（见
-        # _maybe_create_tracking_ticket）；脏文件基线用于做事后比对，只把本次运行
-        # 「新增」的未提交文件归因于 AI，避免把运行前已有的脏改动误判为本次引入。
-        repo = _project_root()
-        head_before = _git_rev_head(repo)
-        baseline_dirty = _git_dirty_files(repo)
-        s_pre = None
-        if is_task:
-            # 做事前检查作为「分阶段回复」的可见一环：向用户播报仓库当前干净度，
-            # 使一条命令的回答按阶段逐步展开，而非仅在最后抛一大段文本。
-            self._emit(task_id, 'stage', '做事前检查：检查 git 仓库状态')
-            if baseline_dirty is None:
-                s_pre = '做事前检查：仓库非 git 或状态不可判定，跳过干净度核查'
-            elif not baseline_dirty:
-                s_pre = '做事前检查：git 仓库干净，无未提交改动'
-            else:
-                s_pre = '做事前检查：仓库已存在 %d 项未提交改动（不归因于本次任务）' % len(baseline_dirty)
-            self._emit_step(task_id, s_pre)
-        elif baseline_dirty:
-            _logger.warning('AI 任务处理前仓库已存在未提交改动（%d 项），将不归因于本次运行：%s',
-                            len(baseline_dirty), sorted(baseline_dirty))
-
+            return None, False, '未找到 CodeBuddy CLI', 1, False
         env = dict(os.environ)
         token = _load_codebuddy_token()
         if token:
@@ -867,16 +844,12 @@ class AIChatManager:
             buddy, '-p', '-y',
             '--permission-mode', 'bypassPermissions',
             '--allowedTools', 'Read,Edit,Write,Glob,Grep,Bash',
-            '--max-turns', '60',
+            '--max-turns', str(max_turns),
             '--add-dir', _project_root(),
             '--input-format', 'text',
         ]
 
-        full = []
         try:
-            # 启动 AI 执行：此阶段最长（工具调用实时回传），聊天窗口持续展示进度
-            self._emit(task_id, 'stage', '启动 AI 执行并分析处理（工具调用实时回传，最多 %d 分钟）'
-                       % (_MAX_TASK_SECONDS // 60))
             proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, cwd=_project_root(), env=env,
@@ -885,7 +858,6 @@ class AIChatManager:
             with self._lock:
                 self._procs[task_id] = proc
 
-            # 看门狗：整体执行超过上限则强制结束进程树（含子进程），避免 worker 卡死
             def _watchdog():
                 self._cancel[task_id] = True
                 self._terminate(proc)
@@ -893,13 +865,13 @@ class AIChatManager:
             watchdog.daemon = True
             watchdog.start()
 
-            # 经 stdin 传入 prompt（仅 stdin，不传位置参数）
             try:
                 proc.stdin.write(prompt.encode('utf-8'))
                 proc.stdin.close()
             except Exception:
                 pass
 
+            full = []
             for raw_line in proc.stdout:
                 if self._cancel.get(task_id):
                     self._terminate(proc)
@@ -916,7 +888,6 @@ class AIChatManager:
                 piece = line.rstrip('\n')
                 full.append(piece)
                 self._append_token(task_id, piece)
-
             proc.stdout.close()
             err_text = ''
             try:
@@ -930,88 +901,169 @@ class AIChatManager:
                 pass
             finally:
                 watchdog.cancel()
-                self._terminate(proc)  # 兜底清理可能残留的子进程，释放 stdout 管道
+                self._terminate(proc)
 
-            if self._cancel.get(task_id):
+            cancelled = bool(self._cancel.get(task_id))
+            reply, fell_back = _build_reply(full, err_text, proc.returncode)
+            return reply, fell_back, err_text, proc.returncode, cancelled
+        except Exception as e:
+            return None, False, '调用失败: ' + str(e), 1, False
+
+    def _process(self, task_id):
+        """脚本驱动的阶段状态机：每条用户命令被拆成多个可见阶段，每个阶段由宿主进程
+        显式发射 stage（进行中 -> 完成）并收集结论；需要智能的阶段由宿主分阶段调用
+        CLI（先「分析定位」、再「执行处理」），AI 在每个阶段只产出该阶段内容（即给出分支）。
+
+        阶段顺序（脚本控制）：
+          1. 分析用户意图（建议 / 缺陷 / 继续 / 闲聊）—— 宿主确定性判定
+          2. 核查运行环境（git 仓库状态）—— 宿主
+          3. AI 分析定位问题 —— CLI（只读）
+          4. AI 执行处理（修改与验证）—— CLI
+          5. 收尾核查（git 仓库干净度）—— 宿主
+          6. 创建处理跟踪单（待验证）—— 宿主（确有新提交时）
+        闲聊/普通提问：仅阶段 1 + 单个 AI 回复，不触发 git 核查与建单。
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return
+        with self._lock:
+            self._buffers[task_id] = []
+            self._stages[task_id] = []
+            self._set_status(task_id, self.STATUS_RUNNING)
+            self._emit(task_id, 'status', 'running')
+
+        # ---- 阶段 1：分析用户意图（建议 / 缺陷 / 继续 / 闲聊）----
+        # 宿主基于关键词确定性判定（不依赖模型输出），结论作为首个分阶段回复直接呈现，
+        # 满足「判断过程中显示当前阶段、判断成功后回复本阶段结论」。
+        intent = _classify_intent(task['prompt'])
+        is_task = intent in ('defect', 'suggestion', 'continue')
+        s_intent = '分析用户意图：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他')
+        self._emit_phase(task_id, '分析用户意图（建议 / 缺陷 / 继续 / 闲聊）', step=s_intent)
+
+        if not is_task:
+            # 闲聊/普通提问：单个 AI 回复即可，不做 git 核查与建单。
+            self._emit(task_id, 'stage', self._json_stage('生成回复'))
+            reply, _, err, rc, cancelled = self._run_cli(
+                self._build_prompt(task['prompt'], intent=intent, phase='chat'), task_id, 30)
+            if cancelled:
                 self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
                 self._emit(task_id, 'error', '任务已取消')
                 self._finish_emit(task_id, 'cancelled')
                 return
-
-            if _is_auth_error(err_text):
+            if _is_auth_error(err or ''):
                 self._set_status(task_id, self.STATUS_FAILED, error='CodeBuddy 认证失败')
                 self._emit(task_id, 'error', 'CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login')
                 self._finish_emit(task_id, 'failed')
                 return
-            if proc.returncode not in (0, None):
-                err_excerpt = err_text.strip()[:500]
-                self._set_status(task_id, self.STATUS_FAILED, error='AI 执行出错（退出码 %s）: %s' % (proc.returncode, err_excerpt))
-                self._emit(task_id, 'error', 'AI 执行出错（退出码 %s）: %s' % (proc.returncode, err_excerpt))
+            if rc not in (0, None):
+                self._set_status(task_id, self.STATUS_FAILED, error='AI 执行出错（退出码 %s）' % rc)
+                self._emit(task_id, 'error', 'AI 执行出错（退出码 %s）' % rc)
                 self._finish_emit(task_id, 'failed')
                 return
-
-            reply, fell_back = _build_reply(full, err_text, proc.returncode)
             if not reply:
-                # 模型仅执行了工具操作而未产出任何文本（常见于“直接动手完成”场景），
-                # 给出友好占位说明，避免聊天框出现空白气泡。
                 reply = '（任务已执行完成，无文本输出）'
-            elif fell_back:
-                _logger.warning('AI 任务 stdout 为空，已回退采用 stderr 正文（%d 字符），避免「无文本输出」',
-                                len(reply))
-            # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
-            # 回填真实单号并剥离该块，再存库与下发。
-            self._emit(task_id, 'stage', '收集回复、解析反馈块并建单')
-            reply, filed_id = _maybe_file_feedback(reply)
-            # 做事后结构核查：保证 git 仓库干净（清理临时文件 / 告警遗留改动），
-            # 该检查与模型是否自觉提交无关，由进程客观比对仓库状态兜底。
-            self._emit(task_id, 'stage', '做事后检查：确认 git 仓库干净')
-            reply, git_clean = _verify_and_report_clean(_project_root(), baseline_dirty, head_before, reply)
-            s_post = None
-            if is_task:
-                # 做事后检查结论作为分阶段回复的一环呈现（与模型分析穿插，形成分阶段回答）
-                s_post = ('做事后检查：git 仓库已保持干净'
-                          if git_clean else
-                          '做事后检查：git 仓库未完全干净，存在遗留未提交改动，请人工处理（见上文）')
-                self._emit_step(task_id, s_post)
-            # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
-            # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
-            # 仅当确有新提交时才发射该阶段，避免闲聊/只读排查误报「建单」。
-            head_after = _git_rev_head(_project_root())
-            if head_after and head_after != head_before and not filed_id:
-                self._emit(task_id, 'stage', '创建处理跟踪单（待验证）')
-            reply, track_id = _maybe_create_tracking_ticket(
-                task_id, task['prompt'], task.get('owner_id'),
-                reply, filed_id, head_before, git_clean=git_clean, intent=intent)
-            s_ticket = None
-            if is_task:
-                if track_id:
-                    # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply，避免重复播报
-                    s_ticket = None
-                elif filed_id:
-                    s_ticket = '已在反馈中心提交反馈单（本回合用户反馈路径）'
-                else:
-                    s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
-                if s_ticket:
-                    self._emit_step(task_id, s_ticket)
-            self._emit(task_id, 'stage', '处理完成')
-            # 组装分阶段回复：各阶段结论 + 模型分析，使历史回看也是分阶段呈现，
-            # 而非仅有模型的一段最终文本。
-            staged = [s_intent]
-            if is_task and s_pre:
-                staged.append(s_pre)
-            staged.append(reply)
-            if is_task and s_post:
-                staged.append(s_post)
-            if is_task and s_ticket:
-                staged.append(s_ticket)
-            final_reply = '\n\n'.join(x for x in staged if x)
-            self._set_status(task_id, self.STATUS_COMPLETED, reply=final_reply)
-            self._emit(task_id, 'done', final_reply)
+            reply, _ = _maybe_file_feedback(reply)
+            self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
+            self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')
-        except Exception as e:
-            self._set_status(task_id, self.STATUS_FAILED, error='调用失败: ' + str(e))
-            self._emit(task_id, 'error', '调用失败: ' + str(e))
+            return
+
+        # ---- 阶段 2：核查运行环境（git 仓库状态）----
+        repo = _project_root()
+        head_before = _git_rev_head(repo)
+        baseline_dirty = _git_dirty_files(repo)
+        self._emit(task_id, 'stage', self._json_stage('核查运行环境（git 仓库状态）'))
+        if baseline_dirty is None:
+            s_pre = '做事前检查：仓库非 git 或状态不可判定，跳过干净度核查'
+        elif not baseline_dirty:
+            s_pre = '做事前检查：git 仓库干净，无未提交改动'
+        else:
+            s_pre = '做事前检查：仓库已存在 %d 项未提交改动（不归因于本次任务）' % len(baseline_dirty)
+        self._emit_step(task_id, s_pre)
+
+        # ---- 阶段 3：AI 分析定位问题（只读，不修改文件）----
+        self._emit(task_id, 'stage', self._json_stage('AI 分析定位问题'))
+        analysis, _, aerr, arc, acancel = self._run_cli(
+            self._build_prompt(task['prompt'], intent=intent, phase='analyze'), task_id, 40)
+        if acancel:
+            self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
+            self._emit(task_id, 'error', '任务已取消')
+            self._finish_emit(task_id, 'cancelled')
+            return
+        if _is_auth_error(aerr or ''):
+            self._set_status(task_id, self.STATUS_FAILED, error='CodeBuddy 认证失败')
+            self._emit(task_id, 'error', 'CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login')
             self._finish_emit(task_id, 'failed')
+            return
+        if arc not in (0, None):
+            self._set_status(task_id, self.STATUS_FAILED, error='AI 分析阶段出错（退出码 %s）' % arc)
+            self._emit(task_id, 'error', 'AI 分析阶段出错（退出码 %s）' % arc)
+            self._finish_emit(task_id, 'failed')
+            return
+        analysis = analysis or '（分析阶段无文本输出）'
+        self._emit_step(task_id, 'AI 已完成分析定位（详见上方回复）')
+
+        # ---- 阶段 4：AI 执行处理（修改与验证）----
+        self._emit(task_id, 'stage', self._json_stage('AI 执行处理（修改与验证）'))
+        reply, _, eerr, erc, ecancel = self._run_cli(
+            self._build_prompt(task['prompt'], intent=intent, phase='execute', analysis=analysis),
+            task_id, 50)
+        if ecancel:
+            self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
+            self._emit(task_id, 'error', '任务已取消')
+            self._finish_emit(task_id, 'cancelled')
+            return
+        if _is_auth_error(eerr or ''):
+            self._set_status(task_id, self.STATUS_FAILED, error='CodeBuddy 认证失败')
+            self._emit(task_id, 'error', 'CodeBuddy 认证失败，请在凭证保险库配置 codebuddy token 或执行 codebuddy /login')
+            self._finish_emit(task_id, 'failed')
+            return
+        if erc not in (0, None):
+            self._set_status(task_id, self.STATUS_FAILED, error='AI 执行阶段出错（退出码 %s）' % erc)
+            self._emit(task_id, 'error', 'AI 执行阶段出错（退出码 %s）' % erc)
+            self._finish_emit(task_id, 'failed')
+            return
+        if not reply:
+            reply = '（任务已执行完成，无文本输出）'
+        # 若 AI 在回复中携带 feedback-request 块（罕见，任务中误判为提交反馈），则建单、
+        # 回填真实单号并剥离该块，再存库与下发。
+        reply, filed_id = _maybe_file_feedback(reply)
+
+        # ---- 阶段 5：收尾核查（git 仓库干净度）----
+        self._emit(task_id, 'stage', self._json_stage('收尾核查（git 仓库状态）'))
+        reply, git_clean = _verify_and_report_clean(repo, baseline_dirty, head_before, reply)
+        s_post = ('做事后检查：git 仓库已保持干净'
+                  if git_clean else
+                  '做事后检查：git 仓库未完全干净，存在遗留未提交改动，请人工处理（见上文）')
+        self._emit_step(task_id, s_post)
+
+        # ---- 阶段 6：创建处理跟踪单（待验证，确有新提交时）----
+        head_after = _git_rev_head(repo)
+        if head_after and head_after != head_before and not filed_id:
+            self._emit(task_id, 'stage', self._json_stage('创建处理跟踪单（待验证）'))
+        reply, track_id = _maybe_create_tracking_ticket(
+            task_id, task['prompt'], task.get('owner_id'),
+            reply, filed_id, head_before, git_clean=git_clean, intent=intent)
+        if track_id:
+            s_ticket = None  # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply
+        elif filed_id:
+            s_ticket = '已在反馈中心提交反馈单（本回合用户反馈路径）'
+        else:
+            s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
+        if s_ticket:
+            self._emit_step(task_id, s_ticket)
+
+        self._emit(task_id, 'stage', self._json_stage('处理完成'))
+
+        # 组装分阶段回复：各阶段结论 + AI 分析 + AI 执行，使历史回看也是分阶段呈现，
+        # 而非仅有模型的一段最终文本。
+        staged = [s_intent, s_pre, analysis, reply, s_post]
+        if s_ticket:
+            staged.append(s_ticket)
+        final_reply = '\n\n'.join(x for x in staged if x)
+        self._set_status(task_id, self.STATUS_COMPLETED, reply=final_reply)
+        self._emit(task_id, 'done', final_reply)
+        self._finish_emit(task_id, 'completed')
 
     # ---------- SSE 发布订阅 ----------
     def _append_token(self, task_id, piece):
@@ -1026,6 +1078,11 @@ class AIChatManager:
                 pass
 
     def _emit(self, task_id, etype, data):
+        # stage/step 事件持久化缓冲：即使 SSE 订阅尚未建立（任务已先跑起来），
+        # 这些阶段事件也不会丢失，待订阅/轮询时统一重建时间线。
+        if etype in ('stage', 'step'):
+            with self._lock:
+                self._stages.setdefault(task_id, []).append((etype, data))
         with self._lock:
             subs = list(self._subscribers.get(task_id, []))
         for q in subs:
@@ -1033,6 +1090,20 @@ class AIChatManager:
                 q.put((etype, data))
             except Exception:
                 pass
+
+    def _json_stage(self, text, state='current', conclusion=None):
+        """构造一个结构化 stage 事件载荷（JSON 字符串），承载阶段文案、状态与（可选的）结论。
+
+        前端 stageHtml 解析：数组末项高亮为「进行中」（current），其余为 done；
+        非当前阶段若带 conclusion 则在进度列表下缩进展示该阶段结论。
+        """
+        payload = {'text': text, 'state': state}
+        if conclusion:
+            payload['conclusion'] = conclusion
+        try:
+            return json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            return text
 
     def _emit_stage(self, task_id, text, state='current', conclusion=None):
         """发射一个结构化的 stage 事件（JSON），承载阶段文案、状态与（可选的）阶段结论。
@@ -1042,14 +1113,7 @@ class AIChatManager:
         中显示为 current，判断完成后（被下一阶段挤出末位）即回退为 done 并展示结论，
         满足「判断成功后回复这一阶段的结论」，而不仅是显示一条进度文案。
         """
-        payload = {'text': text, 'state': state}
-        if conclusion:
-            payload['conclusion'] = conclusion
-        try:
-            data = json.dumps(payload, ensure_ascii=False)
-        except Exception:
-            data = text
-        self._emit(task_id, 'stage', data)
+        self._emit(task_id, 'stage', self._json_stage(text, state=state, conclusion=conclusion))
 
     def _emit_step(self, task_id, text):
         """发射一条「分阶段回复」：宿主进程在每个处理阶段产出的可见结论片段，
@@ -1077,6 +1141,7 @@ class AIChatManager:
             subs = list(self._subscribers.get(task_id, []))
             self._subscribers.pop(task_id, None)
             self._buffers.pop(task_id, None)
+            self._stages.pop(task_id, None)
             self._procs.pop(task_id, None)
         for q in subs:
             try:
@@ -1119,7 +1184,15 @@ class AIChatManager:
         if cur_status == self.STATUS_PENDING:
             yield _sse_block('queued', '')
 
-        # running 时先把缓冲（已在执行的产出）回放，避免刷新后丢失前半段
+        # 先重放持久化缓冲的阶段事件（stage/step）：这些事件可能在 SSE 连上前就已发射，
+        # 此前只重放 token 导致早期阶段（如「分析用户意图」「做事前核查」）被静默丢弃，
+        # 表现为聊天窗口长期只显示「正在处理」。重放它们可完整重建分阶段时间线。
+        for (k, d) in stages:
+            if k == 'stage':
+                yield _sse_block('stage', d)
+            elif k == 'step':
+                yield _sse_block('step', d)
+        # 再把缓冲（已在执行的产出）回放，避免刷新后丢失前半段
         for piece in buf:
             yield _sse_block('token', piece)
 
@@ -1176,8 +1249,9 @@ class AIChatManager:
             r = active_rows[0]
             with self._lock:
                 buf = ''.join(self._buffers.get(r['task_id'], []))
+                stages = list(self._stages.get(r['task_id'], []))
             active = {'id': r['task_id'], 'prompt': r['prompt'], 'status': r['status'],
-                      'created_at': r['created_at'], 'stream': buf}
+                      'created_at': r['created_at'], 'stream': buf, 'stages': stages}
 
         has_more = len(hist_rows) > history_limit
         hist_rows = hist_rows[:history_limit]
