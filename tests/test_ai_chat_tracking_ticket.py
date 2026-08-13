@@ -52,7 +52,7 @@ def test_tracking_ticket_structure_mocked():
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
          mock.patch.object(ac, '_git_rev_head', return_value='newcommit123'):
-        out_reply, track_id = ac._maybe_create_tracking_ticket(
+        out_reply, track_id, _ = ac._maybe_create_tracking_ticket(
             'task-1', prompt, 'owner-1', resolution, None, head_before='oldcommit',
             git_clean=True, analysis=analysis, resolution=resolution)
 
@@ -100,7 +100,7 @@ def test_tracking_ticket_writes_comment_to_db():
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
          mock.patch.object(ac, '_git_rev_head', return_value='commitabc'):
-        out_reply, track_id = ac._maybe_create_tracking_ticket(
+        out_reply, track_id, _ = ac._maybe_create_tracking_ticket(
             'task-2', prompt, 'owner-2', resolution, None, head_before='commitold',
             git_clean=True, analysis=analysis, resolution=resolution)
 
