@@ -447,6 +447,11 @@ def _make_ticket_title(prompt: str) -> str:
     """
     if not prompt or not prompt.strip():
         return 'AI 处理任务'
+    # 纯填充词（如「继续」「帮我」）无法提炼出问题概括，回退到通用标题，
+    # 避免把一句命令词当成反馈单标题（例如「继续」被提炼成标题「继续」）。
+    p0 = (prompt or '').strip()
+    if p0 in _TITLE_LEAD_FILLERS:
+        return 'AI 处理任务'
     # 取首行，并按首个断句符截断到更紧凑的概括
     line = prompt.strip().split('\n', 1)[0].strip()
     for sep in ('。', '；', ';', '？', '?', '！', '!'):
@@ -469,7 +474,8 @@ def _make_ticket_title(prompt: str) -> str:
 
 
 def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
-                                   git_clean=True, intent=None, analysis=None, resolution=None):
+                                   git_clean=True, intent=None, analysis=None, resolution=None,
+                                   title=None):
     """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
     feedback-request 建单时，于反馈中心创建一张「跟踪单」（状态 pending_verification），
     记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id, s_ticket)。
@@ -492,10 +498,11 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
     # 本回合已通过反馈块建单，则不再重复建跟踪单
     if filed_id:
         return reply, None, '已在反馈中心提交反馈单（本回合用户反馈路径）'
-    # 标题=对问题的概括（结构性提炼，不照抄原始诉求）；
+    # 标题=对问题的概括（结构性提炼，不照抄原始诉求；可经 title 参数覆盖，
+    # 例如「继续」但无历史单时退化为上一条问题的概括，避免把「继续」当标题）；
     # 内容=问题描述（用户诉求原文）；
     # 留言=分析根因（首条）+ 解决说明（后续），均为「自动助手」身份。
-    title = _make_ticket_title(prompt)
+    title = title or _make_ticket_title(prompt)
     content = (prompt or '').strip() or '(无问题描述)'
     # 分析留言（根因），去重自引用提示。
     analysis_txt = (analysis or '').strip()
@@ -604,6 +611,7 @@ class AIChatManager:
                                              #   作为 SSE 重连与 2s 轮询重建「每阶段一个气泡」时间线的唯一可信源，
                                              #   根治「早期阶段在 SSE 连上前已发射而丢失」的问题）
         self._cur_phase = {}                  # task_id -> 当前阶段 index（token 流式填充归属该阶段气泡）
+        self._track_ids = {}                   # task_id -> 关联的反馈跟踪单号（跨任务回溯续写用）
         self._initialized = False
         # 统一任务表镜像（轻量，仅状态展示）
         self._ut = None
@@ -651,6 +659,12 @@ class AIChatManager:
             # 使历史回看也能逐阶段还原为独立气泡，而非仅剩模型的一段最终文本。
             try:
                 self._db.execute('ALTER TABLE ai_tasks ADD COLUMN phases TEXT')
+            except Exception:
+                pass
+            # 关联反馈跟踪单号：供「继续」意图回溯上一条问题对应的反馈单并续写留言，
+            # 而非新建一张标题为「继续」的脏单。
+            try:
+                self._db.execute('ALTER TABLE ai_tasks ADD COLUMN track_id TEXT')
             except Exception:
                 pass
             self._db.execute('CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status)')
@@ -730,11 +744,41 @@ class AIChatManager:
         now = self._now()
         with self._lock:
             self._db.execute(
-                'INSERT INTO ai_tasks (task_id, status, prompt, reply, error, owner_id, created_at, updated_at) '
-                'VALUES (?,?,?,NULL,NULL,?,?,?)',
+                'INSERT INTO ai_tasks (task_id, status, prompt, reply, error, owner_id, created_at, updated_at, track_id) '
+                'VALUES (?,?,?,NULL,NULL,?,?,?,NULL)',
                 (task_id, status, prompt, owner_id, now, now))
             self._db.commit()
         self._sync_to_unified(task_id, prompt, owner_id, status, now, now)
+
+    def _set_track_id(self, task_id, track_id):
+        """把本次任务关联的反馈跟踪单号持久化，供后续「继续」任务回溯续写。"""
+        if not track_id:
+            return
+        with self._lock:
+            self._track_ids[task_id] = track_id
+            self._db.execute('UPDATE ai_tasks SET track_id=? WHERE task_id=?',
+                             (str(track_id), task_id))
+            self._db.commit()
+
+    def _find_prev_track_id(self, owner_id):
+        """查找最近一条「已建跟踪单」的反馈单号，供「继续」意图续写其分析与解决。
+
+        优先在同 owner 下查找；若 owner 未知（None）或该 owner 无历史单，
+        则回退到全局最近一条，确保「继续」总能回溯到上一条问题对应的反馈单。
+        """
+        with self._lock:
+            if owner_id is not None:
+                row = self._db.execute(
+                    "SELECT track_id FROM ai_tasks WHERE track_id IS NOT NULL AND track_id != '' "
+                    "AND owner_id=? AND status=? ORDER BY updated_at DESC LIMIT 1",
+                    (owner_id, self.STATUS_COMPLETED)).fetchone()
+                if row:
+                    return row['track_id']
+            row = self._db.execute(
+                "SELECT track_id FROM ai_tasks WHERE track_id IS NOT NULL AND track_id != '' "
+                "AND status=? ORDER BY updated_at DESC LIMIT 1",
+                (self.STATUS_COMPLETED,)).fetchone()
+        return row['track_id'] if row else None
 
     def _set_status(self, task_id, status, reply=None, error=None, phases=None):
         now = self._now()
@@ -858,7 +902,7 @@ class AIChatManager:
             turns = turns[-limit:]
         return turns
 
-    def _build_prompt(self, message, intent=None, phase=None, analysis=None):
+    def _build_prompt(self, message, intent=None, phase=None, analysis=None, prev_issue=None):
         parts = [_SYSTEM_PROMPT]
         turns = self._context_turns()
         if turns:
@@ -872,6 +916,12 @@ class AIChatManager:
         if intent:
             label = _INTENT_LABELS.get(intent, intent)
             parts.append('（系统初步判定本条用户意图为：%s，供你参考）' % label)
+        # 「继续」意图：显式告知模型正在延续哪张反馈单，使之基于上一条问题推进，
+        # 而非当成一条全新任务（结构层面保证「继续」= 续写既有问题，而非另建脏单）。
+        if intent == 'continue' and prev_issue:
+            parts.append('（本条为「继续」意图：你正在延续反馈单 #%s 的处理，'
+                         '请基于该单已有的分析与上一轮对话上下文继续推进，'
+                         '不要把它当成一条全新的任务。）' % prev_issue)
         # 分阶段控制：宿主脚本驱动处理流程，每个阶段只让 AI 产出该阶段内容（即「给出分支」）。
         # 这样一条命令会被拆成「分析定位 -> 执行处理」等多个可见阶段，而非一次性抛出大段文本。
         if phase == 'analyze':
@@ -1047,6 +1097,9 @@ class AIChatManager:
         # 满足「判断过程中显示当前阶段、判断成功后回复本阶段结论」。
         intent = _classify_intent(task['prompt'])
         is_task = intent in ('defect', 'suggestion', 'continue')
+        # 「继续」意图：先回溯上一条已建跟踪单的反馈单号，供阶段 3/4 注入上下文、
+        # 阶段 6 续写（而非新建一张名为「继续」的脏单）。
+        continue_prev = self._find_prev_track_id(task.get('owner_id')) if intent == 'continue' else None
         idx = begin('分析用户意图（建议 / 缺陷 / 继续 / 闲聊）', 'host')
         end(idx, conclusion='分析用户意图：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他'))
 
@@ -1078,7 +1131,7 @@ class AIChatManager:
 
         # ---- 阶段 3：AI 分析定位问题（只读，不修改文件）----
         ci, reply, cancelled = _cli('AI 分析定位问题',
-            self._build_prompt(task['prompt'], intent=intent, phase='analyze'), 40)
+            self._build_prompt(task['prompt'], intent=intent, phase='analyze', prev_issue=continue_prev), 40)
         if cancelled:
             return
         analysis = reply  # 阶段3 原始分析正文，可能为空
@@ -1087,7 +1140,7 @@ class AIChatManager:
 
         # ---- 阶段 4：AI 执行处理（修改与验证）----
         ci, reply, cancelled = _cli('AI 执行处理（修改与验证）',
-            self._build_prompt(task['prompt'], intent=intent, phase='execute', analysis=analysis), 50)
+            self._build_prompt(task['prompt'], intent=intent, phase='execute', analysis=analysis, prev_issue=continue_prev), 50)
         if cancelled:
             return
         if not reply:
@@ -1105,9 +1158,29 @@ class AIChatManager:
                   '做事后检查：git 仓库未完全干净，存在遗留未提交改动，请人工处理（见上文）')
         end(idx, conclusion=s_post)
 
-        # ---- 阶段 6：创建处理跟踪单（待验证，确有新提交时）----
+        # ---- 阶段 6：处理跟踪单 / 续写既有跟踪单 ----
         head_after = _git_rev_head(repo)
-        if head_after and head_after != head_before and not filed_id:
+        if intent == 'continue' and continue_prev:
+            # 「继续」且存在可续写的上一跟踪单：把本次分析/解决以「自动助手」身份
+            # 追加回复进该单，而不是新建一张标题为「继续」的脏单（满足「继续=续写」）。
+            idx = begin('续写既有处理跟踪单（待验证）', 'host')
+            a_txt = (analysis or '').strip()
+            r_txt = (reply or '').strip()
+            if a_txt == '（分析阶段无文本输出）':
+                a_txt = ''
+            if r_txt.startswith('（任务已执行完成'):
+                r_txt = ''
+            ok_a = _add_feedback_comment(continue_prev, a_txt) if a_txt else True
+            ok_r = _add_feedback_comment(continue_prev, r_txt) if r_txt else True
+            track_id = continue_prev
+            self._set_track_id(task_id, track_id)
+            if ok_a and ok_r:
+                s_ticket = '已在反馈单 #%s 中续写分析与解决说明（自动助手身份）' % continue_prev
+            else:
+                s_ticket = ('（已尝试在反馈单 #%s 中续写分析与解决，'
+                            '但反馈中心暂不可达，将自动重试）' % continue_prev)
+            end(idx, conclusion=s_ticket)
+        elif head_after and head_after != head_before and not filed_id:
             idx = begin('创建处理跟踪单（待验证）', 'host')
             ref_id = _extract_ref_issue(task['prompt'])
             if ref_id:
@@ -1122,16 +1195,26 @@ class AIChatManager:
                 ok_a = _add_feedback_comment(ref_id, a_txt) if a_txt else True
                 ok_r = _add_feedback_comment(ref_id, r_txt) if r_txt else True
                 track_id = ref_id
+                self._set_track_id(task_id, track_id)
                 if ok_a and ok_r:
                     s_ticket = '已在反馈单 #%s 中以「自动助手」身份回复了分析与解决说明' % ref_id
                 else:
                     s_ticket = ('（已尝试在反馈单 #%s 中回复分析与解决，'
                                 '但反馈中心暂不可达，将自动重试）' % ref_id)
             else:
+                # 「继续」但无历史单可续：标题退化为「上一条问题的概括」，避免把「继续」当标题；
+                # 其余情况走正常建单（此处不新增脏单）。
+                override_title = None
+                if intent == 'continue' and not continue_prev:
+                    turns = self._context_turns()
+                    if turns:
+                        override_title = _make_ticket_title(turns[-1][0])
                 reply, track_id, s_ticket = _maybe_create_tracking_ticket(
                     task_id, task['prompt'], task.get('owner_id'),
                     reply, filed_id, head_before, git_clean=git_clean, intent=intent,
-                    analysis=analysis, resolution=reply)
+                    analysis=analysis, resolution=reply, title=override_title)
+                if track_id:
+                    self._set_track_id(task_id, track_id)
             end(idx, conclusion=s_ticket)
 
         self._finish_completed(task_id)
