@@ -38,6 +38,15 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
+  /* 分阶段进度：AI 处理期间在回复气泡顶部展示处理阶段列表，最后一项为「进行中」高亮 */
+  .stage-list { margin-bottom: 6px; padding: 5px 9px; background: rgba(79,140,255,.06); border-radius: 8px; }
+  .stage-line { font-size: 12px; color: #5a6472; display: flex; align-items: center; gap: 6px; padding: 1px 0; line-height: 1.5; }
+  .stage-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a7f37; flex-shrink: 0; }
+  .stage-line.done { color: #6b7280; }
+  .stage-line.done .stage-dot { background: #1a7f37; }
+  .stage-line.current { color: #2f6fd0; font-weight: 600; }
+  .stage-line.current .stage-dot { background: #4f8cff; animation: pulse 1s infinite; }
+  .pending-hint { color: #999; font-style: italic; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; }
   .ai-row .bubble.ai { flex: 1 1 auto; flex-shrink: 1; max-width: 100%; }
@@ -303,6 +312,17 @@
     });
   }
 
+  // 分阶段进度：把处理阶段列表渲染为带状态点的进度条（最后一项为「进行中」）。
+  // stageAcc 为后端按处理顺序下发的阶段文案数组，全部为已完成/进行中，无失败态。
+  function stageHtml(stages) {
+    if (!stages || !stages.length) return '';
+    const last = stages.length - 1;
+    const lines = stages.map((s, i) =>
+      '<div class="stage-line ' + (i === last ? 'current' : 'done') + '">'
+      + '<span class="stage-dot"></span>' + esc(s) + '</div>').join('');
+    return '<div class="stage-list">' + lines + '</div>';
+  }
+
   // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
   function fmtTime(ts) {
     if (!ts && ts !== 0) return '';
@@ -473,13 +493,14 @@
     fold.querySelector('button').addEventListener('click', onClick);
   }
 
-  // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）
-  function updateAiLive(id, text, running) {
+  // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）。
+  // html 为已渲染内容（分阶段进度列表 + Markdown 化的流式回复），由调用方拼装。
+  function updateAiLive(id, html, running) {
     const node = document.getElementById('ai-' + id);
     if (!node) { renderMsgs(); return; }
-    // 流式内容同样按 Markdown 渲染；running 时追加“正在处理”状态标签
+    // running 时追加“正在处理”状态标签
     const status = running ? '<span class="aistatus">● 正在处理</span>' : '';
-    node.innerHTML = renderContent(text) + status;
+    node.innerHTML = html + status;
     // 流式输出中也补全资源引用卡片（解析结果已缓存，不会重复请求）
     enrichResourceRefs();
     // AI 思考/执行中：头像外圈显示旋转光环；结束后移除
@@ -538,7 +559,16 @@
     if (subscribed.has(taskId)) return;
     subscribed.add(taskId);
     let acc = '';
+    let stageAcc = [];
     let running = false;
+    // 拼装「分阶段进度 + 流式回复」的实时 HTML：进度列表在上、模型回复在下；
+    // 尚无回复文本时显示「正在处理…」占位，避免进度列表与空气泡之间出现断层。
+    const renderLive = function () {
+      let h = stageHtml(stageAcc);
+      if (acc) h += renderContent(acc);
+      else h += '<div class="pending-hint">正在处理…</div>';
+      return h;
+    };
     try {
       const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/stream');
       if (!resp.ok) { subscribed.delete(taskId); return; }
@@ -561,18 +591,23 @@
           const data = dataLines.join('\n');
           if (ev === 'queued') {
             // 排队中：等待被处理
+          } else if (ev === 'stage') {
+            // 分阶段进度：追加一个阶段并刷新气泡顶部进度列表
+            stageAcc.push(data);
+            running = true;
+            updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'status' && data === 'running') {
             running = true;
-            updateAiLive(taskId, acc || '正在处理…', true);
+            updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'token') {
             running = true;
             acc += data;
-            updateAiLive(taskId, acc || '正在处理…', true);
+            updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'done') {
             // 若服务端回复为空（模型只执行了工具操作未产出文本），优先保留已流式输出的内容，
             // 否则回退为友好占位，避免聊天框出现空白气泡。
             const finalText = (data && data.trim()) ? data : (acc || '（任务已执行完成，无文本输出）');
-            updateAiLive(taskId, finalText, false);
+            updateAiLive(taskId, renderContent(finalText), false);
             subscribed.delete(taskId);
             refresh();
             return;
