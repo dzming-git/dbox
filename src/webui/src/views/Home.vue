@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useGalleryStore } from '../stores/galleryStore'
@@ -387,6 +387,49 @@ const openEdit = (video: any) => {
   editDrawerVisible.value = true
 }
 
+// 更多操作（低频：编辑 / 撤回）收进溢出菜单，保持工具栏紧凑、标签筛选按钮不独占整行
+const toolMoreOpen = ref(false)
+const toolMoreRef = ref<HTMLElement | null>(null)
+const onToolMoreDocClick = (e: Event) => {
+  if (toolMoreOpen.value && toolMoreRef.value && !toolMoreRef.value.contains(e.target as Node)) {
+    toolMoreOpen.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', onToolMoreDocClick))
+onUnmounted(() => document.removeEventListener('click', onToolMoreDocClick))
+
+// 更多菜单视口感知定位：始终落在视口内，靠近屏幕底部时改为向上展开，避免被裁切看不到
+const toolMoreMenuStyle = ref<Record<string, string>>({})
+const positionToolMoreMenu = () => {
+  const root = toolMoreRef.value
+  if (!root) return
+  const btn = root.querySelector('.tool-more-btn') as HTMLElement | null
+  const menu = root.querySelector('.tool-more-menu') as HTMLElement | null
+  if (!btn || !menu) return
+  const rect = btn.getBoundingClientRect()
+  const menuW = menu.offsetWidth || 180
+  const menuH = menu.offsetHeight || 120
+  const margin = 8
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  let top: number
+  if (rect.bottom + menuH + margin <= vh) {
+    top = rect.bottom + 6
+  } else if (rect.top - menuH - margin >= 0) {
+    top = rect.top - menuH - 6
+  } else {
+    top = Math.max(margin, vh - menuH - margin)
+  }
+  let left = rect.right - menuW
+  if (left < margin) left = margin
+  if (left + menuW > vw - margin) left = Math.max(margin, vw - menuW - margin)
+  toolMoreMenuStyle.value = { top: `${top}px`, left: `${left}px` }
+}
+const toggleToolMore = () => {
+  toolMoreOpen.value = !toolMoreOpen.value
+  if (toolMoreOpen.value) nextTick(positionToolMoreMenu)
+}
+
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选视频
 const onTagClick = (tag: any) => {
   if (editMode.value) return
@@ -636,21 +679,6 @@ const listThumbUrl = (video: Video): string => {
             {{ lib.name }}
           </option>
         </select>
-        <!-- 撤回按钮 -->
-        <button v-if="hasPreviousVideos && currentSort === 'recommended'" class="undo-btn" @click="handleUndo" :disabled="shuffling" title="撤回">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
-            <path d="M7 6L3 10l4 4"/>
-          </svg>
-          <span class="undo-text">撤回</span>
-        </button>
-        <!-- 编辑模式开关 -->
-        <button class="batch-toggle-btn" :class="{ active: editMode }" @click="toggleEditMode" title="编辑">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-          </svg>
-          <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
-        </button>
         <!-- 显示模式切换：缩略图 / 列表 -->
         <div class="view-toggle">
           <button
@@ -684,7 +712,7 @@ const listThumbUrl = (video: Video): string => {
             <span class="view-toggle-text">列表</span>
           </button>
         </div>
-        <!-- 标签筛选按钮 -->
+        <!-- 标签筛选按钮：与排序/显示方式同处一行，不独占整行 -->
         <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -698,6 +726,39 @@ const listThumbUrl = (video: Video): string => {
             ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
           </span>
         </button>
+        <!-- 更多：低频操作（编辑 / 撤回）收进溢出菜单，保持工具栏紧凑 -->
+        <div class="tool-more" ref="toolMoreRef">
+          <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+            </svg>
+            <span>更多</span>
+          </button>
+          <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
+            <button
+              v-if="hasPreviousVideos && currentSort === 'recommended'"
+              class="tool-more-item"
+              :disabled="shuffling"
+              @click="handleUndo(); toolMoreOpen = false"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
+                <path d="M7 6L3 10l4 4"/>
+              </svg>
+              <span>撤回</span>
+            </button>
+            <button
+              class="tool-more-item"
+              :class="{ active: editMode }"
+              @click="toggleEditMode(); toolMoreOpen = false"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+              </svg>
+              <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1391,44 +1452,6 @@ const listThumbUrl = (video: Video): string => {
   to { transform: rotate(360deg); }
 }
 
-/* 撤回按钮 */
-.undo-btn {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid rgba(250, 173, 20, 0.3);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(250, 173, 20, 0.15) 0%, rgba(250, 173, 20, 0.05) 100%);
-  color: #faad14;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.undo-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(250, 173, 20, 0.25) 0%, rgba(250, 173, 20, 0.15) 100%);
-  border-color: #faad14;
-  box-shadow: 0 0 20px rgba(250, 173, 20, 0.2);
-  transform: translateY(-1px);
-}
-
-.undo-btn:active:not(:disabled) {
-  transform: scale(0.96) translateY(0);
-}
-
-.undo-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.undo-text {
-  letter-spacing: 0.3px;
-}
-
 /* 加载中 */
 .loading-container {
   display: flex;
@@ -1607,38 +1630,73 @@ const listThumbUrl = (video: Video): string => {
   margin-left: 12px;
 }
 
-/* 批量选择按钮 */
-.batch-toggle-btn {
+/* 更多操作：低频操作（编辑 / 撤回）收入溢出菜单，保持工具栏紧凑 */
+.tool-more {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.tool-more-btn {
   height: 36px;
   padding: 0 14px;
-  border: 1px solid var(--accent-border);
-  border-radius: 18px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
+  transition: all 0.2s;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
-
-.batch-toggle-btn:hover {
-  background: var(--accent-soft-hover);
-  border-color: var(--accent);
-  transform: translateY(-1px);
+.tool-more-btn:hover,
+.tool-more-btn.active {
+  color: var(--accent);
+  border-color: var(--border-strong);
+  background: var(--bg-surface-2);
 }
-
-.batch-toggle-btn.active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border-color: var(--accent);
+.tool-more-menu {
+  position: fixed;
+  min-width: 160px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-
-.batch-toggle-text {
-  letter-spacing: 0.3px;
+.tool-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.tool-more-item:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--accent);
+}
+.tool-more-item.active {
+  color: var(--accent);
+}
+.tool-more-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 继续观看 */
@@ -1823,25 +1881,6 @@ const listThumbUrl = (video: Video): string => {
     margin-left: 0;
   }
 
-  .undo-btn,
-  .batch-toggle-btn {
-    flex: 1 1 auto;
-    justify-content: center;
-    height: 38px;
-  }
-
-  .undo-btn {
-    height: 32px;
-    padding: 0 10px;
-    font-size: 12px;
-    gap: 4px;
-  }
-
-  .undo-btn svg {
-    width: 14px;
-    height: 14px;
-  }
-
   /* 移动端：底部悬浮单手翻页栏 */
   .mobile-pager {
     display: flex;
@@ -1882,8 +1921,17 @@ const listThumbUrl = (video: Video): string => {
   /* 移动端显示模式切换占满整行 */
   /* 移动端显示方式切换与控件同行，不再独占整行 */
   .view-toggle {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: center;
+  }
+
+  /* 移动端：标签筛选与“更多”均为内容宽度、与排序/显示方式同排，不独占整行 */
+  .tags-toggle-btn {
+    flex: 0 0 auto;
+  }
+
+  .tool-more {
+    flex: 0 0 auto;
   }
 
   .view-toggle-btn {

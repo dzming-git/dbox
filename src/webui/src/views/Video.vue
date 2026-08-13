@@ -1871,20 +1871,7 @@ const handleDelete = async () => {
         <div class="video-title-row">
           <h1 class="video-title" data-testid="video-title">{{ video.title }}</h1>
           <div class="title-actions">
-            <button
-              v-if="canManageVideo"
-              class="edit-video-btn"
-              @click="openEditDrawer"
-              title="编辑视频信息"
-              data-testid="edit-video-button"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              编辑
-            </button>
-            <!-- 隐藏/显示按钮已收纳至"更多"菜单（低频操作） -->
+            <!-- 编辑/隐藏等低频操作已收纳至底部"更多"菜单 -->
           </div>
         </div>
 
@@ -2090,6 +2077,18 @@ const handleDelete = async () => {
                       <line x1="1" y1="1" x2="23" y2="23"/>
                     </svg>
                     <span>{{ isHidden ? '显示资源' : '隐藏资源' }}</span>
+                  </button>
+                  <button
+                    v-if="canManageVideo"
+                    class="more-item"
+                    @click="openEditDrawer(); showMoreMenu = false"
+                    data-testid="edit-video-button"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    <span>编辑视频信息</span>
                   </button>
                   <button
                     class="more-item dislike-item"
@@ -2981,27 +2980,8 @@ const handleDelete = async () => {
   flex-shrink: 0;
 }
 
-/* 标题旁的“编辑”按钮（管理员） */
-.edit-video-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-surface-hover);
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
+/* 标题旁的“编辑”按钮（管理员）已收纳至底部“更多”菜单 */
 
-.edit-video-btn:hover {
-  border-color: var(--accent);
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
 
 /* “更多”菜单（收纳不常用操作：显示/隐藏） */
 .more-menu-wrap { position: relative; flex-shrink: 0; }
