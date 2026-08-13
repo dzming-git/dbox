@@ -137,24 +137,26 @@ def _sse_block(event: str, data) -> str:
     return 'event: %s\n' % event + ''.join('data: ' + ln + '\n' for ln in lines) + '\n'
 
 
-def _file_feedback(ftype: str, title: str, content: str):
+def _file_feedback(ftype: str, title: str, content: str, extra: dict = None,
+                  status: str = 'open'):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
-    仅由 _maybe_file_feedback 在 AI 判定为「新反馈」时调用。
+    仅由 _maybe_file_feedback / _maybe_create_tracking_ticket 调用。
     身份遵循项目准则：反馈中心交互使用「自动助手」身份
     （submitter='自动助手'、source='ai_assistant'、auto_classified=True）。
     建单经 platform_client 转发给主服务的内部接口 /internal/feedback 完成，
     使本模块无需直接依赖主服务的 backend.feedback_db。
+    extra / status 用于 AI 处理完成后的「跟踪单」（关联提交哈希、置待验证）。
     """
     try:
         from platform_client import file_feedback
-        if ftype not in ('bug', 'suggestion'):
+        if ftype not in ('bug', 'suggestion', 'other'):
             ftype = 'suggestion'
         title = (title or '').strip()
         content = (content or '').strip()
         if not title and not content:
             return None
-        return file_feedback(ftype, title, content)
+        return file_feedback(ftype, title, content, extra=extra, status=status)
     except Exception as e:
         try:
             import logging
@@ -167,13 +169,14 @@ def _file_feedback(ftype: str, title: str, content: str):
 def _maybe_file_feedback(reply: str):
     """若 AI 回复内含 feedback-request 块，则建单并回填单号、剥离该块。
 
-    返回处理后的回复文本（始终为字符串）。解析/建单失败时保留原回复、仅剥离块。
+    返回 (处理后的回复文本, 新建单号或 None)。解析/建单失败时保留原回复、仅剥离块，
+    单号返回 None。
     """
     if not reply:
-        return reply
+        return reply, None
     m = _FB_RE.search(reply)
     if not m:
-        return reply
+        return reply, None
     issue_id = None
     try:
         data = json.loads(m.group(1).strip())
@@ -192,7 +195,74 @@ def _maybe_file_feedback(reply: str):
             reply = reply.replace(token, '#' + issue_id, 1)
         else:
             reply = reply + ('\n\n📋 已提交反馈单：#%s' % issue_id)
-    return reply
+    return reply, issue_id
+
+
+def _git_rev_head(repo: str) -> str:
+    """返回仓库当前 HEAD 提交哈希；非 git 仓库或出错返回空串。"""
+    try:
+        out = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], cwd=repo,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20,
+        ).stdout.decode('utf-8', errors='replace').strip()
+        return out
+    except Exception:
+        return ''
+
+
+def _classify_work_category(prompt: str) -> str:
+    """根据用户诉求粗分反馈类型，便于反馈中心归类展示。"""
+    p = (prompt or '').lower()
+    bug_kw = ('bug', '错误', '异常', '故障', '失败', '崩溃', '不显示', '空白',
+              '不动', '修复', '排查', '报错', '卡死')
+    feat_kw = ('功能', '特性', '建议', '优化', '新增', '支持', '需求', '实现', '增强')
+    if any(k in p for k in bug_kw):
+        return 'bug'
+    if any(k in p for k in feat_kw):
+        return 'suggestion'
+    return 'other'
+
+
+def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before):
+    """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
+    feedback-request 建单时，于反馈中心创建一张「跟踪单」（状态 pending_verification），
+    记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id)。
+
+    该逻辑不依赖模型是否「主动」输出反馈块，而是由仓库状态客观判定，从而在结构上
+    保证「AI 处理新特性或问题」必有反馈中心单跟踪——即使模型漏提反馈块也不会漏单。
+    """
+    repo = _project_root()
+    head_after = _git_rev_head(repo)
+    # 仅在确有新提交（HEAD 变化）时视为「处理了一个新特性/问题」
+    if not head_after or head_after == head_before:
+        return reply, None
+    # 本回合已通过反馈块建单，则不再重复建跟踪单
+    if filed_id:
+        return reply, None
+    title_src = (prompt or '').strip().split('\n')[0].strip()
+    if len(title_src) > 50:
+        title_src = title_src[:50] + '…'
+    title = 'AI 处理：' + (title_src or '(无标题)')
+    summary = (reply or '').strip().replace('\n', ' ')
+    if len(summary) > 400:
+        summary = summary[:400] + '…'
+    content = (
+        'AI 助手已处理该任务并完成代码提交。\n'
+        '提交哈希：' + head_after + '\n'
+        '用户诉求：' + (prompt or '').strip() + '\n'
+        '处理摘要：' + summary
+    )
+    extra = {'git_commit': head_after, 'task_id': task_id,
+             'owner_id': owner_id, 'track': True}
+    track_id = _file_feedback(
+        _classify_work_category(prompt), title, content,
+        extra=extra, status='pending_verification')
+    if track_id:
+        note = '\n\n📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
+        reply = (reply or '') + note
+    else:
+        reply = (reply or '') + '\n\n（⚠️ 处理已完成，但反馈中心建单失败，请检查主服务是否运行）'
+    return reply, track_id
 
 
 # 对话系统约束：本助手具备真实执行能力，要求直接动手而非只描述。
@@ -232,8 +302,9 @@ _SYSTEM_PROMPT = (
 )
 
 
-# 解析 AI 回复中的 feedback-request 围栏块（AI 用其对反馈中心提单，后端执行建单并回填单号）
-_FB_RE = re.compile(r'```feedback-request\s*\n(.*?)```', re.DOTALL)
+# 解析 AI 回复中的 feedback-request 围栏块（AI 用其对反馈中心提单，后端执行建单并回填单号）。
+# 容忍围栏内可选的空白/换行差异，降低模型格式偏差导致漏单的概率。
+_FB_RE = re.compile(r'```\s*feedback-request\s*\n?(.*?)```', re.DOTALL)
 
 
 class AIChatManager:
@@ -487,6 +558,10 @@ class AIChatManager:
 
         prompt = self._build_prompt(task['prompt'])
 
+        # 处理前快照仓库 HEAD：若本回合 AI 实际改动代码产生新提交（HEAD 变化），
+        # 则在末尾结构性保证于反馈中心建一张「跟踪单」（见 _maybe_create_tracking_ticket）。
+        head_before = _git_rev_head(_project_root())
+
         env = dict(os.environ)
         token = _load_codebuddy_token()
         if token:
@@ -589,7 +664,12 @@ class AIChatManager:
                 reply = '（任务已执行完成，无文本输出）'
             # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
             # 回填真实单号并剥离该块，再存库与下发。
-            reply = _maybe_file_feedback(reply)
+            reply, filed_id = _maybe_file_feedback(reply)
+            # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
+            # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
+            reply, _track_id = _maybe_create_tracking_ticket(
+                task_id, task['prompt'], task.get('owner_id'),
+                reply, filed_id, head_before)
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')

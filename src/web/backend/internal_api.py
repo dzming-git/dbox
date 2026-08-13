@@ -255,8 +255,11 @@ def feedback():
     content = (data.get('content') or '').strip()
     if not title and not content:
         return jsonify({'success': False, 'message': '标题和内容不能同时为空'}), 400
+    status = data.get('status', 'open')
+    extra = data.get('extra') or None
     issue_id = db_create_issue(
         title=title, content=content, category=ftype,
         submitter='自动助手', source='ai_assistant', auto_classified=True,
+        status=status, extra=extra,
     )
     return jsonify({'success': True, 'issue_id': issue_id})

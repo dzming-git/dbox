@@ -130,9 +130,16 @@ def resource_resolve(type_: str, ref: str) -> dict:
     return _post('/resource-resolve', {'type': type_, 'ref': ref})
 
 
-def file_feedback(ftype: str, title: str, content: str):
-    """在反馈中心建一条反馈单，返回新单号；失败返回 None。"""
-    r = _post('/feedback', {'type': ftype, 'title': title, 'content': content})
+def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
+                  status: str = 'open'):
+    """在反馈中心建一条反馈单，返回新单号；失败返回 None。
+
+    extra / status 用于 AI 助手处理完成后的「跟踪单」：传入提交哈希与
+    pending_verification 状态，便于反馈中心展示「待验证」并关联处理动作。
+    """
+    payload = {'type': ftype, 'title': title, 'content': content,
+               'extra': extra, 'status': status}
+    r = _post('/feedback', payload)
     return r.get('issue_id') if isinstance(r, dict) else None
 
 

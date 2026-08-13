@@ -368,23 +368,30 @@ def generate_issue_id(date=None):
 
 def db_create_issue(title: str, content: str, category: str = 'suggestion',
                     submitter: str = '游客', source: str = 'web',
-                    auto_classified: bool = False, classification: str = None) -> str:
+                    auto_classified: bool = False, classification: str = None,
+                    status: str = 'open', extra: dict = None) -> str:
     """创建一条反馈，返回新单号（yyyymmdd+4 位）。
 
     线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
     AI 助手提单时使用 submitter='自动助手'、source='ai_assistant'、auto_classified=True，
     与项目「反馈中心交互使用自动助手身份」的准则一致。
+
+    status / extra 为可选扩展：AI 助手处理完成后的「跟踪单」可传入
+    status='pending_verification' 与 extra={'git_commit': ..., 'task_id': ...} 等，
+    便于反馈中心展示「待验证」状态并关联处理动作。
     """
     init_feedback_db()
     t = (title or '').strip()
     if not t:
         t = '(无标题)'
+    if status not in ('open', 'pending', 'pending_verification', 'closed', 'rejected'):
+        status = 'open'
     now = datetime.now()
     issue = FeedbackIssue(
         id=generate_issue_id(),
         title=t,
         content=(content or '').strip(),
-        status='open',
+        status=status,
         submitter=submitter,
         category=category if category in ('bug', 'suggestion', 'other') else 'suggestion',
         source=source,
@@ -392,6 +399,7 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
         classification=classification,
         created_at=now,
         updated_at=now,
+        feedback_extra=json.dumps(extra, ensure_ascii=False) if extra else None,
     )
     with get_session() as session:
         session.add(issue)
