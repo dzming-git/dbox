@@ -595,35 +595,31 @@ const listThumbUrl = (video: Video): string => {
       </div>
     </div>
 
-    <!-- 顶部栏：媒体类型切换 + 稍后再看 -->
-    <div class="topbar">
-    <div class="media-tabs">
-      <button
-        class="media-tab"
-        :class="{ active: mediaTab === 'video' }"
-        @click="mediaTab = 'video'"
-      >视频</button>
-      <button
-        class="media-tab"
-        :class="{ active: mediaTab === 'gallery' }"
-        @click="mediaTab = 'gallery'"
-      >图集</button>
-      <button
-        class="media-tab"
-        :class="{ active: mediaTab === 'text' }"
-        @click="mediaTab = 'text'"
-      >文本</button>
-      <button
-        class="media-tab"
-        :class="{ active: mediaTab === 'mixed' }"
-        @click="mediaTab = 'mixed'"
-      >帖子</button>
-    </div>
-    </div>
-
-    <!-- 操作栏 - 移到顶部 -->
-    <div class="action-bar" v-if="mediaTab === 'video'">
-      <div class="sort-box">
+    <!-- 顶部工具条：媒体类型 + 排序/资源库/撤回/编辑/显示方式/标签筛选，合并为单条可换行 -->
+    <div class="topbar tool-strip">
+      <div class="media-tabs">
+        <button
+          class="media-tab"
+          :class="{ active: mediaTab === 'video' }"
+          @click="mediaTab = 'video'"
+        >视频</button>
+        <button
+          class="media-tab"
+          :class="{ active: mediaTab === 'gallery' }"
+          @click="mediaTab = 'gallery'"
+        >图集</button>
+        <button
+          class="media-tab"
+          :class="{ active: mediaTab === 'text' }"
+          @click="mediaTab = 'text'"
+        >文本</button>
+        <button
+          class="media-tab"
+          :class="{ active: mediaTab === 'mixed' }"
+          @click="mediaTab = 'mixed'"
+        >帖子</button>
+      </div>
+      <div class="tool-controls" v-if="mediaTab === 'video'">
         <select class="sort-select" :value="currentSort" @change="handleSortChange">
           <option v-for="option in sortOptions" :key="option.value" :value="option.value">
             {{ option.label }}
@@ -655,57 +651,54 @@ const listThumbUrl = (video: Video): string => {
           </svg>
           <span class="batch-toggle-text">{{ editMode ? '退出编辑' : '编辑' }}</span>
         </button>
-      </div>
-      <!-- 显示模式切换：缩略图 / 列表 -->
-      <div class="view-toggle">
-        <button
-          class="view-toggle-btn"
-          :class="{ active: videoStore.viewMode === 'grid' }"
-          @click="videoStore.setViewMode('grid')"
-          title="缩略图"
-        >
+        <!-- 显示模式切换：缩略图 / 列表 -->
+        <div class="view-toggle">
+          <button
+            class="view-toggle-btn"
+            :class="{ active: videoStore.viewMode === 'grid' }"
+            @click="videoStore.setViewMode('grid')"
+            title="缩略图"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            <span class="view-toggle-text">缩略图</span>
+          </button>
+          <button
+            class="view-toggle-btn"
+            :class="{ active: videoStore.viewMode === 'list' }"
+            @click="videoStore.setViewMode('list')"
+            title="列表"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <line x1="3" y1="6" x2="3.01" y2="6"/>
+              <line x1="3" y1="12" x2="3.01" y2="12"/>
+              <line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            <span class="view-toggle-text">列表</span>
+          </button>
+        </div>
+        <!-- 标签筛选按钮 -->
+        <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="7" height="7" rx="1"/>
-            <rect x="14" y="3" width="7" height="7" rx="1"/>
-            <rect x="3" y="14" width="7" height="7" rx="1"/>
-            <rect x="14" y="14" width="7" height="7" rx="1"/>
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
           </svg>
-          <span class="view-toggle-text">缩略图</span>
-        </button>
-        <button
-          class="view-toggle-btn"
-          :class="{ active: videoStore.viewMode === 'list' }"
-          @click="videoStore.setViewMode('list')"
-          title="列表"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="8" y1="6" x2="21" y2="6"/>
-            <line x1="8" y1="12" x2="21" y2="12"/>
-            <line x1="8" y1="18" x2="21" y2="18"/>
-            <line x1="3" y1="6" x2="3.01" y2="6"/>
-            <line x1="3" y1="12" x2="3.01" y2="12"/>
-            <line x1="3" y1="18" x2="3.01" y2="18"/>
-          </svg>
-          <span class="view-toggle-text">列表</span>
+          {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
+          <span v-if="selectedUntagged" class="selected-tag-name">
+            (未标记)
+          </span>
+          <span v-else-if="selectedTagId" class="selected-tag-name">
+            ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
+          </span>
         </button>
       </div>
-    </div>
-
-    <!-- 标签筛选按钮 -->
-    <div class="tags-toggle-bar" v-if="mediaTab === 'video'">
-      <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-          <line x1="7" y1="7" x2="7.01" y2="7"/>
-        </svg>
-        {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
-        <span v-if="selectedUntagged" class="selected-tag-name">
-          (未标记)
-        </span>
-        <span v-else-if="selectedTagId" class="selected-tag-name">
-          ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
-        </span>
-      </button>
     </div>
 
     <!-- 标签区域 - 可折叠 -->
@@ -1082,15 +1075,22 @@ const listThumbUrl = (video: Video): string => {
   color: var(--text-on-accent);
 }
 
-/* 顶部栏：媒体切换（左） + 稍后再看（右） */
+/* 顶部工具条：媒体切换 + 排序/资源库/编辑/显示方式/标签筛选，单条可换行 */
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 .topbar .media-tabs { margin-bottom: 0; }
+/* 各控件内联成一条，空间不足时整体折行，避免每个控件单独占一行 */
+.tool-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 
 .wl-badge {
   min-width: 18px;
@@ -1285,14 +1285,6 @@ const listThumbUrl = (video: Video): string => {
 }
 
 /* 标签筛选折叠按钮 */
-.tags-toggle-bar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
 .tags-toggle-btn {
   display: inline-flex;
   align-items: center;
@@ -1319,23 +1311,7 @@ const listThumbUrl = (video: Video): string => {
   font-weight: 500;
 }
 
-/* 操作栏 */
-.action-bar {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 /* 排序选择器 */
-.sort-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .sort-label {
   color: var(--text-secondary);
   font-size: 14px;
@@ -1827,18 +1803,9 @@ const listThumbUrl = (video: Video): string => {
     max-width: 100%;
   }
   
-  .action-bar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    margin-bottom: 16px;
-    max-width: 100%;
-  }
-
-  /* 排序/筛选行在移动端换行堆叠，避免控件溢出 */
-  .sort-box {
+  /* 移动端：工具条整体占满宽度，控件自动换行，避免溢出又不再各自独占一行 */
+  .tool-controls {
     width: 100%;
-    flex-wrap: wrap;
     gap: 8px;
   }
 
@@ -1913,8 +1880,9 @@ const listThumbUrl = (video: Video): string => {
   }
 
   /* 移动端显示模式切换占满整行 */
+  /* 移动端显示方式切换与控件同行，不再独占整行 */
   .view-toggle {
-    width: 100%;
+    flex: 1 1 auto;
     justify-content: center;
   }
 
