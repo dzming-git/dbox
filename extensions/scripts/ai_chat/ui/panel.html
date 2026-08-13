@@ -46,6 +46,9 @@
   .stage-line.done .stage-dot { background: #1a7f37; }
   .stage-line.current { color: #2f6fd0; font-weight: 600; }
   .stage-line.current .stage-dot { background: #4f8cff; animation: pulse 1s infinite; }
+  /* 阶段结论：某阶段完成（不再是「进行中」）后，在其下缩进展示该阶段结论，
+     如「判断结果：这是一条【缺陷】反馈」，使判断等阶段的结论被明确回复发到聊天窗口。 */
+  .stage-conclusion { font-size: 11.5px; color: #1a7f37; padding: 1px 0 3px 15px; line-height: 1.5; }
   .pending-hint { color: #999; font-style: italic; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; }
@@ -312,14 +315,28 @@
     });
   }
 
-  // 分阶段进度：把处理阶段列表渲染为带状态点的进度条（最后一项为「进行中」）。
-  // stageAcc 为后端按处理顺序下发的阶段文案数组，全部为已完成/进行中，无失败态。
-  function stageHtml(stages) {
+  // 分阶段进度：把处理阶段列表渲染为带状态点的进度条（末项为「进行中」）。
+  // stageAcc 为后端按处理顺序下发的阶段数据：新版本为 JSON（{text, state, conclusion}），
+  // 旧版为纯文本，二者均兼容解析。非当前阶段若带 conclusion，则在其下展示该阶段结论
+  // （如「判断结果：这是一条【缺陷】反馈」），即判断成功后回复本阶段结论。
+  // allDone=true 时（任务已结束）所有阶段一律渲染为 done（绿色完成）。
+  function stageHtml(stages, allDone) {
     if (!stages || !stages.length) return '';
     const last = stages.length - 1;
-    const lines = stages.map((s, i) =>
-      '<div class="stage-line ' + (i === last ? 'current' : 'done') + '">'
-      + '<span class="stage-dot"></span>' + esc(s) + '</div>').join('');
+    const lines = stages.map((raw, i) => {
+      let text = raw, conclusion = '';
+      try {
+        const o = JSON.parse(raw);
+        if (o && typeof o === 'object') { text = o.text || raw; conclusion = o.conclusion || ''; }
+      } catch (e) { /* 旧版纯文本阶段，无结论 */ }
+      const isCur = (!allDone && i === last);
+      const cls = isCur ? 'stage-line current' : 'stage-line done';
+      let h = '<div class="' + cls + '"><span class="stage-dot"></span>' + esc(text) + '</div>';
+      if (!isCur && conclusion) {
+        h += '<div class="stage-conclusion">' + esc(conclusion) + '</div>';
+      }
+      return h;
+    }).join('');
     return '<div class="stage-list">' + lines + '</div>';
   }
 
@@ -564,7 +581,7 @@
     // 拼装「分阶段进度 + 流式回复」的实时 HTML：进度列表在上、模型回复在下；
     // 尚无回复文本时显示「正在处理…」占位，避免进度列表与空气泡之间出现断层。
     const renderLive = function () {
-      let h = stageHtml(stageAcc);
+      let h = stageHtml(stageAcc, !running);
       if (acc) h += renderContent(acc);
       else h += '<div class="pending-hint">正在处理…</div>';
       return h;
@@ -607,7 +624,10 @@
             // 若服务端回复为空（模型只执行了工具操作未产出文本），优先保留已流式输出的内容，
             // 否则回退为友好占位，避免聊天框出现空白气泡。
             const finalText = (data && data.trim()) ? data : (acc || '（任务已执行完成，无文本输出）');
-            updateAiLive(taskId, renderContent(finalText), false);
+            // 完成时保留分阶段进度列表（全部标记为 done），再附最终回复，使整轮处理过程可见。
+            let h = stageHtml(stageAcc, true);
+            h += renderContent(finalText);
+            updateAiLive(taskId, h, false);
             subscribed.delete(taskId);
             refresh();
             return;

@@ -344,17 +344,50 @@ def _verify_and_report_clean(repo: str, baseline_dirty, head_before, reply: str)
     return reply, (len(new_dirty) == 0)
 
 
-def _classify_work_category(prompt: str) -> str:
-    """根据用户诉求粗分反馈类型，便于反馈中心归类展示。"""
+# 用户意图四类：建议 / 缺陷 / 继续 / 闲聊（用于分阶段进度展示与模型对齐参考）。
+_INTENT_LABELS = {
+    'suggestion': '建议',
+    'defect': '缺陷',
+    'continue': '继续',
+    'chat': '闲聊',
+}
+
+
+def _classify_intent(prompt: str) -> str:
+    """确定性判断用户诉求的意图类别，供阶段进度展示与模型对齐参考。
+
+    返回 'suggestion'（建议）/ 'defect'（缺陷）/ 'continue'（继续）/ 'chat'（闲聊）。
+    优先级：继续 > 缺陷 > 建议 > 闲聊。纯问候 / 无实质任务视为闲聊。
+    该判断由宿主进程基于关键词客观完成（不依赖模型输出），从而在结构上保证
+    「每条消息先判断意图」这一环节必然发生并被展示，不靠提示词兜底。
+    """
     p = (prompt or '').lower()
-    bug_kw = ('bug', '错误', '异常', '故障', '失败', '崩溃', '不显示', '空白',
-              '不动', '修复', '排查', '报错', '卡死')
-    feat_kw = ('功能', '特性', '建议', '优化', '新增', '支持', '需求', '实现', '增强')
-    if any(k in p for k in bug_kw):
-        return 'bug'
-    if any(k in p for k in feat_kw):
+    continue_kw = ('继续', '接着', '然后呢', '还有呢', '再处理', '上一个', '刚才那个',
+                   '之前那个', '刚刚说的', '上面那个', '进一步', '再帮我')
+    defect_kw = ('bug', '错误', '异常', '故障', '失败', '崩溃', '不显示', '空白',
+                 '不动', '修复', '排查', '报错', '卡死', '不对', '没反应', '没生效',
+                 '不行', '问题', '出现', '闪退')
+    suggestion_kw = ('建议', '功能', '特性', '优化', '新增', '支持', '需求', '实现',
+                    '增强', '希望', '能不能', '能否', '最好', '应该')
+    chat_kw = ('你好', '您好', 'hi', 'hello', '在吗', '谢谢', '感谢', '哈哈', '哦', '嗯', '好的')
+    if any(k in p for k in continue_kw):
+        return 'continue'
+    if any(k in p for k in defect_kw):
+        return 'defect'
+    if any(k in p for k in suggestion_kw):
         return 'suggestion'
-    return 'other'
+    if not p or len(p) < 6 or any(k in p for k in chat_kw):
+        return 'chat'
+    return 'chat'
+
+
+def _classify_work_category(prompt: str) -> str:
+    """将用户诉求映射为反馈中心类型（bug / suggestion / other），供跟踪单归类。
+
+    直接复用意图判定结果：缺陷 -> bug，建议 -> suggestion，其余 -> other。
+    """
+    intent = _classify_intent(prompt)
+    return {'defect': 'bug', 'suggestion': 'suggestion'}.get(intent, 'other')
 
 
 # 标题提炼时去除的开头命令/填充词（这些不属于「问题概括」本身）。
@@ -395,7 +428,7 @@ def _make_ticket_title(prompt: str) -> str:
 
 
 def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
-                                   git_clean=True):
+                                   git_clean=True, intent=None):
     """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
     feedback-request 建单时，于反馈中心创建一张「跟踪单」（状态 pending_verification），
     记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id)。
@@ -426,10 +459,12 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
         comment_src = comment_src.split('\n\n📋 已创建处理跟踪单')[0].strip()
     if len(comment_src) > 4000:
         comment_src = comment_src[:4000] + '…（已截断）'
+    # 反馈中心类型复用意图判定：缺陷 -> bug，建议 -> suggestion，其余 -> other。
+    ftype = {'defect': 'bug', 'suggestion': 'suggestion'}.get(intent, _classify_work_category(prompt))
     extra = {'git_commit': head_after, 'task_id': task_id,
              'owner_id': owner_id, 'track': True, 'git_clean': git_clean}
     track_id = _file_feedback(
-        _classify_work_category(prompt), title, content,
+        ftype, title, content,
         extra=extra, status='pending_verification', comment=comment_src)
     if track_id:
         note = '\n\n📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
@@ -747,7 +782,7 @@ class AIChatManager:
             turns = turns[-limit:]
         return turns
 
-    def _build_prompt(self, message):
+    def _build_prompt(self, message, intent=None):
         parts = [_SYSTEM_PROMPT]
         turns = self._context_turns()
         if turns:
@@ -757,6 +792,10 @@ class AIChatManager:
                 parts.append('助手：' + ar)
             parts.append('')
         parts.append('用户问题：' + message)
+        # 注入宿主进程判定出的意图，帮助模型与「分阶段判断」的结论对齐（仅供参考）。
+        if intent:
+            label = _INTENT_LABELS.get(intent, intent)
+            parts.append('（系统初步判定本条用户意图为：%s，供你参考）' % label)
         return '\n'.join(parts)
 
     def _process(self, task_id):
@@ -767,8 +806,18 @@ class AIChatManager:
             self._buffers[task_id] = []
             self._set_status(task_id, self.STATUS_RUNNING)
             self._emit(task_id, 'status', 'running')
-            # 分阶段进度：进入处理即向聊天窗口反馈首个阶段，避免用户长时间看不到任何进展
-            self._emit(task_id, 'stage', '加载对话上下文并构造任务提示')
+
+        # 第一阶段：判断用户意图（建议 / 缺陷 / 继续 / 闲聊）。
+        # 由宿主进程基于关键词确定性判定（不依赖模型输出），聊天窗口实时展示「判断中」阶段；
+        # 结论随下一阶段一并呈现（前端在阶段不再为「当前」时展示结论：判断成功，回复本阶段结论）。
+        intent = _classify_intent(task['prompt'])
+        self._emit_stage(
+            task_id, '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）',
+            state='current',
+            conclusion='判断结果：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他'))
+
+        # 第二阶段：加载对话上下文并构造任务提示（意图已判定，附意图提示供模型对齐）
+        self._emit(task_id, 'stage', '加载对话上下文并构造任务提示')
 
         buddy = _resolve_buddy_cli()
         if not buddy:
@@ -779,13 +828,13 @@ class AIChatManager:
             self._finish_emit(task_id, 'failed')
             return
 
-        prompt = self._build_prompt(task['prompt'])
+        prompt = self._build_prompt(task['prompt'], intent=intent)
 
         # 处理前快照仓库 HEAD 与脏文件基线：若本回合 AI 实际改动代码产生新提交
         # （HEAD 变化），则在末尾结构性保证于反馈中心建一张「跟踪单」（见
         # _maybe_create_tracking_ticket）；脏文件基线用于做事后比对，只把本次运行
         # 「新增」的未提交文件归因于 AI，避免把运行前已有的脏改动误判为本次引入。
-        self._emit(task_id, 'stage', '做事前核查：检查 git 仓库状态')
+        self._emit(task_id, 'stage', '做事前检查：检查 git 仓库状态')
         repo = _project_root()
         head_before = _git_rev_head(repo)
         baseline_dirty = _git_dirty_files(repo)
@@ -818,7 +867,7 @@ class AIChatManager:
         full = []
         try:
             # 启动 AI 执行：此阶段最长（工具调用实时回传），聊天窗口持续展示进度
-            self._emit(task_id, 'stage', '启动 AI 执行（工具调用实时回传，最多 %d 分钟）'
+            self._emit(task_id, 'stage', '启动 AI 执行并分析处理（工具调用实时回传，最多 %d 分钟）'
                        % (_MAX_TASK_SECONDS // 60))
             proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -907,14 +956,17 @@ class AIChatManager:
             reply, filed_id = _maybe_file_feedback(reply)
             # 做事后结构核查：保证 git 仓库干净（清理临时文件 / 告警遗留改动），
             # 该检查与模型是否自觉提交无关，由进程客观比对仓库状态兜底。
-            self._emit(task_id, 'stage', '做事后核查：确认 git 仓库干净')
+            self._emit(task_id, 'stage', '做事后检查：确认 git 仓库干净')
             reply, git_clean = _verify_and_report_clean(_project_root(), baseline_dirty, head_before, reply)
             # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
             # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
-            self._emit(task_id, 'stage', '创建处理跟踪单（待验证）')
+            # 仅当确有新提交时才发射该阶段，避免闲聊/只读排查误报「建单」。
+            head_after = _git_rev_head(_project_root())
+            if head_after and head_after != head_before and not filed_id:
+                self._emit(task_id, 'stage', '创建处理跟踪单（待验证）')
             reply, _track_id = _maybe_create_tracking_ticket(
                 task_id, task['prompt'], task.get('owner_id'),
-                reply, filed_id, head_before, git_clean=git_clean)
+                reply, filed_id, head_before, git_clean=git_clean, intent=intent)
             self._emit(task_id, 'stage', '处理完成')
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
@@ -944,6 +996,23 @@ class AIChatManager:
                 q.put((etype, data))
             except Exception:
                 pass
+
+    def _emit_stage(self, task_id, text, state='current', conclusion=None):
+        """发射一个结构化的 stage 事件（JSON），承载阶段文案、状态与（可选的）阶段结论。
+
+        前端 stageHtml 解析该 JSON：数组末项高亮为「进行中」（current），非当前阶段
+        若带 conclusion 则展示其结论（如意图判断的结果）。这样「判断用户意图」阶段在判断
+        中显示为 current，判断完成后（被下一阶段挤出末位）即回退为 done 并展示结论，
+        满足「判断成功后回复这一阶段的结论」，而不仅是显示一条进度文案。
+        """
+        payload = {'text': text, 'state': state}
+        if conclusion:
+            payload['conclusion'] = conclusion
+        try:
+            data = json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            data = text
+        self._emit(task_id, 'stage', data)
 
     def _finish_emit(self, task_id, _status):
         """通知所有订阅者任务结束（推送终止哨兵）并清理缓冲区。"""
