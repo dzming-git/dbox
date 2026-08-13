@@ -28,6 +28,9 @@ import threading
 import subprocess
 import sqlite3
 
+import logging
+_logger = logging.getLogger('extensions_host.ai_chat')
+
 try:
     from subprocess import CREATE_NEW_PROCESS_GROUP
 except ImportError:
@@ -210,6 +213,115 @@ def _git_rev_head(repo: str) -> str:
         return ''
 
 
+def _git_status_porcelain(repo: str):
+    """返回 `git status --porcelain` 的解码输出；非 git 仓库 / 出错返回 None。"""
+    try:
+        out = subprocess.run(
+            ['git', 'status', '--porcelain'], cwd=repo,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20,
+        ).stdout.decode('utf-8', errors='replace')
+        return out
+    except Exception:
+        return None
+
+
+def _git_dirty_files(repo: str):
+    """返回当前工作树中「未提交」文件集合（含未跟踪与已修改/已暂存）。
+
+    用于做事后比对：只有「基线集合之外的新增脏文件」才可归因于本次 AI 运行。
+    非 git 仓库或无法判定时返回 None。
+    """
+    out = _git_status_porcelain(repo)
+    if out is None:
+        return None
+    files = set()
+    for line in out.splitlines():
+        line = line.rstrip('\n')
+        if not line.strip():
+            continue
+        # porcelain 前两字符为 XY 状态，其后为空格 + 路径（重命名形如 "a -> b"）
+        body = line[3:].strip() if len(line) > 3 else line.strip()
+        if ' -> ' in body:
+            body = body.split(' -> ', 1)[1]
+        if body:
+            files.add(body)
+    return files
+
+
+# 符合项目规范、可被安全自动清理的临时文件名特征（避免误删真实改动）。
+_TEMP_NAME_HINTS = ('_commit_msg', '.tmp', '.bak', '.orig', '~',
+                    'tmp_', 'scratch', 'test_tmp')
+
+
+def _looks_temporary(path: str) -> bool:
+    base = os.path.basename(path).lower()
+    if base in ('_commit_msg.txt',):
+        return True
+    for h in _TEMP_NAME_HINTS:
+        if h in base:
+            return True
+    return False
+
+
+def _verify_and_report_clean(repo: str, baseline_dirty, head_before, reply: str):
+    """做事后结构核查：保证本次 AI 运行没有在仓库留下未提交的脏文件。
+
+    返回 (reply, clean_bool)。逻辑：
+    - 非 git 仓库 / 无法判定：跳过重构，返回 clean=True；
+    - 计算「新增脏文件」= 当前脏文件 − 运行前基线脏文件（仅这些可归因于本次运行）；
+    - 对符合项目规范的可丢弃临时文件（_commit_msg.txt / *.tmp 等）先自动清理；
+    - 若清理后仍有残留脏文件：在回复中追加告警，列出文件，提示人工提交或清理；
+    - 若运行前就存在、运行后依旧脏的基线文件：仅作温和提醒（不归因于本次）。
+
+    该检查与「模型是否自觉提交」无关，由进程客观比对仓库状态，从而在结构上
+    保证 git 仓库干净——即使模型漏提交/漏清理临时脚本，也会被兜底发现并处置。
+    """
+    if baseline_dirty is None:
+        return reply, True
+    current = _git_dirty_files(repo)
+    if current is None:
+        return reply, True
+
+    new_dirty = current - baseline_dirty           # 本次运行新增的可疑脏文件
+    leftover_baseline = baseline_dirty & current     # 运行前已脏、运行后依旧脏
+
+    if not new_dirty and not leftover_baseline:
+        return reply, True
+
+    # 先尝试清理符合项目规范的临时文件
+    removed = []
+    for f in list(new_dirty):
+        full = os.path.join(repo, f)
+        if _looks_temporary(f) and os.path.isfile(full):
+            try:
+                os.remove(full)
+                new_dirty.discard(f)
+                removed.append(f)
+            except Exception:
+                pass
+
+    parts = []
+    if not new_dirty:
+        msg = '⚠️ 检测到本次任务产生了未提交文件，已按项目规范自动清理临时文件：' \
+              + '、'.join(removed) + '。仓库现已恢复干净。'
+        parts.append(msg)
+    else:
+        msg = ('⚠️ git 仓库未保持干净：本次任务遗留了未提交的改动/文件，'
+               '请人工确认并提交或清理（不要遗留临时脚本）：')
+        msg += '\n' + '\n'.join('- ' + f for f in sorted(new_dirty))
+        if removed:
+            msg += '\n（已自动清理临时文件：' + '、'.join(removed) + '）'
+        parts.append(msg)
+
+    if leftover_baseline:
+        parts.append('（提示：任务开始前仓库即存在未提交改动，仍遗留：'
+                     + '、'.join(sorted(leftover_baseline))
+                     + '；这些不归因于本次任务，建议另行处理）')
+
+    reply = (reply or '') + '\n\n' + '\n'.join(parts)
+    return reply, (len(new_dirty) == 0)
+
+
 def _classify_work_category(prompt: str) -> str:
     """根据用户诉求粗分反馈类型，便于反馈中心归类展示。"""
     p = (prompt or '').lower()
@@ -223,13 +335,16 @@ def _classify_work_category(prompt: str) -> str:
     return 'other'
 
 
-def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before):
+def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
+                                   git_clean=True):
     """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
     feedback-request 建单时，于反馈中心创建一张「跟踪单」（状态 pending_verification），
     记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id)。
 
     该逻辑不依赖模型是否「主动」输出反馈块，而是由仓库状态客观判定，从而在结构上
     保证「AI 处理新特性或问题」必有反馈中心单跟踪——即使模型漏提反馈块也不会漏单。
+    git_clean 标记本回合结束后仓库是否干净（见 _verify_and_report_clean），一并写入
+    跟踪单 extra，便于管理员验证时核对。
     """
     repo = _project_root()
     head_after = _git_rev_head(repo)
@@ -253,7 +368,7 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
         '处理摘要：' + summary
     )
     extra = {'git_commit': head_after, 'task_id': task_id,
-             'owner_id': owner_id, 'track': True}
+             'owner_id': owner_id, 'track': True, 'git_clean': git_clean}
     track_id = _file_feedback(
         _classify_work_category(prompt), title, content,
         extra=extra, status='pending_verification')
@@ -270,6 +385,9 @@ _SYSTEM_PROMPT = (
     '你是一个嵌入在媒体库管理后台里的 AI 助手，拥有读写文件、运行命令的真实能力。\n'
     '当用户布置具体任务（如修改代码、创建/删除文件、执行命令等）时，请直接动手完成，'
     '不要只罗列步骤或描述做法；完成后用简体中文简要说明你做了什么。\n'
+    '完成后必须保持 git 仓库干净：改动要提交（提交消息用文件方式写 UTF-8 中文，'
+    '保持原有提交身份，不要改成「自动助手」），临时脚本/截图/中间产物必须删除，'
+    '不得遗留未提交文件。\n'
     '若只是闲聊或提问，则正常简洁回答即可。\n'
     '\n'
     '【提交反馈】当用户的消息是在向本产品提交一条新的反馈（例如报告一个 bug、或提出一个'
@@ -558,9 +676,18 @@ class AIChatManager:
 
         prompt = self._build_prompt(task['prompt'])
 
-        # 处理前快照仓库 HEAD：若本回合 AI 实际改动代码产生新提交（HEAD 变化），
-        # 则在末尾结构性保证于反馈中心建一张「跟踪单」（见 _maybe_create_tracking_ticket）。
-        head_before = _git_rev_head(_project_root())
+        # 处理前快照仓库 HEAD 与脏文件基线：若本回合 AI 实际改动代码产生新提交
+        # （HEAD 变化），则在末尾结构性保证于反馈中心建一张「跟踪单」（见
+        # _maybe_create_tracking_ticket）；脏文件基线用于做事后比对，只把本次运行
+        # 「新增」的未提交文件归因于 AI，避免把运行前已有的脏改动误判为本次引入。
+        repo = _project_root()
+        head_before = _git_rev_head(repo)
+        baseline_dirty = _git_dirty_files(repo)
+        if baseline_dirty is None:
+            _logger.info('AI 任务处理前：仓库非 git 或无法判定状态，跳过 git 干净度核查')
+        elif baseline_dirty:
+            _logger.warning('AI 任务处理前仓库已存在未提交改动（%d 项），将不归因于本次运行：%s',
+                            len(baseline_dirty), sorted(baseline_dirty))
 
         env = dict(os.environ)
         token = _load_codebuddy_token()
@@ -665,11 +792,14 @@ class AIChatManager:
             # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
             # 回填真实单号并剥离该块，再存库与下发。
             reply, filed_id = _maybe_file_feedback(reply)
+            # 做事后结构核查：保证 git 仓库干净（清理临时文件 / 告警遗留改动），
+            # 该检查与模型是否自觉提交无关，由进程客观比对仓库状态兜底。
+            reply, git_clean = _verify_and_report_clean(_project_root(), baseline_dirty, head_before, reply)
             # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
             # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
             reply, _track_id = _maybe_create_tracking_ticket(
                 task_id, task['prompt'], task.get('owner_id'),
-                reply, filed_id, head_before)
+                reply, filed_id, head_before, git_clean=git_clean)
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')
