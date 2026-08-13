@@ -55,11 +55,11 @@
   .ai-step { font-size: 13px; color: #2f3a4a; background: rgba(79,140,255,.08); border-left: 3px solid #4f8cff; padding: 5px 10px; margin: 6px 0; border-radius: 4px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; position: relative; }
-  /* 每条 AI 消息右上角的「复制」小按钮：默认隐藏，鼠标悬停气泡时淡入；点击复制整段消息文本 */
-  .copy-btn { position: absolute; top: 0; right: 0; z-index: 3; opacity: 0; transition: opacity .15s;
-    border: 1px solid #d0d4dc; background: #fff; color: #888; border-radius: 6px; font-size: 11px;
-    padding: 1px 7px; cursor: pointer; user-select: none; }
-  .ai-row:hover .copy-btn { opacity: 1; }
+  /* 聊天气泡下方的「复制」按钮：每条用户消息与 AI 回复下方各有一个，常驻可见，点击复制该条整段消息 */
+  .copy-bar { display: flex; gap: 6px; margin-top: -4px; align-self: flex-start; }
+  .copy-bar.right { align-self: flex-end; }
+  .copy-btn { border: 1px solid #d0d4dc; background: #fff; color: #888; border-radius: 6px; font-size: 11px;
+    padding: 1px 9px; cursor: pointer; user-select: none; transition: color .15s, border-color .15s; }
   .copy-btn:hover { color: #4f8cff; border-color: #4f8cff; }
   .copy-btn.copied { color: #1a7f37; border-color: #1a7f37; }
   .ai-row .bubble.ai { flex: 1 1 auto; flex-shrink: 1; max-width: 100%; }
@@ -464,8 +464,12 @@
     applyCollapse();
     // 补全 AI 回复中资源引用的封面/标题/类型标签
     enrichResourceRefs();
-    // 为每条 AI 消息挂上「复制整段消息」按钮（已存在则不重复添加）
-    msgs.querySelectorAll('.ai-row').forEach(addCopyBtn);
+    // 给每条用户消息与 AI 回复下方挂上「复制」按钮（重绘重建，无残留/重复）
+    msgs.querySelectorAll('.bubble.me').forEach(b => addCopyBar(b, b, true));
+    msgs.querySelectorAll('.ai-row').forEach(row => {
+      const ai = row.querySelector('.bubble.ai');
+      if (ai) addCopyBar(row, ai, false);
+    });
     // 工具栏按钮文案随模式更新：收起全部模式显示“展开全部”，否则“收起全部”
     toggleAllBtn.textContent = collapsedAllMode ? '展开全部' : '收起全部';
     // 仅当用户原本就贴底时才自动贴底；否则保留当前滚动位置，避免用户在看历史时被拉回底部。
@@ -522,12 +526,12 @@
     fold.querySelector('button').addEventListener('click', onClick);
   }
 
-  // 复制整段消息：从 AI 气泡中取纯文本（剔除「正在处理」状态标签与占位提示），
+  // 复制某消息节点纯文本（剔除「正在处理」状态标签与占位提示），
   // 优先用 navigator.clipboard，失败回退 execCommand，兼容非安全上下文（http 面板）。
-  function copyWholeMessage(row, btn) {
-    const node = row.querySelector('.bubble.ai');
-    if (!node) return;
-    const tmp = node.cloneNode(true);
+  // 用户消息与 AI 回复共用，分别传入各自的消息气泡节点即可。
+  function copyNodeText(sourceNode, btn) {
+    if (!sourceNode) return;
+    const tmp = sourceNode.cloneNode(true);
     tmp.querySelectorAll('.aistatus').forEach(s => s.remove());
     let text = (tmp.innerText || '').replace(/●\s*正在处理/g, '')
                                  .replace(/正在处理…/g, '')
@@ -550,15 +554,20 @@
     try { if (document.execCommand('copy')) flash(); } catch (e) { /* ignore */ }
     document.body.removeChild(ta);
   }
-  // 给某条 AI 消息行挂一个「复制」按钮（顶部右侧，悬停显示）
-  function addCopyBtn(row) {
-    if (!row || row.querySelector(':scope > .copy-btn')) return;
+  // 在某条消息气泡之后挂一个「复制」按钮条（气泡下方，常驻可见）：
+  // isUser=true 时按钮条右对齐（与用户泡泡同侧），否则左对齐（与 AI 回复同侧）。
+  function addCopyBar(afterNode, sourceNode, isUser) {
+    if (!afterNode) return;
+    if (afterNode.nextElementSibling && afterNode.nextElementSibling.classList.contains('copy-bar')) return;
+    const bar = document.createElement('div');
+    bar.className = 'copy-bar' + (isUser ? ' right' : '');
     const btn = document.createElement('button');
     btn.className = 'copy-btn';
     btn.textContent = '复制';
-    btn.title = '复制整段消息';
-    btn.addEventListener('click', (e) => { e.stopPropagation(); copyWholeMessage(row, btn); });
-    row.appendChild(btn);
+    btn.title = isUser ? '复制我的消息' : '复制 AI 回复';
+    btn.addEventListener('click', (e) => { e.stopPropagation(); copyNodeText(sourceNode, btn); });
+    bar.appendChild(btn);
+    afterNode.after(bar);
   }
 
   // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）。
