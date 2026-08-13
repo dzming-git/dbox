@@ -1177,6 +1177,7 @@ class AIChatManager:
         with self._lock:
             self._subscribers.setdefault(task_id, []).append(q)
             buf = list(self._buffers.get(task_id, []))
+            stages = list(self._stages.get(task_id, []))
             cur = self._db.execute(
                 'SELECT status FROM ai_tasks WHERE task_id=?', (task_id,)).fetchone()
             cur_status = cur['status'] if cur else status
