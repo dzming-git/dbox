@@ -38,21 +38,15 @@
   .ai .aistatus { display: inline-block; font-size: 11px; color: #1a7f37; margin-left: 6px; }
   .ai.err { background: #ffe9e9; color: #b00; }
   .ai.pending { color: #999; font-style: italic; }
-  /* 分阶段进度：AI 处理期间在回复气泡顶部展示处理阶段列表，最后一项为「进行中」高亮 */
-  .stage-list { margin-bottom: 6px; padding: 5px 9px; background: rgba(79,140,255,.06); border-radius: 8px; }
-  .stage-line { font-size: 12px; color: #5a6472; display: flex; align-items: center; gap: 6px; padding: 1px 0; line-height: 1.5; }
-  .stage-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a7f37; flex-shrink: 0; }
-  .stage-line.done { color: #6b7280; }
-  .stage-line.done .stage-dot { background: #1a7f37; }
-  .stage-line.current { color: #2f6fd0; font-weight: 600; }
-  .stage-line.current .stage-dot { background: #4f8cff; animation: pulse 1s infinite; }
-  /* 阶段结论：某阶段完成（不再是「进行中」）后，在其下缩进展示该阶段结论，
-     如「判断结果：这是一条【缺陷】反馈」，使判断等阶段的结论被明确回复发到聊天窗口。 */
-  .stage-conclusion { font-size: 11.5px; color: #1a7f37; padding: 1px 0 3px 15px; line-height: 1.5; }
   .pending-hint { color: #999; font-style: italic; }
-  /* 分阶段回复：宿主在各处理阶段产出的可见结论，作为助手回答的一部分穿插呈现，
-     与上方进度列表区分（进度列表是「正在做什么」，这里是「本阶段得出的结论」）。 */
-  .ai-step { font-size: 13px; color: #2f3a4a; background: rgba(79,140,255,.08); border-left: 3px solid #4f8cff; padding: 5px 10px; margin: 6px 0; border-radius: 4px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  /* 阶段气泡：AI 处理期间每个处理阶段独立成一个气泡，气泡顶部为阶段标签，
+     主体为该阶段的一句结论（宿主阶段）或 AI 分析与执行正文（CLI 阶段）。
+     多个阶段气泡依次展示，满足「每个阶段一个气泡、阶段结束回复一句」。 */
+  .phase-head { font-size: 11.5px; font-weight: 600; color: #2f6fd0; margin-bottom: 4px;
+                display: flex; align-items: center; gap: 6px; }
+  .phase-head .ph-dot { width: 7px; height: 7px; border-radius: 50%; background: #4f8cff; flex-shrink: 0; }
+  .bubble.ai.phase-done .phase-head .ph-dot { background: #1a7f37; }
+  .bubble.ai.phase-done .phase-head { color: #1a7f37; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; position: relative; }
   /* 聊天气泡下方的「复制」按钮：每条用户消息与 AI 回复下方各有一个，常驻可见，点击复制该条整段消息 */
@@ -328,29 +322,43 @@
     });
   }
 
-  // 分阶段进度：把处理阶段列表渲染为带状态点的进度条（末项为「进行中」）。
-  // stageAcc 为后端按处理顺序下发的阶段数据：新版本为 JSON（{text, state, conclusion}），
-  // 旧版为纯文本，二者均兼容解析。非当前阶段若带 conclusion，则在其下展示该阶段结论
-  // （如「判断结果：这是一条【缺陷】反馈」），即判断成功后回复本阶段结论。
-  // allDone=true 时（任务已结束）所有阶段一律渲染为 done（绿色完成）。
-  function stageHtml(stages, allDone) {
-    if (!stages || !stages.length) return '';
-    const last = stages.length - 1;
-    const lines = stages.map((raw, i) => {
-      let text = raw, conclusion = '';
-      try {
-        const o = JSON.parse(raw);
-        if (o && typeof o === 'object') { text = o.text || raw; conclusion = o.conclusion || ''; }
-      } catch (e) { /* 旧版纯文本阶段，无结论 */ }
-      const isCur = (!allDone && i === last);
-      const cls = isCur ? 'stage-line current' : 'stage-line done';
-      let h = '<div class="' + cls + '"><span class="stage-dot"></span>' + esc(text) + '</div>';
-      if (!isCur && conclusion) {
-        h += '<div class="stage-conclusion">' + esc(conclusion) + '</div>';
-      }
-      return h;
-    }).join('');
-    return '<div class="stage-list">' + lines + '</div>';
+  // 阶段气泡：把阶段数组渲染为「每个阶段一个独立气泡」的 HTML（处理进行中也适用）。
+  // 进行中的阶段 = 最后一个 state 不为 'done' 的阶段（无则全部完成、均置为已完成态）。
+  // 宿主阶段（kind=host）气泡主体是其一句 conclusion；CLI 阶段（kind=cli）主体是 body 正文。
+  function renderPhasesHtml(phases, running) {
+    if (!phases || !phases.length) return '';
+    let runningIdx = -1;
+    for (let i = phases.length - 1; i >= 0; i--) {
+      if (phases[i].state !== 'done') { runningIdx = phases[i].index; break; }
+    }
+    let h = '';
+    phases.forEach(function (ph) {
+      const isRunning = (ph.index === runningIdx) && running;
+      const label = ph.label || '';
+      const content = (ph.body || ph.conclusion || '').trim();
+      const cls = 'ai md' + (isRunning ? ' running' : ' phase-done');
+      const inner = '<div class="phase-head"><span class="ph-dot"></span>' + esc(label) + '</div>'
+        + (content
+            ? renderContent(content)
+            : (isRunning ? '<div class="pending-hint">正在处理…</div>' : ''));
+      h += '<div class="ai-row" data-phase="' + esc(ph.index) + '">'
+        +   '<div class="ai-avatar' + (isRunning ? ' running' : '') + '">🤖</div>'
+        +   '<div class="bubble ' + cls + '" data-phase="' + esc(ph.index) + '">' + inner + '</div>'
+        + '</div>';
+    });
+    return h;
+  }
+
+  // 单气泡回退：无阶段信息时（纯聊天兜底 / 兼容旧数据）渲染单个 AI 气泡。
+  function renderSingleAi(id, reply, kind, running) {
+    const aiCls = 'ai md' + (kind === 'err' ? ' err' : (kind === 'pending' ? ' pending' : ''));
+    const statusTag = running ? '<span class="aistatus">● 正在处理</span>' : '';
+    const avatarGlyph = kind === 'err' ? '⚠' : '🤖';
+    const inner = renderContent(reply) + statusTag;
+    return '<div class="ai-row" data-ai="' + esc(id) + '">'
+      +   '<div class="ai-avatar' + (running ? ' running' : '') + '">' + avatarGlyph + '</div>'
+      +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(id) + '">' + inner + '</div>'
+      + '</div>';
   }
 
   // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
@@ -418,37 +426,37 @@
     const turns = [];
     for (let i = allHistory.length - 1; i >= 0; i--) {
       const h = allHistory[i];
-      turns.push({ id: h.id, prompt: h.prompt,
-                   reply: h.status === 'failed' ? ('执行失败：' + (h.error || ''))
-                          : ((h.reply && h.reply.trim()) ? h.reply : '（任务已执行完成，无文本输出）'),
-                   kind: h.status === 'failed' ? 'err' : 'done',
-                   created_at: h.created_at });
+      const kind = h.status === 'failed' ? 'err' : 'done';
+      const reply = h.status === 'failed' ? ('执行失败：' + (h.error || ''))
+                   : ((h.reply && h.reply.trim()) ? h.reply : '（任务已执行完成，无文本输出）');
+      // 历史回看：若存库了分阶段气泡（phases），按多气泡还原；否则单气泡兜底。
+      const aiHtml = (h.phases && h.phases.length)
+          ? renderPhasesHtml(h.phases, false)
+          : renderSingleAi(h.id, reply, kind, false);
+      turns.push({ id: h.id, prompt: h.prompt, aiHtml: aiHtml,
+                   kind: kind, created_at: h.created_at });
     }
     if (state.active) {
-      // 优先使用 SSE 订阅实时渲染的「分阶段」HTML（含顶部进度列表与阶段结论）；
-      // 若 SSE 尚未建立 liveRender，但服务端已在 active.stages 中缓冲了阶段事件，
-      // 则直接用它们 + 当前 token 缓冲渲染分阶段进度（避免只显示「正在处理」）。
+      // 优先使用 SSE 订阅实时渲染的「多阶段气泡」HTML（liveRender）；
+      // 否则用服务端缓冲的阶段日志（active.phases）重建，避免只显示「正在处理」。
       const live = liveRender[state.active.id];
-      const st = state.active.stages || [];
-      let replyHtml, isLive = !!live;
+      const ph = state.active.phases || [];
+      let aiHtml;
       if (live) {
-        replyHtml = live;
-      } else if (st.length) {
-        const body = state.active.stream
-          ? renderContent(state.active.stream)
-          : '<div class="pending-hint">正在处理…</div>';
-        replyHtml = stageHtml(st, false) + body;
-        isLive = true;  // 已是渲染好的 HTML，renderMsgs 不再二次 Markdown 化
+        aiHtml = live;
+      } else if (ph.length) {
+        aiHtml = renderPhasesHtml(ph, true);
       } else {
-        replyHtml = state.active.stream || '正在处理…';
+        aiHtml = '<div class="ai-row" data-ai="' + esc(state.active.id) + '">'
+          + '<div class="ai-avatar running">🤖</div>'
+          + '<div class="bubble ai running" id="ai-' + esc(state.active.id) + '">正在处理…</div></div>';
       }
-      turns.push({ id: state.active.id, prompt: state.active.prompt,
-                   reply: replyHtml,
-                   live: isLive, kind: 'running',
-                   created_at: state.active.created_at });
+      turns.push({ id: state.active.id, prompt: state.active.prompt, aiHtml: aiHtml,
+                   kind: 'running', created_at: state.active.created_at, isActive: true });
     }
     state.pending.forEach(p => {
-      turns.push({ id: p.id, prompt: p.prompt, reply: '排队中，等待处理…', kind: 'pending',
+      const aiHtml = renderSingleAi(p.id, '排队中，等待处理…', 'pending', false);
+      turns.push({ id: p.id, prompt: p.prompt, aiHtml: aiHtml, kind: 'pending',
                    created_at: p.created_at });
     });
 
@@ -460,22 +468,14 @@
       html += '<div class="hint">发送消息开始与 AI 助手对话；任务由底层队列串行处理</div>';
     }
     turns.forEach(t => {
-      const aiCls = 'ai md' + (t.kind === 'err' ? ' err' : (t.kind === 'pending' ? ' pending' : ''));
-      const isRun = t.kind === 'running';
-      const statusTag = isRun ? '<span class="aistatus">● 正在处理</span>' : '';
-      const avatarGlyph = t.kind === 'err' ? '⚠' : '🤖';
       const timeLabel = (t.created_at != null) ? '<div class="time">' + esc(fmtTime(t.created_at)) + '</div>' : '';
-      // 正在流式且已存在 SSE 渲染的分阶段 HTML 时，直接使用该 HTML（其已含 stage 列表与
-      // step 结论），不再经 renderContent，避免对已完成渲染的 HTML 二次 Markdown 化而破坏结构。
-      const bubbleInner = (isRun && t.live) ? (t.reply + statusTag) : (renderContent(t.reply) + statusTag);
+      // 进行中的任务用 aiwrap 容器包裹其 AI 气泡，供 SSE 实时局部更新（updateAiLive）替换，
+      // 不触发整页重绘打断滚动。每个 AI 气泡（含各阶段气泡）已是完整 .ai-row。
+      const wrapperStart = t.isActive ? '<div class="aiwrap" id="aiwrap-' + esc(t.id) + '">' : '';
+      const wrapperEnd = t.isActive ? '</div>' : '';
       html += timeLabel
             + '<div class="bubble me">' + esc(t.prompt) + '</div>'
-            + '<div class="ai-row" data-ai="' + esc(t.id) + '">'
-            +   '<div class="ai-avatar' + (isRun ? ' running' : '') + '">' + avatarGlyph + '</div>'
-            +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
-            +      bubbleInner
-            +   '</div>'
-            + '</div>';
+            + wrapperStart + t.aiHtml + wrapperEnd;
     });
     // 重绘前记录：用户是否贴底、当前滚动位置，重绘后据此决定是否拉回底部
     const pinToBottom = nearBottom();
@@ -594,20 +594,21 @@
     afterNode.after(bar);
   }
 
-  // 直接更新某条正在流式输出的 AI 气泡（避免整页重渲染打断滚动）。
-  // html 为已渲染内容（分阶段进度列表 + Markdown 化的流式回复），由调用方拼装。
+  // 直接更新某条正在流式输出的 AI 任务（多阶段气泡），避免整页重渲染打断滚动。
+  // html 为已渲染的「多阶段气泡」HTML（由 renderPhasesHtml 拼装），写入 aiwrap 容器。
   function updateAiLive(id, html, running) {
-    const node = document.getElementById('ai-' + id);
-    if (!node) { renderMsgs(); return; }
-    // running 时追加“正在处理”状态标签
-    const status = running ? '<span class="aistatus">● 正在处理</span>' : '';
-    node.innerHTML = html + status;
-    // 流式输出中也补全资源引用卡片（解析结果已缓存，不会重复请求）
+    liveRender[id] = html;
+    const wrap = document.getElementById('aiwrap-' + id);
+    if (!wrap) { renderMsgs(); return; }
+    wrap.innerHTML = html;
     enrichResourceRefs();
-    // AI 思考/执行中：头像外圈显示旋转光环；结束后移除
-    const avatar = node.closest('.ai-row') && node.closest('.ai-row').querySelector('.ai-avatar');
-    if (avatar) avatar.classList.toggle('running', !!running);
-    // 仅在用户贴底时跟随流式输出滚动到底部；上滑看历史时不打断
+    // 仅进行中的阶段头像显示旋转光环
+    wrap.querySelectorAll('.ai-avatar').forEach(a => a.classList.toggle('running', !!running));
+    // 复制按钮（重绘重建，无残留）
+    wrap.querySelectorAll('.ai-row').forEach(row => {
+      const ai = row.querySelector('.bubble.ai');
+      if (ai) addCopyBar(row, ai, false);
+    });
     if (nearBottom()) stickToBottom();
   }
 
@@ -659,28 +660,15 @@
   async function subscribe(taskId) {
     if (subscribed.has(taskId)) return;
     subscribed.add(taskId);
-    let acc = '';
-    let stageAcc = [];
-    let parts = [];      // 分阶段回复的有序片段：{k:'token'|'step', text}
+    let phases = [];      // 阶段气泡数组：{index, label, kind, state, conclusion, body}
     let running = false;
-    // 拼装「分阶段进度 + 分阶段回复」的实时 HTML：进度列表（stageAcc）在上，下接按
-    // 处理顺序穿插的「分阶段回复」片段——宿主各阶段结论（step）与模型流式分析（token）
-    // 交错呈现，使「一条命令」的回答分多个阶段逐步展开，而非最后一次性抛出大段文本。
-    const renderParts = function () {
-      let h = '';
-      let tokBuf = '';
-      for (const p of parts) {
-        if (p.k === 'token') { tokBuf += p.text; }
-        else { h += renderContent(tokBuf); tokBuf = ''; h += '<div class="ai-step">' + esc(p.text) + '</div>'; }
-      }
-      h += renderContent(tokBuf);
-      return h;
+    const getPhase = function (i) {
+      for (const p of phases) if (p.index === i) return p;
+      return null;
     };
+    // 由阶段数组渲染「多阶段气泡」HTML；running 时最后一个未完成阶段显示「正在处理」。
     const renderLive = function () {
-      let h = stageHtml(stageAcc, !running);
-      const body = renderParts();
-      h += body || '<div class="pending-hint">正在处理…</div>';
-      // 缓存当前分阶段 HTML，供 2 秒轮询重绘时复用（renderMsgs 据此保持分阶段展示）
+      const h = renderPhasesHtml(phases, running);
       liveRender[taskId] = h;
       return h;
     };
@@ -706,39 +694,52 @@
           const data = dataLines.join('\n');
           if (ev === 'queued') {
             // 排队中：等待被处理
-          } else if (ev === 'stage') {
-            // 分阶段进度：追加一个阶段并刷新气泡顶部进度列表
-            stageAcc.push(data);
+          } else if (ev === 'phase') {
+            // 阶段气泡：按 index 创建/更新。start 时建立气泡（running），
+            // done 时回填 conclusion/body 并置为完成；每个阶段独立成气泡。
+            let o = null;
+            try { o = JSON.parse(data); } catch (e) { o = null; }
+            if (!o) continue;
             running = true;
+            const existing = getPhase(o.index);
+            if (existing) {
+              if (o.state === 'done') {
+                existing.state = 'done';
+                if (o.conclusion != null) existing.conclusion = o.conclusion;
+                if (o.body != null) existing.body = o.body;
+              }
+            } else {
+              phases.push({ index: o.index, label: o.label || '', kind: o.kind || '',
+                            state: o.state || 'running', conclusion: o.conclusion || '', body: o.body || '' });
+            }
             updateAiLive(taskId, renderLive(), true);
+          } else if (ev === 'phase_chunk') {
+            // CLI 阶段正文随 token 流式填充该阶段气泡。
+            let o = null;
+            try { o = JSON.parse(data); } catch (e) { o = null; }
+            if (o) {
+              const p = getPhase(o.index);
+              if (p) { p.body = (p.body || '') + o.text; updateAiLive(taskId, renderLive(), true); }
+            }
           } else if (ev === 'status' && data === 'running') {
             running = true;
             updateAiLive(taskId, renderLive(), true);
-          } else if (ev === 'step') {
-            // 分阶段回复：宿主在某处理阶段得出的可见结论，作为助手答复的一行呈现
-            running = true;
-            parts.push({ k: 'step', text: data });
-            updateAiLive(taskId, renderLive(), true);
-          } else if (ev === 'token') {
-            running = true;
-            acc += data;
-            parts.push({ k: 'token', text: data });
-            updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'done') {
-            // 若服务端回复为空（模型只执行了工具操作未产出文本），优先保留已流式输出的内容，
-            // 否则回退为友好占位，避免聊天框出现空白气泡。
-            const finalText = (data && data.trim()) ? data : (acc || '（任务已执行完成，无文本输出）');
-            // 完成时保留分阶段进度列表（全部标记为 done），再附最终回复，使整轮处理过程可见。
-            let h = stageHtml(stageAcc, true);
-            h += renderContent(finalText);
+            running = false;
+            phases.forEach(p => { p.state = 'done'; });
+            // 完成时以阶段气泡呈现整轮处理过程；若没有任何阶段（极端兜底）则单气泡。
+            let h = renderPhasesHtml(phases, false);
+            if (!h) h = renderSingleAi(taskId, (data && data.trim()) ? data : '（任务已执行完成，无文本输出）', 'done', false);
             updateAiLive(taskId, h, false);
             subscribed.delete(taskId);
             delete liveRender[taskId];
             refresh();
             return;
           } else if (ev === 'error') {
-            const node = document.getElementById('ai-' + taskId);
-            if (node) { node.textContent = data; node.classList.add('err'); node.classList.remove('pending'); }
+            const wrap = document.getElementById('aiwrap-' + taskId);
+            const h = renderSingleAi(taskId, data || '执行失败', 'err', false);
+            if (wrap) wrap.innerHTML = h;
+            else renderMsgs();
             subscribed.delete(taskId);
             delete liveRender[taskId];
             refresh();
