@@ -82,9 +82,10 @@ class StageEmitTest(unittest.TestCase):
         with mock.patch.object(m.subprocess, 'Popen', lambda *a, **k: _FakeProc()), \
              mock.patch.object(m, '_resolve_buddy_cli', lambda: 'codebuddy'):
             # 直接插入任务（不走 enqueue，避免 worker 线程重复执行 _process 干扰事件捕获）
+            # 用「缺陷」类诉求触发完整分阶段流程：含做事前/后 git 核查与建单阶段。
             import uuid
             tid = 'ai_' + uuid.uuid4().hex[:16]
-            mgr._insert_task(tid, '测试分阶段进度', None, m.AIChatManager.STATUS_PENDING)
+            mgr._insert_task(tid, '排查一下下载服务异常（分阶段测试）', None, m.AIChatManager.STATUS_PENDING)
 
             # 注册订阅者队列以捕获 _process 发射的事件
             q = queue.Queue()
@@ -102,19 +103,29 @@ class StageEmitTest(unittest.TestCase):
                 events.append(item)
 
         stage_labels = [d for (k, d) in events if k == 'stage']
+        step_lines = [d for (k, d) in events if k == 'step']
         self.assertTrue(stage_labels, '应至少发射一个 stage 事件')
-        # 阶段应按处理顺序出现：首项为「判断用户意图」（结构化 JSON，含结论）、
-        # 末项为处理完成，且中间覆盖做事前核查与启动执行等关键阶段。
+        # 阶段应按处理顺序出现：首项为「判断用户意图」、末项为处理完成，
+        # 且中间覆盖做事前核查与启动执行等关键阶段。
         self.assertIn('判断用户意图', stage_labels[0])
         self.assertIn('处理完成', stage_labels[-1])
         self.assertTrue(any('检查 git 仓库状态' in s for s in stage_labels), '应含做事前核查阶段')
         self.assertTrue(any('启动 AI 执行' in s for s in stage_labels), '应含启动执行阶段')
-        # 意图判断阶段应为结构化 JSON，并携带结论
+        # 意图判断阶段应为结构化 JSON（不含 conclusion，结论改由 step 事件承载）
         first = json.loads(stage_labels[0])
         self.assertEqual(first['text'], '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）')
-        self.assertIn('判断结果', first.get('conclusion', ''))
-        # 任务应正常完成
+        self.assertNotIn('conclusion', first)
+        # 分阶段回复：意图结论、做事前 git 核查、做事后 git 核查、建单提示均应作为
+        # 可见的 step 事件发射，使一条命令的回答分阶段呈现。
+        self.assertTrue(any('判断用户意图：这是一条' in s for s in step_lines), '应发射意图判断结论(step)')
+        self.assertTrue(any('做事前检查' in s for s in step_lines), '应发射做事前核查结论(step)')
+        self.assertTrue(any('做事后检查' in s for s in step_lines), '应发射做事后核查结论(step)')
+        # 任务应正常完成，且存库的最终回复为「分阶段回复」（含各阶段结论）
         self.assertEqual(mgr.get_task(tid)['status'], m.AIChatManager.STATUS_COMPLETED)
+        stored = mgr.get_task(tid)['reply'] or ''
+        self.assertIn('判断用户意图：这是一条', stored)
+        self.assertIn('做事前检查', stored)
+        self.assertIn('做事后检查', stored)
 
     def test_sse_block_stage_format(self):
         block = m._sse_block('stage', '做事前核查：检查 git 仓库状态')

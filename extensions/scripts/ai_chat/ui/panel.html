@@ -50,6 +50,9 @@
      如「判断结果：这是一条【缺陷】反馈」，使判断等阶段的结论被明确回复发到聊天窗口。 */
   .stage-conclusion { font-size: 11.5px; color: #1a7f37; padding: 1px 0 3px 15px; line-height: 1.5; }
   .pending-hint { color: #999; font-style: italic; }
+  /* 分阶段回复：宿主在各处理阶段产出的可见结论，作为助手回答的一部分穿插呈现，
+     与上方进度列表区分（进度列表是「正在做什么」，这里是「本阶段得出的结论」）。 */
+  .ai-step { font-size: 13px; color: #2f3a4a; background: rgba(79,140,255,.08); border-left: 3px solid #4f8cff; padding: 5px 10px; margin: 6px 0; border-radius: 4px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; }
   .ai-row .bubble.ai { flex: 1 1 auto; flex-shrink: 1; max-width: 100%; }
@@ -577,13 +580,25 @@
     subscribed.add(taskId);
     let acc = '';
     let stageAcc = [];
+    let parts = [];      // 分阶段回复的有序片段：{k:'token'|'step', text}
     let running = false;
-    // 拼装「分阶段进度 + 流式回复」的实时 HTML：进度列表在上、模型回复在下；
-    // 尚无回复文本时显示「正在处理…」占位，避免进度列表与空气泡之间出现断层。
+    // 拼装「分阶段进度 + 分阶段回复」的实时 HTML：进度列表（stageAcc）在上，下接按
+    // 处理顺序穿插的「分阶段回复」片段——宿主各阶段结论（step）与模型流式分析（token）
+    // 交错呈现，使「一条命令」的回答分多个阶段逐步展开，而非最后一次性抛出大段文本。
+    const renderParts = function () {
+      let h = '';
+      let tokBuf = '';
+      for (const p of parts) {
+        if (p.k === 'token') { tokBuf += p.text; }
+        else { h += renderContent(tokBuf); tokBuf = ''; h += '<div class="ai-step">' + esc(p.text) + '</div>'; }
+      }
+      h += renderContent(tokBuf);
+      return h;
+    };
     const renderLive = function () {
       let h = stageHtml(stageAcc, !running);
-      if (acc) h += renderContent(acc);
-      else h += '<div class="pending-hint">正在处理…</div>';
+      const body = renderParts();
+      h += body || '<div class="pending-hint">正在处理…</div>';
       return h;
     };
     try {
@@ -616,9 +631,15 @@
           } else if (ev === 'status' && data === 'running') {
             running = true;
             updateAiLive(taskId, renderLive(), true);
+          } else if (ev === 'step') {
+            // 分阶段回复：宿主在某处理阶段得出的可见结论，作为助手答复的一行呈现
+            running = true;
+            parts.push({ k: 'step', text: data });
+            updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'token') {
             running = true;
             acc += data;
+            parts.push({ k: 'token', text: data });
             updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'done') {
             // 若服务端回复为空（模型只执行了工具操作未产出文本），优先保留已流式输出的内容，

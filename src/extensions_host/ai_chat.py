@@ -808,13 +808,12 @@ class AIChatManager:
             self._emit(task_id, 'status', 'running')
 
         # 第一阶段：判断用户意图（建议 / 缺陷 / 继续 / 闲聊）。
-        # 由宿主进程基于关键词确定性判定（不依赖模型输出），聊天窗口实时展示「判断中」阶段；
-        # 结论随下一阶段一并呈现（前端在阶段不再为「当前」时展示结论：判断成功，回复本阶段结论）。
+        # 由宿主进程基于关键词确定性判定（不依赖模型输出）；结论作为首个「分阶段回复」
+        # 直接呈现到聊天窗口，满足「判断过程中显示当前阶段、判断成功后回复本阶段结论」。
         intent = _classify_intent(task['prompt'])
-        self._emit_stage(
-            task_id, '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）',
-            state='current',
-            conclusion='判断结果：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他'))
+        is_task = intent in ('defect', 'suggestion', 'continue')
+        s_intent = '判断用户意图：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他')
+        self._emit_phase(task_id, '判断用户意图（建议 / 缺陷 / 继续 / 闲聊）', step=s_intent)
 
         # 第二阶段：加载对话上下文并构造任务提示（意图已判定，附意图提示供模型对齐）
         self._emit(task_id, 'stage', '加载对话上下文并构造任务提示')
@@ -834,12 +833,21 @@ class AIChatManager:
         # （HEAD 变化），则在末尾结构性保证于反馈中心建一张「跟踪单」（见
         # _maybe_create_tracking_ticket）；脏文件基线用于做事后比对，只把本次运行
         # 「新增」的未提交文件归因于 AI，避免把运行前已有的脏改动误判为本次引入。
-        self._emit(task_id, 'stage', '做事前检查：检查 git 仓库状态')
         repo = _project_root()
         head_before = _git_rev_head(repo)
         baseline_dirty = _git_dirty_files(repo)
-        if baseline_dirty is None:
-            _logger.info('AI 任务处理前：仓库非 git 或无法判定状态，跳过 git 干净度核查')
+        s_pre = None
+        if is_task:
+            # 做事前检查作为「分阶段回复」的可见一环：向用户播报仓库当前干净度，
+            # 使一条命令的回答按阶段逐步展开，而非仅在最后抛一大段文本。
+            self._emit(task_id, 'stage', '做事前检查：检查 git 仓库状态')
+            if baseline_dirty is None:
+                s_pre = '做事前检查：仓库非 git 或状态不可判定，跳过干净度核查'
+            elif not baseline_dirty:
+                s_pre = '做事前检查：git 仓库干净，无未提交改动'
+            else:
+                s_pre = '做事前检查：仓库已存在 %d 项未提交改动（不归因于本次任务）' % len(baseline_dirty)
+            self._emit_step(task_id, s_pre)
         elif baseline_dirty:
             _logger.warning('AI 任务处理前仓库已存在未提交改动（%d 项），将不归因于本次运行：%s',
                             len(baseline_dirty), sorted(baseline_dirty))
@@ -958,18 +966,47 @@ class AIChatManager:
             # 该检查与模型是否自觉提交无关，由进程客观比对仓库状态兜底。
             self._emit(task_id, 'stage', '做事后检查：确认 git 仓库干净')
             reply, git_clean = _verify_and_report_clean(_project_root(), baseline_dirty, head_before, reply)
+            s_post = None
+            if is_task:
+                # 做事后检查结论作为分阶段回复的一环呈现（与模型分析穿插，形成分阶段回答）
+                s_post = ('做事后检查：git 仓库已保持干净'
+                          if git_clean else
+                          '做事后检查：git 仓库未完全干净，存在遗留未提交改动，请人工处理（见上文）')
+                self._emit_step(task_id, s_post)
             # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
             # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
             # 仅当确有新提交时才发射该阶段，避免闲聊/只读排查误报「建单」。
             head_after = _git_rev_head(_project_root())
             if head_after and head_after != head_before and not filed_id:
                 self._emit(task_id, 'stage', '创建处理跟踪单（待验证）')
-            reply, _track_id = _maybe_create_tracking_ticket(
+            reply, track_id = _maybe_create_tracking_ticket(
                 task_id, task['prompt'], task.get('owner_id'),
                 reply, filed_id, head_before, git_clean=git_clean, intent=intent)
+            s_ticket = None
+            if is_task:
+                if track_id:
+                    # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply，避免重复播报
+                    s_ticket = None
+                elif filed_id:
+                    s_ticket = '已在反馈中心提交反馈单（本回合用户反馈路径）'
+                else:
+                    s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
+                if s_ticket:
+                    self._emit_step(task_id, s_ticket)
             self._emit(task_id, 'stage', '处理完成')
-            self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
-            self._emit(task_id, 'done', reply)
+            # 组装分阶段回复：各阶段结论 + 模型分析，使历史回看也是分阶段呈现，
+            # 而非仅有模型的一段最终文本。
+            staged = [s_intent]
+            if is_task and s_pre:
+                staged.append(s_pre)
+            staged.append(reply)
+            if is_task and s_post:
+                staged.append(s_post)
+            if is_task and s_ticket:
+                staged.append(s_ticket)
+            final_reply = '\n\n'.join(x for x in staged if x)
+            self._set_status(task_id, self.STATUS_COMPLETED, reply=final_reply)
+            self._emit(task_id, 'done', final_reply)
             self._finish_emit(task_id, 'completed')
         except Exception as e:
             self._set_status(task_id, self.STATUS_FAILED, error='调用失败: ' + str(e))
@@ -1013,6 +1050,26 @@ class AIChatManager:
         except Exception:
             data = text
         self._emit(task_id, 'stage', data)
+
+    def _emit_step(self, task_id, text):
+        """发射一条「分阶段回复」：宿主进程在每个处理阶段产出的可见结论片段，
+
+        直接作为助手答复的一部分流式呈现，使「一条命令」的回答按阶段逐步展开，
+        而非仅在最后抛出一大段文本。聊天窗口会把这些片段渲染为带有左侧高亮条的
+        独立回复行，穿插在模型流式分析之间，构成可阅读的分阶段回答。
+        """
+        self._emit(task_id, 'step', text)
+
+    def _emit_phase(self, task_id, text, step=None, state='current'):
+        """发射一个处理阶段：同时推送结构化进度（stage，用于顶部进度列表）与
+        （可选的）分阶段回复（step，作为助手对本阶段的可见结论）。
+
+        这样「判断用户意图」等阶段既在进度列表里显示「进行中」，又会在判断成功后
+        把结论作为助手回复的一行呈现出来——满足「分阶段回复」而非仅进度提示。
+        """
+        self._emit_stage(task_id, text, state=state)
+        if step:
+            self._emit_step(task_id, step)
 
     def _finish_emit(self, task_id, _status):
         """通知所有订阅者任务结束（推送终止哨兵）并清理缓冲区。"""
