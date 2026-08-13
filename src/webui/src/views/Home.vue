@@ -602,48 +602,22 @@ const listThumbUrl = (video: Video): string => {
         class="media-tab"
         :class="{ active: mediaTab === 'video' }"
         @click="mediaTab = 'video'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="4" width="20" height="16" rx="2"/>
-          <path d="M10 9l5 3-5 3V9z"/>
-        </svg>
-        视频
-      </button>
+      >视频</button>
       <button
         class="media-tab"
         :class="{ active: mediaTab === 'gallery' }"
         @click="mediaTab = 'gallery'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-        </svg>
-        图集
-      </button>
+      >图集</button>
       <button
         class="media-tab"
         :class="{ active: mediaTab === 'text' }"
         @click="mediaTab = 'text'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 2h9l5 5v15H6z"/>
-          <path d="M14 2v6h6"/>
-          <path d="M9 13h6M9 17h6"/>
-        </svg>
-        文本
-      </button>
+      >文本</button>
       <button
         class="media-tab"
         :class="{ active: mediaTab === 'mixed' }"
         @click="mediaTab = 'mixed'"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 7l9-4 9 4-9 4-9-4z"/>
-          <path d="M3 12l9 4 9-4"/>
-          <path d="M3 17l9 4 9-4"/>
-        </svg>
-        帖子
-      </button>
+      >帖子</button>
     </div>
     </div>
 
@@ -1082,18 +1056,20 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .media-tab {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
+  justify-content: center;
+  padding: 5px 16px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
+  line-height: 1.2;
   border-radius: 7px;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .media-tab:hover {
