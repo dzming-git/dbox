@@ -729,6 +729,8 @@ class AIChatManager:
             self._buffers[task_id] = []
             self._set_status(task_id, self.STATUS_RUNNING)
             self._emit(task_id, 'status', 'running')
+            # 分阶段进度：进入处理即向聊天窗口反馈首个阶段，避免用户长时间看不到任何进展
+            self._emit(task_id, 'stage', '加载对话上下文并构造任务提示')
 
         buddy = _resolve_buddy_cli()
         if not buddy:
@@ -745,6 +747,7 @@ class AIChatManager:
         # （HEAD 变化），则在末尾结构性保证于反馈中心建一张「跟踪单」（见
         # _maybe_create_tracking_ticket）；脏文件基线用于做事后比对，只把本次运行
         # 「新增」的未提交文件归因于 AI，避免把运行前已有的脏改动误判为本次引入。
+        self._emit(task_id, 'stage', '做事前核查：检查 git 仓库状态')
         repo = _project_root()
         head_before = _git_rev_head(repo)
         baseline_dirty = _git_dirty_files(repo)
@@ -776,6 +779,9 @@ class AIChatManager:
 
         full = []
         try:
+            # 启动 AI 执行：此阶段最长（工具调用实时回传），聊天窗口持续展示进度
+            self._emit(task_id, 'stage', '启动 AI 执行（工具调用实时回传，最多 %d 分钟）'
+                       % (_MAX_TASK_SECONDS // 60))
             proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, cwd=_project_root(), env=env,
@@ -859,15 +865,19 @@ class AIChatManager:
                                 len(reply))
             # 若 AI 在回复中携带 feedback-request 块（判定为提交新反馈），则建单、
             # 回填真实单号并剥离该块，再存库与下发。
+            self._emit(task_id, 'stage', '收集回复、解析反馈块并建单')
             reply, filed_id = _maybe_file_feedback(reply)
             # 做事后结构核查：保证 git 仓库干净（清理临时文件 / 告警遗留改动），
             # 该检查与模型是否自觉提交无关，由进程客观比对仓库状态兜底。
+            self._emit(task_id, 'stage', '做事后核查：确认 git 仓库干净')
             reply, git_clean = _verify_and_report_clean(_project_root(), baseline_dirty, head_before, reply)
             # 结构性保证：本回合若实际改动代码（新提交）且未通过反馈块建单，
             # 则在反馈中心建「跟踪单」（待验证），确保处理必有单可跟踪。
+            self._emit(task_id, 'stage', '创建处理跟踪单（待验证）')
             reply, _track_id = _maybe_create_tracking_ticket(
                 task_id, task['prompt'], task.get('owner_id'),
                 reply, filed_id, head_before, git_clean=git_clean)
+            self._emit(task_id, 'stage', '处理完成')
             self._set_status(task_id, self.STATUS_COMPLETED, reply=reply)
             self._emit(task_id, 'done', reply)
             self._finish_emit(task_id, 'completed')
@@ -963,7 +973,9 @@ class AIChatManager:
             etype, data = item
             if etype == '__end__':
                 return
-            if etype == 'token':
+            if etype == 'stage':
+                yield _sse_block('stage', data)
+            elif etype == 'token':
                 yield _sse_block('token', data)
             elif etype == 'status':
                 yield _sse_block('status', data)
