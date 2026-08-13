@@ -21,18 +21,46 @@ logger = logging.getLogger('dbox-ext-platform')
 # 建单重试 / 本地 spool 兜底参数
 _FB_MAX_RETRIES = 3          # 主服务瞬时不可达时的重试次数
 _FB_RETRY_BASE = 0.5         # 重试退避基线（秒），第 n 次等待 n*base
-_FB_NETWORK_HINT = '平台调用失败'  # _post 在网络/连接异常时返回的 message 关键字
 
 # 主服务内部契约接口地址（默认本机 8080）
 _PLATFORM_HOST = os.environ.get('DBOX_WEB_HOST', '127.0.0.1')
 _PLATFORM_PORT = int(os.environ.get('DBOX_WEB_PORT', '8080'))
 
 
+def _runtime_data_dirs():
+    """主服务实际写入数据的运行时目录候选（与 web 端 get_runtime_dir 同口径）。
+
+    生产部署里主服务常通过 DBOX_DATA_DIR 把数据落到独立于代码树的目录
+    （如 Windows 的 %ProgramData%\\Dbox\\data），而拓展宿主进程的启动环境未必带
+    DBOX_DATA_DIR，若仍按“本包向上两级=项目根”去读内部密钥，就会读空导致 401。
+    这里显式补上生产运行时目录候选，使两端总能找到同一份内部密钥。
+    """
+    dirs = []
+    prog = os.environ.get('ProgramData')      # Windows: C:\ProgramData
+    if prog:
+        dirs.append(os.path.join(prog, 'Dbox', 'data'))
+    dirs.append(os.path.join('/var', 'lib', 'dbox', 'data'))   # Linux 生产
+    dirs.append(os.path.join('/opt', 'dbox', 'data'))
+    return dirs
+
+
 def _internal_key_path():
+    """定位主服务写入的进程间共享内部密钥（与 internal_api 同文件）。
+
+    两端必须能找到同一份密钥文件，否则 /internal/* 调用会被 401 拒绝，进而使
+    「AI 处理完成却无法在反馈中心落单」这类静默失败。解析优先级：
+      1. 显式环境变量 DBOX_DATA_DIR（两端应一致设置）；
+      2. 生产运行时数据目录（见 _runtime_data_dirs，首个存在的即采用）；
+      3. 开发态兜底：本包向上两级为项目根 data/。
+    """
     env = os.environ.get('DBOX_DATA_DIR')
     if env:
         return os.path.join(env, '.dbox_internal_key')
-    # 本包在 src/extensions_host，向上两级为项目根 (dbox)
+    for cand in _runtime_data_dirs():
+        p = os.path.join(cand, '.dbox_internal_key')
+        if os.path.exists(p):
+            return p
+    # 开发态兜底：本包在 src/extensions_host，向上两级为项目根 (dbox)
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(os.path.dirname(here))
     return os.path.join(root, 'data', '.dbox_internal_key')
@@ -62,9 +90,17 @@ def _post(path: str, payload: dict) -> dict:
         with urllib.request.urlopen(req, timeout=60) as resp:
             body = resp.read().decode('utf-8')
             return json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        # 服务端已返回响应（401/403/4xx/5xx）：属于鉴权/业务错误，非网络层故障，
+        # 重试无意义、也不应落 spool 无限重试，交由调用方按“硬失败”处理。
+        return {'success': False,
+                'message': f'平台调用失败: HTTP Error {e.code}: {e.reason}',
+                'network_error': False}
     except Exception as e:
+        # 连接被拒 / 超时 / 解析失败等网络层错误：瞬时可达性问题，可重试或落 spool。
         logger.error('调用主服务 IPlatformAPI 失败 %s: %s', path, e)
-        return {'success': False, 'message': f'平台调用失败: {e}'}
+        return {'success': False, 'message': f'平台调用失败: {e}',
+                'network_error': True}
 
 
 def _get(path: str, params: dict = None) -> dict:
@@ -234,15 +270,18 @@ def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
             network_err = str(e)
         if isinstance(r, dict) and r.get('success') and r.get('issue_id'):
             return r['issue_id']
+        net = bool(r.get('network_error')) if isinstance(r, dict) else True
         msg = (r.get('message') if isinstance(r, dict) else '') or ''
-        if _FB_NETWORK_HINT in msg:
-            network_err = msg
+        if net:
+            # 真正的网络/连接层错误：退避重试，最终落 spool 待主服务恢复后重放
+            network_err = msg or network_err or '网络层错误'
             if attempt < _FB_MAX_RETRIES - 1:
                 time.sleep(_FB_RETRY_BASE * (attempt + 1))
                 continue
         else:
-            # 业务/校验类错误（如内容为空）不可重试，直接返回失败
-            logger.error('反馈中心建单被拒（非网络错误）：%s', msg)
+            # 鉴权/校验/业务错误（如 401 密钥不匹配、内容为空）：不会因重试恢复，
+            # 明确失败并告警，避免静默丢单或无限重试。
+            logger.error('反馈中心建单被拒（非网络错误，不重试）：%s', msg)
             return None
     # 仅连接类失败才落 spool：保证 AI 处理跟踪单在离线期间不丢，恢复后自动建单
     if network_err:

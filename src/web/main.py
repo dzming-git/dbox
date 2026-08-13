@@ -545,6 +545,23 @@ def _serve_dual_stack(app, host, http_port, https_port, ssl_ctx):
         https_srv.shutdown()
 
 
+def _serve_internal_http(app, host, port):
+    """内部契约接口（/internal/*）专用明文 HTTP 服务，仅绑定 127.0.0.1 本机回环。
+
+    即便生产模式「对外禁用 http」（仅 HTTPS），拓展宿主（8093）与主服务之间的内部
+    契约调用也必须本机可达。该服务只监听 127.0.0.1，不会对外暴露，因此不破坏
+    「对外禁用明文 http」的安全设定；同时让 platform_client 经 127.0.0.1:port 的
+    明文 HTTP 正常建单 / 入库，避免「AI 处理完成却无法在反馈中心落单」这类静默失败。
+    """
+    from werkzeug.serving import make_server
+    import threading
+    srv = make_server(host, port, app, threaded=True)
+    t = threading.Thread(target=srv.serve_forever, daemon=True,
+                         name='dbox-internal-http')
+    t.start()
+    log.runtime('INFO', f'内部契约 HTTP 服务启动于 {host}:{port}（仅本机回环）')
+
+
 # ============ 主入口 ============
 if __name__ == '__main__':
     # 启动守卫：生产模式必须通过 NSSM 启动，开发模式允许直接运行。
@@ -565,7 +582,11 @@ if __name__ == '__main__':
     disable_http = bool(tls_cfg.get('disable_http')) if isinstance(tls_cfg, dict) else False
 
     if tls_enabled and disable_http:
-        # 仅 HTTPS：禁用明文 HTTP（呼应反馈「禁用 http，使用 https」）
+        # 仅 HTTPS 对外：禁用对外明文 HTTP（呼应反馈「禁用 http，使用 https」）。
+        # 但内部契约（拓展宿主 ↔ 主服务）必须本机可达，故在 127.0.0.1 额外起一个
+        # 明文 HTTP 端口专供 /internal/*，不对外暴露，不影响对外安全设定。
+        internal_port = int(app_config.get('ports', {}).get('web', 8080))
+        _serve_internal_http(app, '127.0.0.1', internal_port)
         print(f"[PRODUCTION] Starting Dbox Web service (HTTPS only) on port {tls_port}")
         log.runtime('INFO', f'Dbox Web 服务（仅 HTTPS）启动于端口 {tls_port}')
         app.run(host=host, port=tls_port, debug=False, use_reloader=False,
