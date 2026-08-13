@@ -530,6 +530,8 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
         # file_feedback 已对「主服务暂不可达」做本地 spool 兜底，待其恢复后自动补建；
         # 此处仅做透明提示，避免用户误以为处理丢失。
         s_ticket = '（⚠️ 处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
+    # 把建单提示拼回 reply，确保用户最终回复里能看到跟踪单号（与阶段结论一致）。
+    reply = (reply or '') + '\n\n' + s_ticket
     return reply, track_id, s_ticket
 
 
@@ -1123,14 +1125,10 @@ class AIChatManager:
                     s_ticket = ('（已尝试在反馈单 #%s 中回复分析与解决，'
                                 '但反馈中心暂不可达，将自动重试）' % ref_id)
             else:
-                reply, track_id = _maybe_create_tracking_ticket(
+                reply, track_id, s_ticket = _maybe_create_tracking_ticket(
                     task_id, task['prompt'], task.get('owner_id'),
                     reply, filed_id, head_before, git_clean=git_clean, intent=intent,
                     analysis=analysis, resolution=reply)
-                if track_id:
-                    s_ticket = None  # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply
-                else:
-                    s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
             end(idx, conclusion=s_ticket)
 
         self._finish_completed(task_id)
