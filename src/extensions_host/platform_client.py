@@ -249,19 +249,21 @@ def flush_feedback_spool() -> list:
 
 
 def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
-                  status: str = 'open', comment: str = None):
+                  status: str = 'open', comment: str = None, comments: list = None):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
     extra / status 用于 AI 助手处理完成后的「跟踪单」：传入提交哈希与
     pending_verification 状态，便于反馈中心展示「待验证」并关联处理动作。
-    comment 为可选首条留言（AI 的处理说明），随建单一并写入 feedback_comments。
+    comment 为可选首条留言（AI 的分析/处理说明）；comments 为可选的后续
+    「自动助手」身份留言列表（如解决说明），随建单一并写入 feedback_comments。
 
     结构上保证不丢单：主服务瞬时不可达时自动重试若干次；若仍失败（连接类错误），
     则把建单意图落本地 spool（flush_feedback_spool 会在主服务恢复后重放），
     不再静默丢失——这正是「AI 处理必有反馈中心单跟踪」的兜底保障。
     """
     payload = {'type': ftype, 'title': title, 'content': content,
-               'extra': extra, 'status': status, 'comment': comment}
+               'extra': extra, 'status': status, 'comment': comment,
+               'comments': comments}
     network_err = None
     for attempt in range(_FB_MAX_RETRIES):
         try:
@@ -299,3 +301,21 @@ def allowed_libraries(user_id: int = None) -> list:
     """返回某用户可写入的资源库 ID 列表。"""
     r = _get('/allowed-libraries', {'user_id': user_id})
     return r.get('library_ids', []) if isinstance(r, dict) else []
+
+
+def add_feedback_comment(issue_id, content) -> bool:
+    """向已有反馈单追加一条「自动助手」身份留言，返回是否成功。
+
+    用于「用户引用了既有反馈单」时，把本次 AI 的分析/解决说明回复进该单（满足反馈
+    中心「以自动助手身份在反馈单中回复」的诉求）。主服务不可达或业务校验失败则返回
+    False（留言不落 spool——与建单不同，回复类留言由调用方提示稍后重试即可）。
+    """
+    content = (content or '').strip()
+    if not content:
+        return False
+    r = _post('/feedback/comment', {'issue_id': str(issue_id), 'content': content})
+    if isinstance(r, dict) and r.get('success'):
+        return True
+    logger.warning('反馈单追加留言失败（issue=%s）: %s', issue_id,
+                   (r.get('message') if isinstance(r, dict) else r))
+    return False
