@@ -173,6 +173,9 @@
                 older: [], nextCursor: null, canExpand: false };
   let collapsedAllMode = false; // true 时强制折叠全部 AI 气泡（收起全部）；false 时仅长消息默认折叠
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
+  const liveRender = {};          // 正在流式输出的任务 id -> 已渲染的「分阶段」HTML；
+                                  // 供 2 秒轮询重绘时复用，避免被 list_tasks 返回的原始 token
+                                  // 缓冲（不含 stage/step）覆盖掉 SSE 渲染的分阶段进度与结论。
   const expandedIds = new Set();  // 用户已手动展开过的对话 id，跨重绘保留展开态
   let pollTimer = null;
   const COLLAPSE_LINES = 6;       // 单条长消息默认折叠时展示的行数（按行高对齐到整行，足够看清大意）
@@ -422,8 +425,12 @@
                    created_at: h.created_at });
     }
     if (state.active) {
+      // 优先使用 SSE 订阅实时渲染的「分阶段」HTML（含顶部进度列表与阶段结论），
+      // 而非 list_tasks 返回的原始 token 缓冲——后者不含 stage/step，会抹掉分阶段展示。
+      const live = liveRender[state.active.id];
       turns.push({ id: state.active.id, prompt: state.active.prompt,
-                   reply: state.active.stream || '正在处理…', kind: 'running',
+                   reply: live || state.active.stream || '正在处理…',
+                   live: !!live, kind: 'running',
                    created_at: state.active.created_at });
     }
     state.pending.forEach(p => {
@@ -444,12 +451,15 @@
       const statusTag = isRun ? '<span class="aistatus">● 正在处理</span>' : '';
       const avatarGlyph = t.kind === 'err' ? '⚠' : '🤖';
       const timeLabel = (t.created_at != null) ? '<div class="time">' + esc(fmtTime(t.created_at)) + '</div>' : '';
+      // 正在流式且已存在 SSE 渲染的分阶段 HTML 时，直接使用该 HTML（其已含 stage 列表与
+      // step 结论），不再经 renderContent，避免对已完成渲染的 HTML 二次 Markdown 化而破坏结构。
+      const bubbleInner = (isRun && t.live) ? (t.reply + statusTag) : (renderContent(t.reply) + statusTag);
       html += timeLabel
             + '<div class="bubble me">' + esc(t.prompt) + '</div>'
             + '<div class="ai-row" data-ai="' + esc(t.id) + '">'
             +   '<div class="ai-avatar' + (isRun ? ' running' : '') + '">' + avatarGlyph + '</div>'
             +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(t.id) + '">'
-            +      renderContent(t.reply) + statusTag
+            +      bubbleInner
             +   '</div>'
             + '</div>';
     });
@@ -656,6 +666,8 @@
       let h = stageHtml(stageAcc, !running);
       const body = renderParts();
       h += body || '<div class="pending-hint">正在处理…</div>';
+      // 缓存当前分阶段 HTML，供 2 秒轮询重绘时复用（renderMsgs 据此保持分阶段展示）
+      liveRender[taskId] = h;
       return h;
     };
     try {
@@ -707,12 +719,14 @@
             h += renderContent(finalText);
             updateAiLive(taskId, h, false);
             subscribed.delete(taskId);
+            delete liveRender[taskId];
             refresh();
             return;
           } else if (ev === 'error') {
             const node = document.getElementById('ai-' + taskId);
             if (node) { node.textContent = data; node.classList.add('err'); node.classList.remove('pending'); }
             subscribed.delete(taskId);
+            delete liveRender[taskId];
             refresh();
             return;
           }
@@ -721,6 +735,7 @@
     } catch (e) {
       // 连接断开：标记未订阅，稍后由 refresh 重新订阅以续接
       subscribed.delete(taskId);
+      delete liveRender[taskId];
     }
   }
 
@@ -797,6 +812,7 @@
       subscribed.clear();
       expandedIds.clear();
       collapsedAllMode = false;
+      Object.keys(liveRender).forEach(k => delete liveRender[k]);
       await api('/api/ai-chat/clear', { method: 'POST' });
       state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
       render();
