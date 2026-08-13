@@ -249,18 +249,19 @@ def flush_feedback_spool() -> list:
 
 
 def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
-                  status: str = 'open'):
+                  status: str = 'open', comment: str = None):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
     extra / status 用于 AI 助手处理完成后的「跟踪单」：传入提交哈希与
     pending_verification 状态，便于反馈中心展示「待验证」并关联处理动作。
+    comment 为可选首条留言（AI 的处理说明），随建单一并写入 feedback_comments。
 
     结构上保证不丢单：主服务瞬时不可达时自动重试若干次；若仍失败（连接类错误），
     则把建单意图落本地 spool（flush_feedback_spool 会在主服务恢复后重放），
     不再静默丢失——这正是「AI 处理必有反馈中心单跟踪」的兜底保障。
     """
     payload = {'type': ftype, 'title': title, 'content': content,
-               'extra': extra, 'status': status}
+               'extra': extra, 'status': status, 'comment': comment}
     network_err = None
     for attempt in range(_FB_MAX_RETRIES):
         try:
