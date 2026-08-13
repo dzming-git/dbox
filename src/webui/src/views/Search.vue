@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Search' })
-import { ref, onMounted, watch, computed, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, watch, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { videoApi, galleryApi, postApi, textApi } from '../api'
 import { usePullToRefresh } from '../composables/usePullToRefresh'

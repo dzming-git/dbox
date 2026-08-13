@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { videoApi, galleryApi } from '../api'
 import { fetchLikes, type MediaItem } from '../utils/media'
 import { usePullToRefresh } from '../composables/usePullToRefresh'

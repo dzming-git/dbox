@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, watch, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { collectionSetApi, videoApi, galleryApi } from '../api'
 import { useUserStore } from '../stores/userStore'
