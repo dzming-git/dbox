@@ -10,6 +10,7 @@ import {
   addIssueComment,
   replyAndReopen,
   verifyClose,
+  deleteIssue,
   extractMessage,
   type IssueListParams,
 } from '../api/suggestion'
@@ -252,6 +253,23 @@ async function markPending() {
     if (res.success) selected.value = res.issue
   } catch (e) {
     errorMsg.value = extractMessage(e, '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function removeIssue() {
+  if (!selected.value) return
+  if (!window.confirm('确定要删除该反馈单吗？此操作不可恢复，且会一并删除全部回复。')) return
+  loading.value = true
+  try {
+    const res = await deleteIssue(selected.value.id)
+    if (res.success) {
+      await loadIssues()
+      router.push({ path: '/feedback' })
+    }
+  } catch (e) {
+    errorMsg.value = extractMessage(e, '删除失败')
   } finally {
     loading.value = false
   }
@@ -593,6 +611,12 @@ watch(
           </button>
           <button class="fb-btn fb-btn-reopen-reply" :disabled="loading || !commentText.trim()" @click="replyAndReopenIssue">
             回复并重新打开
+          </button>
+        </div>
+
+        <div class="fb-admin-actions fb-admin-delete">
+          <button class="fb-btn fb-btn-danger" :disabled="loading" @click="removeIssue">
+            删除反馈
           </button>
         </div>
 
@@ -979,6 +1003,9 @@ watch(
 .fb-btn-reopen:hover:not(:disabled) { background: rgba(63,185,80,0.25); }
 .fb-btn-reopen-reply { background: rgba(88,166,255,0.15); color: #58a6ff; border-color: rgba(88,166,255,0.4); }
 .fb-btn-reopen-reply:hover:not(:disabled) { background: rgba(88,166,255,0.25); }
+.fb-btn-danger { background: rgba(248,81,73,0.15); color: #f85149; border-color: rgba(248,81,73,0.45); }
+.fb-btn-danger:hover:not(:disabled) { background: rgba(248,81,73,0.28); }
+.fb-admin-delete { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-default); }
 
 .fb-comment-form { display: flex; gap: 10px; align-items: flex-start; }
 .fb-comment-input {

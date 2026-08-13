@@ -67,3 +67,8 @@ export async function verifyClose(
 ): Promise<{ success: boolean; issue: Issue }> {
   return await api.post(`/api/suggestion/${id}/verify_close`, payload || {})
 }
+
+// 删除反馈单（含全部评论），仅管理员可操作
+export async function deleteIssue(id: string): Promise<{ success: boolean }> {
+  return await api.delete(`/api/suggestion/${id}`)
+}

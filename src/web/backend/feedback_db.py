@@ -294,6 +294,21 @@ def db_append_comment(issue_id: str, author: str, author_role: int, content: str
         return True
 
 
+def db_delete_issue(issue_id: str) -> bool:
+    """删除一条反馈单（含其全部评论，依赖 comments 的 cascade 级联删除）。
+
+    线程安全（独立 session）。仅管理员可调用，鉴权由 suggestion_api 负责。
+    返回 True 表示已删除；单号不存在返回 False。
+    """
+    with get_session() as session:
+        issue = session.get(FeedbackIssue, issue_id)
+        if not issue:
+            return False
+        session.delete(issue)  # cascade='all, delete-orphan' 自动清理 feedback_comments
+        session.commit()
+        return True
+
+
 def db_get_extra(issue_id: str) -> dict:
     """读取 feedback_extra（JSON）字段，不存在/为空时返回 {}。"""
     init_feedback_db()

@@ -7,7 +7,7 @@
 
 对外 API 契约（路径、字段、状态枚举、分页、评论）保持不变，前端无需改动。
 Issue 唯一 id 格式：yyyymmdd + 4 位流水号。
-权限：列表/详情公开；提交允许游客；关闭/重开/评论仅管理员。
+权限：列表/详情公开；提交允许游客；关闭/重开/评论/删除仅管理员。
 """
 from datetime import datetime
 
@@ -18,6 +18,7 @@ from backend.access import resolve_identity
 from backend.feedback_db import (
     init_feedback_db, get_session, FeedbackIssue, FeedbackComment,
     issue_to_dict, STATUS_MAP, db_create_issue, db_append_comment,
+    db_delete_issue,
 )
 
 suggestion_bp = Blueprint('suggestion_api', __name__)
@@ -388,3 +389,13 @@ def verify_close_issue(issue_id):
         out = issue_to_dict(issue)
     out['type'] = out.get('category') or 'suggestion'
     return jsonify({'success': True, 'issue': out})
+
+
+@suggestion_bp.route('/api/suggestion/<issue_id>', methods=['DELETE'])
+def delete_issue(issue_id):
+    """删除一条反馈单（含其全部评论），仅管理员可操作。"""
+    if not _is_admin():
+        return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
+    if not db_delete_issue(issue_id):
+        return jsonify({'success': False, 'message': 'issue 不存在', 'code': 404}), 404
+    return jsonify({'success': True})
