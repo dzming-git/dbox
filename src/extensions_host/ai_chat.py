@@ -837,6 +837,9 @@ class AIChatManager:
             try:
                 self._process(task_id)
             except Exception as e:
+                import traceback as _tb
+                _detail = _tb.format_exc()
+                logging.getLogger('extensions_host').error('AI 助手 _process 异常:\n%s', _detail)
                 self._set_status(task_id, self.STATUS_FAILED, error='处理异常: ' + str(e))
                 self._emit(task_id, 'error', '处理异常: ' + str(e))
 
