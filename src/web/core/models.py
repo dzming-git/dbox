@@ -789,10 +789,18 @@ class WatchLater(db.Model):
     title = db.Column(db.String(500))
     thumbnail = db.Column(db.String(1000))
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # 软删除时间戳：移除「稍后再看」条目时只打墓碑，不物理删除。
+    # 这样即使底层视频随后被恢复/重新入库、或某客户端把本地残留列表回推服务端，
+    # 被用户删除过的条目也不会「复活」重新出现在列表里（见 watch_later_api）。
+    deleted_at = db.Column(db.DateTime, nullable=True, index=True)
 
     __table_args__ = (
         db.UniqueConstraint('user_key', 'item_type', 'item_id', name='_watch_later_uc'),
     )
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
     def to_dict(self):
         return {
@@ -2383,6 +2391,25 @@ def migrate_trash_columns():
             print('[MIGRATE] trash 字段已就绪')
     except Exception as e:
         print(f'[WARN] trash 字段迁移跳过: {e}')
+
+
+def migrate_watch_later_deleted_at():
+    """为 watch_later 增加软删除字段 deleted_at（兼容历史库）。
+
+    移除「稍后再看」条目改为软删除（只打墓碑），需要该列存在才能判定条目是否已删除。
+    仅当列不存在时执行 ALTER，兼容旧库；create_all 不会为已存在的表新增列。
+    """
+    try:
+        with db.engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(watch_later)")).fetchall()]
+            if 'deleted_at' not in cols:
+                conn.execute(db.text(
+                    "ALTER TABLE watch_later ADD COLUMN deleted_at DATETIME"))
+                conn.commit()
+                print('[MIGRATE] watch_later.deleted_at 已新增')
+    except Exception as e:
+        print(f'[WARN] watch_later.deleted_at 迁移跳过: {e}')
 
 
 def migrate_tag_qualifiers():

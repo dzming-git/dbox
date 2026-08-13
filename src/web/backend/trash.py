@@ -13,7 +13,7 @@ from core.models import (
     UserInteraction, VideoTag,
     VideoMarker, CollectionVideo, PlaylistItem,
     GalleryPage, GalleryInteraction, GalleryProgress, GalleryTag,
-    GalleryPlaylistItem,
+    GalleryPlaylistItem, WatchLater,
 )
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,24 @@ def _trash_size(obj, kind: str) -> int:
 # ---------------------------------------------------------------------------
 # 核心操作
 # ---------------------------------------------------------------------------
+def _tombstone_watch_later(obj, kind: str):
+    """资源移入回收站时，将其在「稍后再看」中的条目一并打墓碑。
+
+    否则条目仅被可见性过滤隐藏，待视频恢复 / 重新入库后会「复活」重新出现，
+    这正是「删了又回来」的根因之一。墓碑态下即使资源恢复也不会复活。
+    """
+    item_type = 'video' if kind == 'video' else 'gallery'
+    (WatchLater.query
+     .filter_by(item_type=item_type, item_id=obj.hash)
+     .update({'deleted_at': datetime.utcnow()}, synchronize_session=False))
+
+
+def _purge_watch_later(obj, kind: str):
+    """资源永久删除时，物理清除其「稍后再看」条目（资源已不存在，无需保留墓碑）。"""
+    item_type = 'video' if kind == 'video' else 'gallery'
+    WatchLater.query.filter_by(item_type=item_type, item_id=obj.hash).delete()
+
+
 def move_to_trash(obj, kind: str):
     """软删除：将文件 / 文件夹移入回收站，并标记 in_trash。"""
     src = _source_path(obj, kind)
@@ -78,12 +96,17 @@ def move_to_trash(obj, kind: str):
             print(f'[TRASH] move failed {src}: {e}')
     obj.in_trash = True
     obj.trashed_at = datetime.utcnow()
+    _tombstone_watch_later(obj, kind)
     db.session.commit()
     return obj
 
 
 def restore_from_trash(obj, kind: str):
-    """恢复：从回收站移回原路径，并取消标记。"""
+    """恢复：从回收站移回原路径，并取消标记。
+
+    注意：不在此处复活「稍后再看」条目——其墓碑保持有效，否则会重新引入
+    「删了又回来」。用户若仍需稍后再看，可主动重新加入。
+    """
     dst = _source_path(obj, kind)
     src = _trash_path(obj, kind)
     if os.path.exists(src):
@@ -142,6 +165,7 @@ def purge_trash(obj, kind: str):
         _delete_thumbnails(obj.hash)
     elif kind == 'gallery':
         _delete_gallery_dependents(obj)
+    _purge_watch_later(obj, kind)
 
     db.session.delete(obj)
     db.session.commit()
