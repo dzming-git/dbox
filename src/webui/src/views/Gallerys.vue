@@ -190,23 +190,21 @@ watch(() => route.query, async (newQuery) => {
 <template>
   <div class="galleries-container">
     <div class="action-bar">
-      <div class="sort-box">
-        <select class="sort-select" :value="galleryStore.sortBy" @change="handleSortChange">
-          <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
-        <select class="sort-order-select" :value="galleryStore.sortOrder" @change="handleOrderChange">
-          <option value="desc">倒序</option>
-          <option value="asc">正序</option>
-        </select>
-        <select class="library-select" :value="galleryStore.selectedLibraryId || ''" @change="handleLibraryChange">
-          <option value="">全部资源库</option>
-          <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
-        </select>
-        <select class="library-select tag-select" :value="galleryStore.selectedTagId || ''" @change="handleTagChange">
-          <option value="">全部标签</option>
-          <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.gallery_count }})</option>
-        </select>
-      </div>
+      <select class="sort-select" :value="galleryStore.sortBy" @change="handleSortChange">
+        <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+      <select class="sort-order-select" :value="galleryStore.sortOrder" @change="handleOrderChange">
+        <option value="desc">倒序</option>
+        <option value="asc">正序</option>
+      </select>
+      <select class="library-select" :value="galleryStore.selectedLibraryId || ''" @change="handleLibraryChange">
+        <option value="">全部资源库</option>
+        <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
+      </select>
+      <select class="library-select tag-select" :value="galleryStore.selectedTagId || ''" @change="handleTagChange">
+        <option value="">全部标签</option>
+        <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.gallery_count }})</option>
+      </select>
       <div class="view-toggle">
         <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'grid' }" @click="galleryStore.setViewMode('grid')" title="缩略图">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -294,8 +292,7 @@ watch(() => route.query, async (newQuery) => {
 
 <style scoped>
 .galleries-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.action-bar { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; flex-wrap: wrap; }
-.sort-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.action-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
 .sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); font-size: 14px; cursor: pointer; }
 .view-toggle { display: flex; gap: 4px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 8px; padding: 3px; margin-left: auto; }
 .view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; border-radius: 6px; cursor: pointer; }
