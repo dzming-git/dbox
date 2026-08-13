@@ -661,6 +661,39 @@ const listThumbUrl = (video: Video): string => {
           :class="{ active: mediaTab === 'mixed' }"
           @click="mediaTab = 'mixed'"
         >帖子</button>
+        <!-- 更多：低频操作收进溢出菜单，放在类型选择行右侧 -->
+        <div class="tool-more" ref="toolMoreRef">
+          <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+            </svg>
+            <span>更多</span>
+          </button>
+          <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
+            <button
+              v-if="hasPreviousVideos && currentSort === 'recommended'"
+              class="tool-more-item"
+              :disabled="shuffling"
+              @click="handleUndo(); toolMoreOpen = false"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
+                <path d="M7 6L3 10l4 4"/>
+              </svg>
+              <span>撤回</span>
+            </button>
+            <button
+              class="tool-more-item"
+              :class="{ active: editMode }"
+              @click="toggleEditMode(); toolMoreOpen = false"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+              </svg>
+              <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="tool-controls" v-if="mediaTab === 'video'">
         <select class="sort-select" :value="currentSort" @change="handleSortChange">
@@ -726,39 +759,6 @@ const listThumbUrl = (video: Video): string => {
             ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
           </span>
         </button>
-        <!-- 更多：低频操作（编辑 / 撤回）收进溢出菜单，保持工具栏紧凑 -->
-        <div class="tool-more" ref="toolMoreRef">
-          <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-            </svg>
-            <span>更多</span>
-          </button>
-          <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
-            <button
-              v-if="hasPreviousVideos && currentSort === 'recommended'"
-              class="tool-more-item"
-              :disabled="shuffling"
-              @click="handleUndo(); toolMoreOpen = false"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
-                <path d="M7 6L3 10l4 4"/>
-              </svg>
-              <span>撤回</span>
-            </button>
-            <button
-              class="tool-more-item"
-              :class="{ active: editMode }"
-              @click="toggleEditMode(); toolMoreOpen = false"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-              </svg>
-              <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -1100,13 +1100,15 @@ const listThumbUrl = (video: Video): string => {
 /* 首页媒体类型切换：视频 / 图集 对等 */
 .media-tabs {
   display: flex;
-  gap: 4px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   background: var(--bg-surface-hover);
   border: 1px solid var(--border-default);
   border-radius: 10px;
-  padding: 4px;
-  margin-bottom: 20px;
-  width: fit-content;
+  padding: 4px 6px;
+  margin-bottom: 10px;
+  width: 100%;
 }
 
 .media-tab {
@@ -1925,9 +1927,16 @@ const listThumbUrl = (video: Video): string => {
     justify-content: center;
   }
 
-  /* 移动端：标签筛选与“更多”均为内容宽度、与排序/显示方式同排，不独占整行 */
+  /* 移动端：标签筛选与"更多"均为内容宽度、与排序/显示方式同排，不独占整行 */
   .tags-toggle-btn {
     flex: 0 0 auto;
+  }
+
+  /* 移动端：媒体类型选择行占满宽度，"更多"靠右 */
+  .media-tabs {
+    width: 100%;
+    gap: 6px;
+    padding: 4px 8px;
   }
 
   .tool-more {
