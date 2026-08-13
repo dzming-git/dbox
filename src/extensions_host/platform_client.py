@@ -9,11 +9,19 @@
 """
 import os
 import json
+import time
+import uuid
 import logging
 import urllib.request
+from datetime import datetime
 from urllib.parse import urlencode
 
 logger = logging.getLogger('dbox-ext-platform')
+
+# 建单重试 / 本地 spool 兜底参数
+_FB_MAX_RETRIES = 3          # 主服务瞬时不可达时的重试次数
+_FB_RETRY_BASE = 0.5         # 重试退避基线（秒），第 n 次等待 n*base
+_FB_NETWORK_HINT = '平台调用失败'  # _post 在网络/连接异常时返回的 message 关键字
 
 # 主服务内部契约接口地址（默认本机 8080）
 _PLATFORM_HOST = os.environ.get('DBOX_WEB_HOST', '127.0.0.1')
@@ -130,17 +138,121 @@ def resource_resolve(type_: str, ref: str) -> dict:
     return _post('/resource-resolve', {'type': type_, 'ref': ref})
 
 
+def _feedback_spool_dir() -> str:
+    """本地反馈建单的持久化兜底目录（主服务不可达时暂存，待恢复后重放）。
+
+    与主服务共用同一数据区（DBOX_DATA_DIR 或项目 data/），确保宿主进程即便在主服务
+    暂时离线时也能把建单意图落盘，避免「AI 处理完成却没单可跟踪」的静默丢单。
+    """
+    env = os.environ.get('DBOX_DATA_DIR')
+    if env:
+        base = env
+    else:
+        # 本包在 src/extensions_host，向上两级为项目根 (dbox)
+        here = os.path.dirname(os.path.abspath(__file__))
+        root = os.path.dirname(os.path.dirname(here))
+        base = os.path.join(root, 'data')
+    d = os.path.join(base, 'feedback_spool')
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
+def _write_spool(payload: dict) -> str:
+    """把一条建单请求持久化到本地 spool，返回文件名；失败返回空串。"""
+    d = _feedback_spool_dir()
+    ts = datetime.now().strftime('%Y%m%d%H%M%S')
+    name = 'fb_%s_%s.json' % (ts, uuid.uuid4().hex[:8])
+    path = os.path.join(d, name)
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+        return name
+    except Exception as e:
+        logger.error('写入反馈 spool 失败: %s', e)
+        return ''
+
+
+def flush_feedback_spool() -> list:
+    """重放本地 spool 中暂存的建单请求，成功即删除对应文件。
+
+    应在宿主进程启动、以及主服务恢复后的周期任务中调用，从而把离线期间积压的
+    「AI 处理跟踪单 / 用户反馈单」最终落到反馈中心。返回本次成功创建的 issue_id 列表。
+    """
+    d = _feedback_spool_dir()
+    created = []
+    try:
+        names = sorted(os.listdir(d))
+    except Exception:
+        return created
+    for name in names:
+        if not (name.startswith('fb_') and name.endswith('.json')):
+            continue
+        path = os.path.join(d, name)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except Exception:
+            # 损坏的 spool 文件直接丢弃，避免永久卡住重放
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            continue
+        r = _post('/feedback', payload)
+        if isinstance(r, dict) and r.get('success') and r.get('issue_id'):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            created.append(r['issue_id'])
+        # 失败（含主服务仍不可达）则保留文件，下次重试
+    return created
+
+
 def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
                   status: str = 'open'):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
     extra / status 用于 AI 助手处理完成后的「跟踪单」：传入提交哈希与
     pending_verification 状态，便于反馈中心展示「待验证」并关联处理动作。
+
+    结构上保证不丢单：主服务瞬时不可达时自动重试若干次；若仍失败（连接类错误），
+    则把建单意图落本地 spool（flush_feedback_spool 会在主服务恢复后重放），
+    不再静默丢失——这正是「AI 处理必有反馈中心单跟踪」的兜底保障。
     """
     payload = {'type': ftype, 'title': title, 'content': content,
                'extra': extra, 'status': status}
-    r = _post('/feedback', payload)
-    return r.get('issue_id') if isinstance(r, dict) else None
+    network_err = None
+    for attempt in range(_FB_MAX_RETRIES):
+        try:
+            r = _post('/feedback', payload)
+        except Exception as e:   # 极端情况下 _post 未吞掉的异常，同样视为网络错误
+            r = None
+            network_err = str(e)
+        if isinstance(r, dict) and r.get('success') and r.get('issue_id'):
+            return r['issue_id']
+        msg = (r.get('message') if isinstance(r, dict) else '') or ''
+        if _FB_NETWORK_HINT in msg:
+            network_err = msg
+            if attempt < _FB_MAX_RETRIES - 1:
+                time.sleep(_FB_RETRY_BASE * (attempt + 1))
+                continue
+        else:
+            # 业务/校验类错误（如内容为空）不可重试，直接返回失败
+            logger.error('反馈中心建单被拒（非网络错误）：%s', msg)
+            return None
+    # 仅连接类失败才落 spool：保证 AI 处理跟踪单在离线期间不丢，恢复后自动建单
+    if network_err:
+        sp = _write_spool(payload)
+        if sp:
+            logger.warning('反馈中心建单失败（主服务暂不可达），已落本地 spool 待重放：'
+                           '%s（%s）', sp, network_err)
+        else:
+            logger.error('反馈中心建单失败且无法写入 spool：%s', network_err)
+    return None
 
 
 def allowed_libraries(user_id: int = None) -> list:

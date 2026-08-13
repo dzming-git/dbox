@@ -376,7 +376,10 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
         note = '\n\n📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
         reply = (reply or '') + note
     else:
-        reply = (reply or '') + '\n\n（⚠️ 处理已完成，但反馈中心建单失败，请检查主服务是否运行）'
+        # file_feedback 已对「主服务暂不可达」做本地 spool 兜底，待其恢复后自动补建；
+        # 此处仅做透明提示，避免用户误以为处理丢失。
+        reply = (reply or '') + '\n\n（⚠️ 处理已完成，已尝试在反馈中心建立跟踪单；'
+        '若主服务暂不可达，将自动重试建单，稍后可在反馈中心查看。）'
     return reply, track_id
 
 
@@ -463,6 +466,9 @@ class AIChatManager:
             self._worker.start()
         # 启动时把残留的 running/pending 任务复位，避免死任务卡住队列
         self._recover_stale_tasks()
+        # 启动反馈建单 spool 的兜底重放：主服务若此前离线，积压的「AI 处理跟踪单 /
+        # 用户反馈单」在此立即补建一次，并由周期任务持续重试，直到主服务恢复。
+        self._start_feedback_spool_flusher()
         # 尝试挂接统一任务管理器（失败不影响对话功能）
         try:
             from shared.unified_tasks import init_task_manager as _init_tm
@@ -487,6 +493,34 @@ class AIChatManager:
             self._db.execute('CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status)')
             self._db.execute('CREATE INDEX IF NOT EXISTS idx_ai_tasks_created ON ai_tasks(created_at)')
             self._db.commit()
+
+    def _start_feedback_spool_flusher(self):
+        """启动反馈建单 spool 的周期重放：确保主服务离线期间积压的跟踪单/反馈单
+        在其恢复后被自动补建，从而在结构上保证「AI 处理必有反馈中心单跟踪」不丢单。"""
+        try:
+            from platform_client import flush_feedback_spool
+        except Exception:
+            return
+
+        def _loop():
+            while True:
+                try:
+                    created = flush_feedback_spool()
+                    if created:
+                        _logger.info('反馈 spool 重放成功，补建单号：%s', ','.join(created))
+                except Exception:
+                    pass
+                time.sleep(60)
+
+        # 启动时先补建一次，再起守护线程周期重试
+        try:
+            created = flush_feedback_spool()
+            if created:
+                _logger.info('反馈 spool 启动补建成功，单号：%s', ','.join(created))
+        except Exception:
+            pass
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
 
     def _recover_stale_tasks(self):
         """服务重启后，把未完成（pending/running）的任务复位为 cancelled/failed，防止 worker 卡死。"""
