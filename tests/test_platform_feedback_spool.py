@@ -42,7 +42,8 @@ class FeedbackSpoolTest(unittest.TestCase):
     def test_network_down_retries_then_spools(self):
         """主服务不可达：重试 3 次后落 spool，返回 None 但不丢单。"""
         with mock.patch.object(pc, '_post', return_value={
-                'success': False, 'message': '平台调用失败: [WinError 10061] 拒绝连接'
+                'success': False, 'message': '平台调用失败: [WinError 10061] 拒绝连接',
+                'network_error': True,
         }) as m:
             rid = pc.file_feedback('bug', '标题', '内容',
                                    extra={'git_commit': 'abc'}, status='pending_verification')
@@ -71,7 +72,8 @@ class FeedbackSpoolTest(unittest.TestCase):
         """主服务恢复后，flush 补建单号并删除 spool 文件。"""
         # 先把一条请求落 spool
         with mock.patch.object(pc, '_post', return_value={
-                'success': False, 'message': '平台调用失败: 连接被拒'
+                'success': False, 'message': '平台调用失败: 连接被拒',
+                'network_error': True,
         }):
             pc.file_feedback('suggestion', '建议标题', '建议内容', status='open')
         self.assertEqual(len(self._spool_files()), 1)
@@ -90,11 +92,13 @@ class FeedbackSpoolTest(unittest.TestCase):
     def test_flush_keeps_failed_spool(self):
         """主服务仍不可达时，flush 不影响 spool，留待下次重试。"""
         with mock.patch.object(pc, '_post', return_value={
-                'success': False, 'message': '平台调用失败: 连接被拒'
+                'success': False, 'message': '平台调用失败: 连接被拒',
+                'network_error': True,
         }):
             pc.file_feedback('bug', 't', 'c')
         with mock.patch.object(pc, '_post', return_value={
-                'success': False, 'message': '平台调用失败: 连接被拒'
+                'success': False, 'message': '平台调用失败: 连接被拒',
+                'network_error': True,
         }):
             created = pc.flush_feedback_spool()
         self.assertEqual(created, [])
