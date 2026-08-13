@@ -881,7 +881,7 @@ const listThumbUrl = (video: Video): string => {
       </div>
 
       <!-- 移动端单手翻页：底部悬浮的上一页 / 下一页 -->
-      <div v-if="mediaTab === 'video' && totalPages > 1" class="mobile-pager">
+      <div v-if="mediaTab === 'video' && totalPages > 1 && currentSort !== 'recommended'" class="mobile-pager">
         <button class="page-btn mobile-page-btn" :disabled="currentPage === 1" @click="prevPage">‹ 上一页</button>
         <span class="mobile-page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
         <button class="page-btn mobile-page-btn" :disabled="currentPage === totalPages" @click="nextPage">下一页 ›</button>
@@ -897,7 +897,7 @@ const listThumbUrl = (video: Video): string => {
       </div>
 
       <!-- 分页组件 -->
-      <div v-if="totalPages > 1" class="pagination">
+      <div v-if="totalPages > 1 && currentSort !== 'recommended'" class="pagination">
         <button class="page-btn" :disabled="currentPage === 1" @click="goToPage(1)">
           首页
         </button>
@@ -1914,6 +1914,9 @@ const listThumbUrl = (video: Video): string => {
     border-top: 1px solid var(--border-subtle);
     z-index: 50;
   }
+
+  /* 移动端只保留底部悬浮的单手翻页，隐藏桌面分页，避免两个翻页器重叠 */
+  .pagination { display: none; }
 
   .mobile-page-btn {
     flex: 1;

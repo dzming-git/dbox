@@ -270,7 +270,7 @@ watch(() => route.query, async (newQuery) => {
         <p class="empty-tip" v-if="userStore.isAdmin">在资源库里放入「扁平的图片文件夹」（每本 >=2 张图）即可自动收录。</p>
       </div>
 
-      <div v-if="totalPages > 1" class="pagination">
+      <div v-if="totalPages > 1 && galleryStore.sortBy !== 'recommended'" class="pagination">
         <button class="page-btn" :disabled="currentPage===1" @click="goToPage(1)">首页</button>
         <button class="page-btn" :disabled="currentPage===1" @click="goToPage(currentPage-1)">‹ 上一页</button>
         <template v-for="p in pageRange" :key="p">
@@ -283,7 +283,7 @@ watch(() => route.query, async (newQuery) => {
       </div>
 
       <!-- 移动端单手翻页：底部悬浮的上一页 / 下一页 -->
-      <div v-if="totalPages > 1" class="mobile-pager">
+      <div v-if="totalPages > 1 && galleryStore.sortBy !== 'recommended'" class="mobile-pager">
         <button class="page-btn mobile-page-btn" :disabled="currentPage===1" @click="goToPage(currentPage-1)">‹ 上一页</button>
         <span class="mobile-page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
         <button class="page-btn mobile-page-btn" :disabled="currentPage===totalPages" @click="goToPage(currentPage+1)">下一页 ›</button>
@@ -339,6 +339,8 @@ watch(() => route.query, async (newQuery) => {
   .view-toggle { margin-left: 0; width: 100%; }
   .view-toggle-btn { flex: 1; justify-content: center; }
   .gallery-section { padding-bottom: 76px; }
+  /* 移动端只保留底部悬浮的单手翻页，隐藏桌面分页，避免两个翻页器重叠 */
+  .pagination { display: none; }
   .mobile-pager {
     display: flex;
     align-items: center;
