@@ -425,12 +425,26 @@
                    created_at: h.created_at });
     }
     if (state.active) {
-      // 优先使用 SSE 订阅实时渲染的「分阶段」HTML（含顶部进度列表与阶段结论），
-      // 而非 list_tasks 返回的原始 token 缓冲——后者不含 stage/step，会抹掉分阶段展示。
+      // 优先使用 SSE 订阅实时渲染的「分阶段」HTML（含顶部进度列表与阶段结论）；
+      // 若 SSE 尚未建立 liveRender，但服务端已在 active.stages 中缓冲了阶段事件，
+      // 则直接用它们 + 当前 token 缓冲渲染分阶段进度（避免只显示「正在处理」）。
       const live = liveRender[state.active.id];
+      const st = state.active.stages || [];
+      let replyHtml, isLive = !!live;
+      if (live) {
+        replyHtml = live;
+      } else if (st.length) {
+        const body = state.active.stream
+          ? renderContent(state.active.stream)
+          : '<div class="pending-hint">正在处理…</div>';
+        replyHtml = stageHtml(st, false) + body;
+        isLive = true;  // 已是渲染好的 HTML，renderMsgs 不再二次 Markdown 化
+      } else {
+        replyHtml = state.active.stream || '正在处理…';
+      }
       turns.push({ id: state.active.id, prompt: state.active.prompt,
-                   reply: live || state.active.stream || '正在处理…',
-                   live: !!live, kind: 'running',
+                   reply: replyHtml,
+                   live: isLive, kind: 'running',
                    created_at: state.active.created_at });
     }
     state.pending.forEach(p => {
