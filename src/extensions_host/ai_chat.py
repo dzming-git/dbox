@@ -173,7 +173,7 @@ def _parse_phases(raw):
 
 
 def _file_feedback(ftype: str, title: str, content: str, extra: dict = None,
-                  status: str = 'open', comment: str = None):
+                  status: str = 'open', comment: str = None, comments: list = None):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
     仅由 _maybe_file_feedback / _maybe_create_tracking_ticket 调用。
@@ -192,7 +192,7 @@ def _file_feedback(ftype: str, title: str, content: str, extra: dict = None,
         if not title and not content:
             return None
         return file_feedback(ftype, title, content, extra=extra, status=status,
-                             comment=comment)
+                             comment=comment, comments=comments)
     except Exception as e:
         try:
             import logging
@@ -408,6 +408,36 @@ _TITLE_LEAD_FILLERS = (
     '现在', '稍后', '我怀疑', '你说', '刚才', '当前', '最近', '这个', '那个',
 )
 
+# 执行阶段未产出正文时 reply 的占位提示，不应作为「解决说明」留言落库。
+_EXEC_PLACEHOLDER = '（任务已执行完成，无文本输出）'
+
+# 用户消息中对既有反馈单的引用形如 #202608130018（12 位：yyyymmdd+4 位流水）。
+_REF_ISSUE_RE = re.compile(r'#(\d{12})')
+
+
+def _extract_ref_issue(prompt):
+    """从用户消息里提取被引用的既有反馈单号（形如 #202608130018）；无则返回 None。"""
+    if not prompt:
+        return None
+    m = _REF_ISSUE_RE.search(prompt)
+    return m.group(1) if m else None
+
+
+def _add_feedback_comment(issue_id, content):
+    """向既有反馈单以「自动助手」身份追加一条留言（分析/解决说明），返回是否成功。
+
+    仅用于「用户引用了既有反馈单」时，把本次 AI 的分析与解决回复进该单（满足
+    「在反馈单中回复」的诉求）。主服务不可达则该条留言暂未落盘，返回 False 由调用方提示重试。
+    """
+    content = (content or '').strip()
+    if not content:
+        return False
+    try:
+        from platform_client import add_feedback_comment
+        return bool(add_feedback_comment(str(issue_id), content))
+    except Exception:
+        return False
+
 
 def _make_ticket_title(prompt: str) -> str:
     """从用户诉求中结构化提炼一句话「概括」作为反馈单标题（不依赖模型输出）。
@@ -439,53 +469,68 @@ def _make_ticket_title(prompt: str) -> str:
 
 
 def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
-                                   git_clean=True, intent=None):
+                                   git_clean=True, intent=None, analysis=None, resolution=None):
     """结构性保证：当 AI 本回合实际改动代码（产生新提交，HEAD 变化）且未通过
     feedback-request 建单时，于反馈中心创建一张「跟踪单」（状态 pending_verification），
-    记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id)。
+    记录处理动作与提交哈希，供管理员验证后手动关闭。返回 (reply, track_id, s_ticket)。
 
     该逻辑不依赖模型是否「主动」输出反馈块，而是由仓库状态客观判定，从而在结构上
     保证「AI 处理新特性或问题」必有反馈中心单跟踪——即使模型漏提反馈块也不会漏单。
     git_clean 标记本回合结束后仓库是否干净（见 _verify_and_report_clean），一并写入
     跟踪单 extra，便于管理员验证时核对。
+
+    反馈单留言（均「自动助手」身份）：把一次处理拆成多条留言，而非一条大段——
+    - 首条留言 = 分析定位（问题根因，来自阶段3的 analysis）；
+    - 后续留言 = 解决说明（AI 实际做了什么/修复内容，来自阶段4的 resolution）。
+    这样反馈中心里能看到 AI 的「分析 → 解决」完整处理记录，而非只有一句话概括。
     """
     repo = _project_root()
     head_after = _git_rev_head(repo)
     # 仅在确有新提交（HEAD 变化）时视为「处理了一个新特性/问题」
     if not head_after or head_after == head_before:
-        return reply, None
+        return reply, None, None
     # 本回合已通过反馈块建单，则不再重复建跟踪单
     if filed_id:
-        return reply, None
+        return reply, None, '已在反馈中心提交反馈单（本回合用户反馈路径）'
     # 标题=对问题的概括（结构性提炼，不照抄原始诉求）；
     # 内容=问题描述（用户诉求原文）；
-    # 留言（comment）= AI 实际做了什么/修复内容（来自本次回复）。
+    # 留言=分析根因（首条）+ 解决说明（后续），均为「自动助手」身份。
     title = _make_ticket_title(prompt)
     content = (prompt or '').strip() or '(无问题描述)'
-    # 处理说明：以「自动助手」身份写入首条留言，承载 AI 的修复/处理动作。
-    # 去掉末尾追加的「已创建跟踪单」提示，避免留言里出现自引用。
-    action_note = ('\n\n📋 已创建处理跟踪单' in (reply or ''))
-    comment_src = (reply or '').strip()
-    if action_note:
-        comment_src = comment_src.split('\n\n📋 已创建处理跟踪单')[0].strip()
-    if len(comment_src) > 4000:
-        comment_src = comment_src[:4000] + '…（已截断）'
+    # 分析留言（根因），去重自引用提示。
+    analysis_txt = (analysis or '').strip()
+    # 解决说明留言，剔除末尾自动追加的「已创建跟踪单 / 处理已完成」提示，避免自引用。
+    resolution_txt = (resolution or '').strip()
+    # 执行阶段若未产出正文，reply 会被置为占位提示，不应作为「解决说明」落库成噪声留言。
+    if resolution_txt == _EXEC_PLACEHOLDER:
+        resolution_txt = ''
+    for marker in ('\n\n📋 已创建处理跟踪单', '（⚠️ 处理已完成', '⚠️ 处理已完成'):
+        if marker in resolution_txt:
+            resolution_txt = resolution_txt.split(marker)[0].strip()
+    if len(resolution_txt) > 4000:
+        resolution_txt = resolution_txt[:4000] + '…（已截断）'
+    # 首条留言优先取分析根因；若无分析则退而取解决说明作为首条。
+    first_comment = analysis_txt or None
+    extra_comments = []
+    if resolution_txt:
+        extra_comments.append(resolution_txt)
+    if not first_comment and extra_comments:
+        first_comment = extra_comments.pop(0)
     # 反馈中心类型复用意图判定：缺陷 -> bug，建议 -> suggestion，其余 -> other。
     ftype = {'defect': 'bug', 'suggestion': 'suggestion'}.get(intent, _classify_work_category(prompt))
     extra = {'git_commit': head_after, 'task_id': task_id,
              'owner_id': owner_id, 'track': True, 'git_clean': git_clean}
     track_id = _file_feedback(
         ftype, title, content,
-        extra=extra, status='pending_verification', comment=comment_src)
+        extra=extra, status='pending_verification',
+        comment=first_comment, comments=extra_comments or None)
     if track_id:
-        note = '\n\n📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
-        reply = (reply or '') + note
+        s_ticket = '📋 已创建处理跟踪单：#%s（状态：待验证，可在反馈中心查看）' % track_id
     else:
         # file_feedback 已对「主服务暂不可达」做本地 spool 兜底，待其恢复后自动补建；
         # 此处仅做透明提示，避免用户误以为处理丢失。
-        reply = (reply or '') + '\n\n（⚠️ 处理已完成，已尝试在反馈中心建立跟踪单；'
-        '若主服务暂不可达，将自动重试建单，稍后可在反馈中心查看。）'
-    return reply, track_id
+        s_ticket = '（⚠️ 处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
+    return reply, track_id, s_ticket
 
 
 # 对话系统约束：本助手具备真实执行能力，要求直接动手而非只描述。
@@ -1031,8 +1076,9 @@ class AIChatManager:
             self._build_prompt(task['prompt'], intent=intent, phase='analyze'), 40)
         if cancelled:
             return
-        analysis = reply or '（分析阶段无文本输出）'
-        end(ci, body=analysis, conclusion='AI 已完成分析定位')
+        analysis = reply  # 阶段3 原始分析正文，可能为空
+        end(ci, body=(analysis or '（分析阶段无文本输出）'),
+            conclusion='AI 已完成分析定位')
 
         # ---- 阶段 4：AI 执行处理（修改与验证）----
         ci, reply, cancelled = _cli('AI 执行处理（修改与验证）',
@@ -1058,15 +1104,33 @@ class AIChatManager:
         head_after = _git_rev_head(repo)
         if head_after and head_after != head_before and not filed_id:
             idx = begin('创建处理跟踪单（待验证）', 'host')
-            reply, track_id = _maybe_create_tracking_ticket(
-                task_id, task['prompt'], task.get('owner_id'),
-                reply, filed_id, head_before, git_clean=git_clean, intent=intent)
-            if track_id:
-                s_ticket = None  # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply
-            elif filed_id:
-                s_ticket = '已在反馈中心提交反馈单（本回合用户反馈路径）'
+            ref_id = _extract_ref_issue(task['prompt'])
+            if ref_id:
+                # 用户引用了既有反馈单：把分析/解决以「自动助手」身份回复进该单，
+                # 而非另建一张跟踪单（满足「在反馈单中回复」的诉求）。
+                a_txt = (analysis or '').strip()
+                r_txt = (reply or '').strip()
+                if a_txt == '（分析阶段无文本输出）':
+                    a_txt = ''
+                if r_txt.startswith('（任务已执行完成'):
+                    r_txt = ''
+                ok_a = _add_feedback_comment(ref_id, a_txt) if a_txt else True
+                ok_r = _add_feedback_comment(ref_id, r_txt) if r_txt else True
+                track_id = ref_id
+                if ok_a and ok_r:
+                    s_ticket = '已在反馈单 #%s 中以「自动助手」身份回复了分析与解决说明' % ref_id
+                else:
+                    s_ticket = ('（已尝试在反馈单 #%s 中回复分析与解决，'
+                                '但反馈中心暂不可达，将自动重试）' % ref_id)
             else:
-                s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
+                reply, track_id = _maybe_create_tracking_ticket(
+                    task_id, task['prompt'], task.get('owner_id'),
+                    reply, filed_id, head_before, git_clean=git_clean, intent=intent,
+                    analysis=analysis, resolution=reply)
+                if track_id:
+                    s_ticket = None  # 跟踪单提示已由 _maybe_create_tracking_ticket 追加进 reply
+                else:
+                    s_ticket = '（处理已完成，已尝试在反馈中心建立跟踪单；若主服务暂不可达将自动重试建单）'
             end(idx, conclusion=s_ticket)
 
         self._finish_completed(task_id)

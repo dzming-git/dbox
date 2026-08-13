@@ -258,9 +258,26 @@ def feedback():
     status = data.get('status', 'open')
     extra = data.get('extra') or None
     comment = data.get('comment') or None
+    comments = data.get('comments') or None
     issue_id = db_create_issue(
         title=title, content=content, category=ftype,
         submitter='自动助手', source='ai_assistant', auto_classified=True,
-        status=status, extra=extra, comment=comment,
+        status=status, extra=extra, comment=comment, comments=comments,
     )
     return jsonify({'success': True, 'issue_id': issue_id})
+
+
+@internal_bp.route('/internal/feedback/comment', methods=['POST'])
+def feedback_comment():
+    """向已有反馈单追加一条「自动助手」身份留言（AI 的分析/解决说明）。"""
+    from backend.feedback_db import db_append_comment, init_feedback_db
+    init_feedback_db()
+    data = request.get_json(force=True, silent=True) or {}
+    issue_id = data.get('issue_id')
+    content = (data.get('content') or '').strip()
+    if not issue_id or not content:
+        return jsonify({'success': False, 'message': 'issue_id 与 content 必填'}), 400
+    ok = db_append_comment(issue_id, '自动助手', 2, content)
+    if not ok:
+        return jsonify({'success': False, 'message': '反馈单不存在或写入失败'}), 404
+    return jsonify({'success': True})

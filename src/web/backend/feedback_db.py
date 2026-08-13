@@ -370,7 +370,7 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
                     submitter: str = '游客', source: str = 'web',
                     auto_classified: bool = False, classification: str = None,
                     status: str = 'open', extra: dict = None,
-                    comment: str = None) -> str:
+                    comment: str = None, comments: list = None) -> str:
     """创建一条反馈，返回新单号（yyyymmdd+4 位）。
 
     线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
@@ -415,6 +415,16 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
             content=comment.strip(),
             created_at=now,
         ))
+    # 额外的「自动助手」身份留言（如分析根因、解决说明），按序追加，使反馈单
+    # 形成完整的「标题=概括、内容=问题描述、留言=分析+解决」处理记录。
+    for c in (comments or []):
+        if c and str(c).strip():
+            issue.comments.append(FeedbackComment(
+                author='自动助手',
+                author_role=2,
+                content=str(c).strip(),
+                created_at=now,
+            ))
     with get_session() as session:
         session.add(issue)
         session.commit()

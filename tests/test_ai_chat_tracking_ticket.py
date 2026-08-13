@@ -36,24 +36,25 @@ def test_make_ticket_title_summarizes():
 
 
 def test_tracking_ticket_structure_mocked():
-    """不落库：确认 _maybe_create_tracking_ticket 把标题/内容/留言正确传给建单接口。"""
+    """不落库：确认 _maybe_create_tracking_ticket 把分析/解决作为自动助手留言传给建单接口。"""
     captured = {}
 
-    def fake_file_feedback(ftype, title, content, extra=None, status='open', comment=None):
+    def fake_file_feedback(ftype, title, content, extra=None, status='open',
+                           comment=None, comments=None):
         captured['call'] = dict(ftype=ftype, title=title, content=content,
-                                extra=extra, status=status, comment=comment)
+                                extra=extra, status=status, comment=comment,
+                                comments=comments)
         return '202608130001'
 
     prompt = '你来解决这个问题：稍后再看里有个很早的视频删了无数次还反复出现'
-    reply = ('已完成修复并提交 git。\n'
-             '## 问题根因\n硬删除 + 列表按可见性隐藏导致复活。\n'
-             '## 修复内容\n改为服务端软删除。')
+    analysis = ('## 分析\n硬删除 + 列表按可见性隐藏，导致「稍后再看」里的视频被重新列出。')
+    resolution = ('## 修复\n改为服务端软删除，并在列表查询中排除软删除项。')
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
          mock.patch.object(ac, '_git_rev_head', return_value='newcommit123'):
         out_reply, track_id = ac._maybe_create_tracking_ticket(
-            'task-1', prompt, 'owner-1', reply, None, head_before='oldcommit',
-            git_clean=True)
+            'task-1', prompt, 'owner-1', resolution, None, head_before='oldcommit',
+            git_clean=True, analysis=analysis, resolution=resolution)
 
     assert track_id == '202608130001'
     call = captured['call']
@@ -62,8 +63,9 @@ def test_tracking_ticket_structure_mocked():
     assert call['title'] == '稍后再看里有个很早的视频删了无数次还反复出现'
     # 内容=问题描述（用户诉求原文）
     assert call['content'] == prompt
-    # 留言=AI 的处理动作（来自回复），且以自动助手身份写入
-    assert call['comment'] == reply
+    # 留言1（首条）= 分析根因；留言2（后续）= 解决说明；均为「自动助手」身份
+    assert call['comment'] == analysis
+    assert call['comments'] == [resolution]
     assert call['status'] == 'pending_verification'
     assert call['extra']['git_commit'] == 'newcommit123'
     assert call['extra']['git_clean'] is True
@@ -72,7 +74,7 @@ def test_tracking_ticket_structure_mocked():
 
 
 def test_tracking_ticket_writes_comment_to_db():
-    """落库：确认建单后 feedback_comments 存在一条「自动助手」留言，内容为 AI 的处理动作。"""
+    """落库：确认建单后反馈单含「分析 + 解决」两条「自动助手」身份留言。"""
     tmp = tempfile.mkdtemp()
     os.environ['DBOX_DATA_DIR'] = tmp
     import feedback_db
@@ -81,23 +83,26 @@ def test_tracking_ticket_writes_comment_to_db():
 
     captured = {}
 
-    def fake_file_feedback(ftype, title, content, extra=None, status='open', comment=None):
+    def fake_file_feedback(ftype, title, content, extra=None, status='open',
+                           comment=None, comments=None):
         # 模拟主服务内部接口：直接落库（含留言）
-        captured['call'] = dict(title=title, content=content, comment=comment, status=status)
+        captured['call'] = dict(title=title, content=content, comment=comment,
+                                comments=comments, status=status)
         issue_id = feedback_db.db_create_issue(
             title=title, content=content, category=ftype,
             submitter='自动助手', source='ai_assistant', auto_classified=True,
-            status=status, extra=extra, comment=comment)
+            status=status, extra=extra, comment=comment, comments=comments)
         return issue_id
 
     prompt = '反馈中心自动建单逻辑有问题，标题应该是概括'
-    reply = '已修复：标题改为概括、内容改为问题描述、处理动作写入留言。'
+    analysis = '分析：建单时漏传 analysis/resolution，导致分析根因未写入留言。'
+    resolution = '解决：调用处补传 analysis=analysis, resolution=reply。'
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
          mock.patch.object(ac, '_git_rev_head', return_value='commitabc'):
         out_reply, track_id = ac._maybe_create_tracking_ticket(
-            'task-2', prompt, 'owner-2', reply, None, head_before='commitold',
-            git_clean=True)
+            'task-2', prompt, 'owner-2', resolution, None, head_before='commitold',
+            git_clean=True, analysis=analysis, resolution=resolution)
 
     assert track_id
     # 在 session 内读取，避免 detached 懒加载报错
@@ -109,13 +114,87 @@ def test_tracking_ticket_writes_comment_to_db():
         assert issue.title == '反馈中心自动建单逻辑有问题，标题应该是概括'
         assert issue.content == prompt                  # 问题描述
         comments = list(issue.comments)                 # 触发懒加载并物化
-    assert len(comments) == 1
-    c = comments[0]
-    assert c.author == '自动助手'
-    assert c.author_role == 2
-    assert c.content == reply                          # 留言=AI 的处理动作
+    assert len(comments) == 2
+    # 首条=分析根因，次条=解决说明
+    assert comments[0].content == analysis
+    assert comments[1].content == resolution
+    for c in comments:
+        assert c.author == '自动助手'
+        assert c.author_role == 2
     # 清理临时库
     try:
         os.remove(feedback_db.FEEDBACK_DB_PATH)
     except Exception:
         pass
+
+
+def test_extract_ref_issue():
+    """从用户消息里提取被引用的既有反馈单号（形如 #202608130018）。"""
+    assert ac._extract_ref_issue('继续处理 #202608130018 这个单') == '202608130018'
+    assert ac._extract_ref_issue('请看一下反馈 #202608120001') == '202608120001'
+    assert ac._extract_ref_issue('正常任务没有单号') is None
+    assert ac._extract_ref_issue('#12345') is None          # 不足 12 位不算单号
+    assert ac._extract_ref_issue('') is None
+
+
+def test_add_feedback_comment_to_existing_ticket():
+    """引用既有单时：分析/解决应以自动助手身份追加进该单（而非另建跟踪单）。"""
+    calls = []
+
+    def fake_add(issue_id, content):
+        calls.append((issue_id, content))
+        return True
+
+    with mock.patch.object(pc, 'add_feedback_comment', fake_add):
+        assert ac._add_feedback_comment('202608130018', '分析：根因是 X') is True
+        assert ac._add_feedback_comment('202608130018', '   ') is False  # 空内容不落库
+    assert calls == [('202608130018', '分析：根因是 X')]
+
+
+def test_process_replies_to_referenced_ticket():
+    """用户引用既有反馈单时，阶段6 把分析/解决以自动助手身份回复进该单。"""
+    import queue as _queue
+    import tempfile as _tf
+    import uuid as _uuid
+
+    class _FakeProc:
+        def __init__(self):
+            import io
+            self.stdin = io.BytesIO()
+            self.stdout = io.BytesIO('已处理完成\n'.encode('utf-8'))
+            self.stderr = io.BytesIO(b'')
+            self.returncode = 0
+            self.pid = 1
+        def poll(self):
+            return 0
+        def wait(self, timeout=None):
+            return 0
+        def kill(self):
+            pass
+        def communicate(self, *a, **k):
+            return b'', b''
+
+    mgr = ac.AIChatManager()
+    mgr.init(_tf.mkdtemp())
+    captured = []
+    def fake_add(issue_id, content):
+        captured.append(content)
+        return True
+
+    with mock.patch.object(ac.subprocess, 'Popen', lambda *a, **k: _FakeProc()), \
+         mock.patch.object(ac, '_resolve_buddy_cli', lambda: 'codebuddy'), \
+         mock.patch.object(ac, '_git_rev_head', side_effect=['oldc', 'newc']), \
+         mock.patch.object(ac, '_add_feedback_comment', fake_add):
+        tid = 'ai_' + _uuid.uuid4().hex[:16]
+        mgr._insert_task(tid, '继续处理一下 #202608130018 这个反馈单', None,
+                         ac.AIChatManager.STATUS_PENDING)
+        q = _queue.Queue()
+        with mgr._lock:
+            mgr._subscribers[tid] = [q]
+        mgr._process(tid)
+
+    assert captured, '应把分析与解决回复进被引用的反馈单'
+    # 阶段3 分析 + 阶段4 执行各产生一条回复（fake 正文相同）
+    assert len(captured) == 2
+    assert mgr.get_task(tid)['status'] == ac.AIChatManager.STATUS_COMPLETED
+
