@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, reactive, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, reactive, onActivated, onDeactivated, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
@@ -293,13 +293,15 @@ const portraitHandleDislike = async () => {
   showToast(isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽')
 }
 
-// 竖屏视频源 URL：优先 portraitVideo.url，fallback 到详情页 videoUrl（同一视频时复用）
+// 竖屏视频源 URL：优先 portraitVideo.url，fallback 到详情页 video.url（同一视频时复用）
 const portraitVideoUrl = computed(() => {
   // 优先使用竖屏视频自己的 url
-  const url = portraitVideo.value?.url || ''
+  const url = portraitVideo.value?.url || (portraitHash.value === videoHash.value ? video.value?.url : '') || ''
   if (url) {
     const token = localStorage.getItem('token')
-    return token ? `${url}?token=${token}` : url
+    // 相对路径转绝对路径，避免 iOS 上父级代理路径解析错误
+    const abs = url.startsWith('http') ? url : `${location.origin}${url.startsWith('/') ? '' : '/'}${url}`
+    return token ? `${abs}${abs.includes('?') ? '&' : '?'}${token ? `token=${token}` : ''}` : abs
   }
   // fallback: 若竖屏视频就是当前详情页视频，复用 videoUrl
   if (portraitHash.value === videoHash.value) {
@@ -2000,6 +2002,19 @@ const handleDelete = async () => {
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
+            <!-- PC 端竖屏全屏入口（移动端用底部控制栏的按钮） -->
+            <button
+              v-if="!isMobile"
+              class="portrait-entry-pc"
+              @click.stop="enterPortraitMode"
+              title="竖屏全屏"
+              aria-label="竖屏全屏"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="7" y="2" width="10" height="20" rx="2" />
+                <line x1="11" y1="18" x2="13" y2="18" />
+              </svg>
+            </button>
             <!-- 精彩片段标记进度条 -->
             <div class="marker-track" v-if="markerTrack.length" @click.stop>
               <div
@@ -2113,91 +2128,94 @@ const handleDelete = async () => {
           </div>
         </div>
 
-        <!-- 竖屏全屏短视频模式（抖音式沉浸播放）-->
-        <div class="portrait-mode" v-if="playMode === 'portrait'" @click="onPortraitTap">
-          <!-- 视频层 -->
-          <video
-            ref="portraitPlayer"
-            :src="portraitVideoUrl"
-            class="portrait-video"
-            playsinline
-            webkit-playsinline
-            x5-playsinline
-            x5-video-player-type="h5-page"
-            @ended="onPortraitEnded"
-            @click.stop
-          ></video>
+        <!-- 竖屏全屏短视频模式（抖音式沉浸播放），Teleport 到 body 避免父级 overflow 裁剪 -->
+        <Teleport to="body">
+          <div class="portrait-mode" v-if="playMode === 'portrait'" @click="onPortraitTap">
+            <!-- 视频层 -->
+            <video
+              ref="portraitPlayer"
+              :src="portraitVideoUrl"
+              class="portrait-video"
+              autoplay
+              playsinline
+              webkit-playsinline
+              x5-playsinline
+              x5-video-player-type="h5-page"
+              @ended="onPortraitEnded"
+              @click.stop
+            ></video>
 
-          <!-- 滑动手势层：纵向滑动切换视频 -->
-          <div
-            class="portrait-gesture"
-            @touchstart="onPortraitTouchStart"
-            @touchmove.prevent="onPortraitTouchMove"
-            @touchend="onPortraitTouchEnd"
-          ></div>
+            <!-- 滑动手势层：纵向滑动切换视频 -->
+            <div
+              class="portrait-gesture"
+              @touchstart="onPortraitTouchStart"
+              @touchmove.prevent="onPortraitTouchMove"
+              @touchend="onPortraitTouchEnd"
+            ></div>
 
-          <!-- 双击爱心动画 -->
-          <transition name="heart-pop">
-            <div v-if="showPortraitDoubleLike" class="portrait-heart">
-              <svg width="80" height="80" viewBox="0 0 24 24" fill="#ff2d55">
-                <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
-              </svg>
+            <!-- 双击爱心动画 -->
+            <transition name="heart-pop">
+              <div v-if="showPortraitDoubleLike" class="portrait-heart">
+                <svg width="80" height="80" viewBox="0 0 24 24" fill="#ff2d55">
+                  <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
+                </svg>
+              </div>
+            </transition>
+
+            <!-- 右上角：退出 / 横屏全屏 / 详情 -->
+            <div class="portrait-top">
+              <button class="portrait-top-btn" @click.stop="exitPortraitMode" aria-label="退出竖屏">✕</button>
+              <button class="portrait-top-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </button>
+              <button class="portrait-top-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                </svg>
+              </button>
             </div>
-          </transition>
 
-          <!-- 右上角：退出 / 横屏全屏 / 详情 -->
-          <div class="portrait-top">
-            <button class="portrait-top-btn" @click.stop="exitPortraitMode" aria-label="退出竖屏">✕</button>
-            <button class="portrait-top-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+            <!-- 右侧竖排操作栏：点赞 / 收藏 -->
+            <div class="portrait-actions">
+              <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
+                <svg width="28" height="28" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
+                  <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
+                </svg>
+                <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
+              </button>
+              <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
+                <svg width="28" height="28" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
+                  <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
+                </svg>
+                <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
+              </button>
+            </div>
+
+            <!-- 左下角：不喜欢 -->
+            <button class="portrait-dislike" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike" aria-label="不喜欢">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="8" y1="8" x2="16" y2="16" />
+                <line x1="16" y1="8" x2="8" y2="16" />
               </svg>
+              <span>不喜欢</span>
             </button>
-            <button class="portrait-top-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <line x1="3" y1="9" x2="21" y2="9" />
-              </svg>
-            </button>
-          </div>
 
-          <!-- 右侧竖排操作栏：点赞 / 收藏 -->
-          <div class="portrait-actions">
-            <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
-              <svg width="28" height="28" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
-                <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
-              </svg>
-              <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
-            </button>
-            <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
-              <svg width="28" height="28" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
-                <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
-              </svg>
-              <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
-            </button>
-          </div>
+            <!-- 底部视频信息 -->
+            <div class="portrait-info" @click.stop>
+              <div class="portrait-title">{{ portraitVideo?.title || video.title }}</div>
+              <div class="portrait-meta" v-if="portraitVideo?.file_name">{{ portraitVideo.file_name }}</div>
+            </div>
 
-          <!-- 左下角：不喜欢 -->
-          <button class="portrait-dislike" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike" aria-label="不喜欢">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="9" />
-              <line x1="8" y1="8" x2="16" y2="16" />
-              <line x1="16" y1="8" x2="8" y2="16" />
-            </svg>
-            <span>不喜欢</span>
-          </button>
-
-          <!-- 底部视频信息 -->
-          <div class="portrait-info" @click.stop>
-            <div class="portrait-title">{{ portraitVideo?.title || video.title }}</div>
-            <div class="portrait-meta" v-if="portraitVideo?.file_name">{{ portraitVideo.file_name }}</div>
+            <!-- 加载指示 -->
+            <div v-if="portraitLoading" class="portrait-loading">
+              <div class="buffering-spinner"></div>
+            </div>
           </div>
-
-          <!-- 加载指示 -->
-          <div v-if="portraitLoading" class="portrait-loading">
-            <div class="buffering-spinner"></div>
-          </div>
-        </div>
+        </Teleport>
 
         <!-- 合集连播导航条 -->
         <div class="collection-nav" v-if="inCollection">
@@ -3156,6 +3174,29 @@ const handleDelete = async () => {
   background: #000;
   isolation: isolate;
   z-index: 1;
+}
+
+/* PC 端竖屏全屏入口按钮 */
+.portrait-entry-pc {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
+}
+.portrait-entry-pc:hover {
+  background: rgba(0, 0, 0, 0.75);
 }
 
 /* 全屏时铺满整个屏幕 */
