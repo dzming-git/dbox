@@ -1006,7 +1006,14 @@ onMounted(async () => {
   // 先检查是否是共享链接访问
   await checkSharedLink()
   await loadVideo()
-  initPlayMode()
+  // 刷新或深链直接进入竖屏（URL 带 ?mode=portrait）时，需真正装配三格视频，
+  // 否则 portraitSlots 为空、只有黑底空壳、视频不可见。
+  // 注意：enterPortraitMode 依赖 video.value 已就绪（上面 loadVideo 已完成）。
+  if (route.query.mode === 'portrait') {
+    enterPortraitMode()
+  } else {
+    initPlayMode()
+  }
   document.addEventListener('click', onDocClickCloseMenu)
   updateMobileState()
   updateFullscreenState()
@@ -1022,6 +1029,12 @@ watch(() => route.query.mode, (m) => {
     feedIndex.value = 0
     portraitVideo.value = video.value
     syncPortraitInteractions()
+    // 若三格尚未装配（非按钮触发、而是 query 直接变为 portrait 的路径），补齐装配，
+    // 否则同样会只剩黑底空壳。enterPortraitMode 内已把 playMode 置为 portrait，
+    // 二次触发本 watch 时因 playMode 已为 portrait 而跳过，不会死循环。
+    if (portraitSlots.value.length < 3 && video.value) {
+      enterPortraitMode()
+    }
   }
   playMode.value = target
 })
