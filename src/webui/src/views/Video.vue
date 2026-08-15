@@ -534,8 +534,9 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
   }
 }
 
-// 竖屏双击点赞
+// 竖屏双击点赞 + 单击暂停（延迟单击避免与双击冲突）
 const portraitLastTap = ref(0)
+let portraitTapTimer: number | null = null
 const onPortraitTap = () => {
   // 点击视频区域时收起「更多」菜单
   if (portraitMoreOpen.value) {
@@ -544,14 +545,61 @@ const onPortraitTap = () => {
   }
   const now = Date.now()
   if (now - portraitLastTap.value < 300) {
+    // 双击：点赞
     portraitLastTap.value = 0
+    if (portraitTapTimer) { clearTimeout(portraitTapTimer); portraitTapTimer = null }
     if (!isLiked.value) handleLike()
     showPortraitDoubleLike.value = true
     if (doubleLikeTimer) clearTimeout(doubleLikeTimer)
     doubleLikeTimer = window.setTimeout(() => { showPortraitDoubleLike.value = false }, 700)
   } else {
     portraitLastTap.value = now
+    // 延迟执行单击动作（暂停/播放），避免把双击的第一下误判为暂停
+    if (portraitTapTimer) clearTimeout(portraitTapTimer)
+    portraitTapTimer = window.setTimeout(() => {
+      togglePortraitPlay()
+      portraitTapTimer = null
+    }, 300)
   }
+}
+
+// 竖屏播放控制：播放状态 + 进度条
+const portraitPlaying = ref(true)
+const portraitCurrentTime = ref(0)
+const portraitDuration = ref(0)
+const togglePortraitPlay = () => {
+  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+  if (!v) return
+  if (v.paused) v.play().catch(() => {})
+  else v.pause()
+}
+const onPortraitPlay = () => { portraitPlaying.value = true }
+const onPortraitPause = () => { portraitPlaying.value = false }
+const onPortraitTimeUpdate = () => {
+  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+  if (!v) return
+  portraitCurrentTime.value = v.currentTime
+  if (v.duration && !isNaN(v.duration)) portraitDuration.value = v.duration
+}
+const onPortraitMeta = () => {
+  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+  if (!v) return
+  if (v.duration && !isNaN(v.duration)) portraitDuration.value = v.duration
+}
+
+// 竖屏进度条拖动/点击跳转
+const portraitProgressRef = ref<HTMLElement | null>(null)
+const seekFromPortraitBar = (e: MouseEvent | TouchEvent) => {
+  const bar = portraitProgressRef.value
+  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+  if (!bar || !v) return
+  const rect = bar.getBoundingClientRect()
+  const clientX = 'touches' in e ? (e as TouchEvent).touches[0]?.clientX : (e as MouseEvent).clientX
+  if (clientX == null) return
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  const dur = Number(v.duration) || portraitDuration.value
+  v.currentTime = ratio * dur
+  portraitCurrentTime.value = ratio * dur
 }
 
 // 竖屏内点赞/收藏/不喜欢：直接基于竖屏当前视频 hash 调后端，同步本地状态
@@ -2482,7 +2530,12 @@ const handleDelete = async () => {
                   @ended="() => { if (i === 1) onPortraitEnded() }"
                   @waiting="() => { if (i === 1) portraitBuffering = true }"
                   @playing="() => { if (i === 1) portraitBuffering = false }"
-                  @click.stop
+                  @play="() => { if (i === 1) onPortraitPlay() }"
+                  @pause="() => { if (i === 1) onPortraitPause() }"
+                  @timeupdate="() => { if (i === 1) onPortraitTimeUpdate() }"
+                  @loadedmetadata="() => { if (i === 1) onPortraitMeta() }"
+                  @durationchange="() => { if (i === 1) onPortraitMeta() }"
+                  @click.stop="onPortraitTap"
                 ></video>
                 <!-- 标题信息贴在每格底部，随轨道一起平移（滑动时标题跟着视频走） -->
                 <div class="portrait-item-info" v-if="item.title">
@@ -2563,6 +2616,21 @@ const handleDelete = async () => {
                   <line x1="3" y1="9" x2="21" y2="9" />
                 </svg>
               </button>
+            </div>
+
+            <!-- 底部进度条（可点击/拖动跳转，避开右侧操作栏与底部标题） -->
+            <div
+              class="portrait-progress"
+              ref="portraitProgressRef"
+              @touchstart.stop.prevent="seekFromPortraitBar($event)"
+              @touchmove.stop.prevent="seekFromPortraitBar($event)"
+              @click.stop="seekFromPortraitBar($event)"
+            >
+              <div class="pp-track">
+                <div class="pp-played" :style="{ width: (portraitDuration ? (portraitCurrentTime / portraitDuration) * 100 : 0) + '%' }"></div>
+                <div class="pp-thumb" :style="{ left: (portraitDuration ? (portraitCurrentTime / portraitDuration) * 100 : 0) + '%' }"></div>
+              </div>
+              <div class="pp-time">{{ formatTime(portraitCurrentTime) }} / {{ formatTime(portraitDuration) }}</div>
             </div>
 
             <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
@@ -3802,6 +3870,46 @@ const handleDelete = async () => {
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
+}
+/* 底部进度条：固定层，避开右侧操作栏与底部标题信息 */
+.portrait-progress {
+  position: absolute;
+  left: 14px;
+  right: 72px;
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
+  z-index: 11;
+  padding: 10px 0;
+}
+.pp-track {
+  position: relative;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+}
+.pp-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: #ff2d55;
+  border-radius: 3px;
+}
+.pp-thumb {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.pp-time {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  text-align: center;
 }
 .portrait-title {
   font-size: 15px;
