@@ -60,6 +60,10 @@ const updateMobileState = () => {
 }
 const updateFullscreenState = () => {
   isFullscreen.value = !!document.fullscreenElement
+  // 退出全屏时清除竖屏横屏标记（竖屏模式本身保持存活）
+  if (!isFullscreen.value) {
+    portraitLandscapeActive.value = false
+  }
 }
 const togglePlay = () => {
   const p = videoPlayer.value
@@ -87,6 +91,8 @@ const feedIndex = ref(0) // 当前播放位置
 const portraitHash = computed(() => feedList.value[feedIndex.value] || videoHash.value)
 const showPortraitDoubleLike = ref(false) // 双击爱心动画
 let doubleLikeTimer: number | null = null
+// 从竖屏进入横屏原生全屏的标记：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
+const portraitLandscapeActive = ref(false)
 
 // 跟手滑动轨道状态
 const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
@@ -206,14 +212,19 @@ const openDetailFromPortrait = () => {
   router.push({ name: 'Video', params: { hash: portraitHash.value }, query: q })
 }
 
-// 竖屏模式下请求横屏全屏（原生全屏）
+// 竖屏模式下请求横屏全屏（原生全屏）：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
 const enterLandscapeFromPortrait = () => {
-  playMode.value = 'normal'
-  const q = { ...route.query }
-  delete q.mode
-  router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: q })
+  portraitLandscapeActive.value = true
+  // 保留 mode=portrait，不切到 normal 模式，避免竖屏 UI 被销毁
+  router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
-    toggleFullscreen()
+    // 对当前竖屏槽位的 video 元素请求原生全屏
+    const el = slotPlayers.value[PORTRAIT_CUR_SLOT]
+    if (el && el.requestFullscreen) {
+      el.requestFullscreen().catch(() => { portraitLandscapeActive.value = false })
+    } else {
+      toggleFullscreen()
+    }
   })
 }
 
