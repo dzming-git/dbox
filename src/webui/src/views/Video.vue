@@ -2475,7 +2475,7 @@ const handleDelete = async () => {
                 </div>
                 <button class="mc-btn" @click.stop="toggleFullscreen" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
                   <svg v-if="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                <!-- removed -->
                   </svg>
                   <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" />
@@ -2543,24 +2543,6 @@ const handleDelete = async () => {
                   @durationchange="() => onPortraitMeta(i)"
                   @click.stop="onPortraitTap"
                 ></video>
-                <!-- 标题信息贴在每格底部，随轨道一起平移（滑动时标题跟着视频走） -->
-                <div class="portrait-item-info" v-if="item.title">
-                  <div class="portrait-title">{{ item.title }}</div>
-                  <div class="portrait-meta" v-if="item.file_name">{{ item.file_name }}</div>
-                </div>
-                <!-- 进度条贴在每格底部，随轨道一起平移（滑动时进度条跟着视频走） -->
-                <div
-                  class="portrait-progress"
-                  @touchstart.stop.prevent="seekFromPortraitBar($event, i)"
-                  @touchmove.stop.prevent="seekFromPortraitBar($event, i)"
-                  @click.stop="seekFromPortraitBar($event, i)"
-                >
-                  <div class="pp-track">
-                    <div class="pp-played" :style="{ width: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
-                    <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
-                  </div>
-                  <div class="pp-time">{{ formatTime(portraitSlotTimes[i]?.current || 0) }} / {{ formatTime(portraitSlotTimes[i]?.duration || 0) }}</div>
-                </div>
               </div>
             </div>
 
@@ -2622,19 +2604,51 @@ const handleDelete = async () => {
               </button>
             </div>
 
-            <!-- 右下角：全屏 / 详情 -->
-            <div class="portrait-corner-actions">
-              <button class="portrait-corner-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 0 0 1 2 2v3M8 21H5a2 0 0 1-2-2v-3M16 21h3a2 0 0 0 2-2v-3" />
-                </svg>
-              </button>
-              <button class="portrait-corner-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <line x1="3" y1="9" x2="21" y2="9" />
-                </svg>
-              </button>
+            <!-- 底部控制栏：标题(倒数第三行) / 进度条(倒数第二行) / 按钮(最下一行)，贯穿左右；右侧竖排点赞收藏由 portrait-actions 承接 -->
+            <div class="portrait-bottom-bar">
+              <!-- 倒数第三行：标题栏（贯穿左右） -->
+              <div class="pb-title">
+                <span class="pb-title-text">{{ portraitSlots[1]?.title }}</span>
+                <span class="pb-meta" v-if="portraitSlots[1]?.file_name">{{ portraitSlots[1]?.file_name }}</span>
+              </div>
+              <!-- 倒数第二行：进度条（贯穿左右，可拖动跳转） -->
+              <div
+                class="pb-progress"
+                @touchstart.stop.prevent="seekFromPortraitBar($event, 1)"
+                @touchmove.stop.prevent="seekFromPortraitBar($event, 1)"
+                @click.stop="seekFromPortraitBar($event, 1)"
+              >
+                <div class="pp-track">
+                  <div class="pp-played" :style="{ width: ((portraitSlotTimes[1]?.duration || 0) ? (portraitSlotTimes[1].current / portraitSlotTimes[1].duration) * 100 : 0) + '%' }"></div>
+                  <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[1]?.duration || 0) ? (portraitSlotTimes[1].current / portraitSlotTimes[1].duration) * 100 : 0) + '%' }"></div>
+                </div>
+                <div class="pp-time">{{ formatTime(portraitSlotTimes[1]?.current || 0) }} / {{ formatTime(portraitSlotTimes[1]?.duration || 0) }}</div>
+              </div>
+              <!-- 最下一行：左侧播放/暂停，右侧全屏 + 详情 -->
+              <div class="pb-buttons">
+                <button class="pb-btn" @click.stop="togglePortraitPlay" :aria-label="portraitPlaying ? '暂停' : '播放'">
+                  <svg v-if="portraitPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="5" width="4" height="14" rx="1" />
+                    <rect x="14" y="5" width="4" height="14" rx="1" />
+                  </svg>
+                  <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+                <div class="pb-right">
+                  <button class="pb-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                    </svg>
+                  </button>
+                  <button class="pb-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <line x1="3" y1="9" x2="21" y2="9" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
@@ -3746,19 +3760,85 @@ const handleDelete = async () => {
 .portrait-more-item.active {
   color: #cfcfcf;
 }
-/* 右下角操作组：全屏 / 详情（竖排，避免移动端横向溢出被裁剪） */
-.portrait-corner-actions {
+/* 底部控制栏：标题(倒数三行) / 进度(倒数二行) / 按钮(最下一行)，贯穿左右；右侧留位给竖排点赞收藏 */
+.portrait-bottom-bar {
   position: absolute;
-  right: 12px;
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 10;
+  left: 12px;
+  right: 72px;
+  bottom: calc(max(16px, env(safe-area-inset-bottom)));
+  z-index: 12;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  pointer-events: none;
 }
-.portrait-corner-btn {
-  width: 40px;
-  height: 40px;
+.portrait-bottom-bar > * {
+  pointer-events: auto;
+}
+.pb-title {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.pb-title-text {
+  font-weight: 600;
+}
+.pb-meta {
+  display: block;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-progress {
+  width: 100%;
+}
+.pb-progress .pp-track {
+  position: relative;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+}
+.pb-progress .pp-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: #ff2d55;
+  border-radius: 3px;
+}
+.pb-progress .pp-thumb {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.pb-progress .pp-time {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.pb-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pb-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pb-btn {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: none;
   background: rgba(0, 0, 0, 0.45);
@@ -3769,7 +3849,7 @@ const handleDelete = async () => {
   cursor: pointer;
   backdrop-filter: blur(4px);
 }
-.portrait-corner-btn:active {
+.pb-btn:active {
   background: rgba(0, 0, 0, 0.7);
 }
 .portrait-top-btn {
@@ -3793,8 +3873,8 @@ const handleDelete = async () => {
 .portrait-actions {
   position: absolute;
   right: 14px;
-  bottom: 132px;
-  z-index: 10;
+  bottom: 124px;
+  z-index: 13;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -3864,26 +3944,7 @@ const handleDelete = async () => {
 .portrait-back-btn:active {
   background: rgba(0, 0, 0, 0.7);
 }
-/* 每格底部视频信息：随轨道平移，滑动时标题跟着视频走；右侧预留空间避开操作图标 */
-.portrait-item-info {
-  position: absolute;
-  left: 12px;
-  right: 76px;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  z-index: 9;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  pointer-events: none;
-}
-/* 每格底部进度条：位于 portrait-item 内，随轨道一起平移（滑动时进度条跟着视频走），避开右侧操作栏 */
-.portrait-progress {
-  position: absolute;
-  left: 14px;
-  right: 72px;
-  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
-  z-index: 11;
-  padding: 10px 0;
-}
+/* 进度条通用样式（底部控制栏复用） */
 .pp-track {
   position: relative;
   height: 3px;
