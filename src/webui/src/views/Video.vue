@@ -104,6 +104,13 @@ const slotPlayers = ref<(HTMLVideoElement | null)[]>([null, null, null])
 const PORTRAIT_CUR_SLOT = 1
 // 仅在视频真实缓冲时才显示轻量指示（不再整屏转圈）
 const portraitBuffering = ref(false)
+// 空槽位对象
+const EMPTY_SLOT = () => ({ hash: '', title: '', file_name: '', cover: '', url: '' })
+// 防止三格出现相同 hash 导致 :key 冲突（DOM 复用错位 → 黑屏只有声音）
+const slotHashExists = (h: string, exceptIndex = -1): boolean => {
+  if (!h) return false
+  return portraitSlots.value.some((s, idx) => idx !== exceptIndex && s?.hash === h)
+}
 
 // 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
 const portraitTrackY = computed(() => {
@@ -243,7 +250,8 @@ const fetchNextPreview = async () => {
     const response = await (videoApi.getVideos({ limit: 10, sort: 'recommended' }) as any)
     const list: any[] = response?.videos || []
     const curHash = portraitSlots.value[1]?.hash
-    const next = list.find((v) => v.hash !== curHash)
+    // 排除当前与相邻槽已有的 hash，避免三格出现相同 hash 引起 :key 冲突
+    const next = list.find((v) => v.hash !== curHash && !slotHashExists(v.hash))
     if (next) {
       portraitSlots.value[2] = toSlotItem(next)
       // 确保 next 槽元素开始预载（iOS 需显式触发）
@@ -268,6 +276,11 @@ const buildPrevSlotFromHistory = (idx: number) => {
   }
   const h = feedList.value[idx]
   if (!h) return
+  // 该 hash 已在三格中（如等于新当前或下一个），避免 :key 冲突，prev 槽留空
+  if (slotHashExists(h)) {
+    portraitSlots.value[0] = EMPTY_SLOT()
+    return
+  }
   // 历史视频优先用已缓存对象；否则仅记 hash，标题待补全
   const cached = portraitSlots.value.find((s) => s.hash === h)
   if (cached) {
@@ -339,7 +352,10 @@ const loadNextPortraitVideo = async () => {
     // 更新 portraitVideo 指向新 cur，并同步互动
     portraitVideo.value = await resolveVideo(h)
     syncPortraitInteractions()
-    feedList.value.push(h)
+    // 避免重复 hash 追加到 feed 序列（上下交替滑动时会导致三格 hash 冲突）
+    if (h !== feedList.value[feedIndex.value]) {
+      feedList.value.push(h)
+    }
     feedIndex.value = feedList.value.length - 1
     // 立即预取新的下一个（旋转后槽2 已空）
     fetchNextPreview()
@@ -389,6 +405,11 @@ const onPortraitTouchMove = (e: TouchEvent) => {
 const PORTRAIT_SWIPE_THRESHOLD = 60
 const onPortraitTouchEnd = (e: TouchEvent) => {
   if (!portraitDragging.value) return
+  // 吸附动画进行中（前一次切换未结束）忽略本次，防旋转重入导致黑屏
+  if (portraitSwitching.value) {
+    portraitDragging.value = false
+    return
+  }
   portraitDragging.value = false
   const t = e.changedTouches[0]
   if (!t) return
