@@ -228,7 +228,7 @@ const onPortraitTouchMove = (e: TouchEvent) => {
 }
 const PORTRAIT_SWIPE_THRESHOLD = 60
 const onPortraitTouchEnd = (e: TouchEvent) => {
-  if (portraitTouchMoved.value) return
+  if (!portraitTouchMoved.value) return  // 仅在发生过移动时才视为滑动
   const t = e.changedTouches[0]
   if (!t) return
   const dy = t.clientY - portraitTouchStartY.value
@@ -236,9 +236,9 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
   if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD) return
   if (Math.abs(dy) <= Math.abs(dx)) return // 横向不触发切换
   if (dy < 0) {
-    loadNextPortraitVideo() // 下滑 = 下一个
+    loadNextPortraitVideo() // 上滑 = 下一个（随机未看过的）
   } else {
-    loadPrevPortraitVideo() // 上滑 = 上一个（历史）
+    loadPrevPortraitVideo() // 下滑 = 上一个（历史）
   }
 }
 
@@ -2178,31 +2178,35 @@ const handleDelete = async () => {
               </button>
             </div>
 
-            <!-- 右侧竖排操作栏：点赞 / 收藏 -->
-            <div class="portrait-actions">
-              <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
-                <svg width="28" height="28" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
-                  <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
-                </svg>
-                <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
-              </button>
-              <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
-                <svg width="28" height="28" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
-                  <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
-                </svg>
-                <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
-              </button>
-            </div>
-
-            <!-- 左下角：不喜欢 -->
-            <button class="portrait-dislike" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike" aria-label="不喜欢">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <!-- 左上角：不喜欢 -->
+            <button class="portrait-dislike-top" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike" aria-label="不喜欢">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="9" />
                 <line x1="8" y1="8" x2="16" y2="16" />
                 <line x1="16" y1="8" x2="8" y2="16" />
               </svg>
               <span>不喜欢</span>
             </button>
+
+            <!-- 右侧竖排操作栏：点赞 / 收藏 -->
+            <div class="portrait-actions">
+              <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
+                <span class="portrait-action-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
+                    <path d="M12 21s-7-4.5-9.5-9C.5 8 2.5 4 6 4c2 0 3.2 1.2 4 2.3C10.8 5.2 12 4 14 4c3.5 0 5.5 4 3.5 8C19 16.5 12 21 12 21z" />
+                  </svg>
+                </span>
+                <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
+              </button>
+              <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
+                <span class="portrait-action-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
+                    <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
+                  </svg>
+                </span>
+                <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
+              </button>
+            </div>
 
             <!-- 底部视频信息 -->
             <div class="portrait-info" @click.stop>
@@ -3282,24 +3286,41 @@ const handleDelete = async () => {
 /* 右侧竖排操作栏 */
 .portrait-actions {
   position: absolute;
-  right: 12px;
-  bottom: 120px;
+  right: 14px;
+  bottom: 110px;
   z-index: 10;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
   align-items: center;
 }
 .portrait-action {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: none;
   border: none;
   color: #fff;
   cursor: pointer;
+}
+.portrait-action-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  transition: transform 0.15s, background 0.2s;
+}
+.portrait-action:active .portrait-action-icon {
+  transform: scale(0.9);
+}
+.portrait-action.active .portrait-action-icon {
+  background: rgba(0, 0, 0, 0.55);
 }
 .portrait-action.active {
   color: #ff2d55;
@@ -3310,17 +3331,18 @@ const handleDelete = async () => {
 .portrait-action-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
-/* 左下角不喜欢 */
-.portrait-dislike {
+/* 左上角不喜欢 */
+.portrait-dislike-top {
   position: absolute;
+  top: max(12px, env(safe-area-inset-top));
   left: 12px;
-  bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 5px;
+  padding: 7px 12px;
   border-radius: 20px;
   border: none;
   background: rgba(0, 0, 0, 0.45);
@@ -3329,8 +3351,9 @@ const handleDelete = async () => {
   cursor: pointer;
   backdrop-filter: blur(4px);
 }
-.portrait-dislike.active {
+.portrait-dislike-top.active {
   color: #ff2d55;
+  background: rgba(0, 0, 0, 0.6);
 }
 /* 底部视频信息 */
 .portrait-info {
