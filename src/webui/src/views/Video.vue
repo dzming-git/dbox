@@ -102,6 +102,8 @@ const enterPortraitMode = () => {
   portraitVideo.value = video.value
   syncPortraitInteractions()
   playMode.value = 'portrait'
+  // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
+  document.body.classList.add('portrait-mode-active')
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
     portraitPlayer.value?.play().catch(() => {})
@@ -120,6 +122,8 @@ const syncPortraitInteractions = () => {
 // 退出竖屏模式，回到普通详情页
 const exitPortraitMode = () => {
   playMode.value = 'normal'
+  // 移除竖屏标记，恢复底层下拉刷新
+  document.body.classList.remove('portrait-mode-active')
   const q = { ...route.query }
   delete q.mode
   router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: q })
@@ -3224,6 +3228,7 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: center;
   touch-action: none;
+  overscroll-behavior: contain;
 }
 .portrait-video {
   width: 100%;

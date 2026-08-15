@@ -33,6 +33,8 @@ const contentStyle = computed(() => {
 
 function onTouchStart(e: TouchEvent) {
   if (!state.enabled) return
+  // 竖屏沉浸模式激活时，不接管手势（避免与内部滑动切换视频冲突）
+  if (document.body.classList.contains('portrait-mode-active')) return
   if (window.scrollY > 0) {
     pulling.value = false
     return
@@ -43,6 +45,12 @@ function onTouchStart(e: TouchEvent) {
 
 function onTouchMove(e: TouchEvent) {
   if (!pulling.value || !state.enabled) return
+  if (document.body.classList.contains('portrait-mode-active')) {
+    pulling.value = false
+    state.phase = 'idle'
+    state.distance = 0
+    return
+  }
   // 下拉过程中若页面已离开顶部（例如内容在手势中滚动），放弃本次下拉
   if (window.scrollY > 0) {
     pulling.value = false
