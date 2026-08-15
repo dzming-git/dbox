@@ -422,7 +422,7 @@ const positionToolMoreMenu = () => {
   }
   let left = rect.right - menuW
   if (left < margin) left = margin
-  if (left + menuW > vw - margin) left = Math.max(margin, vw - menuW - margin)
+  if (left + menuW > vw - margin) left = vw - menuW - margin
   toolMoreMenuStyle.value = { top: `${top}px`, left: `${left}px` }
 }
 const toggleToolMore = () => {
@@ -661,38 +661,38 @@ const listThumbUrl = (video: Video): string => {
           :class="{ active: mediaTab === 'mixed' }"
           @click="mediaTab = 'mixed'"
         >帖子</button>
-        <!-- 更多：低频操作收进溢出菜单，放在类型选择行右侧 -->
-        <div class="tool-more" ref="toolMoreRef">
-          <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+      </div>
+      <!-- 更多：低频操作收进溢出菜单，绝对定位在筛选框右侧外面 -->
+      <div class="tool-more" ref="toolMoreRef">
+        <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+          </svg>
+          <span>更多</span>
+        </button>
+        <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
+          <button
+            v-if="hasPreviousVideos && currentSort === 'recommended'"
+            class="tool-more-item"
+            :disabled="shuffling"
+            @click="handleUndo(); toolMoreOpen = false"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
+              <path d="M7 6L3 10l4 4"/>
             </svg>
-            <span>更多</span>
+            <span>撤回</span>
           </button>
-          <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
-            <button
-              v-if="hasPreviousVideos && currentSort === 'recommended'"
-              class="tool-more-item"
-              :disabled="shuffling"
-              @click="handleUndo(); toolMoreOpen = false"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
-                <path d="M7 6L3 10l4 4"/>
-              </svg>
-              <span>撤回</span>
-            </button>
-            <button
-              class="tool-more-item"
-              :class="{ active: editMode }"
-              @click="toggleEditMode(); toolMoreOpen = false"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-              </svg>
-              <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
-            </button>
-          </div>
+          <button
+            class="tool-more-item"
+            :class="{ active: editMode }"
+            @click="toggleEditMode(); toolMoreOpen = false"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+            </svg>
+            <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
+          </button>
         </div>
       </div>
       <div class="tool-controls" v-if="mediaTab === 'video'">
@@ -1108,7 +1108,8 @@ const listThumbUrl = (video: Video): string => {
   border-radius: 10px;
   padding: 4px 6px;
   margin-bottom: 10px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .media-tab {
@@ -1632,11 +1633,12 @@ const listThumbUrl = (video: Video): string => {
   margin-left: 12px;
 }
 
-/* 更多操作：低频操作（编辑 / 撤回）收入溢出菜单，保持工具栏紧凑 */
+/* 更多操作：与筛选框同行居右，不占flex位置、不独占行 */
 .tool-more {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
 }
 .tool-more-btn {
   height: 36px;
@@ -1932,15 +1934,33 @@ const listThumbUrl = (video: Video): string => {
     flex: 0 0 auto;
   }
 
-  /* 移动端：媒体类型选择行占满宽度，"更多"靠右 */
+  /* 移动端：筛选框与更多按钮同行，框内 tab 可横向滚动不挤占更多 */
   .media-tabs {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    width: auto;
     gap: 6px;
     padding: 4px 8px;
+    justify-content: space-between;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .media-tabs::-webkit-scrollbar { display: none; }
+
+  .media-tab {
+    padding: 5px 12px;
+    font-size: 13px;
+    flex: 0 0 auto;
   }
 
   .tool-more {
     flex: 0 0 auto;
+  }
+
+  .tool-more-btn {
+    padding: 0 10px;
+    font-size: 12px;
+    height: 34px;
   }
 
   .view-toggle-btn {
