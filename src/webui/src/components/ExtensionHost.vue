@@ -336,6 +336,10 @@ watch(aiChatViewing, (v) => {
   .ext-fab.is-busy::after { opacity: 0.6; }
   .ext-fab-badge { animation: none; }
 }
+/* 竖屏沉浸模式下隐藏悬浮气泡入口，避免遮挡视频内容 */
+:global(body.portrait-mode-active .ext-fab) {
+  display: none !important;
+}
 .ext-fab-label {
   position: absolute;
   right: 56px;
