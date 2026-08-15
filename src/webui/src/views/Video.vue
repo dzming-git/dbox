@@ -3760,13 +3760,13 @@ const handleDelete = async () => {
 .portrait-more-item.active {
   color: #cfcfcf;
 }
-/* 底部控制栏：标题(倒数三行) / 进度(倒数二行) / 按钮(最下一行)，贯穿左右；右侧留位给竖排点赞收藏 */
+/* 底部控制栏：标题(倒数三行) / 进度(倒数二行) / 按钮(最下一行)，贯穿左右至屏幕边缘；右侧点赞收藏浮于其上 */
 .portrait-bottom-bar {
   position: absolute;
   left: 12px;
-  right: 72px;
+  right: 12px;
   bottom: calc(max(16px, env(safe-area-inset-bottom)));
-  z-index: 12;
+  z-index: 14;
   display: flex;
   flex-direction: column;
   gap: 8px;
