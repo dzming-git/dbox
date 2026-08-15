@@ -85,7 +85,6 @@ const playMode = ref<'normal' | 'portrait'>('normal')
 const portraitPlayer = ref<HTMLVideoElement | null>(null)
 const feedList = ref<string[]>([]) // 累积的视频 hash 序列（记住历史）
 const feedIndex = ref(0) // 当前播放位置
-const portraitLoading = ref(false)
 const portraitHash = computed(() => feedList.value[feedIndex.value] || videoHash.value)
 const showPortraitDoubleLike = ref(false) // 双击爱心动画
 let doubleLikeTimer: number | null = null
@@ -95,10 +94,20 @@ const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
 const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
 const portraitTransition = ref(false) // 是否开启吸附动画
 const portraitViewportH = ref(0) // 视口高度（用于阈值与位移比例）
-// 相邻视频预览缓存：{ hash, title, cover, file_name }
+// 相邻视频对象缓存（含 url，已预取，切换时零延迟）
 const portraitPrevPreview = ref<any>(null)
 const portraitNextPreview = ref<any>(null)
 const portraitSwitching = ref(false) // 吸附动画进行中，防重复触发
+
+// 三格视频 URL：prev / current / next 各自独立，拖动相邻格即显示真视频在播（无黑屏）
+const portraitPrevUrl = ref('')
+const portraitCurUrl = computed(() => portraitVideoUrl.value)
+const portraitNextUrl = ref('')
+// 相邻格视频元素 ref（与 current 的 portraitPlayer 配合，实现双缓冲预加载）
+const portraitPrevPlayer = ref<HTMLVideoElement | null>(null)
+const portraitNextPlayer = ref<HTMLVideoElement | null>(null)
+// 仅在视频真实缓冲时才显示轻量指示（不再整屏转圈）
+const portraitBuffering = ref(false)
 
 // 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
 const portraitTrackY = computed(() => {
@@ -119,6 +128,9 @@ const enterPortraitMode = () => {
   portraitDragY.value = 0
   portraitPrevPreview.value = null
   portraitNextPreview.value = null
+  portraitPrevUrl.value = ''
+  portraitNextUrl.value = ''
+  portraitBuffering.value = false
   syncPortraitInteractions()
   playMode.value = 'portrait'
   portraitViewportH.value = window.innerHeight
@@ -126,7 +138,9 @@ const enterPortraitMode = () => {
   document.body.classList.add('portrait-mode-active')
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
+    // 当前视频有声播放；预取下一个以便上滑即见
     portraitPlayer.value?.play().catch(() => {})
+    fetchNextPreview()
   })
 }
 
@@ -174,9 +188,8 @@ const enterLandscapeFromPortrait = () => {
 // 竖屏视频数据对象
 const portraitVideo = ref<any>(null)
 
-// 加载指定 hash 的视频到竖屏播放器
+// 加载指定 hash 的视频数据对象（用于信息栏/点赞/收藏，不控制播放器显隐）
 const loadPortraitVideo = async (hash: string) => {
-  portraitLoading.value = true
   try {
     const res = await (videoApi.getVideo(hash) as any)
     if (res?.success && res.video) {
@@ -187,15 +200,10 @@ const loadPortraitVideo = async (hash: string) => {
     syncPortraitInteractions()
   } catch (e) {
     console.error('竖屏加载视频失败:', e)
-  } finally {
-    portraitLoading.value = false
-    nextTick(() => {
-      portraitPlayer.value?.play().catch(() => {})
-    })
   }
 }
 
-// 预取下一个随机视频预览（下滑方向）：从推荐接口取一个非当前视频
+// 预取下一个随机视频（上滑方向）：从推荐接口取一个非当前视频，并预载其播放 URL
 const fetchNextPreview = async () => {
   if (portraitNextPreview.value) return
   try {
@@ -208,42 +216,101 @@ const fetchNextPreview = async () => {
         title: next.title,
         file_name: next.file_name,
         cover: next.cover || next.thumbnail,
+        url: next.url || '',
       }
+      // 直接预载下一个视频的播放 URL 到相邻格 <video>，实现零延迟切换
+      portraitNextUrl.value = buildPortraitUrl(next.url)
     }
   } catch (e) {
     console.error('预取下一个视频失败:', e)
   }
 }
 
-// 上一个视频（下滑）：回退到历史位置（记住，不重新请求）
+// 相对/绝对 URL 统一拼 token
+const buildPortraitUrl = (url: string): string => {
+  if (!url) return ''
+  const token = localStorage.getItem('token')
+  const abs = url.startsWith('http') ? url : `${location.origin}${url.startsWith('/') ? '' : '/'}${url}`
+  return token ? `${abs}${abs.includes('?') ? '&' : '?'}${token ? `token=${token}` : ''}` : abs
+}
+
+// 上一个视频（下滑）：回退到历史位置（记住，不重新请求，相邻格视频已预载）
 const loadPrevPortraitVideo = () => {
   if (feedIndex.value > 0) {
     feedIndex.value -= 1
     const h = feedList.value[feedIndex.value]
+    // 把刚离开的视频降为 next 预览，原 prev 提升为 current
+    const leaving = portraitVideo.value
+    portraitNextPreview.value = {
+      hash: leaving?.hash,
+      title: leaving?.title,
+      file_name: leaving?.file_name,
+      cover: leaving?.cover || leaving?.thumbnail,
+      url: leaving?.url || '',
+    }
+    portraitNextUrl.value = buildPortraitUrl(leaving?.url || '')
     loadPortraitVideo(h)
+    portraitPrevPreview.value = null
+    portraitPrevUrl.value = ''
+    // 异步补齐 prev 预览（历史视频不重新请求网络，仅本地重建预览）
+    buildPrevPreviewFromHistory(feedIndex.value - 1)
     return true
   }
   return false
 }
 
-// 下一个随机视频（上滑）：从预览缓存取 hash，追加到 feedList 并加载
+// 从 feedList 历史重建指定位置的预览对象（不触网）
+const buildPrevPreviewFromHistory = (idx: number) => {
+  if (idx < 0) {
+    portraitPrevPreview.value = null
+    portraitPrevUrl.value = ''
+    return
+  }
+  const h = feedList.value[idx]
+  if (!h) return
+  // 优先用已缓存的完整对象；否则仅记 hash，标题待 loadPortraitVideo 补全
+  portraitPrevPreview.value = { hash: h, title: '', file_name: '', cover: '', url: '' }
+  loadPortraitVideo(h).then(() => {
+    const v = portraitVideo.value
+    if (v && v.hash === h) {
+      portraitPrevPreview.value = {
+        hash: h,
+        title: v.title,
+        file_name: v.file_name,
+        cover: v.cover || v.thumbnail,
+        url: v.url || '',
+      }
+      portraitPrevUrl.value = buildPortraitUrl(v.url || '')
+    }
+  })
+}
+
+// 下一个随机视频（上滑）：从预览缓存取 hash，追加到 feedList，相邻视频已预载零延迟
 const loadNextPortraitVideo = async () => {
   if (!portraitNextPreview.value) {
     await fetchNextPreview()
   }
   if (portraitNextPreview.value) {
-    const h = portraitNextPreview.value.hash
-    feedList.value.push(h)
-    feedIndex.value = feedList.value.length - 1
+    const next = portraitNextPreview.value
+    const h = next.hash
+    // 把当前视频降为 prev 预览
     portraitPrevPreview.value = {
       hash: portraitHash.value,
       title: portraitVideo.value?.title,
       file_name: portraitVideo.value?.file_name,
       cover: portraitVideo.value?.cover || portraitVideo.value?.thumbnail,
+      url: portraitVideo.value?.url || '',
     }
+    portraitPrevUrl.value = buildPortraitUrl(portraitVideo.value?.url || '')
+    // 下一个提升为 current：数据对象 + URL（URL 已在 fetchNextPreview 预载）
+    feedList.value.push(h)
+    feedIndex.value = feedList.value.length - 1
+    portraitVideo.value = next
+    syncPortraitInteractions()
+    // 清空 next 槽，立即预取新的下一个
     portraitNextPreview.value = null
-    await loadPortraitVideo(h)
-    fetchNextPreview() // 继续预取下一个
+    portraitNextUrl.value = ''
+    fetchNextPreview()
     return true
   }
   showToast('没有更多视频了')
@@ -295,11 +362,21 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
     portraitDragY.value = -portraitViewportH.value
     setTimeout(async () => {
       const ok = await loadNextPortraitVideo()
-      // 切换后瞬时归位到 current（无动画）
+      // 切换后瞬时归位到 current（无动画），相邻视频已预载，无黑屏
       portraitTransition.value = false
       portraitDragY.value = 0
       portraitSwitching.value = false
-      if (!ok) portraitDragY.value = 0
+      if (ok) {
+        // 新 current 有声播放，相邻格静音预载
+        nextTick(() => {
+          const cur = portraitPlayer.value
+          if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+          portraitNextPlayer.value?.pause()
+          portraitPrevPlayer.value?.pause()
+        })
+      } else {
+        portraitDragY.value = 0
+      }
     }, 280)
   } else {
     // 下滑：回到上一个（历史），轨道向下飞
@@ -311,6 +388,12 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
         portraitTransition.value = false
         portraitDragY.value = 0
         portraitSwitching.value = false
+        nextTick(() => {
+          const cur = portraitPlayer.value
+          if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+          portraitNextPlayer.value?.pause()
+          portraitPrevPlayer.value?.pause()
+        })
       }, 280)
     } else {
       portraitDragY.value = 0
@@ -397,7 +480,16 @@ const onPortraitEnded = () => {
     portraitTransition.value = false
     portraitDragY.value = 0
     portraitSwitching.value = false
-    if (!ok) portraitDragY.value = 0
+    if (ok) {
+      nextTick(() => {
+        const cur = portraitPlayer.value
+        if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+        portraitNextPlayer.value?.pause()
+        portraitPrevPlayer.value?.pause()
+      })
+    } else {
+      portraitDragY.value = 0
+    }
   }, 280)
 }
 
@@ -2217,7 +2309,7 @@ const handleDelete = async () => {
         <!-- 竖屏全屏短视频模式（抖音式沉浸播放 · 跟手 feed track），Teleport 到 body 避免父级 overflow 裁剪 -->
         <Teleport to="body">
           <div class="portrait-mode" v-if="playMode === 'portrait'" @click="onPortraitTap">
-            <!-- 纵向 feed 轨道：prev / current / next 三格，跟手指平移 -->
+            <!-- 纵向 feed 轨道：prev / current / next 三格，各含独立 <video>，跟手指平移 -->
             <div
               class="portrait-track"
               :class="{ dragging: portraitDragging, animating: portraitTransition }"
@@ -2226,24 +2318,28 @@ const handleDelete = async () => {
               @touchmove.prevent="onPortraitTouchMove"
               @touchend="onPortraitTouchEnd"
             >
-              <!-- 上一个（历史）预览 -->
+              <!-- 上一个（历史）：静音预载，拖动即见真视频在播 -->
               <div class="portrait-item">
-                <div
-                  class="portrait-item-cover"
-                  v-if="portraitPrevPreview && portraitPrevPreview.cover"
-                  :style="{ backgroundImage: `url(${portraitPrevPreview.cover})` }"
-                ></div>
-                <div class="portrait-item-ph" v-else>
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(255,255,255,0.25)"><path d="M8 5v14l11-7z"/></svg>
-                </div>
+                <video
+                  ref="portraitPrevPlayer"
+                  :src="portraitPrevUrl"
+                  class="portrait-video"
+                  muted
+                  playsinline
+                  webkit-playsinline
+                  x5-playsinline
+                  x5-video-player-type="h5-page"
+                  preload="auto"
+                  @click.stop
+                ></video>
                 <div class="portrait-item-title" v-if="portraitPrevPreview">{{ portraitPrevPreview.title }}</div>
               </div>
 
-              <!-- 当前视频 -->
+              <!-- 当前视频：有声播放 -->
               <div class="portrait-item">
                 <video
                   ref="portraitPlayer"
-                  :src="portraitVideoUrl"
+                  :src="portraitCurUrl"
                   class="portrait-video"
                   autoplay
                   playsinline
@@ -2251,6 +2347,8 @@ const handleDelete = async () => {
                   x5-playsinline
                   x5-video-player-type="h5-page"
                   @ended="onPortraitEnded"
+                  @waiting="portraitBuffering = true"
+                  @playing="portraitBuffering = false"
                   @click.stop
                 ></video>
                 <!-- 底部视频信息 -->
@@ -2260,16 +2358,20 @@ const handleDelete = async () => {
                 </div>
               </div>
 
-              <!-- 下一个（随机）预览 -->
+              <!-- 下一个（随机）：静音预载，滑动即见真视频在播 -->
               <div class="portrait-item">
-                <div
-                  class="portrait-item-cover"
-                  v-if="portraitNextPreview && portraitNextPreview.cover"
-                  :style="{ backgroundImage: `url(${portraitNextPreview.cover})` }"
-                ></div>
-                <div class="portrait-item-ph" v-else>
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(255,255,255,0.25)"><path d="M8 5v14l11-7z"/></svg>
-                </div>
+                <video
+                  ref="portraitNextPlayer"
+                  :src="portraitNextUrl"
+                  class="portrait-video"
+                  muted
+                  playsinline
+                  webkit-playsinline
+                  x5-playsinline
+                  x5-video-player-type="h5-page"
+                  preload="auto"
+                  @click.stop
+                ></video>
                 <div class="portrait-item-title" v-if="portraitNextPreview">{{ portraitNextPreview.title }}</div>
               </div>
             </div>
@@ -2329,8 +2431,8 @@ const handleDelete = async () => {
               </button>
             </div>
 
-            <!-- 加载指示 -->
-            <div v-if="portraitLoading" class="portrait-loading">
+            <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
+            <div v-if="portraitBuffering && !portraitDragging" class="portrait-buffering">
               <div class="buffering-spinner"></div>
             </div>
           </div>
@@ -3538,8 +3640,8 @@ const handleDelete = async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 加载指示 */
-.portrait-loading {
+/* 轻量缓冲指示：居中小圈，不遮挡画面 */
+.portrait-buffering {
   position: absolute;
   inset: 0;
   z-index: 8;
@@ -3548,13 +3650,11 @@ const handleDelete = async () => {
   justify-content: center;
   pointer-events: none;
 }
-.buffering-spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+/* 相邻格视频未加载时占位暗色（避免纯黑割裂） */
+.portrait-item-ph {
+  position: absolute;
+  inset: 0;
+  background: #0a0a0a;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
