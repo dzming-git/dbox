@@ -2385,14 +2385,12 @@ const handleDelete = async () => {
                   @playing="() => { if (i === 1) portraitBuffering = false }"
                   @click.stop
                 ></video>
-                <div class="portrait-item-title" v-if="item.title && i !== 1">{{ item.title }}</div>
+                <!-- 标题信息贴在每格底部，随轨道一起平移（滑动时标题跟着视频走） -->
+                <div class="portrait-item-info" v-if="item.title">
+                  <div class="portrait-title">{{ item.title }}</div>
+                  <div class="portrait-meta" v-if="item.file_name">{{ item.file_name }}</div>
+                </div>
               </div>
-            </div>
-
-            <!-- 底部视频信息（固定在视口底部，不随轨道平移） -->
-            <div class="portrait-info" @click.stop>
-              <div class="portrait-title">{{ portraitSlots[1]?.title || portraitVideo?.title || video.title }}</div>
-              <div class="portrait-meta" v-if="portraitSlots[1]?.file_name">{{ portraitSlots[1].file_name }}</div>
             </div>
 
             <!-- 双击爱心动画 -->
@@ -3500,19 +3498,6 @@ const handleDelete = async () => {
   justify-content: center;
   background: #0a0a0a;
 }
-.portrait-item-title {
-  position: absolute;
-  left: 16px;
-  right: 80px;
-  bottom: 24px;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* 双击爱心动画 */
 .portrait-heart {
   position: absolute;
@@ -3631,8 +3616,8 @@ const handleDelete = async () => {
   color: #ff2d55;
   background: rgba(0, 0, 0, 0.6);
 }
-/* 底部视频信息 */
-.portrait-info {
+/* 每格底部视频信息：随轨道平移，滑动时标题跟着视频走 */
+.portrait-item-info {
   position: absolute;
   left: 12px;
   right: 80px;
