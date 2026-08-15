@@ -3769,7 +3769,7 @@ const handleDelete = async () => {
   z-index: 14;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   pointer-events: none;
 }
 .portrait-bottom-bar > * {
@@ -3821,7 +3821,7 @@ const handleDelete = async () => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .pb-progress .pp-time {
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 11px;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
