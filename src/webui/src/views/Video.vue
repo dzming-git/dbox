@@ -2543,6 +2543,73 @@ const handleDelete = async () => {
                   @durationchange="() => onPortraitMeta(i)"
                   @click.stop="onPortraitTap"
                 ></video>
+
+                <!-- 仅当前槽(i===1)渲染控制层：作为轨道子节点，随 translateY 与视频一起上下滑动 -->
+                <template v-if="i === 1">
+                  <!-- 右侧竖排操作栏：点赞 / 收藏 -->
+                  <div class="portrait-actions" @touchstart.stop>
+                    <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
+                      <span class="portrait-action-icon">
+                        <svg width="30" height="30" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
+                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                        </svg>
+                      </span>
+                      <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
+                    </button>
+                    <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
+                      <span class="portrait-action-icon">
+                        <svg width="30" height="30" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
+                          <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
+                        </svg>
+                      </span>
+                      <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
+                    </button>
+                  </div>
+
+                  <!-- 底部控制栏：标题 / 进度条 / 播放·全屏·详情 -->
+                  <div class="portrait-bottom-bar" @touchstart.stop>
+                    <div class="pb-title">
+                      <span class="pb-title-text">{{ item.title }}</span>
+                      <span class="pb-meta" v-if="item.file_name">{{ item.file_name }}</span>
+                    </div>
+                    <div
+                      class="pb-progress"
+                      @touchstart.stop.prevent="seekFromPortraitBar($event, i)"
+                      @touchmove.stop.prevent="seekFromPortraitBar($event, i)"
+                      @click.stop="seekFromPortraitBar($event, i)"
+                    >
+                      <div class="pp-track">
+                        <div class="pp-played" :style="{ width: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
+                        <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
+                      </div>
+                      <div class="pp-time">{{ formatTime(portraitSlotTimes[i]?.current || 0) }} / {{ formatTime(portraitSlotTimes[i]?.duration || 0) }}</div>
+                    </div>
+                    <div class="pb-buttons">
+                      <button class="pb-btn" @click.stop="togglePortraitPlay" :aria-label="portraitPlaying ? '暂停' : '播放'">
+                        <svg v-if="portraitPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="6" y="5" width="4" height="14" rx="1" />
+                          <rect x="14" y="5" width="4" height="14" rx="1" />
+                        </svg>
+                        <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </button>
+                      <div class="pb-right">
+                        <button class="pb-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                          </svg>
+                        </button>
+                        <button class="pb-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="18" height="16" rx="2" />
+                            <line x1="3" y1="9" x2="21" y2="9" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
 
@@ -2583,73 +2650,6 @@ const handleDelete = async () => {
                 <polyline points="12 19 5 12 12 5" />
               </svg>
             </button>
-
-            <!-- 右侧竖排操作栏：点赞 / 收藏 -->
-            <div class="portrait-actions">
-              <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
-                <span class="portrait-action-icon">
-                  <svg width="30" height="30" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
-                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                  </svg>
-                </span>
-                <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
-              </button>
-              <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
-                <span class="portrait-action-icon">
-                  <svg width="30" height="30" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
-                    <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
-                  </svg>
-                </span>
-                <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
-              </button>
-            </div>
-
-            <!-- 底部控制栏：标题(倒数第三行) / 进度条(倒数第二行) / 按钮(最下一行)，贯穿左右；右侧竖排点赞收藏由 portrait-actions 承接 -->
-            <div class="portrait-bottom-bar">
-              <!-- 倒数第三行：标题栏（贯穿左右） -->
-              <div class="pb-title">
-                <span class="pb-title-text">{{ portraitSlots[1]?.title }}</span>
-                <span class="pb-meta" v-if="portraitSlots[1]?.file_name">{{ portraitSlots[1]?.file_name }}</span>
-              </div>
-              <!-- 倒数第二行：进度条（贯穿左右，可拖动跳转） -->
-              <div
-                class="pb-progress"
-                @touchstart.stop.prevent="seekFromPortraitBar($event, 1)"
-                @touchmove.stop.prevent="seekFromPortraitBar($event, 1)"
-                @click.stop="seekFromPortraitBar($event, 1)"
-              >
-                <div class="pp-track">
-                  <div class="pp-played" :style="{ width: ((portraitSlotTimes[1]?.duration || 0) ? (portraitSlotTimes[1].current / portraitSlotTimes[1].duration) * 100 : 0) + '%' }"></div>
-                  <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[1]?.duration || 0) ? (portraitSlotTimes[1].current / portraitSlotTimes[1].duration) * 100 : 0) + '%' }"></div>
-                </div>
-                <div class="pp-time">{{ formatTime(portraitSlotTimes[1]?.current || 0) }} / {{ formatTime(portraitSlotTimes[1]?.duration || 0) }}</div>
-              </div>
-              <!-- 最下一行：左侧播放/暂停，右侧全屏 + 详情 -->
-              <div class="pb-buttons">
-                <button class="pb-btn" @click.stop="togglePortraitPlay" :aria-label="portraitPlaying ? '暂停' : '播放'">
-                  <svg v-if="portraitPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="5" width="4" height="14" rx="1" />
-                    <rect x="14" y="5" width="4" height="14" rx="1" />
-                  </svg>
-                  <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
-                <div class="pb-right">
-                  <button class="pb-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
-                    </svg>
-                  </button>
-                  <button class="pb-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="3" y="4" width="18" height="16" rx="2" />
-                      <line x1="3" y1="9" x2="21" y2="9" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
 
             <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
             <div v-if="portraitBuffering && !portraitDragging" class="portrait-buffering">
