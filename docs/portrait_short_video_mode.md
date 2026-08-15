@@ -53,7 +53,7 @@
 - [x] 8. Video.vue：竖屏模式 CSS（9:16 沉浸、右侧栏、动画）
 - [x] 9. router：无需改（复用 /video/:hash?mode=portrait）
 - [x] 10. 临时脚本截图验证（移动端 390px 视口）
-- [ ] 11. 清理临时文件 + git 提交
+- [x] 11. 清理临时文件 + git 提交（commit a02a26c）
 
 ## 四、数据流与接口复用
 

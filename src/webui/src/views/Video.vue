@@ -62,8 +62,15 @@ const updateFullscreenState = () => {
   isFullscreen.value = !!document.fullscreenElement
   // 退出全屏时清除竖屏横屏标记，并将 video 还原回 portrait-item
   if (!isFullscreen.value) {
-    restorePortraitVideo()
     portraitLandscapeActive.value = false
+    // 延迟一帧再归位 video：退出原生全屏时浏览器有收缩动画/重排，
+    // 若同帧把 video 跨 DOM 树移回（overflow:hidden + transform 容器）会争用主线程，
+    // 在移动端表现为概率性卡顿。等浏览器完成退出动画后再静默归位可消除顿挫
+    if (portraitFsWrapper.value) {
+      requestAnimationFrame(() => restorePortraitVideo())
+    } else {
+      restorePortraitVideo()
+    }
   }
 }
 const togglePlay = () => {
@@ -226,6 +233,8 @@ const openDetailFromPortrait = () => {
 const portraitFsWrapper = ref<HTMLDivElement | null>(null)
 const portraitFsOriginalParent = ref<Element | null>(null)
 const enterLandscapeFromPortrait = () => {
+  // 幂等守卫：若已处于竖屏横屏全屏（video 已移入临时 wrapper），避免重复移动导致多个游离 wrapper 泄漏
+  if (portraitFsWrapper.value) return
   portraitLandscapeActive.value = true
   // 保留 mode=portrait，不切到 normal 模式，避免竖屏 UI 被销毁
   router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: { ...route.query, mode: 'portrait' } })
@@ -249,9 +258,27 @@ const enterLandscapeFromPortrait = () => {
 const restorePortraitVideo = () => {
   const wrapper = portraitFsWrapper.value
   const origParent = portraitFsOriginalParent.value
-  if (wrapper && origParent) {
-    const video = wrapper.querySelector('video')
-    if (video) origParent.appendChild(video)
+  if (wrapper) {
+    const video = wrapper.querySelector('video') as HTMLVideoElement | null
+    if (video) {
+      // 优先还原到记录的原始父节点；若该节点已脱离文档树（如切换视频导致 Vue 重渲染），
+      // 则回退到当前竖屏中间槽位（slot 1）对应的 video 容器，避免 video 永久游离在 body 上
+      let target: Element | null = origParent
+      if (target && !target.isConnected) {
+        const slotEl = slotPlayers.value[PORTRAIT_CUR_SLOT]
+        target = slotEl ? slotEl.parentElement : null
+      }
+      if (target && target.isConnected) {
+        // 外借期间若 Vue 因响应式更新在该父节点重建了同名 video，先移除它，
+        // 避免同一 slot 出现两个 video 或 key 冲突导致画面错乱/卡顿
+        const dup = target.querySelector('video')
+        if (dup && dup !== video) dup.remove()
+        target.appendChild(video)
+      } else {
+        // 兜底：连同 wrapper 一起移除，交给 Vue 重新渲染对应的 video 元素
+        video.remove()
+      }
+    }
     wrapper.remove()
   }
   portraitFsWrapper.value = null
@@ -967,10 +994,15 @@ onMounted(registerPtr)
 onActivated(registerPtr)
 onUnmounted(() => {
   ptr.clearHandler()
+  // 离开页面时必须清理竖屏全屏临时 wrapper，否则游离的 <video> 会持续占用
+  // 网络/解码资源，导致回到首页或再次进入视频时长时间「加载中」甚至加载失败，且无法自愈
+  restorePortraitVideo()
   unlockPortraitBody()
+  document.removeEventListener('fullscreenchange', updateFullscreenState)
 })
 onDeactivated(() => {
   ptr.clearHandler()
+  restorePortraitVideo()
   unlockPortraitBody()
 })
 
