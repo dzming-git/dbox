@@ -60,8 +60,9 @@ const updateMobileState = () => {
 }
 const updateFullscreenState = () => {
   isFullscreen.value = !!document.fullscreenElement
-  // 退出全屏时清除竖屏横屏标记（竖屏模式本身保持存活）
+  // 退出全屏时清除竖屏横屏标记，并将 video 还原回 portrait-item
   if (!isFullscreen.value) {
+    restorePortraitVideo()
     portraitLandscapeActive.value = false
   }
 }
@@ -222,19 +223,39 @@ const openDetailFromPortrait = () => {
 }
 
 // 竖屏模式下请求横屏全屏（原生全屏）：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
+const portraitFsWrapper = ref<HTMLDivElement | null>(null)
+const portraitFsOriginalParent = ref<Element | null>(null)
 const enterLandscapeFromPortrait = () => {
   portraitLandscapeActive.value = true
   // 保留 mode=portrait，不切到 normal 模式，避免竖屏 UI 被销毁
   router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
-    // 对当前竖屏槽位的 video 元素请求原生全屏
     const el = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (el && el.requestFullscreen) {
-      el.requestFullscreen().catch(() => { portraitLandscapeActive.value = false })
-    } else {
-      toggleFullscreen()
-    }
+    if (!el || !el.requestFullscreen) { toggleFullscreen(); return }
+    // 将 video 从 portrait-item（overflow:hidden + 父级 transform）中移出，
+    // 放入临时全屏 wrapper（append 到 body），避免移动端浏览器因嵌套布局导致全屏尺寸异常
+    const wrapper = document.createElement('div')
+    wrapper.className = 'portrait-fs-wrapper'
+    portraitFsOriginalParent.value = el.parentElement
+    wrapper.appendChild(el)
+    document.body.appendChild(wrapper)
+    portraitFsWrapper.value = wrapper
+    // 强制重排后请求全屏
+    el.requestFullscreen().catch(() => { restorePortraitVideo(); portraitLandscapeActive.value = false })
   })
+}
+
+// 全屏退出时将 video 还原回 portrait-item 原位
+const restorePortraitVideo = () => {
+  const wrapper = portraitFsWrapper.value
+  const origParent = portraitFsOriginalParent.value
+  if (wrapper && origParent) {
+    const video = wrapper.querySelector('video')
+    if (video) origParent.appendChild(video)
+    wrapper.remove()
+  }
+  portraitFsWrapper.value = null
+  portraitFsOriginalParent.value = null
 }
 
 // 竖屏视频数据对象（当前播放项，指向 portraitSlots[1]）
@@ -3782,6 +3803,21 @@ const handleDelete = async () => {
   position: absolute;
   inset: 0;
   background: #0a0a0a;
+}
+/* 竖屏→横屏全屏临时容器：将 video 从 portrait-item 移出后放入此 wrapper 再 requestFullscreen，
+   避免移动端浏览器因 overflow:hidden + 父级 transform 导致全屏尺寸计算异常（视频缩成一小条） */
+.portrait-fs-wrapper {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.portrait-fs-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
