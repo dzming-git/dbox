@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Home' })
-import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useGalleryStore } from '../stores/galleryStore'
@@ -399,35 +399,8 @@ onMounted(() => document.addEventListener('click', onToolMoreDocClick))
 onUnmounted(() => document.removeEventListener('click', onToolMoreDocClick))
 
 // 更多菜单视口感知定位：始终落在视口内，靠近屏幕底部时改为向上展开，避免被裁切看不到
-const toolMoreMenuStyle = ref<Record<string, string>>({})
-const positionToolMoreMenu = () => {
-  const root = toolMoreRef.value
-  if (!root) return
-  const btn = root.querySelector('.tool-more-btn') as HTMLElement | null
-  const menu = root.querySelector('.tool-more-menu') as HTMLElement | null
-  if (!btn || !menu) return
-  const rect = btn.getBoundingClientRect()
-  const menuW = menu.offsetWidth || 180
-  const menuH = menu.offsetHeight || 120
-  const margin = 8
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  let top: number
-  if (rect.bottom + menuH + margin <= vh) {
-    top = rect.bottom + 6
-  } else if (rect.top - menuH - margin >= 0) {
-    top = rect.top - menuH - 6
-  } else {
-    top = Math.max(margin, vh - menuH - margin)
-  }
-  let left = rect.right - menuW
-  if (left < margin) left = margin
-  if (left + menuW > vw - margin) left = vw - menuW - margin
-  toolMoreMenuStyle.value = { top: `${top}px`, left: `${left}px` }
-}
 const toggleToolMore = () => {
   toolMoreOpen.value = !toolMoreOpen.value
-  if (toolMoreOpen.value) nextTick(positionToolMoreMenu)
 }
 
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选视频
@@ -670,7 +643,7 @@ const listThumbUrl = (video: Video): string => {
           </svg>
           <span>更多</span>
         </button>
-        <div v-if="toolMoreOpen" class="tool-more-menu" :style="toolMoreMenuStyle" @click.self="toolMoreOpen = false">
+        <div v-if="toolMoreOpen" class="tool-more-menu" @click.self="toolMoreOpen = false">
           <button
             v-if="hasPreviousVideos && currentSort === 'recommended'"
             class="tool-more-item"
@@ -1663,7 +1636,10 @@ const listThumbUrl = (video: Video): string => {
   background: var(--bg-surface-2);
 }
 .tool-more-menu {
-  position: fixed;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
   min-width: 160px;
   max-height: 60vh;
   overflow-y: auto;
