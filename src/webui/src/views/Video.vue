@@ -565,8 +565,11 @@ const onPortraitTap = () => {
 
 // 竖屏播放控制：播放状态 + 进度条
 const portraitPlaying = ref(true)
-const portraitCurrentTime = ref(0)
-const portraitDuration = ref(0)
+const portraitSlotTimes = ref<{ current: number; duration: number }[]>([
+  { current: 0, duration: 0 },
+  { current: 0, duration: 0 },
+  { current: 0, duration: 0 },
+])
 const togglePortraitPlay = () => {
   const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
   if (!v) return
@@ -575,31 +578,34 @@ const togglePortraitPlay = () => {
 }
 const onPortraitPlay = () => { portraitPlaying.value = true }
 const onPortraitPause = () => { portraitPlaying.value = false }
-const onPortraitTimeUpdate = () => {
-  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+const onPortraitTimeUpdate = (i: number) => {
+  const v = slotPlayers.value[i]
   if (!v) return
-  portraitCurrentTime.value = v.currentTime
-  if (v.duration && !isNaN(v.duration)) portraitDuration.value = v.duration
+  const t = portraitSlotTimes.value
+  if (!t[i]) t[i] = { current: 0, duration: 0 }
+  t[i].current = v.currentTime
+  if (v.duration && !isNaN(v.duration)) t[i].duration = v.duration
 }
-const onPortraitMeta = () => {
-  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+const onPortraitMeta = (i: number) => {
+  const v = slotPlayers.value[i]
   if (!v) return
-  if (v.duration && !isNaN(v.duration)) portraitDuration.value = v.duration
+  const t = portraitSlotTimes.value
+  if (!t[i]) t[i] = { current: 0, duration: 0 }
+  if (v.duration && !isNaN(v.duration)) t[i].duration = v.duration
 }
 
-// 竖屏进度条拖动/点击跳转
-const portraitProgressRef = ref<HTMLElement | null>(null)
-const seekFromPortraitBar = (e: MouseEvent | TouchEvent) => {
-  const bar = portraitProgressRef.value
-  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
+// 竖屏进度条拖动/点击跳转（每格独立，绑定对应 slot 的 video，随轨道一起平移）
+const seekFromPortraitBar = (e: MouseEvent | TouchEvent, i: number) => {
+  const bar = e.currentTarget as HTMLElement
+  const v = slotPlayers.value[i]
   if (!bar || !v) return
   const rect = bar.getBoundingClientRect()
   const clientX = 'touches' in e ? (e as TouchEvent).touches[0]?.clientX : (e as MouseEvent).clientX
   if (clientX == null) return
   const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-  const dur = Number(v.duration) || portraitDuration.value
+  const dur = Number(v.duration) || (portraitSlotTimes.value[i]?.duration || 0)
   v.currentTime = ratio * dur
-  portraitCurrentTime.value = ratio * dur
+  if (portraitSlotTimes.value[i]) portraitSlotTimes.value[i].current = ratio * dur
 }
 
 // 竖屏内点赞/收藏/不喜欢：直接基于竖屏当前视频 hash 调后端，同步本地状态
@@ -2532,15 +2538,28 @@ const handleDelete = async () => {
                   @playing="() => { if (i === 1) portraitBuffering = false }"
                   @play="() => { if (i === 1) onPortraitPlay() }"
                   @pause="() => { if (i === 1) onPortraitPause() }"
-                  @timeupdate="() => { if (i === 1) onPortraitTimeUpdate() }"
-                  @loadedmetadata="() => { if (i === 1) onPortraitMeta() }"
-                  @durationchange="() => { if (i === 1) onPortraitMeta() }"
+                  @timeupdate="() => onPortraitTimeUpdate(i)"
+                  @loadedmetadata="() => onPortraitMeta(i)"
+                  @durationchange="() => onPortraitMeta(i)"
                   @click.stop="onPortraitTap"
                 ></video>
                 <!-- 标题信息贴在每格底部，随轨道一起平移（滑动时标题跟着视频走） -->
                 <div class="portrait-item-info" v-if="item.title">
                   <div class="portrait-title">{{ item.title }}</div>
                   <div class="portrait-meta" v-if="item.file_name">{{ item.file_name }}</div>
+                </div>
+                <!-- 进度条贴在每格底部，随轨道一起平移（滑动时进度条跟着视频走） -->
+                <div
+                  class="portrait-progress"
+                  @touchstart.stop.prevent="seekFromPortraitBar($event, i)"
+                  @touchmove.stop.prevent="seekFromPortraitBar($event, i)"
+                  @click.stop="seekFromPortraitBar($event, i)"
+                >
+                  <div class="pp-track">
+                    <div class="pp-played" :style="{ width: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
+                    <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
+                  </div>
+                  <div class="pp-time">{{ formatTime(portraitSlotTimes[i]?.current || 0) }} / {{ formatTime(portraitSlotTimes[i]?.duration || 0) }}</div>
                 </div>
               </div>
             </div>
@@ -2616,21 +2635,6 @@ const handleDelete = async () => {
                   <line x1="3" y1="9" x2="21" y2="9" />
                 </svg>
               </button>
-            </div>
-
-            <!-- 底部进度条（可点击/拖动跳转，避开右侧操作栏与底部标题） -->
-            <div
-              class="portrait-progress"
-              ref="portraitProgressRef"
-              @touchstart.stop.prevent="seekFromPortraitBar($event)"
-              @touchmove.stop.prevent="seekFromPortraitBar($event)"
-              @click.stop="seekFromPortraitBar($event)"
-            >
-              <div class="pp-track">
-                <div class="pp-played" :style="{ width: (portraitDuration ? (portraitCurrentTime / portraitDuration) * 100 : 0) + '%' }"></div>
-                <div class="pp-thumb" :style="{ left: (portraitDuration ? (portraitCurrentTime / portraitDuration) * 100 : 0) + '%' }"></div>
-              </div>
-              <div class="pp-time">{{ formatTime(portraitCurrentTime) }} / {{ formatTime(portraitDuration) }}</div>
             </div>
 
             <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
@@ -3871,7 +3875,7 @@ const handleDelete = async () => {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
-/* 底部进度条：固定层，避开右侧操作栏与底部标题信息 */
+/* 每格底部进度条：位于 portrait-item 内，随轨道一起平移（滑动时进度条跟着视频走），避开右侧操作栏 */
 .portrait-progress {
   position: absolute;
   left: 14px;
