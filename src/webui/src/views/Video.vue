@@ -3512,7 +3512,7 @@ const handleDelete = async () => {
 .portrait-mode {
   position: fixed;
   inset: 0;
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   height: 100dvh;
   background: #000;
@@ -3621,15 +3621,15 @@ const handleDelete = async () => {
 .portrait-more-item.active {
   color: #cfcfcf;
 }
-/* 右下角操作组：全屏 / 详情 */
+/* 右下角操作组：全屏 / 详情（竖排，避免移动端横向溢出被裁剪） */
 .portrait-corner-actions {
   position: absolute;
   right: 12px;
   bottom: max(16px, env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
-  flex-direction: row;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
 }
 .portrait-corner-btn {
   width: 40px;
@@ -3664,11 +3664,11 @@ const handleDelete = async () => {
 .portrait-top-btn:active {
   background: rgba(0, 0, 0, 0.7);
 }
-/* 右侧竖排操作栏 */
+/* 右侧竖排操作栏（上移，避免与右下角竖排按钮在底部重叠） */
 .portrait-actions {
   position: absolute;
   right: 14px;
-  bottom: 110px;
+  bottom: 132px;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -3739,11 +3739,11 @@ const handleDelete = async () => {
 .portrait-back-btn:active {
   background: rgba(0, 0, 0, 0.7);
 }
-/* 每格底部视频信息：随轨道平移，滑动时标题跟着视频走 */
+/* 每格底部视频信息：随轨道平移，滑动时标题跟着视频走；右侧预留空间避开操作图标 */
 .portrait-item-info {
   position: absolute;
   left: 12px;
-  right: 80px;
+  right: 76px;
   bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 9;
   color: #fff;
