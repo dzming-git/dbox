@@ -79,7 +79,7 @@ const toggleFullscreen = () => {
   }
 }
 
-// ===== 竖屏全屏短视频模式（抖音式沉浸播放）=====
+// ===== 竖屏全屏短视频模式（抖音式沉浸播放 · 跟手 feed track）=====
 // playMode: 'normal' 详情模式 / 'portrait' 竖屏沉浸模式
 const playMode = ref<'normal' | 'portrait'>('normal')
 const portraitPlayer = ref<HTMLVideoElement | null>(null)
@@ -89,6 +89,22 @@ const portraitLoading = ref(false)
 const portraitHash = computed(() => feedList.value[feedIndex.value] || videoHash.value)
 const showPortraitDoubleLike = ref(false) // 双击爱心动画
 let doubleLikeTimer: number | null = null
+
+// 跟手滑动轨道状态
+const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
+const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
+const portraitTransition = ref(false) // 是否开启吸附动画
+const portraitViewportH = ref(0) // 视口高度（用于阈值与位移比例）
+// 相邻视频预览缓存：{ hash, title, cover, file_name }
+const portraitPrevPreview = ref<any>(null)
+const portraitNextPreview = ref<any>(null)
+const portraitSwitching = ref(false) // 吸附动画进行中，防重复触发
+
+// 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
+const portraitTrackY = computed(() => {
+  const base = -portraitViewportH.value // current 在第 2 格
+  return base + portraitDragY.value
+})
 
 // 从路由 query 初始化播放模式
 const initPlayMode = () => {
@@ -100,8 +116,12 @@ const enterPortraitMode = () => {
   feedList.value = [videoHash.value]
   feedIndex.value = 0
   portraitVideo.value = video.value
+  portraitDragY.value = 0
+  portraitPrevPreview.value = null
+  portraitNextPreview.value = null
   syncPortraitInteractions()
   playMode.value = 'portrait'
+  portraitViewportH.value = window.innerHeight
   // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
   document.body.classList.add('portrait-mode-active')
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
@@ -175,74 +195,126 @@ const loadPortraitVideo = async (hash: string) => {
   }
 }
 
-// 下一个随机视频（下滑）：从推荐接口取一个非当前视频，追加到 feedList
-const loadNextPortraitVideo = async () => {
-  if (portraitLoading.value) return
-  portraitLoading.value = true
+// 预取下一个随机视频预览（下滑方向）：从推荐接口取一个非当前视频
+const fetchNextPreview = async () => {
+  if (portraitNextPreview.value) return
   try {
     const response = await (videoApi.getVideos({ limit: 10, sort: 'recommended' }) as any)
     const list: any[] = response?.videos || []
     const next = list.find((v) => v.hash !== portraitHash.value)
     if (next) {
-      feedList.value.push(next.hash)
-      feedIndex.value = feedList.value.length - 1
-      // 用详情接口加载完整视频数据（含 url 字段）
-      await loadPortraitVideo(next.hash)
-    } else {
-      showToast('没有更多视频了')
+      portraitNextPreview.value = {
+        hash: next.hash,
+        title: next.title,
+        file_name: next.file_name,
+        cover: next.cover || next.thumbnail,
+      }
     }
   } catch (e) {
-    console.error('获取下一个视频失败:', e)
-  } finally {
-    portraitLoading.value = false
-    nextTick(() => {
-      portraitPlayer.value?.play().catch(() => {})
-    })
+    console.error('预取下一个视频失败:', e)
   }
 }
 
-// 上一个视频（上滑）：回退到历史位置（记住，不重新请求）
+// 上一个视频（下滑）：回退到历史位置（记住，不重新请求）
 const loadPrevPortraitVideo = () => {
   if (feedIndex.value > 0) {
     feedIndex.value -= 1
     const h = feedList.value[feedIndex.value]
     loadPortraitVideo(h)
-  } else {
-    showToast('已经是第一个视频')
+    return true
   }
+  return false
 }
 
-// 竖屏手势：纵向滑动切换
+// 下一个随机视频（上滑）：从预览缓存取 hash，追加到 feedList 并加载
+const loadNextPortraitVideo = async () => {
+  if (!portraitNextPreview.value) {
+    await fetchNextPreview()
+  }
+  if (portraitNextPreview.value) {
+    const h = portraitNextPreview.value.hash
+    feedList.value.push(h)
+    feedIndex.value = feedList.value.length - 1
+    portraitPrevPreview.value = {
+      hash: portraitHash.value,
+      title: portraitVideo.value?.title,
+      file_name: portraitVideo.value?.file_name,
+      cover: portraitVideo.value?.cover || portraitVideo.value?.thumbnail,
+    }
+    portraitNextPreview.value = null
+    await loadPortraitVideo(h)
+    fetchNextPreview() // 继续预取下一个
+    return true
+  }
+  showToast('没有更多视频了')
+  return false
+}
+
+// ===== 跟手滑动手势 =====
 const portraitTouchStartY = ref(0)
 const portraitTouchStartX = ref(0)
-const portraitTouchMoved = ref(false)
 const onPortraitTouchStart = (e: TouchEvent) => {
   const t = e.touches[0]
   if (!t) return
   portraitTouchStartY.value = t.clientY
   portraitTouchStartX.value = t.clientX
-  portraitTouchMoved.value = false
+  portraitDragging.value = true
+  portraitTransition.value = false
+  portraitViewportH.value = window.innerHeight
 }
 const onPortraitTouchMove = (e: TouchEvent) => {
+  if (!portraitDragging.value || portraitSwitching.value) return
   const t = e.touches[0]
   if (!t) return
   const dy = t.clientY - portraitTouchStartY.value
   const dx = t.clientX - portraitTouchStartX.value
-  if (Math.abs(dy) > 10 || Math.abs(dx) > 10) portraitTouchMoved.value = true
+  // 限制横向滑动不跟手（保留给可能的横向操作）
+  if (Math.abs(dy) < Math.abs(dx)) {
+    portraitDragY.value = 0
+    return
+  }
+  portraitDragY.value = dy
 }
 const PORTRAIT_SWIPE_THRESHOLD = 60
 const onPortraitTouchEnd = (e: TouchEvent) => {
-  if (!portraitTouchMoved.value) return  // 仅在发生过移动时才视为滑动
+  if (!portraitDragging.value) return
+  portraitDragging.value = false
   const t = e.changedTouches[0]
   if (!t) return
   const dy = t.clientY - portraitTouchStartY.value
   const dx = t.clientX - portraitTouchStartX.value
-  if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD) return
-  if (Math.abs(dy) <= Math.abs(dx)) return // 横向不触发切换
+  portraitTransition.value = true // 开启吸附动画
+  if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD || Math.abs(dy) <= Math.abs(dx)) {
+    // 未达阈值：回弹
+    portraitDragY.value = 0
+    return
+  }
   if (dy < 0) {
-    loadNextPortraitVideo() // 上滑 = 下一个（随机未看过的）
+    // 上滑：切到下一个（随机），轨道向上飞
+    portraitSwitching.value = true
+    portraitDragY.value = -portraitViewportH.value
+    setTimeout(async () => {
+      const ok = await loadNextPortraitVideo()
+      // 切换后瞬时归位到 current（无动画）
+      portraitTransition.value = false
+      portraitDragY.value = 0
+      portraitSwitching.value = false
+      if (!ok) portraitDragY.value = 0
+    }, 280)
   } else {
-    loadPrevPortraitVideo() // 下滑 = 上一个（历史）
+    // 下滑：回到上一个（历史），轨道向下飞
+    const ok = loadPrevPortraitVideo()
+    if (ok) {
+      portraitSwitching.value = true
+      portraitDragY.value = portraitViewportH.value
+      setTimeout(() => {
+        portraitTransition.value = false
+        portraitDragY.value = 0
+        portraitSwitching.value = false
+      }, 280)
+    } else {
+      portraitDragY.value = 0
+    }
   }
 }
 
@@ -314,9 +386,19 @@ const portraitVideoUrl = computed(() => {
   return ''
 })
 
-// 竖屏视频播放结束：自动进入下一个
+// 竖屏视频播放结束：自动进入下一个（带轨道吸附动画）
 const onPortraitEnded = () => {
-  loadNextPortraitVideo()
+  if (portraitSwitching.value) return
+  portraitTransition.value = true
+  portraitSwitching.value = true
+  portraitDragY.value = -portraitViewportH.value
+  setTimeout(async () => {
+    const ok = await loadNextPortraitVideo()
+    portraitTransition.value = false
+    portraitDragY.value = 0
+    portraitSwitching.value = false
+    if (!ok) portraitDragY.value = 0
+  }, 280)
 }
 
 // 移动端控制栏自动隐藏
@@ -2132,30 +2214,65 @@ const handleDelete = async () => {
           </div>
         </div>
 
-        <!-- 竖屏全屏短视频模式（抖音式沉浸播放），Teleport 到 body 避免父级 overflow 裁剪 -->
+        <!-- 竖屏全屏短视频模式（抖音式沉浸播放 · 跟手 feed track），Teleport 到 body 避免父级 overflow 裁剪 -->
         <Teleport to="body">
           <div class="portrait-mode" v-if="playMode === 'portrait'" @click="onPortraitTap">
-            <!-- 视频层 -->
-            <video
-              ref="portraitPlayer"
-              :src="portraitVideoUrl"
-              class="portrait-video"
-              autoplay
-              playsinline
-              webkit-playsinline
-              x5-playsinline
-              x5-video-player-type="h5-page"
-              @ended="onPortraitEnded"
-              @click.stop
-            ></video>
-
-            <!-- 滑动手势层：纵向滑动切换视频 -->
+            <!-- 纵向 feed 轨道：prev / current / next 三格，跟手指平移 -->
             <div
-              class="portrait-gesture"
+              class="portrait-track"
+              :class="{ dragging: portraitDragging, animating: portraitTransition }"
+              :style="{ transform: `translateY(${portraitTrackY}px)` }"
               @touchstart="onPortraitTouchStart"
               @touchmove.prevent="onPortraitTouchMove"
               @touchend="onPortraitTouchEnd"
-            ></div>
+            >
+              <!-- 上一个（历史）预览 -->
+              <div class="portrait-item">
+                <div
+                  class="portrait-item-cover"
+                  v-if="portraitPrevPreview && portraitPrevPreview.cover"
+                  :style="{ backgroundImage: `url(${portraitPrevPreview.cover})` }"
+                ></div>
+                <div class="portrait-item-ph" v-else>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(255,255,255,0.25)"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+                <div class="portrait-item-title" v-if="portraitPrevPreview">{{ portraitPrevPreview.title }}</div>
+              </div>
+
+              <!-- 当前视频 -->
+              <div class="portrait-item">
+                <video
+                  ref="portraitPlayer"
+                  :src="portraitVideoUrl"
+                  class="portrait-video"
+                  autoplay
+                  playsinline
+                  webkit-playsinline
+                  x5-playsinline
+                  x5-video-player-type="h5-page"
+                  @ended="onPortraitEnded"
+                  @click.stop
+                ></video>
+                <!-- 底部视频信息 -->
+                <div class="portrait-info" @click.stop>
+                  <div class="portrait-title">{{ portraitVideo?.title || video.title }}</div>
+                  <div class="portrait-meta" v-if="portraitVideo?.file_name">{{ portraitVideo.file_name }}</div>
+                </div>
+              </div>
+
+              <!-- 下一个（随机）预览 -->
+              <div class="portrait-item">
+                <div
+                  class="portrait-item-cover"
+                  v-if="portraitNextPreview && portraitNextPreview.cover"
+                  :style="{ backgroundImage: `url(${portraitNextPreview.cover})` }"
+                ></div>
+                <div class="portrait-item-ph" v-else>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(255,255,255,0.25)"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+                <div class="portrait-item-title" v-if="portraitNextPreview">{{ portraitNextPreview.title }}</div>
+              </div>
+            </div>
 
             <!-- 双击爱心动画 -->
             <transition name="heart-pop">
@@ -2210,12 +2327,6 @@ const handleDelete = async () => {
                 </span>
                 <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
               </button>
-            </div>
-
-            <!-- 底部视频信息 -->
-            <div class="portrait-info" @click.stop>
-              <div class="portrait-title">{{ portraitVideo?.title || video.title }}</div>
-              <div class="portrait-meta" v-if="portraitVideo?.file_name">{{ portraitVideo.file_name }}</div>
             </div>
 
             <!-- 加载指示 -->
@@ -3224,11 +3335,27 @@ const handleDelete = async () => {
   background: #000;
   z-index: 2000;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   touch-action: none;
   overscroll-behavior: contain;
+}
+/* 纵向 feed 轨道：三格（prev/current/next），每格一个视口高 */
+.portrait-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 300%;
+  will-change: transform;
+}
+.portrait-track.animating {
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.portrait-item {
+  position: relative;
+  width: 100%;
+  height: 33.3333%;
+  overflow: hidden;
+  background: #000;
 }
 .portrait-video {
   width: 100%;
@@ -3236,11 +3363,34 @@ const handleDelete = async () => {
   object-fit: contain;
   background: #000;
 }
-/* 滑动手势层覆盖整个区域，纵向滑动切换视频 */
-.portrait-gesture {
+/* 相邻视频预览层 */
+.portrait-item-cover {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  filter: brightness(0.7);
+}
+.portrait-item-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+}
+.portrait-item-title {
   position: absolute;
-  inset: 0;
-  z-index: 1;
+  left: 16px;
+  right: 80px;
+  bottom: 24px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 双击爱心动画 */
 .portrait-heart {
