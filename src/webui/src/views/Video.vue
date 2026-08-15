@@ -93,6 +93,14 @@ const showPortraitDoubleLike = ref(false) // 双击爱心动画
 let doubleLikeTimer: number | null = null
 // 从竖屏进入横屏原生全屏的标记：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
 const portraitLandscapeActive = ref(false)
+// 竖屏右上角「更多」菜单展开状态（收纳不常用按钮，如不喜欢）
+const portraitMoreOpen = ref(false)
+const togglePortraitMore = () => {
+  portraitMoreOpen.value = !portraitMoreOpen.value
+}
+const closePortraitMore = () => {
+  portraitMoreOpen.value = false
+}
 
 // 跟手滑动轨道状态
 const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
@@ -192,6 +200,7 @@ const syncPortraitInteractions = () => {
 
 // 退出竖屏模式，回到普通详情页
 const exitPortraitMode = () => {
+  portraitMoreOpen.value = false
   playMode.value = 'normal'
   // 解锁底层 body 滚动并恢复到原位置
   unlockPortraitBody()
@@ -480,6 +489,11 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
 // 竖屏双击点赞
 const portraitLastTap = ref(0)
 const onPortraitTap = () => {
+  // 点击视频区域时收起「更多」菜单
+  if (portraitMoreOpen.value) {
+    portraitMoreOpen.value = false
+    return
+  }
   const now = Date.now()
   if (now - portraitLastTap.value < 300) {
     portraitLastTap.value = 0
@@ -2434,30 +2448,33 @@ const handleDelete = async () => {
               </div>
             </transition>
 
-            <!-- 右上角：退出 / 横屏全屏 / 详情 -->
-            <div class="portrait-top">
-              <button class="portrait-top-btn" @click.stop="exitPortraitMode" aria-label="退出竖屏">✕</button>
-              <button class="portrait-top-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+            <!-- 右上角：更多（不常用按钮收纳） -->
+            <div class="portrait-more">
+              <button class="portrait-top-btn" @click.stop="togglePortraitMore" aria-label="更多">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="12" cy="19" r="2" />
                 </svg>
               </button>
-              <button class="portrait-top-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <line x1="3" y1="9" x2="21" y2="9" />
-                </svg>
-              </button>
+              <div v-if="portraitMoreOpen" class="portrait-more-menu" @click.stop>
+                <button class="portrait-more-item" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike(); closePortraitMore()" aria-label="不喜欢">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="8" y1="8" x2="16" y2="16" />
+                    <line x1="16" y1="8" x2="8" y2="16" />
+                  </svg>
+                  <span>不喜欢</span>
+                </button>
+              </div>
             </div>
 
-            <!-- 左上角：不喜欢 -->
-            <button class="portrait-dislike-top" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike" aria-label="不喜欢">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="9" />
-                <line x1="8" y1="8" x2="16" y2="16" />
-                <line x1="16" y1="8" x2="8" y2="16" />
+            <!-- 左上角：退出（←） -->
+            <button class="portrait-back-btn" @click.stop="exitPortraitMode" aria-label="退出竖屏">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
               </svg>
-              <span>不喜欢</span>
             </button>
 
             <!-- 右侧竖排操作栏：点赞 / 收藏 -->
@@ -2477,6 +2494,21 @@ const handleDelete = async () => {
                   </svg>
                 </span>
                 <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
+              </button>
+            </div>
+
+            <!-- 右下角：全屏 / 详情 -->
+            <div class="portrait-corner-actions">
+              <button class="portrait-corner-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 0 0 1 2 2v3M8 21H5a2 0 0 1-2-2v-3M16 21h3a2 0 0 0 2-2v-3" />
+                </svg>
+              </button>
+              <button class="portrait-corner-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                </svg>
               </button>
             </div>
 
@@ -3549,15 +3581,71 @@ const handleDelete = async () => {
   70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
 }
-/* 右上角操作按钮 */
-.portrait-top {
+/* 右上角更多菜单容器 */
+.portrait-more {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
   right: 12px;
-  z-index: 10;
+  z-index: 11;
+}
+/* 更多下拉菜单（不常用按钮收纳） */
+.portrait-more-menu {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  min-width: 112px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+.portrait-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.portrait-more-item:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+.portrait-more-item.active {
+  color: #cfcfcf;
+}
+/* 右下角操作组：全屏 / 详情 */
+.portrait-corner-actions {
+  position: absolute;
+  right: 12px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
   gap: 10px;
+}
+.portrait-corner-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.portrait-corner-btn:active {
+  background: rgba(0, 0, 0, 0.7);
 }
 .portrait-top-btn {
   width: 40px;
@@ -3618,6 +3706,10 @@ const handleDelete = async () => {
 .portrait-action.active {
   color: #ff2d55;
 }
+/* 不喜欢为否定操作，激活时用灰色而非红心色，避免与点赞混淆 */
+.portrait-action.dislike.active {
+  color: #cfcfcf;
+}
 .portrait-action:nth-child(2).active {
   color: #ffd60a;
 }
@@ -3626,27 +3718,26 @@ const handleDelete = async () => {
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
-/* 左上角不喜欢 */
-.portrait-dislike-top {
+/* 左上角退出箭头 */
+.portrait-back-btn {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
   left: 12px;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 12px;
-  border-radius: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   border: none;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   backdrop-filter: blur(4px);
 }
-.portrait-dislike-top.active {
-  color: #ff2d55;
-  background: rgba(0, 0, 0, 0.6);
+.portrait-back-btn:active {
+  background: rgba(0, 0, 0, 0.7);
 }
 /* 每格底部视频信息：随轨道平移，滑动时标题跟着视频走 */
 .portrait-item-info {
