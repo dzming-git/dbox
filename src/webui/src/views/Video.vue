@@ -2588,7 +2588,7 @@ const handleDelete = async () => {
             <div class="portrait-actions">
               <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
                 <span class="portrait-action-icon">
-                  <svg width="26" height="26" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
+                  <svg width="30" height="30" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
                     <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
                   </svg>
                 </span>
@@ -2596,7 +2596,7 @@ const handleDelete = async () => {
               </button>
               <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
                 <span class="portrait-action-icon">
-                  <svg width="26" height="26" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
+                  <svg width="30" height="30" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
                     <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
                   </svg>
                 </span>
@@ -3877,7 +3877,7 @@ const handleDelete = async () => {
   z-index: 13;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   align-items: center;
 }
 .portrait-action {
@@ -3891,14 +3891,13 @@ const handleDelete = async () => {
   cursor: pointer;
 }
 .portrait-action-icon {
-  width: 48px;
-  height: 48px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.4);
+  background: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(4px);
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
   transition: transform 0.15s, background 0.2s;
 }
@@ -3906,7 +3905,7 @@ const handleDelete = async () => {
   transform: scale(0.9);
 }
 .portrait-action.active .portrait-action-icon {
-  background: rgba(0, 0, 0, 0.55);
+  background: none;
 }
 .portrait-action.active {
   color: #ff2d55;
