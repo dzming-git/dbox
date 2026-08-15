@@ -120,6 +120,9 @@ const initPlayMode = () => {
   playMode.value = route.query.mode === 'portrait' ? 'portrait' : 'normal'
 }
 
+// 进入竖屏模式时锁定的底层滚动位置，退出时恢复
+let portraitBodyScrollY = 0
+
 // 进入竖屏模式：把当前视频作为流首，自动播放
 const enterPortraitMode = () => {
   feedList.value = [videoHash.value]
@@ -136,6 +139,14 @@ const enterPortraitMode = () => {
   portraitViewportH.value = window.innerHeight
   // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
   document.body.classList.add('portrait-mode-active')
+  // 锁定底层 body 滚动：彻底阻止 iOS 原生下拉回弹/页面刷新穿透到首页
+  portraitBodyScrollY = window.scrollY
+  document.body.style.position = 'fixed'
+  document.body.style.top = `-${portraitBodyScrollY}px`
+  document.body.style.left = '0'
+  document.body.style.right = '0'
+  document.body.style.width = '100%'
+  document.body.style.overflow = 'hidden'
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
     // 当前视频有声播放；预取下一个以便上滑即见
@@ -156,8 +167,9 @@ const syncPortraitInteractions = () => {
 // 退出竖屏模式，回到普通详情页
 const exitPortraitMode = () => {
   playMode.value = 'normal'
-  // 移除竖屏标记，恢复底层下拉刷新
-  document.body.classList.remove('portrait-mode-active')
+  // 解锁底层 body 滚动并恢复到原位置
+  unlockPortraitBody()
+  if (portraitBodyScrollY) window.scrollTo(0, portraitBodyScrollY)
   const q = { ...route.query }
   delete q.mode
   router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: q })
@@ -856,10 +868,29 @@ const ptr = usePullToRefresh()
 function registerPtr() {
   ptr.setHandler(loadVideo)
 }
+// 统一解锁底层 body 滚动（防止通过路由离开竖屏时 body 停留在 fixed 状态）
+function unlockPortraitBody() {
+  if (document.body.classList.contains('portrait-mode-active')) {
+    document.body.classList.remove('portrait-mode-active')
+  }
+  document.body.style.position = ''
+  document.body.style.top = ''
+  document.body.style.left = ''
+  document.body.style.right = ''
+  document.body.style.width = ''
+  document.body.style.overflow = ''
+}
+
 onMounted(registerPtr)
 onActivated(registerPtr)
-onUnmounted(() => ptr.clearHandler())
-onDeactivated(() => ptr.clearHandler())
+onUnmounted(() => {
+  ptr.clearHandler()
+  unlockPortraitBody()
+})
+onDeactivated(() => {
+  ptr.clearHandler()
+  unlockPortraitBody()
+})
 
 function onDocClickCloseMenu(e: Event) {
   if (!moreMenuOpen.value) return
