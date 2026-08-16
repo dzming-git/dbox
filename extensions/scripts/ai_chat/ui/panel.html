@@ -108,35 +108,43 @@
   .bubble.ai .res-ref.missing { background: #fbeaea; color: #b00; border-color: #f3c2c2; cursor: default; }
   .fbhint { font-size: 11.5px; color: #9aa0a6; text-align: center; padding: 4px 10px 0; user-select: none; }
 
-  /* 工作流选择栏 */
-  .workflow-bar { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
-  .wf-btn {
-    display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
-    padding: 7px 12px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 700;
-    border: 1.5px solid #2f54eb; background: #eef3ff; color: #1d39c4;
-    transition: background .15s, box-shadow .15s;
+  /* 工作流选择条：紧贴输入框上方，仿 QQ/微信 输入框工具行 */
+  .wf-bar {
+    position: relative; display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-bottom: 1px solid #eef1f5;
   }
-  .wf-btn:hover { box-shadow: 0 2px 10px rgba(47,84,235,.25); }
-  .wf-btn.neutral { border-style: dashed; border-color: #b0b8c4; background: #f4f6f9; color: #6b7280; }
-  .wf-btn .wf-ico { font-size: 16px; line-height: 1; }
-  .wf-btn .wf-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wf-btn .wf-caret { font-size: 11px; opacity: .7; }
-  .wf-auto { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; white-space: nowrap; user-select: none; cursor: pointer; }
-  .wf-auto input { cursor: pointer; }
+  /* 纯图标触发按钮：无文字、无箭头，紧贴输入框上方 */
+  .wf-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; padding: 0;
+    border: 1px solid #d6dbe3; background: #fff; color: #1f2937; border-radius: 8px;
+    font-size: 17px; cursor: pointer; line-height: 1;
+    transition: background .15s, border-color .15s, box-shadow .15s;
+  }
+  .wf-btn:hover { border-color: #2f54eb; background: #eef3ff; box-shadow: 0 1px 6px rgba(47,84,235,.14); }
+  .wf-btn .wf-ico { font-size: 17px; line-height: 1; }
+  /* 下拉浮层：5 个图标（自动推断 + 各工作流），图标网格排布 */
   .wf-panel {
-    position: absolute; top: 100%; left: 10px; right: 10px; margin-top: 4px; z-index: 60;
-    background: #fff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 8px;
+    position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; z-index: 60;
+    background: #fff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 10px;
     box-shadow: 0 12px 32px rgba(0,0,0,.18);
   }
-  .wf-panel-hint { font-size: 11.5px; color: #9aa0a6; padding: 2px 4px 6px; }
-  .wf-list { display: flex; flex-direction: column; gap: 6px; }
-  .wf-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; cursor: pointer; border: 1px solid transparent; }
+  .wf-panel-hint { font-size: 11.5px; color: #9aa0a6; padding: 0 2px 8px; }
+  .wf-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* 每个工作流是一个小图标方块（不再带文字说明行） */
+  .wf-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    width: 64px; padding: 8px 4px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; text-align: center;
+    transition: background .15s, border-color .15s;
+  }
   .wf-item:hover { background: #f3f6fb; border-color: #e3e8ef; }
-  .wf-item .wf-i-ico { font-size: 18px; line-height: 1; }
-  .wf-item .wf-i-main { flex: 1; min-width: 0; }
-  .wf-item .wf-i-name { font-weight: 700; font-size: 13.5px; }
-  .wf-item .wf-i-desc { font-size: 11.5px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-item .wf-i-ico { font-size: 22px; line-height: 1; }
+  .wf-item .wf-i-name { font-size: 11px; color: #374151; font-weight: 600; line-height: 1.2; }
   .wf-item.active { background: #eef3ff; border-color: #2f54eb; }
+  .wf-item.auto .wf-i-ico { filter: none; }
+  .wf-item.auto.active { background: #eafaf0; border-color: #1aa260; }
+  .wf-item.auto.active .wf-i-name { color: #1aa260; }
   /* 阶段气泡中标注当前工作流 */
   .bubble.ai .wf-tag { display: inline-block; font-size: 11px; font-weight: 700; color: #1d39c4; background: #eef3ff; border: 1px solid #d6e0ff; border-radius: 6px; padding: 0 6px; margin-bottom: 4px; }
   .bubble.ai .ask-q { font-size: 13.5px; font-weight: 600; margin: 2px 0 8px; }
@@ -156,24 +164,19 @@
       <button id="clear">清空对话</button>
     </div>
   </div>
-  <!-- 工作流选择栏：醒目按钮 + 选择浮层 + 自动推断开关 -->
-  <div class="workflow-bar" id="wfbar">
-    <button class="wf-btn" id="wfBtn" type="button">
-      <span class="wf-ico" id="wfIco">🧭</span>
-      <span class="wf-name" id="wfName">选择工作流</span>
-      <span class="wf-caret">▾</span>
-    </button>
-    <label class="wf-auto" title="开启后由 AI 根据输入实时推断工作流；关闭则强制使用已选工作流">
-      <input type="checkbox" id="wfAuto" checked /> 自动推断
-    </label>
-    <div class="wf-panel" id="wfPanel" hidden>
-      <div class="wf-panel-hint">选择本次对话的工作流（手动选择后自动关闭自动推断）</div>
-      <div class="wf-list" id="wfList"></div>
-    </div>
-  </div>
   <div class="queue" id="queue"></div>
   <div class="msgs" id="msgs"></div>
   <div class="fbhint" id="fbhint">可在此提交 bug / 建议，AI 会自动建单并在反馈中心跟踪</div>
+  <!-- 工作流选择：独立一行，紧贴在输入框上方（仿 QQ/微信 输入框上方的工具行） -->
+  <div class="wf-bar" id="wfbar">
+    <button class="wf-btn" id="wfBtn" type="button" title="选择工作流">
+      <span class="wf-ico" id="wfIco">🤖</span>
+    </button>
+    <div class="wf-panel" id="wfPanel" hidden>
+      <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）</div>
+      <div class="wf-list" id="wfList"></div>
+    </div>
+  </div>
   <div class="input-bar">
     <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
     <button id="send">发送</button>
@@ -190,9 +193,22 @@
     } catch (e) { return ''; }
   }
   let TOKEN = readToken();
+  // 等待 token 就绪：宿主通过 postMessage 异步回填，若此刻为空则轮询等待，
+  // 避免后续带鉴权的请求因 Authorization 缺失返回 401（尤其工作流列表）。
+  function ensureToken(timeoutMs) {
+    if (TOKEN) return Promise.resolve(TOKEN);
+    return new Promise(function (resolve) {
+      const t0 = Date.now();
+      const max = timeoutMs || 4000;
+      const iv = setInterval(function () {
+        if (TOKEN) { clearInterval(iv); resolve(TOKEN); }
+        else if (Date.now() - t0 > max) { clearInterval(iv); resolve(''); }
+      }, 100);
+    });
+  }
   window.addEventListener('message', (e) => {
     if (!e.data) return;
-    if (e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; }
+    if (e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; loadWorkflows(); }
     // 宿主回填上次收起时未发送的输入内容（面板重新挂载后恢复草稿）
     if (e.data.type === 'DBOX_DRAFT' && typeof e.data.text === 'string') {
       if (!txt.value) { txt.value = e.data.text; autoGrow(); }
@@ -875,25 +891,21 @@
   // ---------- 工作流选择 ----------
   const wfState = { id: null, name: '选择工作流', icon: '🧭', color: '#2f54eb', auto: true, manual: false };
   const wfBtn = document.getElementById('wfBtn');
-  const wfName = document.getElementById('wfName');
   const wfIco = document.getElementById('wfIco');
-  const wfAuto = document.getElementById('wfAuto');
   const wfPanel = document.getElementById('wfPanel');
   const wfList = document.getElementById('wfList');
 
+  const WF_AUTO_ICON = '🤖';   // 自动推断图标（合并进工作流选择浮层）
   function renderWfButton() {
+    // 纯图标按钮：仅切换图标，不显示文字
     if (wfState.id) {
-      wfBtn.classList.remove('neutral');
       wfBtn.style.borderColor = wfState.color;
       wfBtn.style.background = hexA(wfState.color, 0.10);
-      wfBtn.style.color = wfState.color;
       wfIco.textContent = wfState.icon;
-      wfName.textContent = wfState.name + (wfState.manual ? '（手动）' : '');
     } else {
-      wfBtn.classList.add('neutral');
-      wfBtn.style.borderColor = ''; wfBtn.style.background = ''; wfBtn.style.color = '';
-      wfIco.textContent = '🧭';
-      wfName.textContent = '选择工作流';
+      wfBtn.style.borderColor = '#1aa260';
+      wfBtn.style.background = hexA('#1aa260', 0.10);
+      wfIco.textContent = WF_AUTO_ICON;
     }
   }
   function hexA(hex, a) {
@@ -904,18 +916,28 @@
   }
   async function loadWorkflows() {
     try {
+      // 关键修复：token 可能由宿主通过 postMessage 异步回填，若此刻为空则短暂等待，
+      // 否则 /api/ai-chat/workflows 返回 401，导致下拉菜单为空。
+      await ensureToken();
       const resp = await api('/api/ai-chat/workflows');
       if (!resp.ok) return;
       const d = await resp.json();
       if (!d.success || !d.workflows) return;
       wfState._list = d.workflows;
       wfList.innerHTML = '';
+      // 第 1 个图标：自动推断
+      const autoEl = document.createElement('div');
+      autoEl.className = 'wf-item auto' + (wfState.auto && !wfState.id ? ' active' : '');
+      autoEl.innerHTML = '<span class="wf-i-ico">' + WF_AUTO_ICON + '</span>'
+        + '<div class="wf-i-name">自动推断</div>';
+      autoEl.addEventListener('click', function () { selectAuto(); });
+      wfList.appendChild(autoEl);
+      // 其余图标：各工作流
       d.workflows.forEach(function (w) {
         const el = document.createElement('div');
         el.className = 'wf-item' + (w.id === wfState.id ? ' active' : '');
         el.innerHTML = '<span class="wf-i-ico">' + (w.icon || '•') + '</span>'
-          + '<div class="wf-i-main"><div class="wf-i-name" style="color:' + (w.color || '#1d39c4') + '">'
-          + esc(w.name) + '</div><div class="wf-i-desc">' + esc(w.description || '') + '</div></div>';
+          + '<div class="wf-i-name">' + esc(w.name) + '</div>';
         el.addEventListener('click', function () { selectWorkflow(w); });
         wfList.appendChild(el);
       });
@@ -924,7 +946,13 @@
   function selectWorkflow(w) {
     // 用户手动选择 -> 记 id + manual=true，并关闭自动推断（满足「设置后不自动推断」）
     wfState.id = w.id; wfState.name = w.name; wfState.icon = w.icon; wfState.color = w.color;
-    wfState.manual = true; wfState.auto = false; wfAuto.checked = false;
+    wfState.manual = true; wfState.auto = false;
+    renderWfButton();
+    wfPanel.hidden = true;
+  }
+  function selectAuto() {
+    // 选「自动推断」：清除手动选择，开启自动模式（AI 实时判断工作流）
+    wfState.id = null; wfState.manual = false; wfState.auto = true;
     renderWfButton();
     wfPanel.hidden = true;
   }
@@ -932,11 +960,6 @@
     e.stopPropagation();
     if (wfPanel.hidden) { loadWorkflows(); wfPanel.hidden = false; }
     else wfPanel.hidden = true;
-  });
-  wfAuto.addEventListener('change', function () {
-    wfState.auto = wfAuto.checked;
-    // 重新开启自动推断时，清除手动标记（后续请求不再强制带 workflow_id）
-    if (wfState.auto) { wfState.manual = false; }
   });
   document.addEventListener('click', function (e) {
     if (!wfPanel.hidden && !wfPanel.contains(e.target) && e.target !== wfBtn && !wfBtn.contains(e.target)) {
