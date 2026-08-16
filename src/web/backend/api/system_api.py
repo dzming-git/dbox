@@ -877,6 +877,10 @@ def _effective_library_perm(user, library_id):
     for m in LibraryUserGroupMember.query.filter_by(user_id=user.id).all():
         perms.extend(LibraryPermission.query.filter_by(group_id=m.group_id).all())
     perms.extend(LibraryPermission.query.filter_by(user_id=None).all())
+    # 显式拒绝（access_level='none'）优先级最高：覆盖通用/用户组授权
+    for p in perms:
+        if p.library_id == library_id and (p.access_level or 'read') == 'none':
+            return 'none'
     rank = {'read': 1, 'write': 2, 'admin': 3}
     for p in perms:
         if p.library_id != library_id:
@@ -926,7 +930,9 @@ def set_user_library_permissions(user_id):
     """批量设置指定用户对各资源库的读写权限。
 
     body: { permissions: [ { library_id, level } ] }  level ∈ 'none'|'read'|'write'
-    仅修改该用户的「直接授权」记录；'none' 表示删除该用户针对该库的直接授权。
+    仅修改该用户的「直接授权」记录。'none' 表示显式拒绝该用户访问该库：写入一条
+    access_level='none' 的直接授权（而非仅删除），以覆盖「通用授权(user_id=NULL) /
+    用户组授权」，否则对通过通用/组授权获得该库权限的用户，撤回直接授权无效。
     管理员(role>=ADMIN)对所有激活库默认可读写，不允许通过此接口改降。
     """
     try:
@@ -954,6 +960,14 @@ def set_user_library_permissions(user_id):
             lid = item['library_id']
             level = item['level']
             if level == 'none':
+                # 显式拒绝：写入 access_level='none' 的直接授权，覆盖通用/用户组授权。
+                # 仅「删除直接授权」无法撤销库 p 这类由通用授权(user_id=NULL)授予的可见性。
+                db.session.add(LibraryPermission(
+                    user_id=user.id,
+                    library_id=lid,
+                    access_level='none',
+                    created_by=g.user_id,
+                ))
                 continue
             db.session.add(LibraryPermission(
                 user_id=user.id,

@@ -115,6 +115,31 @@ def _collect_user_permissions(user_id):
     return perms
 
 
+def _collect_user_denials(user_id):
+    """收集某用户被「显式拒绝」访问的资源库 ID 集合。
+
+    拒绝语义用于覆盖「通用授权(user_id=NULL) / 用户组授权」这类会作用到全体
+    成员的授权：管理员在用户维度把某库设为 none 时，必须能盖过通用/组授权，
+    否则「关闭某用户对某库的权限」对通过通用/组授权获得该库的人无效。
+
+    拒绝 = 直接授权或用户组授权中 access_level='none' 的记录。
+    """
+    denied = set()
+    if not user_id:
+        return denied
+    for perm in LibraryPermission.query.filter_by(user_id=user_id).all():
+        if (perm.access_level or 'read') == 'none':
+            denied.add(perm.library_id)
+    member_groups = [m.group_id for m in
+                     LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+    if member_groups:
+        for perm in LibraryPermission.query.filter(
+                LibraryPermission.group_id.in_(member_groups)).all():
+            if (perm.access_level or 'read') == 'none':
+                denied.add(perm.library_id)
+    return denied
+
+
 def _perm_allows_write(perm):
     """判断一条 LibraryPermission 是否授予写权限。
 
@@ -166,6 +191,10 @@ def get_allowed_library_ids():
             if lib and lib.is_active and perm.library_id not in seen:
                 seen.add(perm.library_id)
                 allowed_library_ids.append(perm.library_id)
+        # 显式拒绝覆盖通用/用户组授权：被设为 none 的库从可读集合中剔除
+        denied = _collect_user_denials(user_id)
+        if denied:
+            allowed_library_ids = [lid for lid in allowed_library_ids if lid not in denied]
     else:
         # 未登录用户：只能看到有通用权限（user_id=NULL）的激活库
         general_perms = LibraryPermission.query.filter_by(user_id=None).all()
@@ -195,8 +224,11 @@ def get_writable_library_ids():
         all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
         writable = [lib.id for lib in all_active_libs]
     elif user_id:
+        denied = _collect_user_denials(user_id)
         seen = set()
         for perm in _collect_user_permissions(user_id):
+            if perm.library_id in denied:
+                continue
             if _perm_allows_write(perm):
                 lib = ResourceLibrary.query.get(perm.library_id)
                 if lib and lib.is_active and perm.library_id not in seen:
@@ -604,6 +636,8 @@ def _user_can_write_library(user_id, library_id, user_role=None):
         lib = ResourceLibrary.query.get(library_id)
         return bool(lib and lib.is_active)
     if not user_id:
+        return False
+    if library_id in _collect_user_denials(user_id):
         return False
     for perm in _collect_user_permissions(user_id):
         if perm.library_id == library_id and _perm_allows_write(perm):
