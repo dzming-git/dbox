@@ -959,7 +959,7 @@ def set_user_library_permissions(user_id):
                 user_id=user.id,
                 library_id=lid,
                 access_level=level,
-                granted_by=g.user_id,
+                created_by=g.user_id,
             ))
         db.session.commit()
         log.maintenance('INFO', f"更新用户资源库权限: {user.username} (ID: {user_id})")
