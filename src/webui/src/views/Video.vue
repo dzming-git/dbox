@@ -993,6 +993,12 @@ const loadVideo = async () => {
           portraitVideo.value = video.value
           syncPortraitInteractions()
         }
+        // 刷新或重新拉取后，若当前竖屏槽位 url 尚未就绪/与最新视频不一致，
+        // 用最新的 video.value 重填当前槽。否则竖屏当前视频源为空会黑屏“看不到”。
+        const cur = portraitSlots.value[1]
+        if (cur && (!cur.url || cur.hash !== video.value.hash)) {
+          portraitSlots.value[1] = toSlotItem(video.value)
+        }
       }
     }
   } catch (error) {
