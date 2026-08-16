@@ -18,6 +18,9 @@ from core.models import db
 from backend.system_helpers import save_config
 import os
 from core.models import UserRole
+from core.models import ResourceLibrary
+from core.models import LibraryPermission
+from core.models import LibraryUserGroupMember
 from core.models import Video
 from core.models import AppSetting
 from datetime import datetime, timedelta
@@ -25,6 +28,7 @@ from backend.runtime import runtime
 from backend.access import get_allowed_library_ids
 from backend.access import resolve_identity
 from backend.access import admin_required, auth_required
+from backend.access import _perm_allows_write
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
@@ -855,4 +859,112 @@ def delete_admin_user(user_id):
     except Exception as e:
         db.session.rollback()
         log.debug('ERROR', f"删除用户失败: {user_id}, {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _effective_library_perm(user, library_id):
+    """返回用户对某库的实际生效权限级别：'none'/'read'/'write'/'admin'/'full'。
+
+    管理员(role>=ADMIN)对激活库恒为 'full'；普通用户取直接授权/用户组授权/通用授权中
+    最高的一档（admin > write > read；custom 按 permissions 推断，这里简化为 read/write）。
+    """
+    if user.role >= UserRole.ADMIN:
+        lib = ResourceLibrary.query.get(library_id)
+        if lib and lib.is_active:
+            return 'full'
+    best = None
+    perms = list(LibraryPermission.query.filter_by(user_id=user.id).all())
+    for m in LibraryUserGroupMember.query.filter_by(user_id=user.id).all():
+        perms.extend(LibraryPermission.query.filter_by(group_id=m.group_id).all())
+    perms.extend(LibraryPermission.query.filter_by(user_id=None).all())
+    rank = {'read': 1, 'write': 2, 'admin': 3}
+    for p in perms:
+        if p.library_id != library_id:
+            continue
+        lvl = p.access_level or 'read'
+        if lvl == 'custom':
+            lvl = 'write' if _perm_allows_write(p) else 'read'
+        r = rank.get(lvl, 1)
+        if best is None or r > rank.get(best, 1):
+            best = lvl
+    if best == 'admin':
+        return 'admin'
+    if best == 'write':
+        return 'write'
+    if best == 'read':
+        return 'read'
+    return 'none'
+
+
+@bp.route('/api/admin/users/<int:user_id>/library-permissions', methods=['GET'])
+@admin_required
+def get_user_library_permissions(user_id):
+    """获取指定用户对全部资源库的读写权限（仅直接授权 + 用户组授权，不含管理员默认全权）。"""
+    try:
+        user = User.query.get_or_404(user_id)
+        libraries = ResourceLibrary.query.filter_by(is_active=True).order_by(ResourceLibrary.id).all()
+        # 该用户已有的直接授权记录（用于区分"无"与"有记录但仅通用授权"）
+        direct = {p.library_id: p for p in LibraryPermission.query.filter_by(user_id=user.id).all()}
+        data = [{
+            'library_id': lib.id,
+            'library_name': lib.name,
+            'effective': _effective_library_perm(user, lib.id),
+            'direct_level': direct.get(lib.id).access_level if lib.id in direct else None,
+        } for lib in libraries]
+        return jsonify({
+            'success': True,
+            'is_admin': user.role >= UserRole.ADMIN,
+            'libraries': data,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/users/<int:user_id>/library-permissions', methods=['POST'])
+@admin_required
+def set_user_library_permissions(user_id):
+    """批量设置指定用户对各资源库的读写权限。
+
+    body: { permissions: [ { library_id, level } ] }  level ∈ 'none'|'read'|'write'
+    仅修改该用户的「直接授权」记录；'none' 表示删除该用户针对该库的直接授权。
+    管理员(role>=ADMIN)对所有激活库默认可读写，不允许通过此接口改降。
+    """
+    try:
+        user = User.query.get_or_404(user_id)
+        if user.role >= UserRole.ADMIN:
+            return jsonify({'success': False, 'message': '管理员默认拥有全部资源库权限，无需单独设置'}), 400
+        data = request.get_json(silent=True) or {}
+        items = data.get('permissions', [])
+        if not isinstance(items, list):
+            return jsonify({'success': False, 'message': 'permissions 必须是数组'}), 400
+
+        allowed = {'none', 'read', 'write'}
+        for item in items:
+            lid = item.get('library_id')
+            level = item.get('level')
+            if lid is None or level not in allowed:
+                return jsonify({'success': False, 'message': '无效的 library_id 或 level'}), 400
+            lib = ResourceLibrary.query.get(lid)
+            if not lib or not lib.is_active:
+                return jsonify({'success': False, 'message': f'资源库不存在或未激活: {lid}'}), 400
+
+        # 一次性覆盖：先删除该用户现有直接授权，再按请求重建
+        LibraryPermission.query.filter_by(user_id=user.id).delete()
+        for item in items:
+            lid = item['library_id']
+            level = item['level']
+            if level == 'none':
+                continue
+            db.session.add(LibraryPermission(
+                user_id=user.id,
+                library_id=lid,
+                access_level=level,
+                granted_by=g.user_id,
+            ))
+        db.session.commit()
+        log.maintenance('INFO', f"更新用户资源库权限: {user.username} (ID: {user_id})")
+        log_operation('update user library permissions', target=user.username, success=True)
+        return jsonify({'success': True, 'message': '资源库权限已更新'})
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500

@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from backend.trash import purge_trash
 from backend.runtime import runtime
 from backend.helpers import _resolve_resource_library_id, _ensure_resource_library
-from backend.access import admin_required, library_admin_required, resource_manager_required, get_allowed_library_ids
+from backend.access import admin_required, library_admin_required, library_write_required, resource_manager_required, get_allowed_library_ids
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
 log = get_service_logger('dbox-web')
@@ -345,7 +345,7 @@ def test_add_folder():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/libraries/<int:library_id>/folders', methods=['POST'])
-@library_admin_required('library_id')
+@library_write_required('library_id')
 def add_library_folder(library_id):
     """添加文件夹到资源库"""
     try:
@@ -392,7 +392,7 @@ def add_library_folder(library_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/folders/<int:folder_id>', methods=['PUT'])
-@library_admin_required('folder_id')
+@library_write_required('folder_id')
 def update_folder(folder_id):
     """更新文件夹"""
     try:
@@ -418,7 +418,7 @@ def update_folder(folder_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/folders/<int:folder_id>', methods=['DELETE'])
-@library_admin_required('folder_id')
+@library_write_required('folder_id')
 def delete_folder(folder_id):
     """删除文件夹"""
     try:
@@ -442,7 +442,7 @@ def delete_folder(folder_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/folders/<int:folder_id>/set-default', methods=['POST'])
-@library_admin_required('folder_id')
+@library_write_required('folder_id')
 def set_default_folder(folder_id):
     """设置文件夹为默认上传路径"""
     try:
