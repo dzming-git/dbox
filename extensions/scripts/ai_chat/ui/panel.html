@@ -496,7 +496,7 @@
       const h = allHistory[i];
       const kind = h.status === 'failed' ? 'err' : 'done';
       const reply = h.status === 'failed' ? ('执行失败：' + (h.error || ''))
-                   : ((h.reply && h.reply.trim()) ? h.reply : '（任务已执行完成，无文本输出）');
+                   : ((h.reply && h.reply.trim()) ? h.reply : '（AI 未返回有效内容，请重试或查看运行日志）');
       // 历史回看：若存库了分阶段气泡（phases），按多气泡还原；否则单气泡兜底。
       const aiHtml = (h.phases && h.phases.length)
           ? renderPhasesHtml(h.phases, false)
@@ -815,7 +815,7 @@
             phases.forEach(p => { p.state = 'done'; });
             // 完成时以阶段气泡呈现整轮处理过程；若没有任何阶段（极端兜底）则单气泡。
             let h = renderPhasesHtml(phases, false);
-            if (!h) h = renderSingleAi(taskId, (data && data.trim()) ? data : '（任务已执行完成，无文本输出）', 'done', false);
+            if (!h) h = renderSingleAi(taskId, (data && data.trim()) ? data : '（AI 未返回有效内容，请重试或查看运行日志）', 'done', false);
             updateAiLive(taskId, h, false);
             subscribed.delete(taskId);
             delete liveRender[taskId];
