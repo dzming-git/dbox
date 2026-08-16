@@ -12,6 +12,7 @@ import json
 import math
 import shutil
 import ctypes
+import glob
 import subprocess
 import threading
 from datetime import datetime
@@ -201,15 +202,63 @@ def _load_preview_config():
     return default
 
 
+_FF_BIN_CACHE = {}
+
+
+def _find_bin(name):
+    """在 PATH 与常见安装目录下查找 ffmpeg/ffprobe 等可执行文件。
+
+    服务以 NSSM 方式运行时继承的是系统环境，往往没有用户本地安装的 ffmpeg
+    （如 WinGet 装在 %LOCALAPPDATA%\\Microsoft\\WinGet\\Links），导致 shutil.which
+    找不到、_ffmpeg_available() 返回 False、雪碧图被静默回退成静态 JPG。
+    这里在 PATH 之外额外探测若干常见目录，确保服务进程也能定位到 ffmpeg。
+    """
+    if name in _FF_BIN_CACHE:
+        return _FF_BIN_CACHE[name]
+    found = shutil.which(name)
+    if found:
+        _FF_BIN_CACHE[name] = found
+        return found
+    candidates = []
+    localapp = os.environ.get('LOCALAPPDATA')
+    if localapp:
+        candidates.append(os.path.join(localapp, 'Microsoft', 'WinGet', 'Links'))
+    # expanduser 不依赖 LOCALAPPDATA 环境变量，服务环境下更可靠
+    home = os.path.expanduser('~')
+    if home and home != '~':
+        candidates.append(os.path.join(home, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links'))
+    # 服务常以 LocalSystem 运行，~ 会指向 systemprofile；直接扫描各用户配置下的
+    # WinGet Links，确保无论服务账户是谁都能定位到用户本地安装的 ffmpeg。
+    try:
+        for d in glob.glob(r'C:\Users\*'):
+            candidates.append(os.path.join(d, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links'))
+    except Exception:
+        pass
+    candidates += [
+        r'C:\Program Files\ffmpeg\bin',
+        r'C:\Program Files (x86)\ffmpeg\bin',
+        r'C:\ffmpeg\bin',
+        r'C:\tools\ffmpeg\bin',
+    ]
+    for d in candidates:
+        for ext in ('', '.exe'):
+            p = os.path.join(d, name + ext)
+            if os.path.isfile(p):
+                _FF_BIN_CACHE[name] = p
+                return p
+    _FF_BIN_CACHE[name] = None
+    return None
+
+
 def _ffmpeg_available():
-    """检查 ffmpeg 是否在 PATH 中可用。"""
-    return shutil.which('ffmpeg') is not None
+    """检查 ffmpeg 是否可用（PATH 或常见安装目录）。"""
+    return _find_bin('ffmpeg') is not None
 
 
 def _probe_duration(video_path):
     """用 ffprobe 获取视频时长（秒）。失败返回 None。"""
     try:
-        probe = shutil.which('ffprobe')
+        probe = _find_bin('ffprobe')
         if not probe:
             return None
         r = subprocess.run(
@@ -407,8 +456,8 @@ def _generate_sprite(task, pv):
     poster_path = os.path.join(THUMBNAIL_DIR, f'{video_hash}.jpg')
     vtt_path = os.path.join(THUMBNAIL_DIR, f'{video_hash}.vtt')
 
-    ffmpeg = shutil.which('ffmpeg')
-    probe = shutil.which('ffprobe')
+    ffmpeg = _find_bin('ffmpeg')
+    probe = _find_bin('ffprobe')
     if not ffmpeg:
         return False, 'ffmpeg 不可用'
 
