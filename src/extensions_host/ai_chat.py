@@ -778,6 +778,12 @@ class AIChatManager:
         if not row:
             return None
         d = dict(row)
+        # extra 列以 JSON 文本存储，取出时反序列化为 dict，避免上层当作字符串调用 .get()
+        if 'extra' in d and isinstance(d.get('extra'), str):
+            try:
+                d['extra'] = json.loads(d['extra']) if d['extra'] else {}
+            except Exception:
+                d['extra'] = {}
         return d
 
     def get_task(self, task_id):
