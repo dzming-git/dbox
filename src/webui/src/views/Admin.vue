@@ -2942,8 +2942,9 @@ onUnmounted(() => {
       </div>
 
       <!-- ============ 资源库导入弹窗（替代原向下展开 + 独立批量导入Tab） ============ -->
-      <div v-if="expandedLibraryId" class="modal-overlay" @click="leaveLibraryDetail()">
-        <div class="modal-content import-modal" @click.stop>
+      <Teleport to="body">
+        <div v-if="expandedLibraryId" class="modal-overlay" @click="leaveLibraryDetail()">
+          <div class="modal-content import-modal" @click.stop>
           <div class="modal-header import-modal-header">
             <div class="import-modal-title">
               <h3>{{ currentLibrary?.name || '资源库' }} · 导入视频</h3>
@@ -3093,6 +3094,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      </Teleport>
 
       <AdminLogs v-if="activeTab === 'logs'" />
 
@@ -3100,8 +3102,9 @@ onUnmounted(() => {
     </div>
 
     <!-- 视频编辑弹窗 -->
-    <div v-if="showVideoEditModal" class="modal-overlay" @click="showVideoEditModal = false">
-      <div class="modal-content" @click.stop>
+    <Teleport to="body">
+      <div v-if="showVideoEditModal" class="modal-overlay" @click="showVideoEditModal = false">
+        <div class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>编辑视频</h3>
           <button class="close-btn" @click="showVideoEditModal = false">×</button>
@@ -3130,11 +3133,13 @@ onUnmounted(() => {
           <button class="action-btn primary" @click="saveVideoEdit">保存</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 资源编辑弹窗（统一：视频/图集/帖子/文本） -->
-    <div v-if="showResourceEditModal" class="modal-overlay" @click="showResourceEditModal = false">
-      <div class="modal-content" @click.stop>
+    <Teleport to="body">
+      <div v-if="showResourceEditModal" class="modal-overlay" @click="showResourceEditModal = false">
+        <div class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>编辑{{ editingResource ? resourceTypeLabel(editingResource.type) : '' }}（管理员）</h3>
           <button class="close-btn" @click="showResourceEditModal = false">×</button>
@@ -3163,10 +3168,12 @@ onUnmounted(() => {
           <button class="action-btn primary" @click="saveResourceEdit">保存</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 资源库资源查看弹窗 -->
-    <div v-if="resourceViewer.open" class="modal-overlay" @click="closeResourceViewer()">
+    <Teleport to="body">
+      <div v-if="resourceViewer.open" class="modal-overlay" @click="closeResourceViewer()">
       <div class="modal-content modal-large" @click.stop>
         <div class="modal-header">
           <h3>{{ resourceViewer.libName }} · 资源列表</h3>
@@ -3197,10 +3204,12 @@ onUnmounted(() => {
           <button class="action-btn" @click="closeResourceViewer()">关闭</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 资源库编辑弹窗 -->
-    <div v-if="showLibraryModal" class="modal-overlay" @click="showLibraryModal = false">
+    <Teleport to="body">
+      <div v-if="showLibraryModal" class="modal-overlay" @click="showLibraryModal = false">
       <div class="modal-content library-modal" @click.stop>
         <div class="modal-header">
           <h3>{{ editingLibrary ? '✏️ 编辑资源库' : '📁 新建资源库' }}</h3>
@@ -3255,10 +3264,12 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 权限配置弹窗 -->
-    <div v-if="showPermissionModal" class="modal-overlay" @click="showPermissionModal = false">
+    <Teleport to="body">
+      <div v-if="showPermissionModal" class="modal-overlay" @click="showPermissionModal = false">
       <div class="modal-content modal-large" @click.stop>
         <div class="modal-header">
           <h3>权限配置</h3>
@@ -3333,10 +3344,12 @@ onUnmounted(() => {
           <button class="action-btn" @click="showPermissionModal = false">关闭</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 文件夹管理弹窗 -->
-    <div v-if="showFolderModal" class="modal-overlay" @click="showFolderModal = false">
+    <Teleport to="body">
+      <div v-if="showFolderModal" class="modal-overlay" @click="showFolderModal = false">
       <div class="modal-content modal-large" @click.stop>
         <div class="modal-header">
           <h3>📁 文件夹管理</h3>
@@ -3410,10 +3423,12 @@ onUnmounted(() => {
           <button class="action-btn" @click="showFolderModal = false">关闭</button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 文件夹浏览器弹窗 -->
-    <div v-if="showFolderBrowser" class="modal-overlay" @click="showFolderBrowser = false">
+    <Teleport to="body">
+      <div v-if="showFolderBrowser" class="modal-overlay" @click="showFolderBrowser = false">
       <div class="modal-content folder-browser-modal" @click.stop>
         <div class="modal-header">
           <h3>📂 选择文件夹</h3>
@@ -3508,61 +3523,68 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- 用户创建/编辑弹窗 -->
     <!-- 删除单个视频确认对话框 -->
-    <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
-      <div class="dialog">
-        <h3>确认删除</h3>
-        <p>确定要删除视频「<strong>{{ deletingVideoTitle }}</strong>」吗？</p>
-        <div class="dialog-checkbox">
-          <label>
-            <input type="checkbox" v-model="deleteFileOption" />
-            同时删除视频文件（不可恢复）
-          </label>
-        </div>
-        <div class="dialog-buttons">
-          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
-          <button class="btn-danger" @click="deleteVideo">删除</button>
+    <Teleport to="body">
+      <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
+        <div class="dialog">
+          <h3>确认删除</h3>
+          <p>确定要删除视频「<strong>{{ deletingVideoTitle }}</strong>」吗？</p>
+          <div class="dialog-checkbox">
+            <label>
+              <input type="checkbox" v-model="deleteFileOption" />
+              同时删除视频文件（不可恢复）
+            </label>
+          </div>
+          <div class="dialog-buttons">
+            <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+            <button class="btn-danger" @click="deleteVideo">删除</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- 停止/重启服务二次确认对话框 -->
-    <div v-if="showServiceConfirm" class="dialog-overlay" @click.self="showServiceConfirm = false">
-      <div class="dialog">
-        <h3>确认操作</h3>
-        <p>
-          确定要对服务「<strong>{{ serviceConfirmName }}</strong>」执行
-          <strong>{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</strong>
-          操作吗？
-        </p>
-        <p class="dialog-tip">{{ serviceConfirmAction === 'stop' ? '停止后该服务将不再运行，可能影响相关功能。' : '重启会先停止再启动该服务，期间服务会短暂不可用。' }}</p>
-        <div class="dialog-buttons">
-          <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
-          <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
+    <Teleport to="body">
+      <div v-if="showServiceConfirm" class="dialog-overlay" @click.self="showServiceConfirm = false">
+        <div class="dialog">
+          <h3>确认操作</h3>
+          <p>
+            确定要对服务「<strong>{{ serviceConfirmName }}</strong>」执行
+            <strong>{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</strong>
+            操作吗？
+          </p>
+          <p class="dialog-tip">{{ serviceConfirmAction === 'stop' ? '停止后该服务将不再运行，可能影响相关功能。' : '重启会先停止再启动该服务，期间服务会短暂不可用。' }}</p>
+          <div class="dialog-buttons">
+            <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
+            <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- 批量删除确认对话框 -->
-    <div v-if="showBatchDeleteConfirm" class="dialog-overlay" @click.self="showBatchDeleteConfirm = false">
-      <div class="dialog">
-        <h3>确认批量删除</h3>
-        <p>确定要删除选中的 <strong>{{ selectedVideos.length }}</strong> 个视频吗？</p>
-        <div class="dialog-checkbox">
-          <label>
-            <input type="checkbox" v-model="batchDeleteFileOption" />
-            同时删除视频文件（不可恢复）
-          </label>
-        </div>
-        <div class="dialog-buttons">
-          <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
-          <button class="btn-danger" @click="batchDeleteVideos">删除</button>
+    <Teleport to="body">
+      <div v-if="showBatchDeleteConfirm" class="dialog-overlay" @click.self="showBatchDeleteConfirm = false">
+        <div class="dialog">
+          <h3>确认批量删除</h3>
+          <p>确定要删除选中的 <strong>{{ selectedVideos.length }}</strong> 个视频吗？</p>
+          <div class="dialog-checkbox">
+            <label>
+              <input type="checkbox" v-model="batchDeleteFileOption" />
+              同时删除视频文件（不可恢复）
+            </label>
+          </div>
+          <div class="dialog-buttons">
+            <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
+            <button class="btn-danger" @click="batchDeleteVideos">删除</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
@@ -5042,18 +5064,18 @@ input:checked + .slider:before {
   border-top: 1px solid var(--border-default);
 }
 
-/* 弹窗 */
+/* 弹窗：强制固定在视口中央 */
 .modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
   background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 10000;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 24px 16px;
