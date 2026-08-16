@@ -110,6 +110,26 @@ const closePortraitMore = () => {
   portraitMoreOpen.value = false
 }
 
+// 竖屏沉浸：控件显隐（点击屏幕切换 / 播放中无操作数秒后自动隐藏）
+const portraitUiVisible = ref(true)
+let portraitUiHideTimer: number | null = null
+const PORTRAIT_UI_HIDE_DELAY = 3000
+const showPortraitUi = () => {
+  portraitUiVisible.value = true
+  // 隐藏控件时一并收起更多菜单，避免悬浮菜单孤立残留
+  if (portraitMoreOpen.value) portraitMoreOpen.value = false
+  if (portraitUiHideTimer) window.clearTimeout(portraitUiHideTimer)
+  portraitUiHideTimer = window.setTimeout(() => {
+    // 仅播放中且未展开更多菜单时自动隐藏（暂停时保留，便于交互）
+    if (portraitPlaying.value && !portraitMoreOpen.value) portraitUiVisible.value = false
+  }, PORTRAIT_UI_HIDE_DELAY)
+}
+const hidePortraitUi = () => {
+  // 更多菜单展开时不隐藏，避免用户正在操作时控件消失
+  if (portraitMoreOpen.value) return
+  portraitUiVisible.value = false
+}
+
 // 跟手滑动轨道状态
 const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
 const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
@@ -161,6 +181,8 @@ const enterPortraitMode = () => {
   portraitDragY.value = 0
   portraitBuffering.value = false
   syncPortraitInteractions()
+  // 进入时展示控件，随后按无操作计时自动隐藏（沉浸观看）
+  showPortraitUi()
   // 初始化三格：[prev空, current, next空]，next 在进入后异步预取
   portraitSlots.value = [
     { hash: '', title: '', file_name: '', cover: '', url: '' },
@@ -389,11 +411,13 @@ const loadPrevPortraitVideo = () => {
         if (portraitVideo.value?.hash === h) {
           portraitSlots.value[1] = toSlotItem(portraitVideo.value)
           syncPortraitInteractions()
+          showPortraitUi()
         }
       })
     } else {
       portraitVideo.value = old[0]
       syncPortraitInteractions()
+      showPortraitUi()
     }
     // 补齐 prev 槽（更早历史）
     buildPrevSlotFromHistory(feedIndex.value - 1)
@@ -420,6 +444,8 @@ const loadNextPortraitVideo = async () => {
     // 更新 portraitVideo 指向新 cur，并同步互动
     portraitVideo.value = await resolveVideo(h)
     syncPortraitInteractions()
+    // 切换视频后展示控件（随后自动隐藏）
+    showPortraitUi()
     // 避免重复 hash 追加到 feed 序列（上下交替滑动时会导致三格 hash 冲突）
     if (h !== feedList.value[feedIndex.value]) {
       feedList.value.push(h)
@@ -554,10 +580,12 @@ const onPortraitTap = () => {
     doubleLikeTimer = window.setTimeout(() => { showPortraitDoubleLike.value = false }, 700)
   } else {
     portraitLastTap.value = now
-    // 延迟执行单击动作（暂停/播放），避免把双击的第一下误判为暂停
+    // 延迟执行单击动作（切换控件显隐），避免把双击的第一下误判为切换
     if (portraitTapTimer) clearTimeout(portraitTapTimer)
     portraitTapTimer = window.setTimeout(() => {
-      togglePortraitPlay()
+      // 沉浸式：单击视频区域在「显示/隐藏」控件间切换；隐藏后只剩纯视频画面
+      if (portraitUiVisible.value) hidePortraitUi()
+      else showPortraitUi()
       portraitTapTimer = null
     }, 300)
   }
@@ -576,8 +604,17 @@ const togglePortraitPlay = () => {
   if (v.paused) v.play().catch(() => {})
   else v.pause()
 }
-const onPortraitPlay = () => { portraitPlaying.value = true }
-const onPortraitPause = () => { portraitPlaying.value = false }
+const onPortraitPlay = () => {
+  portraitPlaying.value = true
+  // 开始播放后按无操作计时，数秒后自动隐藏控件
+  showPortraitUi()
+}
+const onPortraitPause = () => {
+  portraitPlaying.value = false
+  // 暂停时保留控件，便于用户操作；清除自动隐藏计时
+  portraitUiVisible.value = true
+  if (portraitUiHideTimer) window.clearTimeout(portraitUiHideTimer)
+}
 const onPortraitTimeUpdate = (i: number) => {
   const v = slotPlayers.value[i]
   if (!v) return
@@ -2566,7 +2603,7 @@ const handleDelete = async () => {
                 <!-- 仅当前槽(i===1)渲染控制层：作为轨道子节点，随 translateY 与视频一起上下滑动 -->
                 <template v-if="i === 1">
                   <!-- 右侧竖排操作栏：点赞 / 收藏 -->
-                  <div class="portrait-actions" @touchstart.stop>
+                  <div class="portrait-actions" :class="{ 'ui-hidden': !portraitUiVisible }" @touchstart.stop>
                     <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
                       <span class="portrait-action-icon">
                         <svg width="30" height="30" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
@@ -2586,7 +2623,7 @@ const handleDelete = async () => {
                   </div>
 
                   <!-- 底部控制栏：标题 / 进度条 / 播放·全屏·详情 -->
-                  <div class="portrait-bottom-bar" @touchstart.stop>
+                  <div class="portrait-bottom-bar" :class="{ 'ui-hidden': !portraitUiVisible }" @touchstart.stop>
                     <div class="pb-title">
                       <span class="pb-title-text">{{ item.title }}</span>
                       <span class="pb-meta" v-if="item.file_name">{{ item.file_name }}</span>
@@ -2642,7 +2679,7 @@ const handleDelete = async () => {
             </transition>
 
             <!-- 右上角：更多（不常用按钮收纳） -->
-            <div class="portrait-more">
+            <div class="portrait-more" :class="{ 'ui-hidden': !portraitUiVisible }">
               <button class="portrait-top-btn" @click.stop="togglePortraitMore" aria-label="更多">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                   <circle cx="12" cy="5" r="2" />
@@ -2663,7 +2700,7 @@ const handleDelete = async () => {
             </div>
 
             <!-- 左上角：退出（←） -->
-            <button class="portrait-back-btn" @click.stop="exitPortraitMode" aria-label="退出竖屏">
+            <button class="portrait-back-btn" :class="{ 'ui-hidden': !portraitUiVisible }" @click.stop="exitPortraitMode" aria-label="退出竖屏">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12" />
                 <polyline points="12 19 5 12 12 5" />
@@ -3922,6 +3959,20 @@ const handleDelete = async () => {
 }
 .portrait-action:active .portrait-action-icon {
   transform: scale(0.9);
+}
+/* 竖屏沉浸：控件（侧栏/底栏/更多/退出）淡出，点击屏幕可切回 */
+.portrait-actions,
+.portrait-bottom-bar,
+.portrait-more,
+.portrait-back-btn {
+  transition: opacity 0.25s ease;
+}
+.portrait-actions.ui-hidden,
+.portrait-bottom-bar.ui-hidden,
+.portrait-more.ui-hidden,
+.portrait-back-btn.ui-hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 .portrait-action.active .portrait-action-icon {
   background: none;
