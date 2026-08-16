@@ -11,6 +11,7 @@ import time
 import json
 import math
 import shutil
+import ctypes
 import subprocess
 import threading
 from datetime import datetime
@@ -273,12 +274,87 @@ def _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, times, seg_of)
     return '\n'.join(lines)
 
 
-def _generate_sprite(task, pv):
-    """生成 sprite 雪碧图 + VTT 索引 + poster 首帧。
+def _is_remote_path(path):
+    """判断路径是否在远程/网络位置（UNC 或映射的网络盘）。
 
-    实现：在每个采样时间点用快速输入 seek（-ss 在 -i 前）各抽取一帧（关键帧定位，
-    长视频也毫秒级完成），再统一 tile 拼成雪碧图。避免用 fps 滤波器遍历整个采样
-    窗口——那对长视频（十几分钟）要解码整段，单任务会远超超时上限。
+    网络盘上的视频若被多帧抽图并发读取，极易把网络 I/O 打满导致抽帧失败/超时，
+    表现为「雪碧图生成失败，回退静态 JPG」。本地盘则无此问题。
+    """
+    if not path:
+        return False
+    if path.startswith('\\\\') or path.startswith('//'):
+        return True
+    if len(path) >= 2 and path[1] == ':':
+        try:
+            if os.name == 'nt':
+                dt = ctypes.windll.kernel32.GetDriveTypeW(path[:2] + '\\')
+                return dt == 4  # DRIVE_REMOTE
+        except Exception:
+            return False
+    return False
+
+
+def _extract_one_frame(ffmpeg, src_path, t, long_edge, fp):
+    """用快速输入 seek 抽取单帧；成功返回 True。"""
+    cmd = [
+        ffmpeg, '-y', '-ss', f'{t:.3f}', '-i', src_path,
+        '-frames:v', '1', '-vf', f'scale={long_edge}:-2', '-q:v', '5', fp,
+    ]
+    r = subprocess.run(
+        cmd, capture_output=True, text=True, errors='replace', timeout=60,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    )
+    return r.returncode == 0 and os.path.exists(fp)
+
+
+def _png_size(probe, fp):
+    """读取 png 宽高，失败返回 (0, 0)。"""
+    if not probe:
+        return (0, 0)
+    try:
+        r = subprocess.run(
+            [probe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+             'stream=width,height', '-of', 'csv=p=0', fp],
+            capture_output=True, text=True, errors='replace', timeout=10,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        )
+        if r.returncode == 0 and ',' in r.stdout:
+            parts = r.stdout.strip().split(',')
+            return (int(parts[0]), int(parts[1]))
+    except Exception:
+        pass
+    return (0, 0)
+
+
+def _normalize_frame_size(ffmpeg, fp, w, h):
+    """把单帧强制缩放/填充到一致的 w x h，避免 tile 因尺寸不一而失败。"""
+    tmp = fp + '.norm.png'
+    cmd = [
+        ffmpeg, '-y', '-i', fp,
+        '-vf', f'scale={w}:{h}:force_original_aspect_ratio=decrease,'
+               f'pad={w}:{h}:(ow-iw)/2:(oh-ih)/2',
+        '-frames:v', '1', tmp,
+    ]
+    r = subprocess.run(
+        cmd, capture_output=True, text=True, errors='replace', timeout=20,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    )
+    if r.returncode == 0 and os.path.exists(tmp):
+        try:
+            os.replace(tmp, fp)
+        except Exception:
+            pass
+
+
+def _generate_sprite(task, pv):
+    """生成 sprite 雪碧图 + VTT 索引 + poster 首帧（默认封面格式）。
+
+    鲁棒性要点（修复「雪碧图生成失败、回退静态 JPG」）：
+      1) 网络/UNC 路径先把整文件拷到本地临时目录，把「12 次并发网络 seek」降为
+         「1 次顺序拷贝 + 12 次本地读取」，避免网络 I/O 打满导致抽帧失败/超时；
+      2) 单帧抽图失败不再放弃整张雪碧图：相邻时间点重试 → 用上一帧替代 → 用首帧兜底；
+      3) 抽好的帧统一缩放到一致尺寸后再 tile，避免个别帧尺寸异常导致拼接失败；
+      4) 拷贝/抽帧的超时单独放宽（见 generate_thumbnail 的 sprite 超时）。
 
     Returns:
         (True, poster_path) 成功
@@ -336,57 +412,83 @@ def _generate_sprite(task, pv):
     if not ffmpeg:
         return False, 'ffmpeg 不可用'
 
-    # 1) 临时目录抽取 n 帧（-ss 在 -i 前 = 快速关键帧 seek，长视频也快）
+    # 网络/UNC 路径：整文件拷到本地临时目录，降低网络 I/O 竞争
+    src_path = video_path
+    tmp_copy = None
+    try:
+        if _is_remote_path(video_path):
+            try:
+                fsize = os.path.getsize(video_path)
+            except Exception:
+                fsize = 0
+            # 仅对不超过 2GB 的文件做本地拷贝；超大文件直接抽取（配合更长超时与重试）
+            if 0 < fsize <= 2 * 1024 ** 3:
+                ext = os.path.splitext(video_path)[1] or '.mp4'
+                tmp_copy = os.path.join(THUMBNAIL_DIR, f'.copy_{video_hash}{ext}')
+                shutil.copyfile(video_path, tmp_copy)
+                src_path = tmp_copy
+    except Exception:
+        src_path = video_path
+        tmp_copy = None
+
     tmp_dir = os.path.join(THUMBNAIL_DIR, f'.sprite_tmp_{video_hash}')
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         os.makedirs(tmp_dir, exist_ok=True)
         frame_files = []
+        last_good = None
         for i, t in enumerate(times):
             fp = os.path.join(tmp_dir, f'f{i:02d}.png')
-            cmd = [
-                ffmpeg, '-y', '-ss', f'{t:.3f}', '-i', video_path,
-                '-frames:v', '1', '-vf', f'scale={long_edge}:-2',
-                '-q:v', '5', fp,
-            ]
-            r = subprocess.run(
-                cmd, capture_output=True, text=True, errors='replace', timeout=30,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            )
-            if r.returncode != 0 or not os.path.exists(fp):
-                # 单帧抽取失败：放宽到相邻时间点重试一次
-                retry_t = max(0, min(duration - 0.05, t + 0.2))
-                fp2 = os.path.join(tmp_dir, f'f{i:02d}_r.png')
-                r2 = subprocess.run(
-                    [ffmpeg, '-y', '-ss', f'{retry_t:.3f}', '-i', video_path,
-                     '-frames:v', '1', '-vf', f'scale={long_edge}:-2',
-                     '-q:v', '5', fp2],
-                    capture_output=True, text=True, errors='replace', timeout=30,
-                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                )
-                if r2.returncode != 0 or not os.path.exists(fp2):
-                    return False, f'第 {i} 帧抽取失败'
-                fp = fp2
+            ok = _extract_one_frame(ffmpeg, src_path, t, long_edge, fp)
+            if not ok:
+                retry_t = max(0.0, min(duration - 0.05, t + 0.3))
+                ok = _extract_one_frame(ffmpeg, src_path, retry_t, long_edge, fp)
+            if not ok and last_good and os.path.exists(last_good):
+                try:
+                    shutil.copyfile(last_good, fp)
+                    ok = True
+                except Exception:
+                    ok = False
+            if ok:
+                last_good = fp
+            else:
+                # 仍失败：用首帧兜底，实在没有才真正放弃
+                if frame_files and os.path.exists(frame_files[0]):
+                    try:
+                        shutil.copyfile(frame_files[0], fp)
+                        ok = True
+                    except Exception:
+                        ok = False
+            if not ok:
+                return False, f'第 {i} 帧抽取失败（无可用替代帧）'
             frame_files.append(fp)
 
-        # 2) tile 拼雪碧图：把所有抽出的帧作为输入，用 filter_complex tile 拼接
+        # 统一帧尺寸，避免个别帧尺寸异常导致 tile 拼接失败
+        fw0 = fh0 = 0
+        for fp in frame_files:
+            w, h = _png_size(probe, fp)
+            if w and h:
+                fw0, fh0 = w, h
+                break
+        if not fw0:
+            return False, '无法读取抽取帧尺寸'
+        for fp in frame_files:
+            _normalize_frame_size(ffmpeg, fp, fw0, fh0)
+
+        # tile 拼接：逐行水平拼接，再整体垂直拼接
         inputs = []
         for fp in frame_files:
             inputs.extend(['-i', fp])
-        # tile 会自动补足空白格；为避免 tile 报错要求精确帧数，用 hstack/vstack 更直观，
-        # 但 n 固定、cols 固定时 tile 最简洁。这里通过 filter_complex 逐行拼接保证鲁棒。
         fc = ''
-        # 先把每一行水平拼接
         for row in range(rows):
             start_i = row * cols
             end_i = min(start_i + cols, n)
             names = [f'[{i}:v]' for i in range(start_i, end_i)]
             if len(names) > 1:
-                fc += (''.join(names) +
-                       f'hstack=inputs={len(names)}[r{row}];')
+                fc += ''.join(names) + f'hstack=inputs={len(names)}[r{row}];'
             else:
-                fc += f'{names[0]}scale=out_color_matrix=auto[r{row}];'
-        # 再垂直拼接所有行
+                # 单行单帧：copy 保证滤镜图合法
+                fc += f'{names[0]}copy[r{row}];'
         row_inputs = ''.join(f'[r{r}]' for r in range(rows))
         fc += f'{row_inputs}vstack=inputs={rows}[out]'
 
@@ -398,35 +500,24 @@ def _generate_sprite(task, pv):
             '-frames:v', '1', '-q:v', '5', sprite_path,
         ]
         tr = subprocess.run(
-            tile_cmd, capture_output=True, text=True, errors='replace', timeout=30,
+            tile_cmd, capture_output=True, text=True, errors='replace', timeout=90,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         )
         if tr.returncode != 0 or not os.path.exists(sprite_path):
             return False, '雪碧图拼图失败'
     finally:
-        # 清理临时帧
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tmp_copy and os.path.exists(tmp_copy):
+            try:
+                os.remove(tmp_copy)
+            except Exception:
+                pass
 
-    # 3) 推导单帧几何：从任一帧尺寸 + cols/rows 计算
-    fw, fh = long_edge, long_edge
-    if probe:
-        try:
-            r = subprocess.run(
-                [probe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-                 'stream=width,height', '-of', 'csv=p=0', sprite_path],
-                capture_output=True, text=True, errors='replace', timeout=10,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            )
-            if r.returncode == 0 and ',' in r.stdout:
-                parts = r.stdout.strip().split(',')
-                sw, sh = int(parts[0]), int(parts[1])
-                if sw > 0 and sh > 0:
-                    fw = max(2, sw // cols)
-                    fh = max(2, sh // rows)
-        except Exception:
-            pass
+    # 单帧几何：所有帧已统一缩放到 fw0 x fh0，雪碧图即 cols×rows 个等尺寸格，
+    # 直接使用归一化尺寸即可得到正确的 VTT 坐标（避免单行少帧时 sw//cols 失真）。
+    fw, fh = fw0, fh0
 
-    # 4) 写 VTT 索引
+    # 写 VTT 索引
     vtt = _build_vtt(pv, video_hash, fw, fh, cols, rows, start, window, times, seg_of)
     try:
         with open(vtt_path, 'w', encoding='utf-8') as f:
@@ -434,7 +525,7 @@ def _generate_sprite(task, pv):
     except Exception as e:
         return False, f'写入 VTT 失败: {e}'
 
-    # 5) 导出 poster：取雪碧图左上角第一帧（有效区间首个采样点）
+    # 导出 poster：取雪碧图左上角第一帧（有效区间首个采样点）
     if os.path.exists(poster_path):
         try:
             os.remove(poster_path)
@@ -448,7 +539,6 @@ def _generate_sprite(task, pv):
         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
     )
     if pc.returncode != 0 or not os.path.exists(poster_path):
-        # poster 失败不致命：用原缩略图逻辑回退单帧 jpg（下放给 _do_generate）
         return False, 'poster 导出失败'
 
     return True, poster_path
@@ -585,6 +675,16 @@ def generate_thumbnail(task):
     """执行封面生成（同步），被 task_worker 调用。带整体超时保护。"""
     result = {}
 
+    # 雪碧图需要将视频整体拷贝到本地 + 逐帧抽取 + 拼图，耗时远高于静态封面，
+    # 故按格式使用不同的整体超时阈值。
+    per_format_timeout = {
+        'sprite': 120,
+        'gif': 60,
+        'png': 30,
+        'static': 30,
+    }
+    timeout = per_format_timeout.get(getattr(task, 'format', None), TASK_TIMEOUT)
+
     def _runner():
         try:
             result['val'] = _do_generate(task)
@@ -593,14 +693,14 @@ def generate_thumbnail(task):
 
     t = threading.Thread(target=_runner, daemon=True)
     t.start()
-    t.join(timeout=TASK_TIMEOUT)
+    t.join(timeout=timeout)
     if t.is_alive():
         # 超时：cv2 卡死，放弃该任务（cap 在子线程中稍后会被 GC 释放）
         import logging
         logging.getLogger('thumbnail').warning(
-            f'[thumbnail] 生成超时（>{TASK_TIMEOUT}s）跳过: {task.video_hash} path={task.video_path}'
+            f'[thumbnail] 生成超时（>{timeout}s）跳过: {task.video_hash} path={task.video_path}'
         )
-        return False, f"生成超时（>{TASK_TIMEOUT}s），跳过该视频"
+        return False, f"生成超时（>{timeout}s），跳过该视频"
     return result.get('val', (False, "未知错误"))
 
 
