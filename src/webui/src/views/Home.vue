@@ -544,6 +544,16 @@ const handleUndo = async () => {
 
 const hasPreviousVideos = computed(() => videoStore.previousVideos && videoStore.previousVideos.length > 0)
 
+// PC 端专用：桌面端没有下拉手势，用按钮触发刷新/换一批（与移动端下拉刷新语义一致）
+async function handlePcRefresh() {
+  shuffling.value = true
+  try {
+    await ptrRefresh()
+  } finally {
+    shuffling.value = false
+  }
+}
+
 const formatDuration = (seconds?: number): string => {
   if (!seconds) return '00:00'
   const h = Math.floor(seconds / 3600)
@@ -718,8 +728,22 @@ const listThumbUrl = (video: Video): string => {
             <span class="view-toggle-text">列表</span>
           </button>
         </div>
-        <!-- 标签筛选按钮：与排序/显示方式同处一行，不独占整行 -->
-        <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
+        <!-- 标签筛选按钮：与排序/显示方式同处      </div>
+      <!-- PC 端刷新/换一批按钮：移动端用下拉刷新即可，此处仅在桌面端（非触屏）显示 -->
+      <button
+        class="pc-refresh-btn"
+        :disabled="shuffling"
+        @click="handlePcRefresh"
+        :title="currentSort === 'recommended' ? '换一批推荐内容' : '刷新列表'"
+      >
+        <svg class="pc-refresh-icon" :class="{ spinning: shuffling }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+          <path d="M21 3v6h-6"/>
+        </svg>
+        {{ currentSort === 'recommended' ? '换一批' : '刷新' }}
+      </button>
+      <!-- 标签筛选按钮：与排序/显示方式同处一行，不独占整行 -->
+      <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
             <line x1="7" y1="7" x2="7.01" y2="7"/>
@@ -1346,6 +1370,37 @@ const listThumbUrl = (video: Video): string => {
 .selected-tag-name {
   color: var(--accent);
   font-weight: 500;
+}
+
+/* PC 端刷新/换一批按钮，风格与标签筛选按钮一致 */
+.pc-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pc-refresh-btn:hover:not(:disabled) {
+  background: var(--bg-surface-2);
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+.pc-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.pc-refresh-icon { transition: transform 0.2s; }
+.pc-refresh-icon.spinning { animation: spin 0.8s linear infinite; }
+/* 移动端使用下拉刷新，桌面端（非触屏）才显示该按钮，避免重复入口 */
+@media (pointer: coarse), (hover: none) {
+  .pc-refresh-btn { display: none; }
 }
 
 /* 排序选择器 */
