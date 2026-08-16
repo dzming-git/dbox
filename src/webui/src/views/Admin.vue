@@ -6179,7 +6179,7 @@ input:checked + .slider:before {
 
 .folder-list-container {
 
-  flex: 1;
+  flex: 1 1 auto;
 
   overflow-y: auto;
 
@@ -6187,9 +6187,9 @@ input:checked + .slider:before {
 
   border-radius: 8px;
 
-  min-height: 300px;
-
-  max-height: 400px;
+  /* 关键：flex 列向子项必须 min-height:0 才能正确收缩并让内部 overflow-y:auto 生效，
+     否则 min-height 会撑开容器、被 modal-body 的 overflow:hidden 裁切，导致列表只显示一半且无法滚到底 */
+  min-height: 0;
 
   overscroll-behavior: contain;
 
