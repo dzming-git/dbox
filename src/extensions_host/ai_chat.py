@@ -1331,10 +1331,13 @@ class AIChatManager:
         """把当前阶段日志组装为分阶段回复并标记完成、下发 done、结束 SSE。"""
         with self._lock:
             phases = [dict(p) for p in self._phase_log.get(task_id, [])]
-        # 存库的最终回复：各阶段「结论优先、正文兜底」拼接，保证无 phases 客户端也能单气泡回看。
+        # 存库的最终回复：以各阶段「正文（body，AI 真实产出）优先」，仅当正文为空时
+        # 才回退到「结论（conclusion，阶段短标签）」。此前用 conclusion or body 会把
+        # 「AI 已生成回复」这类固定结论覆盖掉真实长文，导致对话里只见阶段标题、正文丢失
+        # （前端表现为「任务已执行完成，无文本输出」占位）。
         final_reply = '\n\n'.join(
-            (p.get('conclusion') or p.get('body') or '').strip()
-            for p in phases if (p.get('conclusion') or p.get('body')))
+            (p.get('body') or p.get('conclusion') or '').strip()
+            for p in phases if (p.get('body') or p.get('conclusion')))
         self._set_status(task_id, self.STATUS_COMPLETED, reply=final_reply,
                          phases=json.dumps(phases, ensure_ascii=False))
         self._emit(task_id, 'done', final_reply)
