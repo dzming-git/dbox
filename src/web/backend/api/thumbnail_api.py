@@ -114,11 +114,12 @@ def get_thumbnail(video_hash):
 
             def _async_generate(vp, vh):
                 try:
+                    output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
                     runtime.thumbnail_bus.call_method(
                         service='com.dbox.thumbnaild',
                         interface='com.dbox.Thumbnaild',
                         method='Generate',
-                        params={'video_path': vp, 'video_hash': vh, 'output_format': 'sprite'}
+                        params={'video_path': vp, 'video_hash': vh, 'output_format': output_format}
                     )
                 except Exception as e:
                     log.debug('ERROR', f"后台封面生成失败: {e}")
@@ -300,11 +301,12 @@ def regenerate_thumbnail(video_hash):
     # 调用缩略图服务重新生成
     if runtime.thumbnail_bus:
         try:
+            output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
             result = runtime.thumbnail_bus.call_method(
                 service='com.dbox.thumbnaild',
                 interface='com.dbox.Thumbnaild',
                 method='Generate',
-                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': 'sprite'}
+                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': output_format}
             )
             if result and result.get('success'):
                 return jsonify({
@@ -386,7 +388,7 @@ def update_thumbnail_config():
         config = _load_thumb_config()
 
         # 只允许更新指定字段
-        allowed_fields = ['auto_generate', 'max_workers', 'task_interval', 'auto_generate_interval', 'preview']
+        allowed_fields = ['auto_generate', 'max_workers', 'task_interval', 'auto_generate_interval', 'preview', 'output_format']
         for field in allowed_fields:
             if field in data:
                 # 参数校验
@@ -398,6 +400,11 @@ def update_thumbnail_config():
                     config[field] = max(300, min(int(data[field]), 86400))  # 5分钟 ~ 24小时
                 elif field == 'auto_generate':
                     config[field] = bool(data[field])
+                elif field == 'output_format':
+                    # 生成格式：sprite（雪碧图，默认）/ gif / jpg / png
+                    fmt = str(data[field]).lower()
+                    if fmt in ('sprite', 'gif', 'jpg', 'png'):
+                        config[field] = fmt
                 elif field == 'preview' and isinstance(data[field], dict):
                     # 悬停预览采样参数（sprite 雪碧图）：逐字段合并 + 白名单校验
                     pv = config.setdefault('preview', {})

@@ -32,7 +32,6 @@ from backend.access import (
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-from thumbnail.thumbnail_service_client import get_thumbnail_client
 from unified_tasks import init_task_manager as _init_tm, create_task, update_task
 import threading
 log = get_service_logger('dbox-web')
@@ -919,11 +918,12 @@ def upload_video():
                             service='com.dbox.thumbnaild',
                             interface='com.dbox.Thumbnaild',
                             method='Generate',
-                            params={'video_path': file_path, 'video_hash': video_hash, 'output_format': 'sprite'}
+                            params={
+                                'video_path': file_path,
+                                'video_hash': video_hash,
+                                'output_format': runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite'),
+                            }
                         )
-                    else:
-                        # 总线不可用，退回旧 HTTP 客户端
-                        get_thumbnail_client().generate_thumbnail(file_path, video_hash, output_format='jpg')
                     update_task(upload_task_id, progress=100, status='completed',
                                 stage='完成', detail='上传成功，缩略图已生成')
                 except Exception as e:

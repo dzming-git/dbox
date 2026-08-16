@@ -612,9 +612,10 @@ class ResourceLibraryWatcher:
 
                 if is_new and self._thumbnail_bus:
                     try:
+                        output_format = self._app_config.get('thumbnails', {}).get('output_format', 'sprite')
                         self._thumbnail_bus.call_method(
                             'com.dbox.thumbnaild', 'com.dbox.Thumbnaild', 'Generate',
-                            {'video_path': path, 'video_hash': vhash, 'output_format': 'sprite'})
+                            {'video_path': path, 'video_hash': vhash, 'output_format': output_format})
                     except Exception:
                         pass
 
