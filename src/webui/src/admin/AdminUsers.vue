@@ -271,25 +271,39 @@ onMounted(() => {
           <button class="close-btn" @click="showPermModal = false">×</button>
         </div>
         <div class="modal-body">
-          <p class="perm-tip">为「{{ permUser?.username }}」设置每个资源库的访问权限：<b>只读</b>仅可浏览，<b>读写</b>可上传 / 增删文件夹。</p>
-          <div v-if="permLoading" class="loading-text">加载中...</div>
-          <div v-else class="perm-list">
-            <div v-for="lib in permLibs" :key="lib.library_id" class="perm-row" :class="{ locked: lib.locked }">
-              <span class="perm-name">{{ lib.library_name }}</span>
-              <select
-                v-model="lib.level"
-                :disabled="lib.locked"
-                class="perm-select"
-              >
-                <option v-for="opt in LEVEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-              <span v-if="lib.locked" class="perm-locked-tag">管理员默认全权</span>
+          <div v-if="permLoading" class="perm-loading">加载中...</div>
+          <template v-else>
+            <div class="perm-legend">
+              <span class="legend-item"><span class="dot dot-none"></span>无权限</span>
+              <span class="legend-item"><span class="dot dot-read"></span>只读</span>
+              <span class="legend-item"><span class="dot dot-write"></span>读写</span>
             </div>
-          </div>
+            <div class="perm-table-header">
+              <span class="th-name">资源库名称</span>
+              <span class="th-actions">访问权限</span>
+            </div>
+            <div class="perm-list">
+              <div v-for="lib in permLibs" :key="lib.library_id" class="perm-row" :class="{ locked: lib.locked }">
+                <span class="perm-name">{{ lib.library_name }}</span>
+                <div class="perm-actions">
+                  <button
+                    v-for="opt in LEVEL_OPTIONS"
+                    :key="opt.value"
+                    class="perm-chip"
+                    :class="[opt.value, { active: lib.level === opt.value }]"
+                    :disabled="lib.locked"
+                    @click="!lib.locked && (lib.level = opt.value)"
+                  >{{ opt.label }}</button>
+                </div>
+                <span v-if="lib.locked" class="perm-lock-hint">管理员默认全权</span>
+              </div>
+            </div>
+            <p v-if="permLibs.length === 0 && !permLoading" class="perm-empty">暂无可管理的资源库</p>
+          </template>
         </div>
         <div class="modal-footer">
           <button class="action-btn" @click="showPermModal = false">取消</button>
-          <button class="action-btn primary" @click="savePerms" :disabled="permSaving">
+          <button class="action-btn primary" @click="savePerms" :disabled="permSaving || permLibs.length === 0">
             {{ permSaving ? '保存中...' : '保存' }}
           </button>
         </div>
@@ -370,53 +384,137 @@ onMounted(() => {
 }
 
 .perm-modal {
-  max-width: 520px;
+  max-width: 560px;
 }
-.perm-tip {
-  font-size: 13px;
-  color: var(--text-muted, #8a8f98);
-  margin: 0 0 14px;
-  line-height: 1.5;
-}
-.perm-tip b {
-  color: var(--text-primary, #e6e8eb);
-}
-.perm-list {
+
+/* 图例 */
+.perm-legend {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 50vh;
-  overflow-y: auto;
+  gap: 20px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-default, #2a2e37);
 }
-.perm-row {
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted, #8a8f98);
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.dot-none { background: #4a5568; }
+.dot-read { background: #3b82f6; }
+.dot-write { background: #22c55e; }
+
+/* 表头 */
+.perm-table-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  padding: 6px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #8a8f98);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.th-name { flex: 1; }
+.th-actions { min-width: 180px; text-align: right; }
+
+/* 列表 */
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 行 */
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
   border: 1px solid var(--border-default, #2a2e37);
   border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  transition: background 0.15s;
+}
+.perm-row:hover:not(.locked) {
+  background: rgba(255,255,255,0.04);
 }
 .perm-row.locked {
-  opacity: 0.55;
-  background: var(--bg-subtle, #1c1f26);
+  opacity: 0.45;
+  pointer-events: none;
 }
+
 .perm-name {
   flex: 1;
   font-weight: 500;
   color: var(--text-primary, #e6e8eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.perm-select {
-  min-width: 110px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border-default, #2a2e37);
-  background: var(--bg-input, #1a1d24);
+
+/* 按钮组选择器 */
+.perm-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.perm-chip {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary, #9ca3af);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.perm-chip:hover:not(:disabled) {
+  background: rgba(255,255,255,0.1);
   color: var(--text-primary, #e6e8eb);
 }
-.perm-locked-tag {
-  font-size: 12px;
+.perm-chip.active.none {
+  background: rgba(74,85,104,0.3);
+  border-color: #4a5568;
+  color: #cbd5e1;
+}
+.perm-chip.active.read {
+  background: rgba(59,130,246,0.18);
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+.perm-chip.active.write {
+  background: rgba(34,197,94,0.18);
+  border-color: #22c55e;
+  color: #86efac;
+}
+.perm-chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.perm-lock-hint {
+  font-size: 11px;
   color: var(--text-muted, #8a8f98);
   white-space: nowrap;
+}
+
+.perm-loading,
+.perm-empty {
+  text-align: center;
+  color: var(--text-muted, #8a8f98);
+  padding: 24px 0;
+  font-size: 13px;
 }
 </style>
