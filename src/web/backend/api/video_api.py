@@ -27,7 +27,7 @@ from backend.trash import purge_trash
 from backend.runtime import runtime
 from backend.access import (
     resolve_identity, get_allowed_library_ids, apply_video_visibility,
-    is_video_visible, deny_missing, default_library_id,
+    is_video_visible, deny_missing, default_library_id, _user_can_write_library,
 )
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
@@ -768,16 +768,18 @@ def upload_video():
         description = request.form.get('description', '').strip()
         library_id = request.form.get('library_id')
 
-        # 所有资源必须有归属，且只能上传到「已激活且有权限」的资源库。
-        # 未激活的库对外不可见，自然也不可作为上传目标。
-        _allowed = get_allowed_library_ids()
+        # 所有资源必须有归属，且只能上传到「已激活且有写入权限」的资源库。
+        # 未激活的库对外不可见，自然也不可作为上传目标；只读用户无写入权限。
         try:
             library_id = int(library_id) if library_id else None
         except (TypeError, ValueError):
             library_id = None
+        _uid, _role = resolve_identity()
         if library_id is None:
             library_id = default_library_id()
-        if library_id is None or library_id not in _allowed:
+        if library_id is not None and not _user_can_write_library(_uid, library_id, _role):
+            return jsonify({'success': False, 'message': '该资源库无写入权限', 'code': 403}), 403
+        if library_id is None:
             return jsonify({'success': False, 'message': '资源不存在', 'code': 404}), 404
 
         # 确定上传目录

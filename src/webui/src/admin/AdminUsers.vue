@@ -100,6 +100,73 @@ const deleteUser = async (id: number) => {
   }
 }
 
+// ============ 资源库权限控制 ============
+const showPermModal = ref(false)
+const permUser = ref<any>(null)
+const permLibs = ref<any[]>([])
+const permLoading = ref(false)
+const permSaving = ref(false)
+
+const LEVEL_OPTIONS = [
+  { value: 'none', label: '无权限' },
+  { value: 'read', label: '只读' },
+  { value: 'write', label: '读写' },
+]
+
+const openPermModal = async (user: any) => {
+  if (isRootUser(user)) {
+    showToast('超级管理员默认拥有全部资源库权限，无需单独设置')
+    return
+  }
+  permUser.value = user
+  showPermModal.value = true
+  permLoading.value = true
+  permLibs.value = []
+  try {
+    const res = await api.get(`/api/admin/users/${user.id}/library-permissions`) as any
+    if (res.success) {
+      // 管理员账户后端返回 is_admin=true，前端禁用编辑
+      permLibs.value = (res.libraries || []).map((lib: any) => ({
+        library_id: lib.library_id,
+        library_name: lib.library_name,
+        // effective 为 admin/full 时视为可写并禁用
+        level: lib.effective === 'write' || lib.effective === 'read' || lib.effective === 'admin' || lib.effective === 'full'
+          ? (lib.effective === 'read' ? 'read' : (lib.effective === 'admin' || lib.effective === 'full' ? 'write' : 'read'))
+          : (lib.direct_level || 'none'),
+        locked: res.is_admin || lib.effective === 'admin' || lib.effective === 'full',
+        effective: lib.effective,
+      }))
+    }
+  } catch (error) {
+    console.error('获取资源库权限失败:', error)
+    showToast('获取资源库权限失败')
+  } finally {
+    permLoading.value = false
+  }
+}
+
+const savePerms = async () => {
+  if (!permUser.value) return
+  permSaving.value = true
+  try {
+    const permissions = permLibs.value
+      .filter((l) => !l.locked)
+      .map((l) => ({ library_id: l.library_id, level: l.level }))
+    const res = await api.post(`/api/admin/users/${permUser.value.id}/library-permissions`, { permissions }) as any
+    if (res.success) {
+      showToast('资源库权限已保存')
+      showPermModal.value = false
+    } else {
+      showToast(res.message || '保存失败')
+    }
+  } catch (error) {
+    console.error('保存资源库权限失败:', error)
+    showToast('保存失败')
+  } finally {
+    permSaving.value = false
+  }
+}
+
 onMounted(() => {
   fetchUsers()
 })
@@ -132,6 +199,14 @@ onMounted(() => {
             </td>
             <td>{{ formatDate(user.created_at) }}</td>
             <td>
+              <button
+                class="icon-btn"
+                title="资源库权限"
+                @click="openPermModal(user)"
+                v-if="user.id !== userStore.user?.id && (canManageRoot || !isRootUser(user))"
+              >
+                🔐
+              </button>
               <button
                 class="icon-btn"
                 @click="editUser(user)"
@@ -187,5 +262,91 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 资源库权限控制弹窗 -->
+    <div v-if="showPermModal" class="modal-overlay" @click="showPermModal = false">
+      <div class="modal-content perm-modal" @click.stop>
+        <div class="modal-header">
+          <h3>资源库权限 - {{ permUser?.username }}</h3>
+          <button class="close-btn" @click="showPermModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="perm-tip">为「{{ permUser?.username }}」设置每个资源库的访问权限：<b>只读</b>仅可浏览，<b>读写</b>可上传 / 增删文件夹。</p>
+          <div v-if="permLoading" class="loading-text">加载中...</div>
+          <div v-else class="perm-list">
+            <div v-for="lib in permLibs" :key="lib.library_id" class="perm-row" :class="{ locked: lib.locked }">
+              <span class="perm-name">{{ lib.library_name }}</span>
+              <select
+                v-model="lib.level"
+                :disabled="lib.locked"
+                class="perm-select"
+              >
+                <option v-for="opt in LEVEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <span v-if="lib.locked" class="perm-locked-tag">管理员默认全权</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" @click="showPermModal = false">取消</button>
+          <button class="action-btn primary" @click="savePerms" :disabled="permSaving">
+            {{ permSaving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.perm-modal {
+  max-width: 520px;
+}
+.perm-tip {
+  font-size: 13px;
+  color: var(--text-muted, #8a8f98);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+.perm-tip b {
+  color: var(--text-primary, #e6e8eb);
+}
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.perm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default, #2a2e37);
+  border-radius: 8px;
+}
+.perm-row.locked {
+  opacity: 0.55;
+  background: var(--bg-subtle, #1c1f26);
+}
+.perm-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-primary, #e6e8eb);
+}
+.perm-select {
+  min-width: 110px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default, #2a2e37);
+  background: var(--bg-input, #1a1d24);
+  color: var(--text-primary, #e6e8eb);
+}
+.perm-locked-tag {
+  font-size: 12px;
+  color: var(--text-muted, #8a8f98);
+  white-space: nowrap;
+}
+</style>

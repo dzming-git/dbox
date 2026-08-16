@@ -97,10 +97,53 @@ def current_interaction_key():
     return get_user_session()
 
 
+def _collect_user_permissions(user_id):
+    """收集某用户的全部 LibraryPermission（直接授权 + 用户组授权 + 通用授权）。
+
+    返回 LibraryPermission 对象列表（已去重，通用权限 user_id=None 始终包含）。
+    """
+    perms = []
+    if user_id:
+        perms.extend(LibraryPermission.query.filter_by(user_id=user_id).all())
+        member_groups = [m.group_id for m in
+                         LibraryUserGroupMember.query.filter_by(user_id=user_id).all()]
+        if member_groups:
+            perms.extend(LibraryPermission.query.filter(
+                LibraryPermission.group_id.in_(member_groups)).all())
+    # 通用权限（user_id=NULL，表示对所有登录/游客生效）
+    perms.extend(LibraryPermission.query.filter_by(user_id=None).all())
+    return perms
+
+
+def _perm_allows_write(perm):
+    """判断一条 LibraryPermission 是否授予写权限。
+
+    access_level:
+      - 'full' / 'write'  -> 可读写
+      - 'read'            -> 仅只读
+      - 'custom'          -> 取决于 permissions JSON 中是否含 'write'
+    管理员/ROOT 由调用方单独兜底，此处只评单一记录。
+    """
+    if perm is None:
+        return False
+    level = (perm.access_level or 'read')
+    if level in ('write', 'full'):
+        return True
+    if level == 'custom':
+        perms = perm.permissions
+        if isinstance(perms, (list, tuple)):
+            return 'write' in perms
+        if isinstance(perms, dict):
+            return bool(perms.get('write', False))
+    return False
+
+
 def get_allowed_library_ids():
     """
-    获取当前用户允许访问的资源库ID列表
-    返回: allowed_library_ids (list)
+    获取当前用户允许「读取」的资源库ID列表（库的读权限是写权限的超集）。
+
+    读权限 = access_level 为 read/write/full/custom 的任意授权（含用户组、通用授权）。
+    管理员和 ROOT 可读所有激活库。返回: allowed_library_ids (list)
     """
     allowed_library_ids = []
 
@@ -115,40 +158,52 @@ def get_allowed_library_ids():
         all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
         allowed_library_ids = [lib.id for lib in all_active_libs]
     elif user_id:
-        # 已登录的普通用户：查询用户直接权限 + 用户组权限
-        # 1. 获取用户直接权限的库
-        user_perms = LibraryPermission.query.filter_by(user_id=user_id).all()
-        for perm in user_perms:
+        # 已登录的普通用户：任何授予读权限（含 read/write/full/custom）的库均可读
+        # 直接授权 + 用户组授权 + 通用授权 三者取并集
+        seen = set()
+        for perm in _collect_user_permissions(user_id):
+            lib = ResourceLibrary.query.get(perm.library_id)
+            if lib and lib.is_active and perm.library_id not in seen:
+                seen.add(perm.library_id)
+                allowed_library_ids.append(perm.library_id)
+    else:
+        # 未登录用户：只能看到有通用权限（user_id=NULL）的激活库
+        general_perms = LibraryPermission.query.filter_by(user_id=None).all()
+        for perm in general_perms:
             lib = ResourceLibrary.query.get(perm.library_id)
             if lib and lib.is_active:
                 allowed_library_ids.append(perm.library_id)
 
-        # 2. 获取用户组权限的库
-        user_groups = LibraryUserGroupMember.query.filter_by(user_id=user_id).all()
-        for ugm in user_groups:
-            group_perms = LibraryPermission.query.filter_by(group_id=ugm.group_id).all()
-            for perm in group_perms:
-                lib = ResourceLibrary.query.get(perm.library_id)
-                if lib and lib.is_active and perm.library_id not in allowed_library_ids:
-                    allowed_library_ids.append(perm.library_id)
-
-        # 3. 获取通用权限（user_id=NULL，表示所有人都可以访问）
-        general_perms = LibraryPermission.query.filter_by(user_id=None).all()
-        for perm in general_perms:
-            lib = ResourceLibrary.query.get(perm.library_id)
-            if lib and lib.is_active and perm.library_id not in allowed_library_ids:
-                allowed_library_ids.append(perm.library_id)
-    else:
-        # 未登录用户：只能看到主数据库的视频（library_id=NULL）
-        # 以及有通用权限的库
-        # 1. 获取通用权限的库
-        general_perms = LibraryPermission.query.filter_by(user_id=None).all()
-        for perm in general_perms:
-            lib = ResourceLibrary.query.get(perm.library_id)
-            if lib and lib.is_active and perm.library_id not in allowed_library_ids:
-                allowed_library_ids.append(perm.library_id)
-
     return allowed_library_ids
+
+
+def get_writable_library_ids():
+    """
+    获取当前用户允许「写入」（增删改资源/文件夹/上传）的资源库ID列表。
+
+    写权限 = access_level 为 write/full，或 custom 且 permissions 含 'write'。
+    管理员和 ROOT 可写所有激活库。返回: writable_library_ids (list)
+    """
+    writable = []
+
+    if not hasattr(Video, 'library_id'):
+        return writable
+
+    user_id, user_role = resolve_identity()
+
+    if user_role in [UserRole.ADMIN, UserRole.ROOT]:
+        all_active_libs = ResourceLibrary.query.filter_by(is_active=True).all()
+        writable = [lib.id for lib in all_active_libs]
+    elif user_id:
+        seen = set()
+        for perm in _collect_user_permissions(user_id):
+            if _perm_allows_write(perm):
+                lib = ResourceLibrary.query.get(perm.library_id)
+                if lib and lib.is_active and perm.library_id not in seen:
+                    seen.add(perm.library_id)
+                    writable.append(perm.library_id)
+
+    return writable
 
 
 def apply_video_visibility(query, allowed_ids=None):
@@ -534,3 +589,48 @@ def resource_manager_required(f):
             return f(*args, **kwargs)
         return jsonify({'success': False, 'message': '需要资源库管理员权限', 'code': 403}), 403
     return decorated
+
+
+def _user_can_write_library(user_id, library_id, user_role=None):
+    """判断用户是否对指定库有写权限（access_level=write/full/custom+write）。
+
+    管理员/ROOT 对所有激活库默认可写；其余按 LibraryPermission 判定。
+    """
+    if library_id is None:
+        return False
+    if user_role is None:
+        user_id, user_role = resolve_identity()
+    if user_role in [UserRole.ADMIN, UserRole.ROOT]:
+        lib = ResourceLibrary.query.get(library_id)
+        return bool(lib and lib.is_active)
+    if not user_id:
+        return False
+    for perm in _collect_user_permissions(user_id):
+        if perm.library_id == library_id and _perm_allows_write(perm):
+            lib = ResourceLibrary.query.get(library_id)
+            return bool(lib and lib.is_active)
+    return False
+
+
+def library_write_required(param='library_id'):
+    """要求：登录用户 且 (全局管理员) 或 (该资源库的写权限持有者)。
+
+    用于资源库文件夹增删改、上传等到「写」操作的接口，按 access_level
+    区分只读(read)与可读写(write/full)，而非仅看 role='admin'。
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user_id, role = resolve_identity()
+            if not user_id:
+                return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
+            if role >= UserRole.ADMIN:
+                return f(*args, **kwargs)
+            lid = kwargs.get(param)
+            if param == 'folder_id':
+                lid = _resolve_dbox_library_id_by_folder(lid)
+            if lid is None or not _user_can_write_library(user_id, lid, role):
+                return jsonify({'success': False, 'message': '需要该资源库的写入权限', 'code': 403}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
