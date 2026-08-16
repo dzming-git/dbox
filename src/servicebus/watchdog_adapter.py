@@ -85,8 +85,12 @@ DEFAULT_MONITORED = [
 AUTO_RESTART_EXCLUDED = {'dbox-bus', 'dbox-servicemgr', 'dbox-watchdog'}
 
 # 健康 url（用于 Windows 服务层 HTTP 探活，可选）
+# 注意：
+#  - dbox-webui 是纯前端静态站点（由 Vite dev server / web 服务托管），本身无后端
+#    健康语义；且生产 Vite 监听为 HTTPS，用 http 探活必然失败。因此不配置 HTTP 探活，
+#    仅依赖 Windows 进程状态（RUNNING 即视为健康）判断，避免误报 offline。
+#  - dbox-downloader 复用 extensions_host 引擎，暴露 /api/health 端点做探活。
 _KNOWN_HEALTH_URLS = {
-    'dbox-webui': 'http://localhost:5173',
     'dbox-downloader': 'http://127.0.0.1:8092/api/health',
 }
 

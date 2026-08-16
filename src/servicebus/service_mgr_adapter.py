@@ -83,8 +83,12 @@ _SERVICE_META = {
     },
     'dbox-webui': {
         'display_name': 'Dbox WebUI服务',
-        'description': 'Vue3 前端界面',
-        'health_url': 'http://localhost:5173',
+        'description': 'Vue3 前端界面（纯前端静态站点，由 Vite dev server / web 服务托管，无后端健康端点）',
+        # WebUI 是纯前端站点，生产经 web 服务（8080）或 Vite dev server（HTTPS）托管，
+        # 没有可探活的 HTTP 健康端点；且 Vite dev server 为 HTTPS，用 http 探活必然失败。
+        # 故 health_url 留空，由 servicemgr 按 Windows 进程状态（RUNNING 即健康）判定，
+        # 避免误报 offline。
+        'health_url': None,
         'port': 5173,
     },
     'dbox-downloader': {
