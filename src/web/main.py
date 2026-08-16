@@ -221,6 +221,9 @@ from backend.thumbnail_helpers import (
 from backend.runtime import runtime as _runtime
 from backend.tls_helpers import build_tls_context
 app_config = load_config()
+# 将缩略图配置（含默认 output_format=sprite）并入全局 app_config，
+# 供生成调用方统一读取，确保配置文件中的自定义格式能生效。
+app_config['thumbnails'] = _load_thumb_config()
 _runtime.init(db=db, app=app, app_config=app_config)
 # 总线客户端创建并注入 runtime（收敛至 backend.service_buses）
 init_service_buses(_SRC_DIR)

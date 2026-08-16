@@ -18,8 +18,8 @@ from backend.runtime import runtime
 from backend.paths import DATA_DIR, THUMB_CONFIG_FILE
 
 # 缩略图文件扩展名集合（含 sprite 雪碧图与 vtt 预览索引）。
-# 旧版 gif 保留兼容（不主动生成，但删除/统计时需一并清理），
-# jpg = 静态 poster（新默认），png = 静态回退，sprite.jpg = 雪碧图，vtt = 预览坐标索引。
+# gif = 动图缩略（可配置生成的备选格式），jpg = 静态 poster，png = 静态回退，
+# sprite.jpg = 雪碧图，vtt = 预览坐标索引。
 THUMB_EXTENSIONS = ('gif', 'jpg', 'png', 'vtt')
 
 # 默认缩略图配置
@@ -28,6 +28,9 @@ _DEFAULT_THUMB_CONFIG = {
     'max_workers': 2,
     'task_interval': 3,
     'auto_generate_interval': 3600,
+    # 默认生成的缩略图格式：sprite（雪碧图 + vtt 悬停预览）为默认值，
+    # 可选值：sprite / gif / jpg / png。调用方未显式指定 output_format 时统一读此配置。
+    'output_format': 'sprite',
     # 悬停预览（sprite 雪碧图）采样参数：
     # head_skip / tail_skip      —— 跳过片头/片尾的比例（0~0.5），保证预览内容有代表性
     # sample_points              —— 兼容旧配置的总帧数参考（片段式采样下实际总帧数由片段参数推导）
@@ -303,11 +306,12 @@ def _generate_missing_thumbnails(config=None):
 
         def _submit_one(video):
             try:
+                output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
                 r = runtime.thumbnail_bus.call_method(
                     service='com.dbox.thumbnaild',
                     interface='com.dbox.Thumbnaild',
                     method='Generate',
-                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': 'sprite'}
+                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': output_format}
                 )
                 # 区分三类结果：
                 # 1) 调用异常（微服务不可用/超时）→ 失败，记录错误
