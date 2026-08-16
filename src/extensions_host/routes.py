@@ -380,10 +380,39 @@ def ai_chat_enqueue():
     message = (data.get('message') or '').strip()
     if not message:
         return jsonify({'success': False, 'message': 'message 必填'}), 400
-    task_id, err = ai_mgr.enqueue(message, g.user_id)
+    # 工作流选择：用户通过前端按钮显式指定时带 workflow_id + manual；
+    # 否则留空，由后端实时推断（技术可行时）或回落 chat。
+    wf_id = (data.get('workflow_id') or '').strip() or None
+    manual = bool(data.get('manual'))
+    task_id, err = ai_mgr.enqueue(message, g.user_id, workflow_id=wf_id, manual=manual)
     if err:
         return jsonify({'success': False, 'message': err}), 400
     return jsonify({'success': True, 'task_id': task_id})
+
+
+@script_bp.route('/api/ai-chat/workflows', methods=['GET'])
+@login_required
+def ai_chat_workflows():
+    """返回全部工作流元信息，供前端渲染「工作流选择」按钮浮层。"""
+    try:
+        return jsonify({'success': True, 'workflows': ai_mgr.list_workflows()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@script_bp.route('/api/ai-chat/tasks/<task_id>/answer', methods=['POST'])
+@login_required
+def ai_chat_answer(task_id):
+    """应答工作流中的 ask 步骤（如「继续」时选择要续接的问题单）。"""
+    data = request.get_json(silent=True) or {}
+    step_id = (data.get('step_id') or '').strip()
+    choice = (data.get('choice') or '').strip()
+    if not step_id or not choice:
+        return jsonify({'success': False, 'message': 'step_id 与 choice 必填'}), 400
+    ok = ai_mgr.answer_task(task_id, step_id, choice)
+    if not ok:
+        return jsonify({'success': False, 'message': '任务不存在或无需应答'}), 404
+    return jsonify({'success': True})
 
 
 @script_bp.route('/api/ai-chat/tasks', methods=['GET'])

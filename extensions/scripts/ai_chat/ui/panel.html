@@ -107,6 +107,43 @@
   .bubble.ai .res-ref .rr-type { font-size: 10px; color: #1a7f37; background: #e8f5e9; border-radius: 4px; padding: 0 4px; }
   .bubble.ai .res-ref.missing { background: #fbeaea; color: #b00; border-color: #f3c2c2; cursor: default; }
   .fbhint { font-size: 11.5px; color: #9aa0a6; text-align: center; padding: 4px 10px 0; user-select: none; }
+
+  /* 工作流选择栏 */
+  .workflow-bar { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+  .wf-btn {
+    display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+    padding: 7px 12px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 700;
+    border: 1.5px solid #2f54eb; background: #eef3ff; color: #1d39c4;
+    transition: background .15s, box-shadow .15s;
+  }
+  .wf-btn:hover { box-shadow: 0 2px 10px rgba(47,84,235,.25); }
+  .wf-btn.neutral { border-style: dashed; border-color: #b0b8c4; background: #f4f6f9; color: #6b7280; }
+  .wf-btn .wf-ico { font-size: 16px; line-height: 1; }
+  .wf-btn .wf-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-btn .wf-caret { font-size: 11px; opacity: .7; }
+  .wf-auto { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; white-space: nowrap; user-select: none; cursor: pointer; }
+  .wf-auto input { cursor: pointer; }
+  .wf-panel {
+    position: absolute; top: 100%; left: 10px; right: 10px; margin-top: 4px; z-index: 60;
+    background: #fff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.18);
+  }
+  .wf-panel-hint { font-size: 11.5px; color: #9aa0a6; padding: 2px 4px 6px; }
+  .wf-list { display: flex; flex-direction: column; gap: 6px; }
+  .wf-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; cursor: pointer; border: 1px solid transparent; }
+  .wf-item:hover { background: #f3f6fb; border-color: #e3e8ef; }
+  .wf-item .wf-i-ico { font-size: 18px; line-height: 1; }
+  .wf-item .wf-i-main { flex: 1; min-width: 0; }
+  .wf-item .wf-i-name { font-weight: 700; font-size: 13.5px; }
+  .wf-item .wf-i-desc { font-size: 11.5px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-item.active { background: #eef3ff; border-color: #2f54eb; }
+  /* 阶段气泡中标注当前工作流 */
+  .bubble.ai .wf-tag { display: inline-block; font-size: 11px; font-weight: 700; color: #1d39c4; background: #eef3ff; border: 1px solid #d6e0ff; border-radius: 6px; padding: 0 6px; margin-bottom: 4px; }
+  .bubble.ai .ask-q { font-size: 13.5px; font-weight: 600; margin: 2px 0 8px; }
+  .bubble.ai .ask-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bubble.ai .ask-opt { padding: 7px 14px; border-radius: 8px; border: 1px solid #2f54eb; background: #fff; color: #1d39c4; font-weight: 600; cursor: pointer; font-size: 13px; }
+  .bubble.ai .ask-opt:hover { background: #eef3ff; }
+  .bubble.ai .ask-opt:disabled { opacity: .7; cursor: default; }
 </style>
 </head>
 <body>
@@ -117,6 +154,21 @@
       <button id="toggleAll">收起全部</button>
       <button id="fullscreenBtn" title="全屏对话：在独立页面打开，独享整个界面">全屏对话</button>
       <button id="clear">清空对话</button>
+    </div>
+  </div>
+  <!-- 工作流选择栏：醒目按钮 + 选择浮层 + 自动推断开关 -->
+  <div class="workflow-bar" id="wfbar">
+    <button class="wf-btn" id="wfBtn" type="button">
+      <span class="wf-ico" id="wfIco">🧭</span>
+      <span class="wf-name" id="wfName">选择工作流</span>
+      <span class="wf-caret">▾</span>
+    </button>
+    <label class="wf-auto" title="开启后由 AI 根据输入实时推断工作流；关闭则强制使用已选工作流">
+      <input type="checkbox" id="wfAuto" checked /> 自动推断
+    </label>
+    <div class="wf-panel" id="wfPanel" hidden>
+      <div class="wf-panel-hint">选择本次对话的工作流（手动选择后自动关闭自动推断）</div>
+      <div class="wf-list" id="wfList"></div>
     </div>
   </div>
   <div class="queue" id="queue"></div>
@@ -694,6 +746,24 @@
           const data = dataLines.join('\n');
           if (ev === 'queued') {
             // 排队中：等待被处理
+          } else if (ev === 'workflow') {
+            // 后端解析出的工作流（用户指定 / 推断 / 回落）回显到按钮；
+            // 若用户未手动设置，则同步按钮显示，但不改变 manual 标记。
+            let o = null; try { o = JSON.parse(data); } catch (e) {}
+            if (o && o.id) {
+              if (!wfState.manual) {
+                wfState.id = o.id; wfState.name = o.name || o.id; wfState.icon = o.icon || '🧭'; wfState.color = o.color || '#2f54eb';
+                renderWfButton();
+              }
+            }
+          } else if (ev === 'ask') {
+            // 工作流的 ask 步骤：弹选择卡等待用户应答（挂起任务直到选择）。
+            let o = null; try { o = JSON.parse(data); } catch (e) {}
+            if (o && o.step_id) showAskCard(taskId, o);
+          } else if (ev === 'ask_result') {
+            // 应答已接收，关闭对应选择卡
+            let o = null; try { o = JSON.parse(data); } catch (e) {}
+            if (o && o.step_id) closeAskCard(o.step_id);
           } else if (ev === 'phase') {
             // 阶段气泡：按 index 创建/更新。start 时建立气泡（running），
             // done 时回填 conclusion/body 并置为完成；每个阶段独立成气泡。
@@ -773,9 +843,16 @@
     syncDraft();
     send.disabled = true;
     try {
+      // 工作流选择：自动推断开且未手动选 -> 不带 workflow_id（后端推断）；
+      // 否则强制带已选工作流 + manual=true（后端不再推断）。
+      const wfBody = {};
+      if (!(wfState.auto && !wfState.manual) && wfState.id) {
+        wfBody.workflow_id = wfState.id;
+        wfBody.manual = true;
+      }
       const resp = await api('/api/ai-chat', {
         method: 'POST',
-        body: JSON.stringify({ message: v })
+        body: JSON.stringify(Object.assign({ message: v }, wfBody))
       });
       if (!resp.ok) {
         let msg = 'HTTP ' + resp.status;
@@ -794,6 +871,122 @@
       send.disabled = false;
     }
   }
+
+  // ---------- 工作流选择 ----------
+  const wfState = { id: null, name: '选择工作流', icon: '🧭', color: '#2f54eb', auto: true, manual: false };
+  const wfBtn = document.getElementById('wfBtn');
+  const wfName = document.getElementById('wfName');
+  const wfIco = document.getElementById('wfIco');
+  const wfAuto = document.getElementById('wfAuto');
+  const wfPanel = document.getElementById('wfPanel');
+  const wfList = document.getElementById('wfList');
+
+  function renderWfButton() {
+    if (wfState.id) {
+      wfBtn.classList.remove('neutral');
+      wfBtn.style.borderColor = wfState.color;
+      wfBtn.style.background = hexA(wfState.color, 0.10);
+      wfBtn.style.color = wfState.color;
+      wfIco.textContent = wfState.icon;
+      wfName.textContent = wfState.name + (wfState.manual ? '（手动）' : '');
+    } else {
+      wfBtn.classList.add('neutral');
+      wfBtn.style.borderColor = ''; wfBtn.style.background = ''; wfBtn.style.color = '';
+      wfIco.textContent = '🧭';
+      wfName.textContent = '选择工作流';
+    }
+  }
+  function hexA(hex, a) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return 'rgba(47,84,235,.10)';
+    const n = parseInt(m[1], 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  async function loadWorkflows() {
+    try {
+      const resp = await api('/api/ai-chat/workflows');
+      if (!resp.ok) return;
+      const d = await resp.json();
+      if (!d.success || !d.workflows) return;
+      wfState._list = d.workflows;
+      wfList.innerHTML = '';
+      d.workflows.forEach(function (w) {
+        const el = document.createElement('div');
+        el.className = 'wf-item' + (w.id === wfState.id ? ' active' : '');
+        el.innerHTML = '<span class="wf-i-ico">' + (w.icon || '•') + '</span>'
+          + '<div class="wf-i-main"><div class="wf-i-name" style="color:' + (w.color || '#1d39c4') + '">'
+          + esc(w.name) + '</div><div class="wf-i-desc">' + esc(w.description || '') + '</div></div>';
+        el.addEventListener('click', function () { selectWorkflow(w); });
+        wfList.appendChild(el);
+      });
+    } catch (e) { /* ignore */ }
+  }
+  function selectWorkflow(w) {
+    // 用户手动选择 -> 记 id + manual=true，并关闭自动推断（满足「设置后不自动推断」）
+    wfState.id = w.id; wfState.name = w.name; wfState.icon = w.icon; wfState.color = w.color;
+    wfState.manual = true; wfState.auto = false; wfAuto.checked = false;
+    renderWfButton();
+    wfPanel.hidden = true;
+  }
+  wfBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (wfPanel.hidden) { loadWorkflows(); wfPanel.hidden = false; }
+    else wfPanel.hidden = true;
+  });
+  wfAuto.addEventListener('change', function () {
+    wfState.auto = wfAuto.checked;
+    // 重新开启自动推断时，清除手动标记（后续请求不再强制带 workflow_id）
+    if (wfState.auto) { wfState.manual = false; }
+  });
+  document.addEventListener('click', function (e) {
+    if (!wfPanel.hidden && !wfPanel.contains(e.target) && e.target !== wfBtn && !wfBtn.contains(e.target)) {
+      wfPanel.hidden = true;
+    }
+  });
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  // 工作流 ask 步骤：弹选择卡，用户选择后 POST 应答，唤醒挂起的任务。
+  const askCards = {};  // step_id -> DOM
+  function showAskCard(taskId, o) {
+    closeAskCard(o.step_id);
+    const box = document.getElementById('msgs');
+    if (!box) return;
+    const card = document.createElement('div');
+    card.className = 'bubble ai';
+    card.id = 'askcard-' + o.step_id;
+    const opts = (o.options || []).map(function (op, i) {
+      return '<button class="ask-opt" data-i="' + i + '">' + esc(op) + '</button>';
+    }).join('');
+    card.innerHTML = '<div class="wf-tag">工作流提问</div>'
+      + '<div class="ask-q">' + esc(o.question || '请选择') + '</div>'
+      + '<div class="ask-opts">' + opts + '</div>';
+    box.appendChild(card);
+    stickToBottom();
+    card.querySelectorAll('.ask-opt').forEach(function (btn, i) {
+      btn.addEventListener('click', async function () {
+        const choice = (o.options || [])[i];
+        btn.disabled = true;
+        try {
+          await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/answer', {
+            method: 'POST', body: JSON.stringify({ step_id: o.step_id, choice: choice })
+          });
+          btn.textContent = choice + ' ✓';
+        } catch (e) {
+          btn.disabled = false;
+          alert('应答失败：' + e.message);
+        }
+      });
+    });
+    askCards[o.step_id] = card;
+  }
+  function closeAskCard(stepId) {
+    const c = askCards[stepId];
+    if (c && c.parentNode) c.parentNode.removeChild(c);
+    delete askCards[stepId];
+  }
+  renderWfButton();
+  loadWorkflows();
 
   // ---------- 删除 / 取消 ----------
   async function deleteTask(taskId) {

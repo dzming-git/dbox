@@ -649,6 +649,9 @@ class AIChatManager:
                                              #   根治「早期阶段在 SSE 连上前已发射而丢失」的问题）
         self._cur_phase = {}                  # task_id -> 当前阶段 index（token 流式填充归属该阶段气泡）
         self._track_ids = {}                   # task_id -> 关联的反馈跟踪单号（跨任务回溯续写用）
+        # 工作流 ask 步骤的挂起/恢复：worker 在 ask 步阻塞等待，answer_task 写入答案并唤醒。
+        self._pending_answers = {}             # task_id -> {step_id: choice}
+        self._answer_events = {}               # task_id -> threading.Event
         self._initialized = False
         # 统一任务表镜像（轻量，仅状态展示）
         self._ut = None
@@ -702,6 +705,11 @@ class AIChatManager:
             # 而非新建一张标题为「继续」的脏单。
             try:
                 self._db.execute('ALTER TABLE ai_tasks ADD COLUMN track_id TEXT')
+            except Exception:
+                pass
+            # 工作流选择：存储 workflow_id / manual 等元数据（JSON 文本）。
+            try:
+                self._db.execute('ALTER TABLE ai_tasks ADD COLUMN extra TEXT')
             except Exception:
                 pass
             self._db.execute('CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status)')
@@ -777,13 +785,14 @@ class AIChatManager:
             row = self._db.execute('SELECT * FROM ai_tasks WHERE task_id=?', (task_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def _insert_task(self, task_id, prompt, owner_id, status):
+    def _insert_task(self, task_id, prompt, owner_id, status, extra=None):
         now = self._now()
+        extra_json = json.dumps(extra, ensure_ascii=False) if extra else None
         with self._lock:
             self._db.execute(
-                'INSERT INTO ai_tasks (task_id, status, prompt, reply, error, owner_id, created_at, updated_at, track_id) '
-                'VALUES (?,?,?,NULL,NULL,?,?,?,NULL)',
-                (task_id, status, prompt, owner_id, now, now))
+                'INSERT INTO ai_tasks (task_id, status, prompt, reply, error, owner_id, created_at, updated_at, track_id, extra) '
+                'VALUES (?,?,?,NULL,NULL,?,?,?,NULL,?)',
+                (task_id, status, prompt, owner_id, now, now, extra_json))
             self._db.commit()
         self._sync_to_unified(task_id, prompt, owner_id, status, now, now)
 
@@ -876,15 +885,28 @@ class AIChatManager:
             pass
 
     # ---------- 入队 ----------
-    def enqueue(self, message, owner_id=None):
-        """把一条用户消息作为任务入队，立即返回 task_id（不阻塞）。"""
+    def enqueue(self, message, owner_id=None, workflow_id=None, manual=False):
+        """把一条用户消息作为任务入队，立即返回 task_id（不阻塞）。
+
+        workflow_id: 用户显式选择的工作流（来自前端按钮）；为 None 时由 worker 实时推断。
+        manual:      是否为用户手动设置（手动设置后前端不再要求推断）。
+        """
         msg = (message or '').strip()
         if not msg:
             return None, 'message 必填'
+        extra = {}
+        if workflow_id:
+            extra['workflow_id'] = workflow_id
+            extra['manual'] = bool(manual)
         task_id = 'ai_' + uuid.uuid4().hex[:16]
-        self._insert_task(task_id, msg, owner_id, self.STATUS_PENDING)
+        self._insert_task(task_id, msg, owner_id, self.STATUS_PENDING, extra=extra or None)
         self._queue.put(task_id)
         return task_id, None
+
+    def list_workflows(self):
+        """返回全部工作流元信息，供前端渲染选择面板。"""
+        from workflow_engine import get_engine
+        return get_engine().list_meta()
 
     # ---------- worker ----------
     def _terminate(self, proc):
@@ -939,8 +961,13 @@ class AIChatManager:
             turns = turns[-limit:]
         return turns
 
-    def _build_prompt(self, message, intent=None, phase=None, analysis=None, prev_issue=None):
+    def _build_prompt(self, message, intent=None, phase=None, analysis=None, prev_issue=None,
+                      workflow_prompt=None):
         parts = [_SYSTEM_PROMPT]
+        # 工作流编译提示（来自配置）：定义本任务的流程指导 / git 检查触发 / 建单等，
+        # 优先于旧的意图分支，承载真正的「分阶段/按流程执行」语义。
+        if workflow_prompt:
+            parts.append(workflow_prompt.strip())
         turns = self._context_turns()
         if turns:
             parts.append('以下是之前的对话记录，供你理解上下文：')
@@ -1070,20 +1097,16 @@ class AIChatManager:
             return None, False, '调用失败: ' + str(e), 1, False
 
     def _process(self, task_id):
-        """脚本驱动的阶段状态机：每条用户命令被拆成多个可见「阶段气泡」，每个阶段由
-        宿主进程显式发射 phase 事件（开始 -> 结束，结束带一句 conclusion）；需要智能的
-        阶段由宿主分阶段调用 CLI（先「分析定位」、再「执行处理」），AI 在每个阶段只产出
-        该阶段内容（即给出分支）。
-
-        每个阶段 = 聊天窗口里一个独立气泡：
-          1. 分析用户意图（建议 / 缺陷 / 继续 / 闲聊）—— 宿主确定性判定，结论一句话气泡
-          2. 核查运行环境（git 仓库状态）—— 宿主，结论一句话气泡
-          3. AI 分析定位问题 —— CLI（只读），气泡承载分析正文
-          4. AI 执行处理（修改与验证）—— CLI，气泡承载执行说明
-          5. 收尾核查（git 仓库干净度）—— 宿主，结论一句话气泡
-          6. 创建处理跟踪单（待验证）—— 宿主（确有新提交时），结论一句话气泡
-        闲聊/普通提问：仅阶段 1 + 单个「生成回复」气泡，不触发 git 核查与建单。
+        """配置驱动的阶段状态机：每条用户命令被拆成多个可见「阶段气泡」，由工作流配置
+        （extensions/scripts/ai_chat/workflows/*.yaml）驱动。流程：
+          1. 工作流选择 —— 用户指定 / 实时推断 / 回落 chat，结论一句话气泡
+          2. start 步（来自配置）：shell 检查（如 git 干净度）、ask 提问（如建单/选问题单，挂起等待）
+          3. AI 处理 —— 单次 CLI，系统提示由工作流 compile_prompt 注入（分支指导 + 命中的 shell 提示）
+          4. end 步（来自配置）：复查 git 等
+          5. 建单 —— 改代码类确有必要则建单；resume 选了具体单则续写该单
         """
+        from workflow_engine import get_engine
+        engine = get_engine()
         task = self.get_task(task_id)
         if not task:
             return
@@ -1094,7 +1117,6 @@ class AIChatManager:
             self._set_status(task_id, self.STATUS_RUNNING)
             self._emit(task_id, 'status', 'running')
 
-        # 阶段序号由闭包维护，确保自增且与前端按 index 对齐重建气泡顺序。
         _pi = [0]
 
         def begin(label, kind):
@@ -1107,12 +1129,10 @@ class AIChatManager:
             self._end_phase(task_id, idx, conclusion, body)
 
         def _cli(label, prompt, max_turns):
-            """运行一次 CLI 阶段：自行打开一个 phase（running），正文随 token 走
-            phase_chunk 流式填充该阶段气泡，失败/取消时直接收尾并返回取消标记。
-            返回 (phase_index, reply, cancelled)。"""
+            """运行一次 CLI 阶段：自行打开一个 phase，正文随 token 流式填充该阶段气泡，
+            失败/取消时直接收尾并返回取消标记。返回 (phase_index, reply, cancelled)。"""
             idx = begin(label, 'cli')
             reply, _, err, rc, cancelled = self._run_cli(prompt, task_id, max_turns)
-            # 捕获后立即剥离模型可能回显的宿主控制备注，避免其进入气泡/存库/跨阶段传播。
             reply = _strip_control_lines(reply)
             if cancelled:
                 self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
@@ -1131,132 +1151,175 @@ class AIChatManager:
                 return idx, None, True
             return idx, reply, False
 
-        # ---- 阶段 1：分析用户意图（建议 / 缺陷 / 继续 / 闲聊）----
-        # 宿主基于关键词确定性判定（不依赖模型输出），结论作为首个阶段气泡直接呈现，
-        # 满足「判断过程中显示当前阶段、判断成功后回复本阶段结论」。
-        intent = _classify_intent(task['prompt'])
-        is_task = intent in ('defect', 'suggestion', 'continue')
-        # 「继续」意图：先回溯上一条已建跟踪单的反馈单号，供阶段 3/4 注入上下文、
-        # 阶段 6 续写（而非新建一张名为「继续」的脏单）。
-        continue_prev = self._find_prev_track_id(task.get('owner_id')) if intent == 'continue' else None
-        idx = begin('分析用户意图（建议 / 缺陷 / 继续 / 闲聊）', 'host')
-        end(idx, conclusion='分析用户意图：这是一条【%s】反馈' % _INTENT_LABELS.get(intent, '其他'))
+        # ---- 阶段 1：工作流选择（替代旧「意图分析」）----
+        extra = task.get('extra') or {}
+        wf_id = extra.get('workflow_id')
+        if not wf_id:
+            wf_id = self._resolve_workflow(task['prompt'], engine)
+        wf = engine.get(wf_id)
+        wf_id = wf['id']
+        self._emit(task_id, 'workflow', {
+            'id': wf_id, 'name': wf.get('name', wf_id),
+            'icon': wf.get('icon', ''), 'color': wf.get('color', ''),
+        })
+        idx = begin('工作流选择', 'host')
+        end(idx, conclusion='%s %s' % (wf.get('icon', ''), wf.get('name', wf_id)))
 
-        if not is_task:
-            # 闲聊/普通提问：单个 AI 回复气泡即可，不做 git 核查与建单。
-            ci, reply, cancelled = _cli('生成回复',
-                self._build_prompt(task['prompt'], intent=intent, phase='chat'), 30)
-            if cancelled:
-                return
-            if not reply:
-                reply = _PLACEHOLDER_AI_EMPTY
-            reply, _ = _maybe_file_feedback(reply)
-            end(ci, body=reply)
-            self._finish_completed(task_id)
-            return
-
-        # ---- 阶段 2：核查运行环境（git 仓库状态）----
+        # ---- start 步：shell 检查 + ask 提问（ask 会挂起等待用户选择）----
         repo = _project_root()
-        head_before = _git_rev_head(repo)
-        baseline_dirty = _git_dirty_files(repo)
-        idx = begin('核查运行环境（git 仓库状态）', 'host')
-        if baseline_dirty is None:
-            s_pre = '做事前检查：仓库非 git 或状态不可判定，跳过干净度核查'
-        elif not baseline_dirty:
-            s_pre = '做事前检查：git 仓库干净，无未提交改动'
-        else:
-            s_pre = '做事前检查：仓库已存在 %d 项未提交改动（不归因于本次任务）' % len(baseline_dirty)
-        end(idx, conclusion=s_pre)
+        hit_shells = {}
+        answers = {}
+        prev_issue = None  # resume 选中的具体单号
+        for step in engine.steps_of(wf, 'start'):
+            if step.get('kind') == 'shell':
+                hit, _ = engine.run_shell_step(step, cwd=repo)
+                if hit:
+                    hit_shells[step.get('id')] = True
+            elif step.get('kind') == 'ask':
+                choice = self._run_ask_step(task_id, step, engine)
+                if choice:
+                    answers[step.get('id')] = choice
+                    if step.get('id') == 'pick_ticket' and choice not in ('新开', '__list_tickets__'):
+                        prev_issue = choice
 
-        # ---- 阶段 3：AI 分析定位问题（只读，不修改文件）----
-        ci, reply, cancelled = _cli('AI 分析定位问题',
-            self._build_prompt(task['prompt'], intent=intent, phase='analyze', prev_issue=continue_prev), 40)
-        if cancelled:
-            return
-        analysis = reply  # 阶段3 原始分析正文，可能为空
-        end(ci, body=(analysis or '（分析阶段无文本输出）'),
-            conclusion='AI 已完成分析定位')
-
-        # ---- 阶段 4：AI 执行处理（修改与验证）----
-        ci, reply, cancelled = _cli('AI 执行处理（修改与验证）',
-            self._build_prompt(task['prompt'], intent=intent, phase='execute', analysis=analysis, prev_issue=continue_prev), 50)
+        # ---- 阶段 2（AI 处理）：编译工作流提示并单次执行 ----
+        workflow_prompt = engine.compile_prompt(wf, answers=answers, hit_shells=hit_shells)
+        if wf_id == 'resume' and prev_issue:
+            workflow_prompt = (workflow_prompt + '\n（本条为「继续」：你正在延续 %s 的处理，'
+                                '请基于该单已有上下文继续推进，不要当成全新任务。）' % prev_issue)
+        ci, reply, cancelled = _cli('AI 处理',
+            self._build_prompt(task['prompt'], workflow_prompt=workflow_prompt, prev_issue=prev_issue), 50)
         if cancelled:
             return
         if not reply:
             reply = _PLACEHOLDER_AI_EMPTY
-        # 若 AI 在回复中携带 feedback-request 块（罕见，任务中误判为提交反馈），则建单、
-        # 回填真实单号并剥离该块，再存库与下发。
         reply, filed_id = _maybe_file_feedback(reply)
-        end(ci, body=reply, conclusion='AI 已完成执行处理')
+        end(ci, body=reply, conclusion='AI 已生成回复')
 
-        # ---- 阶段 5：收尾核查（git 仓库干净度）----
-        idx = begin('收尾核查（git 仓库状态）', 'host')
-        reply, git_clean = _verify_and_report_clean(repo, baseline_dirty, head_before, reply)
-        s_post = ('做事后检查：git 仓库已保持干净'
-                  if git_clean else
-                  '做事后检查：git 仓库未完全干净，存在遗留未提交改动，请人工处理（见上文）')
-        end(idx, conclusion=s_post)
+        # ---- end 步：复查 git 等 ----
+        s_post = ''
+        for step in engine.steps_of(wf, 'end'):
+            if step.get('kind') == 'shell':
+                hit, _ = engine.run_shell_step(step, cwd=repo)
+                if hit:
+                    s_post = '做事后检查：git 工作区仍有未提交改动，请复查并清理/提交后再结束'
+        if s_post:
+            idx = begin('收尾核查（git 仓库状态）', 'host')
+            end(idx, conclusion=s_post)
 
-        # ---- 阶段 6：处理跟踪单 / 续写既有跟踪单 ----
-        head_after = _git_rev_head(repo)
-        if intent == 'continue' and continue_prev:
-            # 「继续」且存在可续写的上一跟踪单：把本次分析/解决以「自动助手」身份
-            # 追加回复进该单，而不是新建一张标题为「继续」的脏单（满足「继续=续写」）。
+        # ---- 建单 / 续写 ----
+        is_code = wf_id in ('defect', 'suggest')
+        answered_create = any(v == '建单' for v in answers.values())
+        make_ticket = bool(answered_create) or (is_code and self._git_has_new_commit(repo))
+        if prev_issue and wf_id == 'resume':
+            # 续写用户选定的既有单：把分析与解决以「自动助手」身份追加回复。
             idx = begin('续写既有处理跟踪单（待验证）', 'host')
-            a_txt = (analysis or '').strip()
+            a_txt = ''
             r_txt = (reply or '').strip()
-            if a_txt == '（分析阶段无文本输出）':
-                a_txt = ''
             if r_txt.startswith('（任务已执行完成'):
                 r_txt = ''
-            ok_a = _add_feedback_comment(continue_prev, a_txt) if a_txt else True
-            ok_r = _add_feedback_comment(continue_prev, r_txt) if r_txt else True
-            track_id = continue_prev
+            ok_r = _add_feedback_comment(prev_issue, r_txt) if r_txt else True
+            track_id = prev_issue
             self._set_track_id(task_id, track_id)
-            if ok_a and ok_r:
-                s_ticket = '已在反馈单 #%s 中续写分析与解决说明（自动助手身份）' % continue_prev
-            else:
-                s_ticket = ('（已尝试在反馈单 #%s 中续写分析与解决，'
-                            '但反馈中心暂不可达，将自动重试）' % continue_prev)
+            s_ticket = ('已在反馈单 %s 中续写解决说明（自动助手身份）' % prev_issue) if ok_r \
+                else ('（已尝试在反馈单 %s 中续写，但反馈中心暂不可达，将自动重试）' % prev_issue)
             end(idx, conclusion=s_ticket)
-        elif head_after and head_after != head_before and not filed_id:
+        elif make_ticket and not filed_id:
             idx = begin('创建处理跟踪单（待验证）', 'host')
             ref_id = _extract_ref_issue(task['prompt'])
             if ref_id:
-                # 用户引用了既有反馈单：把分析/解决以「自动助手」身份回复进该单，
-                # 而非另建一张跟踪单（满足「在反馈单中回复」的诉求）。
-                a_txt = (analysis or '').strip()
+                a_txt = ''
                 r_txt = (reply or '').strip()
-                if a_txt == '（分析阶段无文本输出）':
-                    a_txt = ''
                 if _is_placeholder_text(r_txt):
                     r_txt = ''
-                ok_a = _add_feedback_comment(ref_id, a_txt) if a_txt else True
                 ok_r = _add_feedback_comment(ref_id, r_txt) if r_txt else True
                 track_id = ref_id
                 self._set_track_id(task_id, track_id)
-                if ok_a and ok_r:
-                    s_ticket = '已在反馈单 #%s 中以「自动助手」身份回复了分析与解决说明' % ref_id
-                else:
-                    s_ticket = ('（已尝试在反馈单 #%s 中回复分析与解决，'
-                                '但反馈中心暂不可达，将自动重试）' % ref_id)
+                s_ticket = '已在反馈单 #%s 中以「自动助手」身份回复了解决说明' % ref_id if ok_r \
+                    else '（已尝试在反馈单 #%s 中回复，但反馈中心暂不可达，将自动重试）' % ref_id
             else:
-                # 「继续」但无历史单可续：标题退化为「上一条问题的概括」，避免把「继续」当标题；
-                # 其余情况走正常建单（此处不新增脏单）。
-                override_title = None
-                if intent == 'continue' and not continue_prev:
-                    turns = self._context_turns()
-                    if turns:
-                        override_title = _make_ticket_title(turns[-1][0])
-                reply, track_id, s_ticket = _maybe_create_tracking_ticket(
+                override_title = ('续接 %s' % prev_issue) if prev_issue else None
+                _, track_id, s_ticket = _maybe_create_tracking_ticket(
                     task_id, task['prompt'], task.get('owner_id'),
-                    reply, filed_id, head_before, git_clean=git_clean, intent=intent,
-                    analysis=analysis, resolution=reply, title=override_title)
+                    reply, filed_id, None, git_clean=not hit_shells, intent=wf_id,
+                    analysis=workflow_prompt, resolution=reply, title=override_title)
                 if track_id:
                     self._set_track_id(task_id, track_id)
             end(idx, conclusion=s_ticket)
 
         self._finish_completed(task_id)
+
+    # ---------- 工作流辅助 ----------
+    def _resolve_workflow(self, message, engine):
+        """实时推断工作流 id：先关键词确定性分类，再校验 auto_infer；
+        不可推断（auto_infer=false）或落空时回落 chat。"""
+        from workflow_engine import DEFAULT_WORKFLOW
+        intent = _classify_intent(message)  # defect / suggestion / continue / chat
+        if intent == 'continue':
+            # 「继续」默认手动，不自动选（除非用户显式点选）
+            return DEFAULT_WORKFLOW if not engine.get('resume').get('auto_infer', False) else 'resume'
+        if intent in ('defect', 'suggestion'):
+            wid = 'defect' if intent == 'defect' else 'suggest'
+            if engine.get(wid).get('auto_infer', False):
+                return wid
+        return DEFAULT_WORKFLOW
+
+    def _git_has_new_commit(self, repo):
+        """粗略判断：仓库 HEAD 与远端/track 存在差异，或存在未推送提交，即认为有「新提交」。
+        这里用「是否存在未推送到 origin 的提交」近似（git cherry）。"""
+        try:
+            out = subprocess.run('git rev-list --count --left-right @{upstream}...HEAD',
+                                 shell=True, cwd=repo, capture_output=True, text=True, timeout=15)
+            if out.returncode == 0:
+                right = out.stdout.split('\t')[-1].strip()
+                return right not in ('', '0')
+        except Exception:
+            pass
+        return False
+
+    def _run_ask_step(self, task_id, step, engine):
+        """执行 ask 步骤：向 UI 下发提问，挂起等待用户选择，返回 choice 字符串。"""
+        options = list(step.get('options', []))
+        # resume 的「列出任务」选项：用最近未完成/失败的任务填充
+        if '__list_tickets__' in options:
+            recents = self._recent_unfinished_tasks(limit=8)
+            options = [t for t in options if t != '__list_tickets__']
+            options = recents + options
+        event = threading.Event()
+        self._answer_events[task_id] = event
+        self._pending_answers.setdefault(task_id, {})
+        self._emit(task_id, 'ask', {
+            'step_id': step.get('id'),
+            'question': step.get('question', '请选择'),
+            'options': options,
+        })
+        # 挂起：最多等 30 分钟
+        answered = event.wait(timeout=1800)
+        choice = self._pending_answers.get(task_id, {}).get(step.get('id'))
+        self._answer_events.pop(task_id, None)
+        if not answered or not choice:
+            return None
+        return choice
+
+    def answer_task(self, task_id, step_id, choice):
+        """前端对用户 ask 的应答：写入答案并唤醒挂起的 worker。"""
+        with self._lock:
+            self._pending_answers.setdefault(task_id, {})[step_id] = choice
+        ev = self._answer_events.get(task_id)
+        if ev:
+            ev.set()
+        self._emit(task_id, 'ask_result', {'step_id': step_id, 'choice': choice})
+        return True
+
+    def _recent_unfinished_tasks(self, limit=8):
+        """返回最近未完成/失败的任务提示，供 resume 选择续接。"""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT task_id, prompt, status FROM ai_tasks "
+                "WHERE status IN (?,?,?) ORDER BY created_at DESC LIMIT ?",
+                (self.STATUS_PENDING, self.STATUS_RUNNING, self.STATUS_FAILED, limit)
+            ).fetchall()
+        return ['#%s %s' % (r['task_id'][:10], (r['prompt'] or '')[:24]) for r in rows]
 
     def _finish_completed(self, task_id):
         """把当前阶段日志组装为分阶段回复并标记完成、下发 done、结束 SSE。"""
