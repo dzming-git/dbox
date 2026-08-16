@@ -44,6 +44,7 @@ except SystemExit:
 
 # 复用拓展管理宿主的同一份引擎（独立崩溃域，代码单份）。
 from extensions_host.app import create_app
+from flask import jsonify
 
 app = create_app()
 
