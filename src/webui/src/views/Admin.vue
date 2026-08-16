@@ -5051,7 +5051,7 @@ input:checked + .slider:before {
   bottom: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   z-index: 1000;
   overflow-y: auto;
@@ -5066,7 +5066,8 @@ input:checked + .slider:before {
   max-width: 500px;
   max-height: 90vh;
   overflow: hidden;
-  margin: auto 0;
+  display: flex;
+  flex-direction: column;
   animation: modalIn 0.3s ease;
 }
 
