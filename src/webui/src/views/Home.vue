@@ -1096,7 +1096,7 @@ const listThumbUrl = (video: Video): string => {
 
 /* 首页媒体类型切换：视频 / 图集 对等 */
 .media-tabs {
-  display: flex;
+  display: inline-flex; /* 不用 flex:1 防止被 topbar 压缩导致按钮重叠 */
   justify-content: space-between;
   align-items: center;
   gap: 8px;
@@ -1105,8 +1105,7 @@ const listThumbUrl = (video: Video): string => {
   border-radius: 10px;
   padding: 4px 6px;
   margin-bottom: 10px;
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0; /* PC 端不允许整体收缩 */
 }
 
 .media-tab {
