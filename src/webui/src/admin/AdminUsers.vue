@@ -405,7 +405,7 @@ onMounted(() => {
 .dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
-.dot-none { background: #4a5568; }
+.dot-none { background: #ef4444; }
 .dot-read { background: #3b82f6; }
 .dot-write { background: #22c55e; }
 
@@ -472,22 +472,26 @@ onMounted(() => {
 .perm-chip {
   padding: 4px 12px;
   border-radius: 9999px;
-  border: 1px solid transparent;
-  background: rgba(255,255,255,0.06);
-  color: var(--text-secondary, #9ca3af);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: transparent;
+  color: var(--text-muted, #8a8f98);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
 .perm-chip:hover:not(:disabled) {
-  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.3);
   color: var(--text-primary, #e6e8eb);
 }
+.perm-chip.active {
+  font-weight: 600;
+}
 .perm-chip.active.none {
-  background: rgba(74,85,104,0.3);
-  border-color: #4a5568;
-  color: #cbd5e1;
+  background: rgba(239,68,68,0.14);
+  border-color: #ef4444;
+  color: #fca5a5;
+  text-decoration: line-through;
 }
 .perm-chip.active.read {
   background: rgba(59,130,246,0.18);
