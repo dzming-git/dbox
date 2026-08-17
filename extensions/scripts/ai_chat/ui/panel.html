@@ -237,6 +237,7 @@
                                   // 缓冲（不含 stage/step）覆盖掉 SSE 渲染的分阶段进度与结论。
   const expandedIds = new Set();  // 用户已手动展开过的对话 id，跨重绘保留展开态
   let pollTimer = null;
+  let lastMsgSig = '';            // 上一次已渲染的会话内容签名；未变化时跳过整页重建，避免 2 秒轮询强制重绘打乱滚动位置
   const COLLAPSE_LINES = 6;       // 单条长消息默认折叠时展示的行数（按行高对齐到整行，足够看清大意）
 
   function api(path, opts) {
@@ -448,10 +449,36 @@
     msgs.scrollTop = msgs.scrollHeight;
   }
 
+  // 轻量字符串哈希（djb2），用于在不拼接超长原文的前提下检测会话内容是否变化
+  function hashStr(s) {
+    let h = 5381;
+    s = String(s == null ? '' : s);
+    for (let i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+    return h >>> 0;
+  }
+  // 阶段数组签名：仅取 index / state / 正文长度，足以感知流式进度与结论变化
+  function phaseSig(phases) {
+    if (!phases || !phases.length) return '';
+    return phases.map(p => p.index + ':' + (p.state || '') + ':' + hashStr(p.body || p.conclusion || '')).join(',');
+  }
+  // 会话区完整内容的指纹：tabs 变化（展开更多/新消息/阶段推进/排队）才改变，
+  // 纯滚动阅读期间保持恒定，从而让轮询跳过无意义的整页重建——这是消除「滑到固定区域位置突跳」的根本手段。
+  function msgSignature() {
+    let s = 'can:' + (state.canExpand ? 1 : 0) + '|';
+    const items = state.history.concat(state.older);
+    for (const h of items) {
+      s += 'H' + h.id + ':' + (h.status || '') + ':' + hashStr(h.reply) + ':' + phaseSig(h.phases) + ';';
+    }
+    if (state.active) s += 'A' + state.active.id + ':' + phaseSig(state.active.phases) + ';';
+    state.pending.forEach(p => { s += 'P' + p.id + ';'; });
+    return s;
+  }
+
   // 合并渲染数据：队列区 + 对话区
   function render() {
     renderQueue();
     renderMsgs();
+    lastMsgSig = msgSignature();
   }
 
   function renderQueue() {
@@ -728,7 +755,14 @@
       }
       state.canExpand = !!d.has_more || state.canExpand;
       if (state.nextCursor == null) state.nextCursor = state.canExpand ? (d.history && d.history.length ? d.history[d.history.length - 1].created_at : null) : null;
-      render();
+      renderQueue();
+      // 仅当会话内容（历史/进行中/排队/可展开）真正变化时才重建对话区；
+      // 否则跳过整页 innerHTML 重建与滚动重算，避免 2 秒轮询把用户正在阅读的滚动位置「突跳」到固定落点。
+      const sig = msgSignature();
+      if (sig !== lastMsgSig) {
+        lastMsgSig = sig;
+        renderMsgs();
+      }
       // 若正在处理的任务尚未订阅，则订阅以续接流式输出（刷新重连）
       if (state.active && !subscribed.has(state.active.id)) {
         subscribe(state.active.id);
