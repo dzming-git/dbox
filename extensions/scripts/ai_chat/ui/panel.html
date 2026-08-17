@@ -159,7 +159,6 @@
   <div class="toolbar">
     <span class="title">AI 助手</span>
     <div class="tools">
-      <button id="toggleAll">收起全部</button>
       <button id="fullscreenBtn" title="全屏对话：在独立页面打开，独享整个界面">全屏对话</button>
       <button id="clear">清空对话</button>
     </div>
@@ -226,14 +225,12 @@
   const txt = document.getElementById('txt');
   const send = document.getElementById('send');
   const clearBtn = document.getElementById('clear');
-  const toggleAllBtn = document.getElementById('toggleAll');
   const fullscreenBtn = document.getElementById('fullscreenBtn');
 
   // UI 无状态：不本地保存历史、不上传历史。所有状态以服务端为准，仅做渲染与下发。
   // state 仅用于前端渲染；刷新或重开面板会重新从服务端拉取完整状态。
   let state = { pending: [], active: null, history: [], has_more: false,
                 older: [], nextCursor: null, canExpand: false };
-  let collapsedAllMode = false; // true 时强制折叠全部 AI 气泡（收起全部）；false 时仅长消息默认折叠
   const subscribed = new Set();   // 已在 SSE 订阅中的 task_id（避免重复订阅）
   const liveRender = {};          // 正在流式输出的任务 id -> 已渲染的「分阶段」HTML；
                                   // 供 2 秒轮询重绘时复用，避免被 list_tasks 返回的原始 token
@@ -241,7 +238,6 @@
   const expandedIds = new Set();  // 用户已手动展开过的对话 id，跨重绘保留展开态
   let pollTimer = null;
   const COLLAPSE_LINES = 6;       // 单条长消息默认折叠时展示的行数（按行高对齐到整行，足够看清大意）
-  const COLLAPSE_ALL_LINES = 4;   // “收起全部”时每条 AI 气泡的预览行数（紧凑概览，但仍保留内容提示）
 
   function api(path, opts) {
     const headers = { 'Content-Type': 'application/json' };
@@ -562,60 +558,72 @@
       const ai = row.querySelector('.bubble.ai');
       if (ai) addCopyBar(row, ai, false);
     });
-    // 工具栏按钮文案随模式更新：收起全部模式显示“展开全部”，否则“收起全部”
-    toggleAllBtn.textContent = collapsedAllMode ? '展开全部' : '收起全部';
     // 仅当用户原本就贴底时才自动贴底；否则保留当前滚动位置，避免用户在看历史时被拉回底部。
     if (pinToBottom) stickToBottom();
     else msgs.scrollTop = prevScrollTop;
   }
 
-  // AI 聊天内容收起/展开：
-  // - 默认仅对超过预览行数（COLLAPSE_LINES）的长消息折叠为“部分展示”，顶部保留若干行作为内容预览。
-  // - collapsedAllMode 为 true 时（“收起全部”）所有 AI 气泡都按更小的预览行数（COLLAPSE_ALL_LINES）
-  //   折叠成紧凑概览，但仍露出开头几行“意思一下”，不会整条消失。
-  // - expandedIds 记录用户手动展开过的气泡：无论默认折叠还是收起全部，展开后都保持展开，跨重绘保留。
-  // - 仅当内容确实超出预览高度时才挂折叠/展开按钮；短消息不强行折叠、也不显示多余按钮。
-  // - 流式输出（running/pending）气泡不折叠。
+  // AI 聊天内容收起/展开（严格按单条气泡，互不干扰）：
+  // - 仅对超过预览行数（COLLAPSE_LINES）的长消息默认折叠为“部分展示”，顶部保留若干行作为内容预览；
+  // - expandedIds 记录用户手动展开过的气泡：展开后跨整页重绘（如新消息到达）仍保持展开态；
+  // - 仅当内容确实超出预览高度时才挂折叠/展开按钮；短消息不强行折叠、也不显示多余按钮；
+  // - 流式输出（running/pending）气泡不折叠；
+  // - 点击「展开全部/收起」仅就地切换该气泡的折叠态，整页不重绘，因此滚动位置始终停留在被操作的气泡上，
+  //   不会再跳到更早的历史消息。
   function applyCollapse() {
     msgs.querySelectorAll('.bubble.ai').forEach(node => {
       if (node.classList.contains('running') || node.classList.contains('pending')) return;
-      const tid = node.id.slice(3);
       const lh = parseFloat(getComputedStyle(node).lineHeight) || 21;
-      const previewLines = collapsedAllMode ? COLLAPSE_ALL_LINES : COLLAPSE_LINES;
-      const maxH = Math.round(lh * previewLines);
+      const maxH = Math.round(lh * COLLAPSE_LINES);
       const needsFold = node.scrollHeight > maxH + 8; // 内容是否真的超出预览高度
-      const userExpanded = expandedIds.has(tid);
+      const userExpanded = expandedIds.has(node.id.slice(3));
       if (!userExpanded && needsFold) {
         // 折叠为部分展示：顶部预览若干行，底部柔和淡出 + “展开全部”
         node.classList.add('collapsed');
         node.style.maxHeight = maxH + 'px';
-        addFold(node, '展开全部', () => {
-          expandedIds.add(tid);
-          renderMsgs();
-        });
+        addFold(node, '展开全部');
       } else {
         // 完整展示（短消息 / 已手动展开）：仅当内容超标时提供“收起”按钮
         node.classList.remove('collapsed');
         node.style.maxHeight = '';
-        if (needsFold) {
-          addFold(node, '收起', () => {
-            expandedIds.delete(tid);
-            renderMsgs();
-          });
-        }
+        if (needsFold) addFold(node, '收起');
       }
     });
   }
 
-  // 在某条 AI 气泡后插入一个折叠/展开按钮（每次重绘 innerHTML 重建，无残留）
-  function addFold(node, label, onClick) {
+  // 就地切换单条 AI 气泡的折叠/展开态（不触发整页重绘，从而保持当前滚动位置稳定，
+  // 视图始终停留在被操作的气泡上）。折叠态随 expandedIds 持久，以便整页重绘后还原。
+  function toggleBubbleFold(node) {
+    if (!node || node.classList.contains('running') || node.classList.contains('pending')) return;
+    const tid = node.id.slice(3);
+    const lh = parseFloat(getComputedStyle(node).lineHeight) || 21;
+    const maxH = Math.round(lh * COLLAPSE_LINES);
+    if (node.classList.contains('collapsed')) {
+      // 展开：仅影响这一条气泡
+      expandedIds.add(tid);
+      node.classList.remove('collapsed');
+      node.style.maxHeight = '';
+      if (node._fold) node._fold.querySelector('button').textContent = '收起';
+    } else {
+      // 收起：仅影响这一条气泡
+      expandedIds.delete(tid);
+      node.classList.add('collapsed');
+      node.style.maxHeight = maxH + 'px';
+      if (node._fold) node._fold.querySelector('button').textContent = '展开全部';
+    }
+  }
+
+  // 在某条 AI 气泡后插入一个折叠/展开按钮（每次重绘 innerHTML 重建，无残留）。
+  // 按钮文案随当前折叠态切换（展开全部 <-> 收起），点击始终就地切换该气泡，不重绘整页。
+  function addFold(node, label) {
     const fold = document.createElement('div');
     fold.className = 'ai-fold';
     fold.innerHTML = '<button>' + esc(label) + '</button>';
     // node（气泡）位于 .ai-row 内，按钮应插到整行之后，避免与头像同行错位
     const row = node.closest('.ai-row') || node;
     row.after(fold);
-    fold.querySelector('button').addEventListener('click', onClick);
+    node._fold = fold; // 记录引用，便于就地更新按钮文案
+    fold.querySelector('button').addEventListener('click', () => toggleBubbleFold(node));
   }
 
   // 复制某消息节点纯文本（剔除「正在处理」状态标签与占位提示），
@@ -1020,29 +1028,12 @@
     } catch (e) { /* ignore */ }
   }
 
-  // ---------- 收起全部 / 展开全部 ----------
-  function toggleAll() {
-    if (collapsedAllMode) {
-      // 展开全部：退出强制折叠，并把当前可见的长消息全部记入已展开，保持展开
-      collapsedAllMode = false;
-      msgs.querySelectorAll('.bubble.ai').forEach(n => {
-        if (!n.classList.contains('running') && !n.classList.contains('pending')) expandedIds.add(n.id.slice(3));
-      });
-    } else {
-      // 收起全部：强制折叠所有 AI 气泡，并清空已展开记录
-      collapsedAllMode = true;
-      expandedIds.clear();
-    }
-    renderMsgs();
-  }
-
   // ---------- 清空对话 ----------
   clearBtn.addEventListener('click', async () => {
     if (!confirm('确定清空全部对话（含排队与历史）？')) return;
     try {
       subscribed.clear();
       expandedIds.clear();
-      collapsedAllMode = false;
       Object.keys(liveRender).forEach(k => delete liveRender[k]);
       await api('/api/ai-chat/clear', { method: 'POST' });
       state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
@@ -1051,7 +1042,6 @@
   });
 
   send.addEventListener('click', onSend);
-  toggleAllBtn.addEventListener('click', toggleAll);
   // 全屏对话：请求宿主跳转到 /ai-chat 独立页面（面板自身由宿主收起）；
   // 该页面的「返回」会经 DBOX_NAVIGATE '__back__' 回到悬浮面板所在页。
   if (fullscreenBtn) {
