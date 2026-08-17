@@ -538,12 +538,26 @@
       const wrapperStart = t.isActive ? '<div class="aiwrap" id="aiwrap-' + esc(t.id) + '">' : '';
       const wrapperEnd = t.isActive ? '</div>' : '';
       html += timeLabel
-            + '<div class="bubble me">' + esc(t.prompt) + '</div>'
+            + '<div class="bubble me" data-mid="u-' + esc(t.id) + '">' + esc(t.prompt) + '</div>'
             + wrapperStart + t.aiHtml + wrapperEnd;
     });
-    // 重绘前记录：用户是否贴底、当前滚动位置，重绘后据此决定是否拉回底部
+    // 重绘前记录：用户是否贴底；若非贴底，则以「最靠近视口顶部的消息」为锚点（而非绝对像素），
+    // 避免重绘后上方消息因折叠态变化而改高，导致同一 scrollTop 落到更早的消息上（表现为“跳到好几条前”）。
     const pinToBottom = nearBottom();
-    const prevScrollTop = msgs.scrollTop;
+    const msgsRect = msgs.getBoundingClientRect();
+    let anchorKey = null, anchorDelta = 0;
+    if (!pinToBottom) {
+      const cands = msgs.querySelectorAll('.bubble.me, .ai-row');
+      for (const el of cands) {
+        const r = el.getBoundingClientRect();
+        const topRel = r.top - msgsRect.top;
+        if (r.bottom - msgsRect.top > 0) { // 与视口有交集的第一条消息，即最上方可见消息，作为锚点
+          anchorKey = el.getAttribute('data-mid') || el.getAttribute('data-ai');
+          anchorDelta = topRel;
+          break;
+        }
+      }
+    }
     msgs.innerHTML = html;
     const em = document.getElementById('expandMore');
     if (em) em.addEventListener('click', expandMore);
@@ -558,9 +572,17 @@
       const ai = row.querySelector('.bubble.ai');
       if (ai) addCopyBar(row, ai, false);
     });
-    // 仅当用户原本就贴底时才自动贴底；否则保留当前滚动位置，避免用户在看历史时被拉回底部。
-    if (pinToBottom) stickToBottom();
-    else msgs.scrollTop = prevScrollTop;
+    // 仅当用户原本就贴底时才自动贴底；否则按消息锚点还原位置，使视口停留在被操作/正在看的那条消息上。
+    if (pinToBottom) {
+      stickToBottom();
+    } else if (anchorKey) {
+      const el = msgs.querySelector('[data-mid="' + anchorKey + '"], [data-ai="' + anchorKey + '"]');
+      if (el) {
+        msgs.scrollTop = 0; // 先归零再测量，避免重绘后 scrollTop 被浏览器钳制造成偏差
+        const newTopRel = el.getBoundingClientRect().top - msgsRect.top;
+        msgs.scrollTop = Math.max(0, newTopRel - anchorDelta);
+      }
+    }
   }
 
   // AI 聊天内容收起/展开（严格按单条气泡，互不干扰）：
