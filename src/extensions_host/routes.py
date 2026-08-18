@@ -45,7 +45,7 @@ def _resolve_jwt_secrets():
 _JWT_SECRETS = _resolve_jwt_secrets()
 
 from manager import mgr, ScriptJobManager
-from ai_chat import ai_mgr
+from ai_chat import ai_mgr, list_models
 import plan_manager
 
 script_bp = Blueprint('script', __name__)
@@ -387,10 +387,19 @@ def ai_chat_enqueue():
     wf_id = (data.get('workflow_id') or '').strip() or None
     manual = bool(data.get('manual'))
     plan_mode = bool(data.get('plan_mode', False))
-    task_id, err = ai_mgr.enqueue(message, g.user_id, workflow_id=wf_id, manual=manual, plan_mode=plan_mode)
+    model = (data.get('model') or '').strip() or None
+    task_id, err = ai_mgr.enqueue(message, g.user_id, workflow_id=wf_id, manual=manual,
+                                  plan_mode=plan_mode, model=model)
     if err:
         return jsonify({'success': False, 'message': err}), 400
     return jsonify({'success': True, 'task_id': task_id})
+
+
+@script_bp.route('/api/ai-chat/models', methods=['GET'])
+@login_required
+def ai_chat_models():
+    """返回 AI 助手可选模型列表。"""
+    return jsonify({'success': True, 'models': list_models()})
 
 
 @script_bp.route('/api/ai-chat/workflows', methods=['GET'])
@@ -669,7 +678,9 @@ def execute_ai_plan(plan_id):
         '请基于以下已确认的修改计划，实际执行代码改动（可读取/修改文件、'
         '运行必要命令并验证）：\n\n' + plan['content']
     )
-    task_id, err = ai_mgr.enqueue(exec_msg, g.user_id, workflow_id=None, manual=True)
+    data = request.get_json(silent=True) or {}
+    model = (data.get('model') or '').strip() or None
+    task_id, err = ai_mgr.enqueue(exec_msg, g.user_id, workflow_id=None, manual=True, model=model)
     if err:
         return jsonify({'success': False, 'message': err}), 400
     plan_manager.set_status(plan_id, plan_manager.STATUS_EXECUTED)

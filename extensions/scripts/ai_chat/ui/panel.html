@@ -138,6 +138,13 @@
   }
   .wf-btn:hover { border-color: #2f54eb; background: #eef3ff; box-shadow: 0 1px 6px rgba(47,84,235,.14); }
   .wf-btn .wf-ico { font-size: 17px; line-height: 1; }
+  /* 模型选择下拉 */
+  .model-sel {
+    height: 30px; max-width: 200px; padding: 0 6px; flex: 1;
+    border: 1px solid #d6dbe3; background: #fff; color: #1f2937;
+    border-radius: 8px; font-size: 12.5px; cursor: pointer;
+  }
+  .model-sel:focus { border-color: #2f54eb; outline: none; }
   /* 下拉浮层：5 个图标（自动推断 + 各工作流），图标网格排布 */
   .wf-panel {
     position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; z-index: 60;
@@ -246,7 +253,7 @@
     <div class="queue" id="queue"></div>
     <div class="msgs" id="msgs"></div>
     <div class="fbhint" id="fbhint">可在此提交 bug / 建议，AI 会自动建单并在反馈中心跟踪</div>
-    <!-- 工作流选择：独立一行，紧贴在输入框上方（仿 QQ/微信 输入框上方的工具行） -->
+    <!-- 工作流选择 + 模型选择：独立一行，紧贴在输入框上方 -->
     <div class="wf-bar" id="wfbar">
       <button class="wf-btn" id="wfBtn" type="button" title="选择工作流">
         <span class="wf-ico" id="wfIco">🤖</span>
@@ -255,6 +262,7 @@
         <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）</div>
         <div class="wf-list" id="wfList"></div>
       </div>
+      <select id="modelSel" class="model-sel" title="选择模型"></select>
     </div>
     <div class="input-bar">
       <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
@@ -1093,6 +1101,9 @@
       }
       // Plan 模式：选择 plan 工作流时，告知后端仅产出计划文档（不改代码）
       if (wfState.id === 'plan') wfBody.plan_mode = true;
+      // 用户所选模型（可选）
+      const selModel = modelSel.value;
+      if (selModel) wfBody.model = selModel;
       const resp = await api('/api/ai-chat', {
         method: 'POST',
         body: JSON.stringify(Object.assign({ message: v }, wfBody))
@@ -1121,6 +1132,34 @@
   const wfIco = document.getElementById('wfIco');
   const wfPanel = document.getElementById('wfPanel');
   const wfList = document.getElementById('wfList');
+  const modelSel = document.getElementById('modelSel');
+
+  // 模型选择：加载可选模型列表，持久化用户默认选择
+  const MODEL_KEY = 'ai_chat_model';
+  async function loadModels() {
+    try {
+      await ensureToken();
+      const resp = await api('/api/ai-chat/models');
+      if (!resp.ok) return;
+      const d = await resp.json();
+      if (!d.success || !Array.isArray(d.models) || !d.models.length) return;
+      modelSel.innerHTML = '<option value="">默认模型</option>';
+      d.models.forEach(function (m) {
+        const op = document.createElement('option');
+        op.value = m.id; op.textContent = m.name || m.id;
+        modelSel.appendChild(op);
+      });
+      const saved = localStorage.getItem(MODEL_KEY);
+      if (saved && d.models.some(function (m) { return m.id === saved; })) {
+        modelSel.value = saved;
+      }
+      modelSel.addEventListener('change', function () {
+        if (modelSel.value) localStorage.setItem(MODEL_KEY, modelSel.value);
+        else localStorage.removeItem(MODEL_KEY);
+      });
+    } catch (e) { /* ignore */ }
+  }
+  loadModels();
 
   const WF_AUTO_ICON = '🤖';   // 自动推断图标（合并进工作流选择浮层）
   function renderWfButton() {
@@ -1498,8 +1537,11 @@
     if (!currentPlanId) return;
     if (!confirm('确认执行该计划？此操作会真正改动代码（读取/修改文件、运行命令）。')) return;
     try {
+      const execBody = {};
+      const selModel = modelSel ? modelSel.value : '';
+      if (selModel) execBody.model = selModel;
       const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId) + '/execute', {
-        method: 'POST', body: JSON.stringify({})
+        method: 'POST', body: JSON.stringify(execBody)
       });
       const d = await resp.json();
       if (!d.success) { alert('执行失败：' + (d.message || '')); return; }
@@ -1528,18 +1570,6 @@
   const planNewInput = document.getElementById('planNewInput');
   const planNewSend = document.getElementById('planNewSend');
 
-  async function ensureToken() {
-    if (!TOKEN) {
-      TOKEN = readToken();
-      if (!TOKEN) {
-        window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
-        for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
-        if (!TOKEN) TOKEN = readToken();
-      }
-    }
-    return TOKEN;
-  }
-
   // 轮询计划列表，直到出现 created_at 晚于 sentTs 的新计划，或超时
   async function waitForNewPlan(sentTs, timeoutMs) {
     const deadline = Date.now() + (timeoutMs || 60000);
@@ -1565,9 +1595,12 @@
     const sentTs = Math.floor(Date.now() / 1000);
     planNewSend.textContent = '⏳ 生成中…';
     try {
+      const body = { message: v, plan_mode: true };
+      const selModel = modelSel ? modelSel.value : '';
+      if (selModel) body.model = selModel;
       const resp = await api('/api/ai-chat', {
         method: 'POST',
-        body: JSON.stringify({ message: v, plan_mode: true })
+        body: JSON.stringify(body)
       });
       const d = await resp.json();
       if (!resp.ok || !d.success) {
