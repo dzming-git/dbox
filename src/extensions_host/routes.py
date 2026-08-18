@@ -469,6 +469,20 @@ def ai_chat_delete(task_id):
     return jsonify({'success': True})
 
 
+@script_bp.route('/api/ai-chat/tasks/<task_id>/changes', methods=['GET'])
+@login_required
+def ai_chat_task_changes(task_id):
+    """查询任务自开始到当前的代码改动（提交 + 未提交文件），供停止后展示与撤销决策。"""
+    return jsonify(ai_mgr.get_task_changes(task_id))
+
+
+@script_bp.route('/api/ai-chat/tasks/<task_id>/rollback', methods=['POST'])
+@login_required
+def ai_chat_task_rollback(task_id):
+    """停止/完成后撤销本次改动：回退仓库到任务开始时的 HEAD（破坏性，需前端二次确认）。"""
+    return jsonify(ai_mgr.rollback_task(task_id))
+
+
 @script_bp.route('/api/ai-chat/clear', methods=['POST'])
 @login_required
 def ai_chat_clear():

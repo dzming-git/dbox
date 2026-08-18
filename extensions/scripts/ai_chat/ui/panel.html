@@ -26,6 +26,21 @@
   .qtime { font-size: 11px; color: #aaa; white-space: nowrap; }
   .qdel { border: none; background: #ffe9e9; color: #d33; border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
   .qdel:hover { background: #ffd6d6; }
+  .qdel.qstop { background: #fff0e0; color: #b26a00; }
+  .qdel.qstop:hover { background: #ffe0c0; }
+
+  /* 处理中气泡底部内联「停止」控件 */
+  .stopbar { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cfd6e4; }
+  .stopdot { font-size: 12px; color: #b26a00; display: inline-flex; align-items: center; gap: 6px; }
+  .stopdot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #b26a00; animation: pulse 1s infinite; }
+  .stopbtn { border: none; background: #fff0e0; color: #b26a00; border-radius: 6px; font-size: 12px; padding: 3px 12px; cursor: pointer; font-weight: 600; }
+  .stopbtn:hover { background: #ffe0c0; }
+
+  /* 终态气泡「撤销本次改动」控件 */
+  .undowrap { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cfd6e4; font-size: 12px; color: #b26a00; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .undostat { color: #777; }
+  .undobtn { border: none; background: #ffe9e9; color: #d33; border-radius: 6px; font-size: 12px; padding: 3px 12px; cursor: pointer; }
+  .undobtn:hover { background: #ffd6d6; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #1a7f37; display: inline-block; animation: pulse 1s infinite; }
   @keyframes pulse { 0%{opacity:1} 50%{opacity:.3} 100%{opacity:1} }
 
@@ -492,7 +507,7 @@
     for (let i = phases.length - 1; i >= 0; i--) {
       if (phases[i].state !== 'done') { runningIdx = phases[i].index; break; }
     }
-    let h = '';
+    let h = running ? stopBarHtml() : '';
     phases.forEach(function (ph) {
       const isRunning = (ph.index === runningIdx) && running;
       const label = ph.label || '';
@@ -515,11 +530,19 @@
     const aiCls = 'ai md' + (kind === 'err' ? ' err' : (kind === 'pending' ? ' pending' : ''));
     const statusTag = running ? '<span class="aistatus">● 正在处理</span>' : '';
     const avatarGlyph = kind === 'err' ? '⚠' : '🤖';
-    const inner = renderContent(reply) + statusTag;
+    const inner = renderContent(reply) + statusTag + (running ? stopBarHtml() : '');
     return '<div class="ai-row" data-ai="' + esc(id) + '">'
       +   '<div class="ai-avatar' + (running ? ' running' : '') + '">' + avatarGlyph + '</div>'
       +   '<div class="bubble ' + aiCls + '" id="ai-' + esc(id) + '">' + inner + '</div>'
       + '</div>';
+  }
+
+  // 正在处理气泡底部的内联「停止」控件：点击即终止当前 AI 任务（复用 deleteTask）。
+  function stopBarHtml() {
+    const id = state && state.active && state.active.id;
+    if (!id) return '';
+    return '<div class="stopbar"><span class="stopdot">处理中…</span>'
+      + '<button class="stopbtn" data-stop="' + esc(id) + '">⏹ 停止</button></div>';
   }
 
   // 将 Unix 秒级时间戳格式化为会话时间：今天显示 HH:mm，今年显示 M-D HH:mm，跨年显示 YYYY-M-D HH:mm
@@ -598,7 +621,8 @@
             + badge
             + '<span class="qtext" title="' + esc(it.prompt) + '">' + esc(it.prompt) + '</span>'
             + (it.created_at != null ? '<span class="qtime">' + esc(fmtTime(it.created_at)) + '</span>' : '')
-            + '<button class="qdel" data-del="' + esc(it.id) + '">删除</button>'
+            + '<button class="qdel' + (isRun ? ' qstop' : '') + '" data-del="' + esc(it.id) + '">'
+            + (isRun ? '停止' : '删除') + '</button>'
             + '</div>';
     });
     queueEl.innerHTML = html;
@@ -621,7 +645,7 @@
           ? renderPhasesHtml(h.phases, false)
           : renderSingleAi(h.id, reply, kind, false);
       turns.push({ id: h.id, prompt: h.prompt, aiHtml: aiHtml,
-                   kind: kind, created_at: h.created_at });
+                   kind: kind, created_at: h.created_at, status: h.status, head_before: h.head_before });
     }
     if (state.active) {
       // 优先使用 SSE 订阅实时渲染的「多阶段气泡」HTML（liveRender）；
@@ -663,6 +687,12 @@
       html += timeLabel
             + '<div class="bubble me" data-mid="u-' + esc(t.id) + '">' + esc(t.prompt) + '</div>'
             + wrapperStart + t.aiHtml + wrapperEnd;
+      // 终态任务且记录了回滚基线：追加「撤销本次改动」控件（停止/完成后可回退到发起时的仓库状态）。
+      if (!t.isActive && t.head_before) {
+        const verb = t.status === 'cancelled' ? '已停止' : '已完成';
+        html += '<div class="undowrap" id="undowrap-' + esc(t.id) + '" data-undo="' + esc(t.id) + '">'
+              + verb + ' · <span class="undostat">查询本次改动…</span></div>';
+      }
     });
     // 重绘前记录：用户是否贴底；若非贴底，则以「最靠近视口顶部的消息」为锚点（而非绝对像素），
     // 避免重绘后上方消息因折叠态变化而改高，导致同一 scrollTop 落到更早的消息上（表现为“跳到好几条前”）。
@@ -706,6 +736,41 @@
         msgs.scrollTop = Math.max(0, newTopRel - anchorDelta);
       }
     }
+    // 回填各终态气泡的「本次改动」摘要并接管「撤销」按钮
+    refreshUndoWraps();
+  }
+
+  // 终止态气泡：从后端查询本次改动（提交数 + 未提交文件数），展示可撤销的「撤销本次改动」控件。
+  function refreshUndoWraps() {
+    msgs.querySelectorAll('[data-undo]').forEach(async (box) => {
+      const id = box.getAttribute('data-undo');
+      try {
+        const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(id) + '/changes');
+        const d = await resp.json();
+        if (!d || !d.success) { box.style.display = 'none'; return; }
+        if (!d.has_changes) { box.style.display = 'none'; return; } // 无改动无需撤销
+        const cN = (d.commits || []).length;
+        const fN = (d.dirty || []).length;
+        box.innerHTML = '<span class="undostat">本次改动：' + cN + ' 个提交 / '
+          + fN + ' 个未提交文件</span>'
+          + '<button class="undobtn" data-roll="' + esc(id) + '">🗑 撤销本次改动（不可恢复）</button>';
+      } catch (e) {
+        box.style.display = 'none';
+      }
+    });
+  }
+
+  // 撤销本次改动：二次确认后回退仓库到任务开始时的 HEAD（破坏性）。
+  async function rollbackTask(taskId) {
+    if (!confirm('确定撤销本次改动？将把仓库回退到该任务开始前的状态（git reset --hard + 清理未提交文件），此操作不可恢复。')) return;
+    try {
+      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/rollback', { method: 'POST' });
+      const d = await resp.json();
+      if (!d || !d.success) { alert('撤销失败：' + ((d && d.message) || '未知错误')); return; }
+      const box = document.getElementById('undowrap-' + taskId);
+      if (box) box.innerHTML = '<span class="undostat">已撤销本次改动，仓库已回到任务开始前状态</span>';
+      refresh();
+    } catch (e) { alert('撤销失败：' + e.message); }
   }
 
   // AI 聊天内容收起/展开（严格按单条气泡，互不干扰）：
@@ -1218,6 +1283,10 @@
   txt.addEventListener('input', () => { autoGrow(); syncDraft(); });
   // 反馈单 / 资源引用点击：通知宿主（父页面）跳转；跳转后宿主会自动收起面板
   msgs.addEventListener('click', function (e) {
+    const stopBtn = e.target.closest && e.target.closest('[data-stop]');
+    if (stopBtn) { deleteTask(stopBtn.getAttribute('data-stop')); return; }
+    const rollBtn = e.target.closest && e.target.closest('[data-roll]');
+    if (rollBtn) { rollbackTask(rollBtn.getAttribute('data-roll')); return; }
     const a = e.target.closest && e.target.closest('.fb-ref');
     if (a && a.dataset.id) {
       window.parent.postMessage({ type: 'DBOX_NAVIGATE', path: '/feedback/' + a.dataset.id }, '*');

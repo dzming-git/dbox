@@ -755,6 +755,7 @@ class AIChatManager:
         self._worker = None
         self._procs = {}                      # task_id -> subprocess.Popen（用于取消）
         self._cancel = {}                    # task_id -> True（取消标记）
+        self._head_before = {}               # task_id -> 任务开始前的仓库 HEAD（回滚基线）
         self._skip = set()                   # 已在排队但被用户删除的 task_id
         self._subscribers = {}               # task_id -> [queue.Queue, ...]（SSE 订阅者）
         self._buffers = {}                    # task_id -> [token, ...]（运行期已产出的 token，供重连续接）
@@ -825,6 +826,11 @@ class AIChatManager:
             # 工作流选择：存储 workflow_id / manual 等元数据（JSON 文本）。
             try:
                 self._db.execute('ALTER TABLE ai_tasks ADD COLUMN extra TEXT')
+            except Exception:
+                pass
+            # 回滚基线：记录任务开始处理前的仓库 HEAD，供「停止后撤销本次改动」精准回退。
+            try:
+                self._db.execute('ALTER TABLE ai_tasks ADD COLUMN head_before TEXT')
             except Exception:
                 pass
             self._db.execute('CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status)')
@@ -916,6 +922,16 @@ class AIChatManager:
                 (task_id, status, prompt, owner_id, now, now, extra_json))
             self._db.commit()
         self._sync_to_unified(task_id, prompt, owner_id, status, now, now)
+
+    def _set_head_before(self, task_id, head_before):
+        """把任务开始处理前的仓库 HEAD 持久化，作为停止后「撤销本次改动」的回滚基线。"""
+        if not head_before:
+            return
+        with self._lock:
+            self._head_before[task_id] = head_before
+            self._db.execute('UPDATE ai_tasks SET head_before=? WHERE task_id=?',
+                             (head_before, task_id))
+            self._db.commit()
 
     def _set_track_id(self, task_id, track_id):
         """把本次任务关联的反馈跟踪单号持久化，供后续「继续」任务回溯续写。"""
@@ -1244,6 +1260,13 @@ class AIChatManager:
             self._cur_phase.pop(task_id, None)
             self._set_status(task_id, self.STATUS_RUNNING)
             self._emit(task_id, 'status', 'running')
+
+        # 记录回滚基线：任务开始前（任何 CLI / 建单之前）的仓库 HEAD，
+        # 供「停止后撤销本次改动」精准回退到用户发起时的状态。
+        try:
+            self._set_head_before(task_id, _git_rev_head(_project_root()))
+        except Exception:
+            pass
 
         _pi = [0]
 
@@ -1659,7 +1682,7 @@ class AIChatManager:
                 'SELECT task_id, prompt, status, created_at FROM ai_tasks '
                 'WHERE status=? ORDER BY created_at DESC LIMIT 1', (self.STATUS_RUNNING,)).fetchall()
             hist_rows = self._db.execute(
-                "SELECT task_id, prompt, reply, status, error, phases, created_at FROM ai_tasks "
+                "SELECT task_id, prompt, reply, status, error, phases, created_at, head_before FROM ai_tasks "
                 "WHERE status IN (?, ?, ?) ORDER BY created_at DESC LIMIT ?",
                 (self.STATUS_COMPLETED, self.STATUS_FAILED, self.STATUS_CANCELLED,
                  history_limit + 1)).fetchall()
@@ -1681,6 +1704,7 @@ class AIChatManager:
         history = [{'id': r['task_id'], 'prompt': r['prompt'], 'reply': r['reply'],
                     'status': r['status'], 'error': r['error'],
                     'phases': _parse_phases(r['phases']),
+                    'head_before': (r['head_before'] or '').strip(),
                     'created_at': r['created_at']} for r in hist_rows]
 
         return {'pending': pending, 'active': active, 'history': history, 'has_more': has_more}
@@ -1690,23 +1714,85 @@ class AIChatManager:
         with self._lock:
             if cursor is not None:
                 rows = self._db.execute(
-                    "SELECT task_id, prompt, reply, status, error, phases, created_at FROM ai_tasks "
+                    "SELECT task_id, prompt, reply, status, error, phases, created_at, head_before FROM ai_tasks "
                     "WHERE status IN (?, ?, ?) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
                     (self.STATUS_COMPLETED, self.STATUS_FAILED, self.STATUS_CANCELLED,
                      float(cursor), limit + 1)).fetchall()
             else:
                 rows = self._db.execute(
-                    "SELECT task_id, prompt, reply, status, error, phases, created_at FROM ai_tasks "
+                    "SELECT task_id, prompt, reply, status, error, phases, created_at, head_before FROM ai_tasks "
                     "WHERE status IN (?, ?, ?) ORDER BY created_at DESC LIMIT ?",
                     (self.STATUS_COMPLETED, self.STATUS_FAILED, self.STATUS_CANCELLED,
                      limit + 1)).fetchall()
         has_more = len(rows) > limit
         rows = rows[:limit]
         items = [{'id': r['task_id'], 'prompt': r['prompt'], 'reply': r['reply'],
-                  'status': r['status'], 'error': r['error'], 'created_at': r['created_at']}
+                  'status': r['status'], 'error': r['error'],
+                  'head_before': (r['head_before'] or '').strip(),
+                  'created_at': r['created_at']}
                  for r in rows]
         return {'history': items, 'has_more': has_more,
                 'next_cursor': items[-1]['created_at'] if (items and has_more) else None}
+
+    # ---------- 改动查询 / 回滚 ----------
+    def get_task_changes(self, task_id):
+        """返回任务自开始（head_before）到当前的代码改动摘要，供 UI 展示与回滚决策。
+
+        返回 {success, head_before, head_after, commits:[str...], dirty:[str...], has_changes:bool}。
+        无回滚基线（head_before 为空）时 has_changes 仍按当前仓库真实状态给出，但 message 提示无法回滚。
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return {'success': False, 'message': '任务不存在'}
+        repo = _project_root()
+        head_before = (task.get('head_before') or '').strip()
+        head_after = _git_rev_head(repo)
+        commits = []
+        if head_before and head_after and head_before != head_after:
+            try:
+                out = subprocess.run(['git', 'log', '--oneline',
+                                       head_before + '..' + head_after],
+                                     cwd=repo, capture_output=True, text=True, timeout=30).stdout
+                commits = [l for l in out.splitlines() if l.strip()]
+            except Exception:
+                pass
+        dirty = sorted(_git_dirty_files(repo) or set())
+        return {'success': True, 'head_before': head_before, 'head_after': head_after,
+                'commits': commits, 'dirty': dirty,
+                'has_changes': bool(commits) or bool(dirty),
+                'message': '' if head_before else '无回滚基线（任务开始前未记录 HEAD，无法撤销）'}
+
+    def rollback_task(self, task_id):
+        """停止/完成后「撤销本次改动」：把仓库回退到任务开始时的 HEAD（head_before）。
+
+        这是破坏性操作（git reset --hard + git clean -fd），仅在任务已离开运行/排队态
+        （completed / failed / cancelled）时允许，且需要合法的回滚基线哈希。返回 {success, ...}。
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return {'success': False, 'message': '任务不存在'}
+        status = task['status']
+        if status in (self.STATUS_RUNNING, self.STATUS_PENDING):
+            return {'success': False, 'message': '任务仍在处理/排队中，请先停止'}
+        head_before = (task.get('head_before') or '').strip()
+        if not head_before:
+            return {'success': False, 'message': '无回滚基线，无法撤销本次改动'}
+        if not re.match(r'^[0-9a-f]{7,40}$', head_before):
+            return {'success': False, 'message': '回滚基线非法，拒绝执行'}
+        repo = _project_root()
+        try:
+            r1 = subprocess.run(['git', 'reset', '--hard', head_before],
+                                cwd=repo, capture_output=True, text=True, timeout=60)
+            if r1.returncode != 0:
+                return {'success': False, 'message': 'git reset --hard 失败：' + (r1.stderr or '').strip()[:300]}
+            subprocess.run(['git', 'clean', '-fd'], cwd=repo,
+                           capture_output=True, text=True, timeout=60)
+            after = self.get_task_changes(task_id)
+            return {'success': True, 'commits': after.get('commits', []),
+                    'dirty': after.get('dirty', []),
+                    'message': '已撤销本次改动，仓库回到任务开始前状态'}
+        except Exception as e:
+            return {'success': False, 'message': '回滚失败：' + str(e)}
 
     # ---------- 删除 / 取消 ----------
     def delete_task(self, task_id):
