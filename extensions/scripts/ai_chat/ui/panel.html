@@ -172,6 +172,11 @@
   .plan-refresh { padding: 4px 12px; border: 1px solid #6366f1; border-radius: 6px; background: transparent; color: #c7d2fe; cursor: pointer; font-size: 12px; }
   .plan-refresh:hover { background: rgba(99,102,241,.18); }
   .plan-tip { font-size: 11px; color: var(--text-muted, #8a8f98); }
+  .plan-new { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-default, #2a2f3a); }
+  .plan-new textarea { flex: 1; resize: none; height: 54px; border: 1px solid var(--border-default, #2a2f3a); border-radius: 8px; background: var(--bg-input, #0f1115); color: var(--text-primary, #e6e8eb); padding: 8px; font-size: 13px; font-family: inherit; }
+  .plan-new button { padding: 0 16px; border: none; border-radius: 8px; background: linear-gradient(135deg,#6366f1,#4f46e5); color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; }
+  .plan-new button:hover { filter: brightness(1.08); }
+  .plan-new button:disabled { opacity: .5; cursor: not-allowed; }
 
   .plan-list { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .plan-card {
@@ -247,6 +252,10 @@
     <div class="plan-toolbar">
       <button id="planRefresh" class="plan-refresh">刷新</button>
       <span class="plan-tip">Plan 模式：AI 先生成计划（不改代码），确认后再执行</span>
+    </div>
+    <div class="plan-new">
+      <textarea id="planNewInput" placeholder="描述你的需求，AI 会先生成修改计划（不改代码），确认后再执行…"></textarea>
+      <button id="planNewSend">📋 生成计划</button>
     </div>
     <div class="plan-list" id="planList"></div>
     <div class="plan-detail" id="planDetail" hidden>
@@ -1343,7 +1352,7 @@
       if (!d.success) { planListEl.innerHTML = '<div class="plan-empty">加载失败</div>'; return; }
       const plans = d.plans || [];
       if (!plans.length) {
-        planListEl.innerHTML = '<div class="plan-empty">暂无计划。在「对话」中选择 📋 计划 工作流，让 AI 先生成修改计划。</div>';
+        planListEl.innerHTML = '<div class="plan-empty">暂无计划。在上方输入框描述需求，AI 会先生成修改计划。</div>';
         return;
       }
       planListEl.innerHTML = '';
@@ -1443,6 +1452,73 @@
       loadPlans();
     } catch (e) {
       alert('删除失败：' + e.message);
+    }
+  });
+
+  // ---------- 在「计划」标签页直接发起新计划（plan_mode=true）----------
+  const planNewInput = document.getElementById('planNewInput');
+  const planNewSend = document.getElementById('planNewSend');
+
+  async function ensureToken() {
+    if (!TOKEN) {
+      TOKEN = readToken();
+      if (!TOKEN) {
+        window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
+        for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
+        if (!TOKEN) TOKEN = readToken();
+      }
+    }
+    return TOKEN;
+  }
+
+  // 轮询计划列表，直到出现 created_at 晚于 sentTs 的新计划，或超时
+  async function waitForNewPlan(sentTs, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs || 60000);
+    while (Date.now() < deadline) {
+      try {
+        const resp = await api('/api/ai-chat/plans', { method: 'GET' });
+        const d = await resp.json();
+        if (d.success && (d.plans || []).some(p => (p.created_at || 0) >= sentTs)) {
+          return true;
+        }
+      } catch (e) { /* 忽略，继续轮询 */ }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    return false;
+  }
+
+  planNewSend.addEventListener('click', async () => {
+    const v = planNewInput.value.trim();
+    if (!v) return;
+    if (!(await ensureToken())) { alert('尚未获取到管理员 token，请稍候重试或重新登录'); return; }
+    planNewSend.disabled = true;
+    planNewInput.disabled = true;
+    const sentTs = Math.floor(Date.now() / 1000);
+    planNewSend.textContent = '⏳ 生成中…';
+    try {
+      const resp = await api('/api/ai-chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: v, plan_mode: true })
+      });
+      const d = await resp.json();
+      if (!resp.ok || !d.success) {
+        alert('发起计划失败：' + (d.message || ('HTTP ' + resp.status)));
+        return;
+      }
+      const ok = await waitForNewPlan(sentTs);
+      if (ok) {
+        planNewInput.value = '';
+        loadPlans();
+        alert('计划已生成，可在列表中查看 / 点评 / 执行。');
+      } else {
+        alert('计划生成超时，请稍后点「刷新」查看是否已生成。');
+      }
+    } catch (e) {
+      alert('发起计划失败：' + e.message);
+    } finally {
+      planNewSend.disabled = false;
+      planNewInput.disabled = false;
+      planNewSend.textContent = '📋 生成计划';
     }
   });
 </script>
