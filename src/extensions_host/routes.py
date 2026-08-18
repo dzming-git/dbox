@@ -46,6 +46,7 @@ _JWT_SECRETS = _resolve_jwt_secrets()
 
 from manager import mgr, ScriptJobManager
 from ai_chat import ai_mgr
+import plan_manager
 
 script_bp = Blueprint('script', __name__)
 
@@ -63,6 +64,7 @@ def init_script_engine(app):
             pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
             _data_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(pkg_dir))), 'data')
         ai_mgr.init(_data_dir)
+        plan_manager.init(_data_dir)
     except Exception as e:
         print('[extensions_host] 初始化 AI 对话管理器失败: %s' % e)
 
@@ -384,7 +386,8 @@ def ai_chat_enqueue():
     # 否则留空，由后端实时推断（技术可行时）或回落 chat。
     wf_id = (data.get('workflow_id') or '').strip() or None
     manual = bool(data.get('manual'))
-    task_id, err = ai_mgr.enqueue(message, g.user_id, workflow_id=wf_id, manual=manual)
+    plan_mode = bool(data.get('plan_mode', False))
+    task_id, err = ai_mgr.enqueue(message, g.user_id, workflow_id=wf_id, manual=manual, plan_mode=plan_mode)
     if err:
         return jsonify({'success': False, 'message': err}), 400
     return jsonify({'success': True, 'task_id': task_id})
@@ -600,3 +603,71 @@ def delete_cookie(cid):
     if not ok:
         return jsonify({'success': False, 'message': '凭证配置不存在'}), 404
     return jsonify({'success': True})
+
+
+# ---------- AI 助手 Plan 模式 ----------
+# Plan 模式下 AI 仅生成可执行的修改计划文档（md），不实际改动代码；
+# 用户可在 UI 中逐条点评，满意后点「执行」才触发真正的代码改动。
+@script_bp.route('/api/ai-chat/plans', methods=['GET'])
+@login_required
+def list_ai_plans():
+    """列出全部计划（摘要：不含正文，含状态）。"""
+    return jsonify({'success': True, 'plans': plan_manager.list_plans()})
+
+
+@script_bp.route('/api/ai-chat/plans/<plan_id>', methods=['GET'])
+@login_required
+def get_ai_plan(plan_id):
+    """获取单个计划详情（含正文与用户点评）。"""
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return jsonify({'success': False, 'message': '计划不存在'}), 404
+    return jsonify({'success': True, 'plan': plan})
+
+
+@script_bp.route('/api/ai-chat/plans/<plan_id>/comment', methods=['POST'])
+@login_required
+def comment_ai_plan(plan_id):
+    """追加一条用户点评到计划文档的「用户点评」段。"""
+    data = request.get_json(silent=True) or {}
+    comment = (data.get('comment') or '').strip()
+    if not comment:
+        return jsonify({'success': False, 'message': '点评内容不能为空'}), 400
+    ok = plan_manager.add_comment(plan_id, comment, owner_id=g.user_id)
+    if not ok:
+        return jsonify({'success': False, 'message': '计划不存在或写入失败'}), 400
+    return jsonify({'success': True})
+
+
+@script_bp.route('/api/ai-chat/plans/<plan_id>/execute', methods=['POST'])
+@login_required
+def execute_ai_plan(plan_id):
+    """用户确认计划后，把计划正文作为执行指令重新提交（AI 真正改代码）。
+
+    该步骤才会实际改动代码——plan 阶段只产出 md，绝不调用 shell / git。
+    """
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return jsonify({'success': False, 'message': '计划不存在'}), 404
+    if plan['status'] == plan_manager.STATUS_EXECUTED:
+        return jsonify({'success': False, 'message': '该计划已执行过'}), 400
+    exec_msg = (
+        '请基于以下已确认的修改计划，实际执行代码改动（可读取/修改文件、'
+        '运行必要命令并验证）：\n\n' + plan['content']
+    )
+    task_id, err = ai_mgr.enqueue(exec_msg, g.user_id, workflow_id=None, manual=True)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    plan_manager.set_status(plan_id, plan_manager.STATUS_EXECUTED)
+    return jsonify({'success': True, 'task_id': task_id})
+
+
+@script_bp.route('/api/ai-chat/plans/<plan_id>', methods=['DELETE'])
+@login_required
+def delete_ai_plan(plan_id):
+    """删除一个计划文档。"""
+    ok = plan_manager.delete_plan(plan_id)
+    if not ok:
+        return jsonify({'success': False, 'message': '计划不存在'}), 404
+    return jsonify({'success': True})
+

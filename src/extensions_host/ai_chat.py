@@ -31,6 +31,12 @@ import sqlite3
 import logging
 _logger = logging.getLogger('extensions_host.ai_chat')
 
+# Plan 模式：计划文档（md）管理器（同目录，worker 线程直接复用）
+try:
+    import plan_manager
+except Exception:
+    plan_manager = None
+
 try:
     from subprocess import CREATE_NEW_PROCESS_GROUP
 except ImportError:
@@ -1000,11 +1006,13 @@ class AIChatManager:
             pass
 
     # ---------- 入队 ----------
-    def enqueue(self, message, owner_id=None, workflow_id=None, manual=False):
+    def enqueue(self, message, owner_id=None, workflow_id=None, manual=False, plan_mode=False):
         """把一条用户消息作为任务入队，立即返回 task_id（不阻塞）。
 
         workflow_id: 用户显式选择的工作流（来自前端按钮）；为 None 时由 worker 实时推断。
         manual:      是否为用户手动设置（手动设置后前端不再要求推断）。
+        plan_mode:   计划模式——AI 只产出修改计划文档（md），绝不实际改代码。
+                      执行阶段（用户点「执行」）才以普通任务重新提交计划内容。
         """
         msg = (message or '').strip()
         if not msg:
@@ -1013,6 +1021,11 @@ class AIChatManager:
         if workflow_id:
             extra['workflow_id'] = workflow_id
             extra['manual'] = bool(manual)
+        if plan_mode:
+            # plan 模式强制使用 plan 工作流，AI 仅生成计划文档
+            extra['workflow_id'] = 'plan'
+            extra['manual'] = True
+            extra['plan_mode'] = True
         task_id = 'ai_' + uuid.uuid4().hex[:16]
         self._insert_task(task_id, msg, owner_id, self.STATUS_PENDING, extra=extra or None)
         self._queue.put(task_id)
@@ -1285,8 +1298,12 @@ class AIChatManager:
         hit_shells = {}
         answers = {}
         prev_issue = None  # resume 选中的具体单号
+        plan_mode = bool(extra.get('plan_mode'))
         for step in engine.steps_of(wf, 'start'):
             if step.get('kind') == 'shell':
+                if plan_mode:
+                    # plan 模式：绝不执行任何 shell 命令，从源头杜绝代码改动
+                    continue
                 hit, _ = engine.run_shell_step(step, cwd=repo)
                 if hit:
                     hit_shells[step.get('id')] = True
@@ -1310,6 +1327,27 @@ class AIChatManager:
             reply = _PLACEHOLDER_AI_EMPTY
         reply, filed_id = _maybe_file_feedback(reply)
         end(ci, body=reply, conclusion='AI 已生成回复')
+
+        # ---- Plan 模式：AI 仅产出计划文档，绝不改代码、不建单 ----
+        if extra.get('plan_mode'):
+            try:
+                if plan_manager is None:
+                    raise RuntimeError('plan_manager 未加载')
+                # 从用户消息中提取标题（首行截断）
+                title = (task['prompt'] or '').strip().splitlines()
+                title = title[0][:40] if title else '未命名计划'
+                plan_id = plan_manager.save_plan(
+                    reply, owner_id=task.get('owner_id'), title=title,
+                    status=plan_manager.STATUS_DRAFT)
+                if plan_id:
+                    idx = begin('生成计划文档', 'host')
+                    end(idx, conclusion='已生成计划，可在「计划」面板查看与点评')
+                    self._set_track_id(task_id, plan_id)
+            except Exception as e:
+                idx = begin('生成计划文档', 'host')
+                end(idx, conclusion='计划文档写入失败：%s' % e)
+            self._finish_completed(task_id)
+            return
 
         # ---- end 步：复查 git 等 ----
         s_post = ''

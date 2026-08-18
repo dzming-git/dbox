@@ -152,33 +152,120 @@
   .bubble.ai .ask-opt { padding: 7px 14px; border-radius: 8px; border: 1px solid #2f54eb; background: #fff; color: #1d39c4; font-weight: 600; cursor: pointer; font-size: 13px; }
   .bubble.ai .ask-opt:hover { background: #eef3ff; }
   .bubble.ai .ask-opt:disabled { opacity: .7; cursor: default; }
+
+  /* ====== 顶部 Tab 切换 ====== */
+  .toolbar .tabs { display: flex; gap: 4px; }
+  .tab-btn {
+    padding: 5px 14px; border: 1px solid transparent; background: transparent;
+    color: var(--text-secondary, #9ca3af); font-size: 13px; font-weight: 600;
+    border-radius: 8px; cursor: pointer; transition: all .15s;
+  }
+  .tab-btn:hover { background: rgba(255,255,255,.06); color: var(--text-primary, #e6e8eb); }
+  .tab-btn.active { background: rgba(99,102,241,.18); border-color: #6366f1; color: #c7d2fe; }
+
+  .view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #planView[hidden] { display: none; }
+  #chatView[hidden] { display: none; }
+
+  /* ====== 计划面板 ====== */
+  .plan-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border-default, #2a2f3a); }
+  .plan-refresh { padding: 4px 12px; border: 1px solid #6366f1; border-radius: 6px; background: transparent; color: #c7d2fe; cursor: pointer; font-size: 12px; }
+  .plan-refresh:hover { background: rgba(99,102,241,.18); }
+  .plan-tip { font-size: 11px; color: var(--text-muted, #8a8f98); }
+
+  .plan-list { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .plan-card {
+    border: 1px solid var(--border-default, #2a2f3a); border-radius: 10px; padding: 12px 14px;
+    background: var(--bg-surface, #15181f); cursor: pointer; transition: border-color .15s;
+  }
+  .plan-card:hover { border-color: #6366f1; }
+  .plan-card-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--text-primary, #e6e8eb); }
+  .plan-card-meta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-muted, #8a8f98); }
+  .plan-card-preview { margin-top: 6px; font-size: 12px; color: var(--text-secondary, #9ca3af); line-height: 1.5; }
+  .plan-badge { padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+  .plan-badge.draft { background: rgba(234,179,8,.16); color: #fde047; }
+  .plan-badge.approved { background: rgba(34,197,94,.16); color: #86efac; }
+  .plan-badge.executed { background: rgba(99,102,241,.16); color: #c7d2fe; }
+
+  .plan-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .plan-detail-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-default, #2a2f3a); }
+  .plan-back { padding: 4px 10px; border: 1px solid var(--border-default, #2a2f3a); border-radius: 6px; background: transparent; color: var(--text-secondary, #9ca3af); cursor: pointer; font-size: 12px; }
+  .plan-detail-title { font-weight: 700; font-size: 15px; flex: 1; }
+  .plan-detail-body { flex: 1; overflow-y: auto; padding: 14px; }
+  .plan-detail-body .md { font-size: 13px; line-height: 1.7; }
+  .plan-comments { padding: 0 14px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .plan-comment-item { border-left: 3px solid #6366f1; padding: 6px 10px; background: rgba(99,102,241,.08); border-radius: 6px; font-size: 12.5px; }
+  .plan-comment-time { font-size: 11px; color: var(--text-muted, #8a8f98); margin-top: 2px; }
+  .plan-comment-box { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border-default, #2a2f3a); }
+  .plan-comment-box textarea { flex: 1; resize: none; height: 48px; border: 1px solid var(--border-default, #2a2f3a); border-radius: 8px; background: var(--bg-input, #0f1115); color: var(--text-primary, #e6e8eb); padding: 8px; font-size: 13px; font-family: inherit; }
+  .plan-comment-box button { padding: 0 16px; border: 1px solid #6366f1; border-radius: 8px; background: #6366f1; color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .plan-actions { display: flex; gap: 10px; padding: 8px 14px 14px; }
+  .plan-exec-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; background: linear-gradient(135deg,#22c55e,#16a34a); color: #fff; font-weight: 700; cursor: pointer; font-size: 13px; }
+  .plan-exec-btn:hover { filter: brightness(1.08); }
+  .plan-exec-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .plan-del-btn { padding: 10px 16px; border: 1px solid #ef4444; border-radius: 8px; background: transparent; color: #fca5a5; cursor: pointer; font-size: 13px; }
+  .plan-del-btn:hover { background: rgba(239,68,68,.12); }
+  .plan-empty { text-align: center; color: var(--text-muted, #8a8f98); font-size: 13px; padding: 40px 0; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="toolbar">
-    <span class="title">AI 助手</span>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="chat">💬 对话</button>
+      <button class="tab-btn" data-tab="plan">📋 计划</button>
+    </div>
     <div class="tools">
       <button id="fullscreenBtn" title="全屏对话：在独立页面打开，独享整个界面">全屏对话</button>
       <button id="clear">清空对话</button>
     </div>
   </div>
-  <div class="queue" id="queue"></div>
-  <div class="msgs" id="msgs"></div>
-  <div class="fbhint" id="fbhint">可在此提交 bug / 建议，AI 会自动建单并在反馈中心跟踪</div>
-  <!-- 工作流选择：独立一行，紧贴在输入框上方（仿 QQ/微信 输入框上方的工具行） -->
-  <div class="wf-bar" id="wfbar">
-    <button class="wf-btn" id="wfBtn" type="button" title="选择工作流">
-      <span class="wf-ico" id="wfIco">🤖</span>
-    </button>
-    <div class="wf-panel" id="wfPanel" hidden>
-      <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）</div>
-      <div class="wf-list" id="wfList"></div>
+
+  <!-- 对话视图 -->
+  <div class="view" id="chatView">
+    <div class="queue" id="queue"></div>
+    <div class="msgs" id="msgs"></div>
+    <div class="fbhint" id="fbhint">可在此提交 bug / 建议，AI 会自动建单并在反馈中心跟踪</div>
+    <!-- 工作流选择：独立一行，紧贴在输入框上方（仿 QQ/微信 输入框上方的工具行） -->
+    <div class="wf-bar" id="wfbar">
+      <button class="wf-btn" id="wfBtn" type="button" title="选择工作流">
+        <span class="wf-ico" id="wfIco">🤖</span>
+      </button>
+      <div class="wf-panel" id="wfPanel" hidden>
+        <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）</div>
+        <div class="wf-list" id="wfList"></div>
+      </div>
+    </div>
+    <div class="input-bar">
+      <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
+      <button id="send">发送</button>
     </div>
   </div>
-  <div class="input-bar">
-    <textarea id="txt" placeholder="输入消息… (Enter 发送)"></textarea>
-    <button id="send">发送</button>
+
+  <!-- 计划视图 -->
+  <div class="view" id="planView" hidden>
+    <div class="plan-toolbar">
+      <button id="planRefresh" class="plan-refresh">刷新</button>
+      <span class="plan-tip">Plan 模式：AI 先生成计划（不改代码），确认后再执行</span>
+    </div>
+    <div class="plan-list" id="planList"></div>
+    <div class="plan-detail" id="planDetail" hidden>
+      <div class="plan-detail-head">
+        <button id="planBack" class="plan-back">← 返回列表</button>
+        <span id="planDetailTitle" class="plan-detail-title"></span>
+        <span id="planDetailStatus" class="plan-status"></span>
+      </div>
+      <div class="plan-detail-body" id="planDetailBody"></div>
+      <div class="plan-comments" id="planComments"></div>
+      <div class="plan-comment-box">
+        <textarea id="planCommentInput" placeholder="对计划提修改意见（告诉 AI 哪些需要调整）…"></textarea>
+        <button id="planCommentSend">提交点评</button>
+      </div>
+      <div class="plan-actions">
+        <button id="planExecute" class="plan-exec-btn">✅ 确认执行（真正改代码）</button>
+        <button id="planDelete" class="plan-del-btn">🗑 删除计划</button>
+      </div>
+    </div>
   </div>
 </div>
 <script>
@@ -930,6 +1017,8 @@
         wfBody.workflow_id = wfState.id;
         wfBody.manual = true;
       }
+      // Plan 模式：选择 plan 工作流时，告知后端仅产出计划文档（不改代码）
+      if (wfState.id === 'plan') wfBody.plan_mode = true;
       const resp = await api('/api/ai-chat', {
         method: 'POST',
         body: JSON.stringify(Object.assign({ message: v }, wfBody))
@@ -1179,6 +1268,183 @@
   // 初始加载 + 周期性轮询（保持队列/状态/历史与后端一致；流式内容由 SSE 负责）
   refresh();
   pollTimer = setInterval(refresh, 2000);
+
+  // ============ Plan 模式（标签页 + 列表 + 详情 + 点评 + 执行）============
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  const chatView = document.getElementById('chatView');
+  const planView = document.getElementById('planView');
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      chatView.hidden = tab !== 'chat';
+      planView.hidden = tab !== 'plan';
+      if (tab === 'plan') loadPlans();
+    });
+  });
+
+  const planListEl = document.getElementById('planList');
+  const planDetailEl = document.getElementById('planDetail');
+  const planDetailTitle = document.getElementById('planDetailTitle');
+  const planDetailStatus = document.getElementById('planDetailStatus');
+  const planDetailBody = document.getElementById('planDetailBody');
+  const planCommentsEl = document.getElementById('planComments');
+  const planCommentInput = document.getElementById('planCommentInput');
+  const planCommentSend = document.getElementById('planCommentSend');
+  const planExecute = document.getElementById('planExecute');
+  const planDelete = document.getElementById('planDelete');
+  const planBack = document.getElementById('planBack');
+  const planRefresh = document.getElementById('planRefresh');
+
+  let currentPlanId = null;
+
+  function statusText(s) {
+    return ({ draft: '草稿·待点评', approved: '已确认', executed: '已执行' })[s] || s;
+  }
+
+  function escapeHtml(t) {
+    return (t || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // 极简 markdown -> html（标题/列表/加粗），用于计划正文展示
+  function miniMarkdown(t) {
+    const lines = (t || '').split('\n');
+    let html = '', inList = false;
+    for (let raw of lines) {
+      const line = raw.replace(/\*/g, '·');
+      if (/^#{1,4}\s/.test(line)) {
+        if (inList) { html += '</ul>'; inList = false; }
+        const lvl = line.match(/^#+/)[0].length;
+        html += '<div class="md-h md-h' + lvl + '">' + escapeHtml(line.replace(/^#+\s/, '')) + '</div>';
+      } else if (/^\s*[-*]\s/.test(line)) {
+        if (!inList) { html += '<ul class="md-ul">'; inList = true; }
+        html += '<li>' + escapeHtml(line.replace(/^\s*[-*]\s/, '')) + '</li>';
+      } else if (line.trim() === '') {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<div class="md-br"></div>';
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<div class="md-p">' + escapeHtml(line) + '</div>';
+      }
+    }
+    if (inList) html += '</ul>';
+    return html;
+  }
+
+  async function loadPlans() {
+    planDetailEl.hidden = true;
+    planListEl.hidden = false;
+    planListEl.innerHTML = '<div class="plan-empty">加载中…</div>';
+    try {
+      const resp = await api('/api/ai-chat/plans', { method: 'GET' });
+      const d = await resp.json();
+      if (!d.success) { planListEl.innerHTML = '<div class="plan-empty">加载失败</div>'; return; }
+      const plans = d.plans || [];
+      if (!plans.length) {
+        planListEl.innerHTML = '<div class="plan-empty">暂无计划。在「对话」中选择 📋 计划 工作流，让 AI 先生成修改计划。</div>';
+        return;
+      }
+      planListEl.innerHTML = '';
+      plans.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'plan-card';
+        const created = p.created_at ? new Date(p.created_at * 1000).toLocaleString() : '';
+        card.innerHTML =
+          '<div class="plan-card-title">' + escapeHtml(p.title) + '</div>' +
+          '<div class="plan-card-meta"><span class="plan-badge ' + p.status + '">' + statusText(p.status) + '</span>' +
+          '<span>' + created + '</span></div>' +
+          (p.preview ? '<div class="plan-card-preview">' + escapeHtml(p.preview) + '</div>' : '');
+        card.addEventListener('click', () => openPlan(p.plan_id));
+        planListEl.appendChild(card);
+      });
+    } catch (e) {
+      planListEl.innerHTML = '<div class="plan-empty">加载失败：' + e.message + '</div>';
+    }
+  }
+
+  async function openPlan(planId) {
+    currentPlanId = planId;
+    planListEl.hidden = true;
+    planDetailEl.hidden = false;
+    planDetailBody.innerHTML = '<div class="plan-empty">加载中…</div>';
+    planCommentsEl.innerHTML = '';
+    try {
+      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(planId), { method: 'GET' });
+      const d = await resp.json();
+      if (!d.success) { planDetailBody.innerHTML = '<div class="plan-empty">加载失败</div>'; return; }
+      const p = d.plan;
+      planDetailTitle.textContent = p.title;
+      planDetailStatus.className = 'plan-status plan-badge ' + p.status;
+      planDetailStatus.textContent = statusText(p.status);
+      planDetailBody.innerHTML = '<div class="md">' + miniMarkdown(p.content) + '</div>';
+      (p.comments || []).forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'plan-comment-item';
+        const ts = c.ts ? new Date(c.ts * 1000).toLocaleString() : '';
+        item.innerHTML = '<div>' + escapeHtml(c.text) + '</div><div class="plan-comment-time">' + ts + '</div>';
+        planCommentsEl.appendChild(item);
+      });
+      // 已执行则禁用执行/删除
+      const executed = p.status === 'executed';
+      planExecute.disabled = executed;
+      planExecute.textContent = executed ? '✅ 已执行' : '✅ 确认执行（真正改代码）';
+      planCommentInput.disabled = executed;
+      planCommentSend.disabled = executed;
+    } catch (e) {
+      planDetailBody.innerHTML = '<div class="plan-empty">加载失败：' + e.message + '</div>';
+    }
+  }
+
+  planBack.addEventListener('click', () => { currentPlanId = null; loadPlans(); });
+  planRefresh.addEventListener('click', () => loadPlans());
+
+  planCommentSend.addEventListener('click', async () => {
+    const comment = planCommentInput.value.trim();
+    if (!comment || !currentPlanId) return;
+    try {
+      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId) + '/comment', {
+        method: 'POST', body: JSON.stringify({ comment })
+      });
+      const d = await resp.json();
+      if (!d.success) { alert('点评失败：' + (d.message || '')); return; }
+      planCommentInput.value = '';
+      openPlan(currentPlanId);
+    } catch (e) {
+      alert('点评失败：' + e.message);
+    }
+  });
+
+  planExecute.addEventListener('click', async () => {
+    if (!currentPlanId) return;
+    if (!confirm('确认执行该计划？此操作会真正改动代码（读取/修改文件、运行命令）。')) return;
+    try {
+      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId) + '/execute', {
+        method: 'POST', body: JSON.stringify({})
+      });
+      const d = await resp.json();
+      if (!d.success) { alert('执行失败：' + (d.message || '')); return; }
+      alert('已提交执行，切换到「对话」标签页查看进度（task_id: ' + d.task_id + '）');
+      openPlan(currentPlanId);
+    } catch (e) {
+      alert('执行失败：' + e.message);
+    }
+  });
+
+  planDelete.addEventListener('click', async () => {
+    if (!currentPlanId) return;
+    if (!confirm('确定删除该计划？删除后不可恢复。')) return;
+    try {
+      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId), { method: 'DELETE' });
+      const d = await resp.json();
+      if (!d.success) { alert('删除失败：' + (d.message || '')); return; }
+      currentPlanId = null;
+      loadPlans();
+    } catch (e) {
+      alert('删除失败：' + e.message);
+    }
+  });
 </script>
 </body>
 </html>
