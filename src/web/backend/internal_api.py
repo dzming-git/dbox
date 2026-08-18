@@ -267,6 +267,21 @@ def feedback():
     return jsonify({'success': True, 'issue_id': issue_id})
 
 
+@internal_bp.route('/internal/feedback/search', methods=['GET'])
+def feedback_search():
+    """按类别返回仍未关闭的反馈单候选，供 AI 判定是否已有同类问题单。
+
+    相似度评分在拓展宿主侧完成；本端点只返回 open/in_progress/pending_verification
+    的同类候选（id/title/content/status），避免对已关闭/已验证单误续写。
+    """
+    from backend.feedback_db import db_search_similar_issues, init_feedback_db
+    init_feedback_db()
+    category = request.args.get('category') or None
+    q = request.args.get('q') or None
+    issues = db_search_similar_issues(prompt=q, category=category, limit=50)
+    return jsonify({'success': True, 'issues': issues})
+
+
 @internal_bp.route('/internal/feedback/comment', methods=['POST'])
 def feedback_comment():
     """向已有反馈单追加一条「自动助手」身份留言（AI 的分析/解决说明）。"""

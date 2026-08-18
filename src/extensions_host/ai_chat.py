@@ -510,6 +510,98 @@ def _make_ticket_title(prompt: str) -> str:
     return line or 'AI 处理任务'
 
 
+# ---------------------------------------------------------------------------
+# 去重续写：处理缺陷/建议前，先查反馈中心是否已有覆盖同一问题的未关闭单。
+# 命中则继续跟踪旧单（把本次分析/解决以「自动助手」身份续写进旧单），不重复建单——
+# 解决「问题没修好又来反馈、用户懒得找旧单」场景下重复建单的问题。
+# ---------------------------------------------------------------------------
+def _normalize_issue_text(s: str) -> str:
+    """归一化文本：去空白与标点（含中文标点），保留中英文/数字，便于相似度比对。"""
+    if not s:
+        return ''
+    s = s.lower()
+    return re.sub(r'[\s\W_]+', '', s)
+
+
+def _longest_common_substring_len(a: str, b: str) -> int:
+    """a、b 最长公共连续子串长度（滚动数组 DP，文本较短足够快）。"""
+    if not a or not b:
+        return 0
+    n, m = len(a), len(b)
+    prev = [0] * (m + 1)
+    best = 0
+    for i in range(1, n + 1):
+        cur = [0] * (m + 1)
+        ai = a[i - 1]
+        for j in range(1, m + 1):
+            if ai == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
+
+
+def _trigram_jaccard(a: str, b: str) -> float:
+    """字符三元组 Jaccard 相似度，用于捕捉「复述/换表述」的同类反馈。"""
+    def grams(s):
+        s = _normalize_issue_text(s)
+        if len(s) < 3:
+            return {s} if s else set()
+        return {s[i:i + 3] for i in range(len(s) - 2)}
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    union = len(ga | gb)
+    return (len(ga & gb) / union) if union else 0.0
+
+
+def _find_existing_ticket(prompt: str, ftype: str):
+    """在反馈中心查找是否已有覆盖同一问题的「未关闭」反馈单。
+
+    返回可续写的单号（str）或 None。命中即意味着本次无需重复建单，应继续跟踪旧单。
+    判定偏高精度（避免误合并不同问题）：新诉求归一化后，要么过半内容命中某旧单
+    （最长公共子串占比 >= 0.5），要么存在较长公共片段且整体三元组相似度较高。
+    仅匹配 open/in_progress/pending_verification（不含已关闭/已验证/已驳回），
+    避免把已解决的问题误重新打开。
+    """
+    prompt = (prompt or '').strip()
+    if len(prompt) < 10:
+        return None
+    if ftype not in ('bug', 'suggestion', 'other'):
+        return None
+    try:
+        from platform_client import search_feedback_issues
+        candidates = search_feedback_issues(prompt, ftype) or []
+    except Exception:
+        return None
+    if not candidates:
+        return None
+    norm_p = _normalize_issue_text(prompt)
+    if not norm_p:
+        return None
+    best_id = None
+    best_score = 0.0
+    for it in candidates:
+        hay = (it.get('title') or '') + ' ' + (it.get('content') or '')
+        norm_hay = _normalize_issue_text(hay)
+        if not norm_hay:
+            continue
+        lcs = _longest_common_substring_len(norm_p, norm_hay)
+        contain = lcs / max(1, len(norm_p))
+        # 包含度为主判据；触发较长公共片段时，辅以三元组相似度捕捉换表述复述
+        if contain >= 0.5:
+            score = contain
+        elif lcs >= 10 and _trigram_jaccard(prompt, hay) >= 0.35:
+            score = _trigram_jaccard(prompt, hay)
+        else:
+            score = 0.0
+        if score > best_score:
+            best_score = score
+            best_id = it.get('id')
+    return best_id if best_score > 0 else None
+
+
 def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, head_before,
                                    git_clean=True, intent=None, analysis=None, resolution=None,
                                    title=None):
@@ -553,6 +645,21 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
             resolution_txt = resolution_txt.split(marker)[0].strip()
     if len(resolution_txt) > 4000:
         resolution_txt = resolution_txt[:4000] + '…（已截断）'
+    # 缺陷/建议处理：先查反馈中心是否已有覆盖同一问题的「未关闭」单。
+    # 命中则把本次分析/解决以「自动助手」身份续写进旧单，继续跟踪而非重复建单——
+    # 解决「问题没修好又来反馈、用户懒得找旧单」场景下重复建单的问题。
+    ftype = {'defect': 'bug', 'suggestion': 'suggestion'}.get(intent, _classify_work_category(prompt))
+    existing_id = _find_existing_ticket(prompt, ftype)
+    if existing_id:
+        if analysis_txt:
+            _add_feedback_comment(existing_id, analysis_txt)
+        if resolution_txt:
+            _add_feedback_comment(existing_id, resolution_txt)
+        track_id = existing_id
+        s_ticket = ('📋 已在反馈单 #%s 中继续跟踪：同一问题此前已有未关闭单，'
+                    '本次分析/解决已以「自动助手」身份续写进该单（未重复建单）') % existing_id
+        reply = (reply or '') + '\n\n' + s_ticket
+        return reply, track_id, s_ticket
     # 首条留言优先取分析根因；若无分析则退而取解决说明作为首条。
     first_comment = analysis_txt or None
     extra_comments = []
@@ -560,8 +667,6 @@ def _maybe_create_tracking_ticket(task_id, prompt, owner_id, reply, filed_id, he
         extra_comments.append(resolution_txt)
     if not first_comment and extra_comments:
         first_comment = extra_comments.pop(0)
-    # 反馈中心类型复用意图判定：缺陷 -> bug，建议 -> suggestion，其余 -> other。
-    ftype = {'defect': 'bug', 'suggestion': 'suggestion'}.get(intent, _classify_work_category(prompt))
     extra = {'git_commit': head_after, 'task_id': task_id,
              'owner_id': owner_id, 'track': True, 'git_clean': git_clean}
     track_id = _file_feedback(
@@ -600,6 +705,10 @@ _SYSTEM_PROMPT = (
     '例如：「已为你提交反馈单 #(待分配)（类型：bug），我们会跟进处理。」\n'
     '- 若用户只是普通提问、闲聊，或让你执行某项任务，则按正常规则处理，不要输出 feedback-request 块。\n'
     '- 若用户引用了某个已有反馈单（形如 #202608120001），正常与其讨论该问题即可，该单号可被点击跳转。\n'
+    '\n'
+    '【续接既有反馈单】处理缺陷或建议时，若反馈中心已存在覆盖同一问题的未关闭单，'
+    '系统会自动继续跟踪该旧单（把本次分析与解决以「自动助手」身份续写进旧单），而不重复建单；'
+    '你无需手动查找旧单号，只需在回复中说明已续接到哪张单即可。\n'
     '\n'
     '【引用资源库资源】当你的回复涉及本媒体库里的具体资源（视频 / 图集 / 帖子 / 文本），'
     '请用 Markdown 链接形式引用，用户点击即可跳转到该资源详情页：\n'

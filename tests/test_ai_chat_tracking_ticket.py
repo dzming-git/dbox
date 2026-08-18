@@ -51,6 +51,7 @@ def test_tracking_ticket_structure_mocked():
     resolution = ('## 修复\n改为服务端软删除，并在列表查询中排除软删除项。')
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
+         mock.patch.object(pc, 'search_feedback_issues', return_value=[]), \
          mock.patch.object(ac, '_git_rev_head', return_value='newcommit123'):
         out_reply, track_id, _ = ac._maybe_create_tracking_ticket(
             'task-1', prompt, 'owner-1', resolution, None, head_before='oldcommit',
@@ -99,6 +100,7 @@ def test_tracking_ticket_writes_comment_to_db():
     resolution = '解决：调用处补传 analysis=analysis, resolution=reply。'
 
     with mock.patch.object(pc, 'file_feedback', fake_file_feedback), \
+         mock.patch.object(pc, 'search_feedback_issues', return_value=[]), \
          mock.patch.object(ac, '_git_rev_head', return_value='commitabc'):
         out_reply, track_id, _ = ac._maybe_create_tracking_ticket(
             'task-2', prompt, 'owner-2', resolution, None, head_before='commitold',
@@ -197,4 +199,75 @@ def test_process_replies_to_referenced_ticket():
     # 阶段3 分析 + 阶段4 执行各产生一条回复（fake 正文相同）
     assert len(captured) == 2
     assert mgr.get_task(tid)['status'] == ac.AIChatManager.STATUS_COMPLETED
+
+
+def test_find_existing_ticket_detects_duplicate():
+    """反馈中心已有覆盖同一问题的未关闭单时，应返回该单号。"""
+    cands = [{'id': '202608130099', 'title': '竖屏刷新后视频看不到',
+              'content': '竖屏模式下触发浏览器刷新动作后视频就看不到了', 'status': 'pending_verification'},
+            {'id': '202608130100', 'title': '其它无关问题', 'content': '完全不同的诉求', 'status': 'open'}]
+    with mock.patch.object(pc, 'search_feedback_issues', return_value=cands):
+        hit = ac._find_existing_ticket('竖屏模式下触发浏览器刷新动作后视频就看不到了', 'bug')
+    assert hit == '202608130099'
+
+
+def test_find_existing_ticket_no_candidate():
+    """没有任何候选单时返回 None。"""
+    with mock.patch.object(pc, 'search_feedback_issues', return_value=[]):
+        assert ac._find_existing_ticket('竖屏模式下触发浏览器刷新动作后视频就看不到了', 'bug') is None
+
+
+def test_find_existing_ticket_short_prompt():
+    """过短诉求不触发去重（避免噪声误合并）。"""
+    with mock.patch.object(pc, 'search_feedback_issues', return_value=[]):
+        assert ac._find_existing_ticket('视频看不到了', 'bug') is None
+
+
+def test_find_existing_ticket_unrelated_no_match():
+    """候选单内容与该诉求无关时不误合并。"""
+    cands = [{'id': '202608130101', 'title': '首页配色偏暗',
+              'content': '建议把首页背景调亮一点', 'status': 'open'}]
+    with mock.patch.object(pc, 'search_feedback_issues', return_value=cands):
+        assert ac._find_existing_ticket('竖屏模式下触发浏览器刷新动作后视频就看不到了', 'bug') is None
+
+
+def test_maybe_create_reuses_existing_ticket():
+    """命中已有未关闭单时：续写旧单（追加分析+解决留言）而非新建跟踪单。"""
+    existing = '202608130099'
+    cands = [{'id': existing, 'title': '竖屏刷新后视频看不到',
+              'content': '竖屏模式下触发浏览器刷新动作后视频就看不到了', 'status': 'pending_verification'}]
+    analysis = '分析：刷新后未重新拉起视频播放器。'
+    resolution = '解决：刷新后重建播放器实例。'
+
+    file_calls = []
+    comment_calls = []
+
+    def fake_file(ftype, title, content, extra=None, status='open',
+                  comment=None, comments=None):
+        file_calls.append((ftype, title))
+        return '202608139999'
+
+    def fake_add(issue_id, content):
+        comment_calls.append((issue_id, content))
+        return True
+
+    with mock.patch.object(pc, 'search_feedback_issues', return_value=cands), \
+         mock.patch.object(pc, 'add_feedback_comment', fake_add), \
+         mock.patch.object(pc, 'file_feedback', fake_file), \
+         mock.patch.object(ac, '_git_rev_head', return_value='newcommit123'):
+        out_reply, track_id, s_ticket = ac._maybe_create_tracking_ticket(
+            'task-x', '竖屏模式下触发浏览器刷新动作后视频就看不到了', 'owner-x',
+            resolution, None, head_before='oldcommit', git_clean=True,
+            analysis=analysis, resolution=resolution)
+
+    # 不应新建跟踪单
+    assert file_calls == []
+    # 应把分析+解决续写进旧单
+    assert track_id == existing
+    assert len(comment_calls) == 2
+    assert comment_calls[0] == (existing, analysis)
+    assert comment_calls[1] == (existing, resolution)
+    # 回复中应说明已续接旧单、未重复建单
+    assert '#%s' % existing in out_reply
+    assert '未重复建单' in out_reply
 
