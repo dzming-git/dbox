@@ -294,6 +294,30 @@ def db_append_comment(issue_id: str, author: str, author_role: int, content: str
         return True
 
 
+def db_search_similar_issues(prompt: str = None, category: str = None,
+                             statuses=('open', 'in_progress', 'pending_verification'),
+                             limit: int = 50):
+    """返回仍未关闭的反馈单候选（按类别筛选），供 AI 判定是否已有同类问题单。
+
+    不做模糊匹配——相似度判定交由调用方（拓展宿主）按提示词/关键词评分，本函数只负责
+    从数据库捞出「仍待处理」的同类候选，避免对已关闭/已验证单误续写。仅返回
+    id / title / content / status 四个轻量字段，便于跨进程传输与评分。
+    """
+    init_feedback_db()
+    with get_session() as session:
+        q = session.query(FeedbackIssue)
+        if category:
+            q = q.filter(FeedbackIssue.category == category)
+        if statuses:
+            q = q.filter(FeedbackIssue.status.in_(statuses))
+        q = q.order_by(FeedbackIssue.updated_at.desc())
+        rows = q.limit(limit).all()
+        return [
+            {'id': r.id, 'title': r.title, 'content': r.content, 'status': r.status}
+            for r in rows
+        ]
+
+
 def db_delete_issue(issue_id: str) -> bool:
     """删除一条反馈单（含其全部评论，依赖 comments 的 cascade 级联删除）。
 

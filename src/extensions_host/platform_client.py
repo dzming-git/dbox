@@ -303,6 +303,26 @@ def allowed_libraries(user_id: int = None) -> list:
     return r.get('library_ids', []) if isinstance(r, dict) else []
 
 
+def search_feedback_issues(prompt: str = None, ftype: str = None) -> list:
+    """返回反馈中心里仍待处理的同类反馈单候选，供 AI 判定是否已有同问题单。
+
+    返回 list[dict]，每项含 id/title/content/status；网络不可达或异常时返回 []。
+    ftype 取 bug / suggestion / other，映射到 feedback_issues.category 筛选；
+    传 None 则返回所有类别的待处理候选。
+    """
+    category = {'bug': 'bug', 'suggestion': 'suggestion', 'other': 'other'}.get(ftype)
+    params = {}
+    if prompt:
+        params['q'] = prompt
+    if category:
+        params['category'] = category
+    r = _get('/feedback/search', params)
+    if isinstance(r, dict) and r.get('success'):
+        issues = r.get('issues') or []
+        return issues if isinstance(issues, list) else []
+    return []
+
+
 def add_feedback_comment(issue_id, content) -> bool:
     """向已有反馈单追加一条「自动助手」身份留言，返回是否成功。
 
