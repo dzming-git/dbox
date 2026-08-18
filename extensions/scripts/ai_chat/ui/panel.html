@@ -326,7 +326,11 @@
   }
   window.addEventListener('message', (e) => {
     if (!e.data) return;
-    if (e.data.type === 'DBOX_TOKEN' && e.data.token) { TOKEN = e.data.token; loadWorkflows(); }
+    if (e.data.type === 'DBOX_TOKEN' && e.data.token) {
+      TOKEN = e.data.token;
+      loadWorkflows();
+      loadModels();
+    }
     // 宿主回填上次收起时未发送的输入内容（面板重新挂载后恢复草稿）
     if (e.data.type === 'DBOX_DRAFT' && typeof e.data.text === 'string') {
       if (!txt.value) { txt.value = e.data.text; autoGrow(); }
@@ -1138,26 +1142,44 @@
   const MODEL_KEY = 'ai_chat_model';
   async function loadModels() {
     try {
-      await ensureToken();
+      if (!TOKEN) {
+        TOKEN = readToken();
+        if (!TOKEN) {
+          // 主动向宿主请求 token（与工作流加载一致），避免 token 未回填导致 401
+          window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'ai_chat' }, '*');
+          for (let i = 0; i < 15 && !TOKEN; i++) { await new Promise(r => setTimeout(r, 100)); }
+          if (!TOKEN) TOKEN = readToken();
+        }
+      }
       const resp = await api('/api/ai-chat/models');
-      if (!resp.ok) return;
-      const d = await resp.json();
-      if (!d.success || !Array.isArray(d.models) || !d.models.length) return;
-      modelSel.innerHTML = '<option value="">默认模型</option>';
-      d.models.forEach(function (m) {
-        const op = document.createElement('option');
-        op.value = m.id; op.textContent = m.name || m.id;
-        modelSel.appendChild(op);
-      });
-      const saved = localStorage.getItem(MODEL_KEY);
-      if (saved && d.models.some(function (m) { return m.id === saved; })) {
-        modelSel.value = saved;
+      if (resp.ok) {
+        const d = await resp.json();
+        if (d.success && Array.isArray(d.models) && d.models.length) {
+          modelSel.innerHTML = '<option value="">默认模型</option>';
+          d.models.forEach(function (m) {
+            const op = document.createElement('option');
+            op.value = m.id; op.textContent = m.name || m.id;
+            modelSel.appendChild(op);
+          });
+          const saved = localStorage.getItem(MODEL_KEY);
+          if (saved && d.models.some(function (m) { return m.id === saved; })) {
+            modelSel.value = saved;
+          }
+        }
+      }
+      if (!modelSel.options.length) {
+        // 接口暂不可用（如宿主未重启加载新代码）时给一个兜底，避免下拉全白
+        modelSel.innerHTML = '<option value="">默认模型</option>';
       }
       modelSel.addEventListener('change', function () {
         if (modelSel.value) localStorage.setItem(MODEL_KEY, modelSel.value);
         else localStorage.removeItem(MODEL_KEY);
       });
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      if (!modelSel.options.length) {
+        modelSel.innerHTML = '<option value="">默认模型</option>';
+      }
+    }
   }
   loadModels();
 
