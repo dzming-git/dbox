@@ -46,6 +46,28 @@ except ImportError:
 # 防止 CodeBuddy 拉起子进程后 stdout 管道不关闭导致 worker 永久阻塞、队列卡死。
 _MAX_TASK_SECONDS = 600
 
+# AI 助手可选模型列表（与 codebuddy CLI --model 支持的 ID 保持一致）。
+# 每个条目 dict：{ id, name }。修改后需与 codebuddy --help 输出的模型清单对齐。
+AI_MODELS = [
+    {'id': 'hy3', 'name': 'Hybrid 3'},
+    {'id': 'deepseek-v4-pro', 'name': 'DeepSeek V4 Pro'},
+    {'id': 'deepseek-v4-flash', 'name': 'DeepSeek V4 Flash'},
+    {'id': 'glm-5.3', 'name': 'GLM 5.3'},
+    {'id': 'glm-5.2', 'name': 'GLM 5.2'},
+    {'id': 'glm-5.1', 'name': 'GLM 5.1'},
+    {'id': 'glm-5v-turbo', 'name': 'GLM 5V Turbo'},
+    {'id': 'minimax-m3-pay', 'name': 'MiniMax M3 Pay'},
+    {'id': 'minimax-m2.7', 'name': 'MiniMax M2.7'},
+    {'id': 'kimi-k3-2', 'name': 'Kimi K3.2'},
+    {'id': 'kimi-k2.7', 'name': 'Kimi K2.7'},
+    {'id': 'kimi-k2.6', 'name': 'Kimi K2.6'},
+]
+
+
+def list_models():
+    """返回可选模型列表，供前端渲染下拉选择。"""
+    return list(AI_MODELS)
+
 # ----------------------------------------------------------------------------
 # CLI 辅助函数（原 routes.py 中的 AI 专用逻辑迁移至此）
 # ----------------------------------------------------------------------------
@@ -1022,18 +1044,21 @@ class AIChatManager:
             pass
 
     # ---------- 入队 ----------
-    def enqueue(self, message, owner_id=None, workflow_id=None, manual=False, plan_mode=False):
+    def enqueue(self, message, owner_id=None, workflow_id=None, manual=False, plan_mode=False, model=None):
         """把一条用户消息作为任务入队，立即返回 task_id（不阻塞）。
 
         workflow_id: 用户显式选择的工作流（来自前端按钮）；为 None 时由 worker 实时推断。
         manual:      是否为用户手动设置（手动设置后前端不再要求推断）。
         plan_mode:   计划模式——AI 只产出修改计划文档（md），绝不实际改代码。
                       执行阶段（用户点「执行」）才以普通任务重新提交计划内容。
+        model:       可选模型 ID（如 deepseek-v4-flash）。为空则使用 CLI 默认模型。
         """
         msg = (message or '').strip()
         if not msg:
             return None, 'message 必填'
         extra = {}
+        if model:
+            extra['model'] = model
         if workflow_id:
             extra['workflow_id'] = workflow_id
             extra['manual'] = bool(manual)
@@ -1147,12 +1172,14 @@ class AIChatManager:
             parts.append('【本阶段任务：生成回复】用户为闲聊或普通提问，直接简洁回答即可。')
         return '\n'.join(parts)
 
-    def _run_cli(self, prompt, task_id, max_turns):
+    def _run_cli(self, prompt, task_id, max_turns, model=None):
         """运行一次 buddy CLI（一个处理阶段），实时把产出 token 推送给订阅者。
 
         返回 (reply, fell_back, err_text, returncode, cancelled)。脚本驱动的阶段状态机
         对每个需要智能的阶段分别调用本方法：分析定位阶段只读取、执行处理阶段才改代码，
         从而把一条用户命令拆成多个可见阶段，AI 在每个阶段只给出该阶段的内容（分支）。
+
+        model: 可选模型 ID（如 deepseek-v4-flash）。为空则使用 CLI 默认模型。
 
         看门狗与子进程清理逻辑沿用原 _process 的单次调用实现，避免 worker 因 CLI 拉起
         子进程导致 stdout 管道不关闭而卡死。
@@ -1179,6 +1206,8 @@ class AIChatManager:
             '--add-dir', _project_root(),
             '--input-format', 'text',
         ]
+        if model:
+            cmd += ['--model', model]
 
         try:
             proc = subprocess.Popen(
@@ -1283,7 +1312,8 @@ class AIChatManager:
             """运行一次 CLI 阶段：自行打开一个 phase，正文随 token 流式填充该阶段气泡，
             失败/取消时直接收尾并返回取消标记。返回 (phase_index, reply, cancelled)。"""
             idx = begin(label, 'cli')
-            reply, _, err, rc, cancelled = self._run_cli(prompt, task_id, max_turns)
+            _model = (task.get('extra') or {}).get('model') or None
+            reply, _, err, rc, cancelled = self._run_cli(prompt, task_id, max_turns, model=_model)
             reply = _strip_control_lines(reply)
             if cancelled:
                 self._set_status(task_id, self.STATUS_CANCELLED, error='已取消')
