@@ -275,7 +275,7 @@
         <span class="wf-ico" id="wfIco">🤖</span>
       </button>
       <div class="wf-panel" id="wfPanel" hidden>
-        <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）</div>
+        <div class="wf-panel-hint">选择本次对话的工作流（选「自动推断」则由 AI 实时判断）。<br>若要生成可执行的修改计划，请切换到「📋 计划」标签页。</div>
         <div class="wf-list" id="wfList"></div>
       </div>
       <select id="modelSel" class="model-sel" title="选择模型"></select>
@@ -290,7 +290,7 @@
   <div class="view" id="planView" hidden>
     <div class="plan-toolbar">
       <button id="planRefresh" class="plan-refresh">刷新</button>
-      <span class="plan-tip">Plan 模式：AI 先生成计划（不改代码），确认后再执行</span>
+      <span class="plan-tip">在此生成修改计划：AI 先出计划（不改代码），确认后再执行</span>
     </div>
     <div class="plan-new">
       <textarea id="planNewInput" placeholder="描述你的需求，AI 会先生成修改计划（不改代码），确认后再执行…"></textarea>
@@ -1136,8 +1136,6 @@
         wfBody.workflow_id = wfState.id;
         wfBody.manual = true;
       }
-      // Plan 模式：选择 plan 工作流时，告知后端仅产出计划文档（不改代码）
-      if (wfState.id === 'plan') wfBody.plan_mode = true;
       // 用户所选模型（可选）
       const selModel = modelSel.value;
       if (selModel) wfBody.model = selModel;
@@ -1254,7 +1252,9 @@
       autoEl.addEventListener('click', function () { selectAuto(); });
       wfList.appendChild(autoEl);
       // 其余图标：各工作流
+      // 计划类工作流（plan）统一在「📋 计划」标签页创建，不在此重复出现，避免用户困惑「到底该用哪个」
       d.workflows.forEach(function (w) {
+        if (w.id === 'plan') return;
         const el = document.createElement('div');
         el.className = 'wf-item' + (w.id === wfState.id ? ' active' : '');
         el.innerHTML = '<span class="wf-i-ico">' + (w.icon || '•') + '</span>'
