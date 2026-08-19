@@ -1926,12 +1926,12 @@ class AIChatManager:
                 self._cancel[task_id] = True
                 proc = self._procs.get(task_id)
                 if proc and proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                    # 必须杀掉整个进程树（含子进程/孙进程），否则 CLI 拉起的 node 孙进程
+                    # 仍持有 stdout 管道并继续运行：_run_cli 的读取循环不会结束、_process 挂起、
+                    # 单 worker 线程卡死，表现为「任务还在跑、后续任务排队不动」。
+                    self._terminate(proc)
             self._emit(task_id, 'error', '任务已取消')
-            # worker 会在进程退出后将状态置为 cancelled 并结束 SSE
+            # worker 会在进程退出（管道关闭、读取循环结束）后将状态置为 cancelled 并结束 SSE
             return True
         # 终态：直接删除记录
         with self._lock:
@@ -1954,10 +1954,7 @@ class AIChatManager:
                     self._cancel[r['task_id']] = True
                     proc = self._procs.get(r['task_id'])
                     if proc and proc.poll() is None:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                        self._terminate(proc)
             self._db.execute('DELETE FROM ai_tasks')
             self._db.commit()
             self._subscribers.clear()
