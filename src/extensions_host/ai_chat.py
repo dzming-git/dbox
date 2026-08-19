@@ -1205,6 +1205,10 @@ class AIChatManager:
             '--max-turns', str(max_turns),
             '--add-dir', _project_root(),
             '--input-format', 'text',
+            # 流式 JSON 输出 + 增量消息：把思考（thinking_delta）与正文（text_delta）
+            # 拆成独立增量事件，从而让前端「边想边显示」思考过程，而非整段完成后才展示。
+            '--output-format', 'stream-json',
+            '--include-partial-messages',
         ]
         if model:
             cmd += ['--model', model]
@@ -1232,6 +1236,8 @@ class AIChatManager:
                 pass
 
             full = []
+            thinking_parts = []
+            result_text = None
             for raw_line in proc.stdout:
                 if self._cancel.get(task_id):
                     self._terminate(proc)
@@ -1246,8 +1252,52 @@ class AIChatManager:
                 if not line:
                     continue
                 piece = line.rstrip('\n')
-                full.append(piece)
-                self._append_token(task_id, piece)
+                # 优先按 stream-json 逐行解析：thinking_delta / text_delta 拆成独立增量，
+                # 实时推送。解析失败（告警/旧格式）则整行当作普通正文 token，保持向后兼容。
+                try:
+                    evt = json.loads(piece)
+                except Exception:
+                    if piece:
+                        full.append(piece)
+                        self._append_token(task_id, piece)
+                    continue
+                delta_text = None
+                delta_think = None
+                if isinstance(evt, dict):
+                    t = evt.get('type')
+                    if t == 'stream_event' and isinstance(evt.get('event'), dict):
+                        ev = evt['event']
+                        if ev.get('type') == 'content_block_delta' and isinstance(ev.get('delta'), dict):
+                            _d = ev['delta']
+                            if _d.get('type') == 'thinking_delta':
+                                delta_think = _d.get('thinking') or ''
+                            elif _d.get('type') == 'text_delta':
+                                delta_text = _d.get('text') or ''
+                    elif t == 'content_block_delta' and isinstance(evt.get('delta'), dict):
+                        _d = evt['delta']
+                        if _d.get('type') == 'thinking_delta':
+                            delta_think = _d.get('thinking') or ''
+                        elif _d.get('type') == 'text_delta':
+                            delta_text = _d.get('text') or ''
+                    elif t == 'assistant' and isinstance(evt.get('message'), dict):
+                        for _blk in (evt['message'].get('content') or []):
+                            if not isinstance(_blk, dict):
+                                continue
+                            if _blk.get('type') == 'thinking':
+                                delta_think = (_blk.get('thinking') or '')
+                            elif _blk.get('type') == 'text':
+                                delta_text = (_blk.get('text') or '')
+                    elif t == 'result':
+                        # 最终结果事件承载干净的最终回复（不含工具调用前的旁白），
+                        # 在 text delta 累积为空时作为权威回复兜底。
+                        if isinstance(evt.get('result'), str):
+                            result_text = evt.get('result')
+                if delta_text:
+                    full.append(delta_text)
+                    self._append_token(task_id, delta_text)
+                if delta_think:
+                    thinking_parts.append(delta_think)
+                    self._append_thinking(task_id, delta_think)
             proc.stdout.close()
             err_text = ''
             try:
@@ -1265,6 +1315,9 @@ class AIChatManager:
 
             cancelled = bool(self._cancel.get(task_id))
             reply, fell_back = _build_reply(full, err_text, proc.returncode)
+            # 若 text delta 累积为空（如模型仅产出思考、或增量解析被截断），以最终结果事件兜底。
+            if (not reply) and result_text:
+                reply = result_text
             return reply, fell_back, err_text, proc.returncode, cancelled
         except Exception as e:
             return None, False, '调用失败: ' + str(e), 1, False
@@ -1565,6 +1618,26 @@ class AIChatManager:
             except Exception:
                 pass
 
+    def _append_thinking(self, task_id, piece):
+        """追加一段思考增量：归属到当前 CLI 阶段气泡的 thinking 字段，并实时推送给订阅者，
+        供前端「边想边显示」。思考不进 token 缓冲（不会混入最终正文）。"""
+        if not piece:
+            return
+        with self._lock:
+            idx = self._cur_phase.get(task_id)
+            if idx is not None:
+                for p in self._phase_log.get(task_id, []):
+                    if p['index'] == idx:
+                        p['thinking'] = (p.get('thinking') or '') + piece
+                        break
+            subs = list(self._subscribers.get(task_id, []))
+        for q in subs:
+            try:
+                q.put(('thinking', json.dumps({'index': idx, 'text': piece},
+                                              ensure_ascii=False)))
+            except Exception:
+                pass
+
     def _emit(self, task_id, etype, data):
         with self._lock:
             subs = list(self._subscribers.get(task_id, []))
@@ -1581,7 +1654,7 @@ class AIChatManager:
     # 回一句结论，而非挤在一个气泡里加进度条。
     def _begin_phase(self, task_id, index, label, kind):
         phase = {'index': index, 'label': label, 'kind': kind,
-                 'state': 'running', 'conclusion': '', 'body': ''}
+                 'state': 'running', 'conclusion': '', 'body': '', 'thinking': ''}
         with self._lock:
             self._phase_log.setdefault(task_id, []).append(phase)
             self._cur_phase[task_id] = index
@@ -1690,6 +1763,8 @@ class AIChatManager:
                 yield _sse_block('phase_chunk', data)
             elif etype == 'token':
                 yield _sse_block('token', data)
+            elif etype == 'thinking':
+                yield _sse_block('thinking', data)
             elif etype == 'status':
                 yield _sse_block('status', data)
             elif etype == 'queued':

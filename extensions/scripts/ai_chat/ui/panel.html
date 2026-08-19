@@ -62,6 +62,22 @@
   .phase-head .ph-dot { width: 7px; height: 7px; border-radius: 50%; background: #4f8cff; flex-shrink: 0; }
   .bubble.ai.phase-done .phase-head .ph-dot { background: #1a7f37; }
   .bubble.ai.phase-done .phase-head { color: #1a7f37; }
+  /* 思考过程：可折叠块，处理中展开、终态折叠；内部用浅灰底区分于正式回复 */
+  .bubble.ai .thinking { margin: 2px 0 8px; border: 1px solid #e7e9f0; border-radius: 8px;
+                         background: rgba(79,140,255,.05); overflow: hidden; }
+  .bubble.ai .thinking > summary { cursor: pointer; user-select: none; padding: 6px 10px;
+                         font-size: 12px; font-weight: 600; color: #6b4fcf; list-style: none; }
+  .bubble.ai .thinking > summary::-webkit-details-marker { display: none; }
+  .bubble.ai .thinking > summary::before { content: '▸'; display: inline-block; margin-right: 6px;
+                         transition: transform .15s ease; color: #9b86e0; }
+  .bubble.ai .thinking[open] > summary::before { transform: rotate(90deg); }
+  .bubble.ai .thinking-body { padding: 2px 12px 10px; color: #555; font-size: 12.5px; line-height: 1.6;
+                         white-space: normal; word-break: break-word; }
+  .bubble.ai .thinking-body > :first-child { margin-top: 0; }
+  .bubble.ai .thinking-body > :last-child { margin-bottom: 0; }
+  .bubble.ai .thinking-body p { margin: 0 0 6px; }
+  .bubble.ai .thinking-body code.md-inline { background: #eae6f7; padding: 1px 5px; border-radius: 4px;
+                         font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #6b4fcf; }
   /* 每条 AI 气泡前带一个头像；AI 思考/执行时头像外圈出现旋转光环，直观提示“正在处理” */
   .ai-row { display: flex; align-items: flex-start; gap: 8px; align-self: flex-start; max-width: 82%; position: relative; }
   /* 聊天气泡下方的「复制」按钮：每条用户消息与 AI 回复下方各有一个，常驻可见，点击复制该条整段消息 */
@@ -525,7 +541,15 @@
       const label = ph.label || '';
       const content = (ph.body || ph.conclusion || '').trim();
       const cls = 'ai md' + (isRunning ? ' running' : ' phase-done');
+      // 思考过程：处理中进行时默认展开（实时跟随），终态/历史默认折叠（点击查看）。
+      const thinking = (ph.thinking || '').trim();
+      const thinkHtml = thinking
+        ? '<details class="thinking"' + (isRunning ? ' open' : '') + '>'
+          + '<summary>🧠 思考过程</summary>'
+          + '<div class="thinking-body">' + renderContent(thinking) + '</div></details>'
+        : '';
       const inner = '<div class="phase-head"><span class="ph-dot"></span>' + esc(label) + '</div>'
+        + thinkHtml
         + (content
             ? renderContent(content)
             : (isRunning ? '<div class="pending-hint">正在处理…</div>' : ''));
@@ -1033,7 +1057,8 @@
               }
             } else {
               phases.push({ index: o.index, label: o.label || '', kind: o.kind || '',
-                            state: o.state || 'running', conclusion: o.conclusion || '', body: o.body || '' });
+                            state: o.state || 'running', conclusion: o.conclusion || '',
+                            body: o.body || '', thinking: o.thinking || '' });
             }
             updateAiLive(taskId, renderLive(), true);
           } else if (ev === 'phase_chunk') {
@@ -1043,6 +1068,14 @@
             if (o) {
               const p = getPhase(o.index);
               if (p) { p.body = (p.body || '') + o.text; updateAiLive(taskId, renderLive(), true); }
+            }
+          } else if (ev === 'thinking') {
+            // 思考过程随 thinking_delta 实时流入：归属到当前 CLI 阶段气泡，边想边显示。
+            let o = null;
+            try { o = JSON.parse(data); } catch (e) { o = null; }
+            if (o && o.text) {
+              const p = getPhase(o.index);
+              if (p) { p.thinking = (p.thinking || '') + o.text; updateAiLive(taskId, renderLive(), true); }
             }
           } else if (ev === 'status' && data === 'running') {
             running = true;
