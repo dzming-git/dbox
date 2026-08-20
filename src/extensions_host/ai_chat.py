@@ -72,14 +72,23 @@ def list_models():
 # CLI 辅助函数（原 routes.py 中的 AI 专用逻辑迁移至此）
 # ----------------------------------------------------------------------------
 _ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY'
+_CODEBUDDY_API_KEY_ENV = 'CODEBUDDY_API_KEY'
+_CODEBUDDY_ENV_ENV = 'CODEBUDDY_INTERNET_ENVIRONMENT'
 _CODEBUDDY_TOKEN_DOMAIN = 'codebuddy'
+# 中国版网络环境（与 CLI 输出 apiKeySource: copilot.tencent.com 一致）
+_CODEBUDDY_INTERNET_ENVIRONMENT = 'internal'
 
 
 def _load_codebuddy_token() -> str:
-    """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。"""
-    env_token = os.environ.get(_ANTHROPIC_API_KEY_ENV)
-    if env_token:
-        return env_token.strip()
+    """从通用凭证保险库读取 codebuddy token（与 feedback_ai 一致）。
+
+    CodeBuddy CLI 在 -p 非交互模式下始终使用 CODEBUDDY_API_KEY 鉴权，
+    故优先读取该环境变量作为兜底。
+    """
+    for env_name in (_CODEBUDDY_API_KEY_ENV, _ANTHROPIC_API_KEY_ENV):
+        env_token = os.environ.get(env_name)
+        if env_token:
+            return env_token.strip()
     try:
         from shared.credential_vault import CredentialVault, data_dir_for
         vault = CredentialVault(data_dir_for())
@@ -1190,7 +1199,12 @@ class AIChatManager:
         env = dict(os.environ)
         token = _load_codebuddy_token()
         if token:
+            # CodeBuddy CLI 在 -p 模式下使用 CODEBUDDY_API_KEY 鉴权；
+            # 同时保留 ANTHROPIC_API_KEY 兜底，避免影响其它潜在用途。
+            env[_CODEBUDDY_API_KEY_ENV] = token
             env[_ANTHROPIC_API_KEY_ENV] = token
+        # 中国版网络环境（必须，否则连错端点导致认证失败）
+        env.setdefault(_CODEBUDDY_ENV_ENV, _CODEBUDDY_INTERNET_ENVIRONMENT)
         _home = _codebuddy_user_home()
         if _home and os.path.isdir(_home):
             env['USERPROFILE'] = _home
