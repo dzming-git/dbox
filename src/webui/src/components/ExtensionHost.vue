@@ -90,13 +90,13 @@ async function toggle(id: string) {
   openId.value = id
   const ext = extensions.value.find((e) => e.id === id)
   if (!ext?.ui.entry) return
-  if (!panelHtml.value[id]) {
-    try {
-      const res: any = await scriptApi.getPanel(id)
-      panelHtml.value[id] = res
-    } catch (e) {
-      panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
-    }
+  // 每次打开都重新拉取最新 panel.html：后端已设 no-store，但 Vue 变量缓存会让旧版本
+  // 残留（导致新功能如实时思考块不生效）。重新获取的成本极低，优先保证 UI 最新。
+  try {
+    const res: any = await scriptApi.getPanel(id)
+    panelHtml.value[id] = res
+  } catch (e) {
+    panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }
   // token 就绪后通过 postMessage 注入给 iframe（供其调用后端 / ui-proxy）
   await nextTick()
