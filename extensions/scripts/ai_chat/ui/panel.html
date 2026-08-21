@@ -1071,11 +1071,19 @@
             }
           } else if (ev === 'thinking') {
             // 思考过程随 thinking_delta 实时流入：归属到当前 CLI 阶段气泡，边想边显示。
+            // thinking_delta 的每个 chunk 可能包含换行符（token 边界），直接拼接会导致
+            // 渲染时每个 token 单独一行。这里将 chunk 内的换行替换为空格，保持段落连续。
+            console.log('[DEBUG] thinking event received:', data.slice(0, 80));
             let o = null;
             try { o = JSON.parse(data); } catch (e) { o = null; }
             if (o && o.text) {
               const p = getPhase(o.index);
-              if (p) { p.thinking = (p.thinking || '') + o.text; updateAiLive(taskId, renderLive(), true); }
+              console.log('[DEBUG] phase found:', !!p, 'index:', o.index);
+              if (p) {
+                const text = o.text.replace(/\r?\n/g, ' ').replace(/ {2,}/g, ' ');
+                p.thinking = (p.thinking || '') + text;
+                updateAiLive(taskId, renderLive(), true);
+              }
             }
           } else if (ev === 'status' && data === 'running') {
             running = true;
