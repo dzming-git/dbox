@@ -145,12 +145,19 @@ _SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies',
 
 
 def _proxy_to_extensions_host(path):
-    """将请求原样转发给拓展管理宿主（8093），透传方法/头/查询/Body/Cookie。"""
+    """将请求原样转发给拓展管理宿主（8093），透传方法/头/查询/Body/Cookie。
+
+    对 SSE / 流式响应（Content-Type: text/event-stream）启用流式透传，
+    避免 requests.request() 缓冲整条流导致前端无法实时收到 thinking/token 等增量事件。
+    """
     import requests as _requests
     target = _EXTENSIONS_HOST_URL + path
     _hop = {'host', 'content-length', 'connection', 'transfer-encoding'}
     fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _hop}
     try:
+        # 先探测是否为 SSE 流式请求（路径含 stream 或前端 Accept 为 event-stream）
+        is_stream = ('/stream' in path or
+                     'text/event-stream' in request.headers.get('Accept', ''))
         resp = _requests.request(
             method=request.method,
             url=target,
@@ -159,7 +166,8 @@ def _proxy_to_extensions_host(path):
             data=request.get_data(cache=True),
             cookies=request.cookies,
             allow_redirects=False,
-            timeout=30,
+            timeout=30 if not is_stream else (10, 120),  # connect=10s, read=120s for streaming
+            stream=is_stream,
         )
     except _requests.exceptions.RequestException:
         return jsonify({
@@ -169,6 +177,24 @@ def _proxy_to_extensions_host(path):
         }), 503
     _excluded = {'content-length', 'transfer-encoding', 'connection', 'content-encoding'}
     resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _excluded}
+    # 流式响应：生成器逐块 yield，保持 SSE 实时性
+    if is_stream:
+        from flask import Response as _FlaskResponse
+
+        def generate():
+            try:
+                for chunk in resp.iter_content(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+            finally:
+                resp.close()
+
+        return _FlaskResponse(
+            generate(),
+            status=resp.status_code,
+            headers=dict(resp_headers, **{'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'}),
+            mimetype='text/event-stream',
+        )
     return resp.content, resp.status_code, resp_headers
 
 
