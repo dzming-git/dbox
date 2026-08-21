@@ -286,13 +286,12 @@ async function togglePanel(sc: ScriptInfo) {
     return
   }
   panelOpenId.value = sc.id
-  if (!panelHtml.value[sc.id]) {
-    try {
-      const res: any = await scriptApi.getPanel(sc.id)
-      panelHtml.value[sc.id] = res
-    } catch (e) {
-      panelHtml.value[sc.id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
-    }
+  // 每次打开都重新拉取最新 panel.html（后端 no-store + 避免 Vue 变量缓存旧版本）。
+  try {
+    const res: any = await scriptApi.getPanel(sc.id)
+    panelHtml.value[sc.id] = res
+  } catch (e) {
+    panelHtml.value[sc.id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }
   await nextTick()
   pushPanelToken(sc.id)

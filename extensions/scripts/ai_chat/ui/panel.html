@@ -542,11 +542,13 @@
       const content = (ph.body || ph.conclusion || '').trim();
       const cls = 'ai md' + (isRunning ? ' running' : ' phase-done');
       // 思考过程：处理中进行时默认展开（实时跟随），终态/历史默认折叠（点击查看）。
+      // 注意：thinking 是 AI 内部推理的原始 token 流，不是 Markdown 格式。
+      // 使用纯文本渲染（esc 转义 + \n 转 <br>），避免 mdToHtml 对非 Markdown 文本的意外解析。
       const thinking = (ph.thinking || '').trim();
       const thinkHtml = thinking
         ? '<details class="thinking"' + (isRunning ? ' open' : '') + '>'
           + '<summary>🧠 思考过程</summary>'
-          + '<div class="thinking-body">' + renderContent(thinking) + '</div></details>'
+          + '<div class="thinking-body">' + esc(thinking).replace(/\n/g, '<br>') + '</div></details>'
         : '';
       const inner = '<div class="phase-head"><span class="ph-dot"></span>' + esc(label) + '</div>'
         + thinkHtml
