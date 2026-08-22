@@ -89,6 +89,19 @@ def _load_codebuddy_token() -> str:
         env_token = os.environ.get(env_name)
         if env_token:
             return env_token.strip()
+    # 纯插件模式：优先使用宿主注入的 vault（host.vault），不 import 框架内部模块
+    vault = getattr(_ai_mgr_singleton, '_vault', None)
+    if vault is not None:
+        tok = vault.get(_CODEBUDDY_TOKEN_DOMAIN)
+        if tok:
+            return tok.strip()
+        try:
+            for rec in vault.list_all():
+                if rec.get('kind') == 'token' and 'codebuddy' in (rec.get('name') or '').lower():
+                    return (rec.get('value') or '').strip()
+        except Exception:
+            pass
+    # 回退：直接读取凭证保险库（兼容非插件旧路径）
     try:
         from shared.credential_vault import CredentialVault, data_dir_for
         vault = CredentialVault(data_dir_for())
@@ -802,9 +815,16 @@ class AIChatManager:
         self._initialized = False
         # 统一任务表镜像（轻量，仅状态展示）
         self._ut = None
+        # 纯插件宿主注入的依赖（由 server.create_blueprint 经 host 注入）
+        self._vault = None
+        self._tasks = None
 
     # ---------- 初始化 ----------
-    def init(self, data_dir):
+    def init(self, data_dir, vault=None, tasks=None):
+        """初始化管理器。vault/tasks 为纯插件模式下宿主注入的依赖代理；
+        若未注入则回退到直接 import 框架内部模块（向后兼容）。"""
+        self._vault = vault or self._vault
+        self._tasks = tasks or self._tasks
         if self._initialized and self._db_path:
             return
         os.makedirs(data_dir, exist_ok=True)
@@ -821,13 +841,16 @@ class AIChatManager:
         # 启动反馈建单 spool 的兜底重放：主服务若此前离线，积压的「AI 处理跟踪单 /
         # 用户反馈单」在此立即补建一次，并由周期任务持续重试，直到主服务恢复。
         self._start_feedback_spool_flusher()
-        # 尝试挂接统一任务管理器（失败不影响对话功能）
-        try:
-            from shared.unified_tasks import init_task_manager as _init_tm
-            _init_tm(data_dir)
-            self._ut = True
-        except Exception:
-            self._ut = None
+        # 挂接统一任务表：优先使用宿主注入的 tasks 代理（纯插件模式）
+        if self._tasks is not None:
+            self._ut = 'host'
+        else:
+            try:
+                from shared.unified_tasks import init_task_manager as _init_tm
+                _init_tm(data_dir)
+                self._ut = True
+            except Exception:
+                self._ut = None
         self._initialized = True
 
     def _init_db(self):
@@ -1017,14 +1040,17 @@ class AIChatManager:
     def _sync_to_unified(self, task_id, prompt, owner_id, status, created_at, updated_at):
         if not self._ut:
             return
+        title = (prompt or '').strip().replace('\n', ' ')
+        if len(title) > 60:
+            title = title[:60] + '…'
+        title = title or 'AI 对话'
         try:
-            from shared.unified_tasks import create_task
-            title = (prompt or '').strip().replace('\n', ' ')
-            if len(title) > 60:
-                title = title[:60] + '…'
-            title = title or 'AI 对话'
-            create_task('ai:' + task_id, 'ai_chat', title, owner_id=owner_id,
-                        status=status, created_at=created_at, updated_at=updated_at)
+            if self._tasks is not None:
+                self._tasks.create(title=title, owner_id=owner_id or 0, status=status)
+            else:
+                from shared.unified_tasks import create_task
+                create_task('ai:' + task_id, 'ai_chat', title, owner_id=owner_id,
+                            status=status, created_at=created_at, updated_at=updated_at)
         except Exception:
             pass
 
@@ -1032,6 +1058,9 @@ class AIChatManager:
         if not self._ut:
             return
         try:
+            if self._tasks is not None:
+                # 插件代理以 kind 维度注册，这里仅更新状态映射（轻量展示）
+                return
             from shared.unified_tasks import update_task, get_task as ut_get
             ut_id = 'ai:' + task_id
             if ut_get(ut_id) is None:
@@ -1047,6 +1076,8 @@ class AIChatManager:
         if not self._ut:
             return
         try:
+            if self._tasks is not None:
+                return
             from shared.unified_tasks import delete_task
             delete_task('ai:' + task_id, is_admin=True)
         except Exception:
@@ -1976,6 +2007,9 @@ class AIChatManager:
         # 同步清理统一任务表中的 ai_chat 镜像
         if self._ut:
             try:
+                if self._tasks is not None:
+                    # 插件代理以自身 kind 维度注册，clear 时无需逐项回查统一表
+                    return True
                 from shared.unified_tasks import get_tasks as ut_get_all
                 for t in ut_get_all(role='admin', limit=200):
                     if (t.get('kind') == 'ai_chat') or str(t.get('task_id', '')).startswith('ai:'):
@@ -1987,3 +2021,5 @@ class AIChatManager:
 
 # 单例
 ai_mgr = AIChatManager()
+# 供模块级函数（如 _load_codebuddy_token）访问单例的宿主注入依赖
+_ai_mgr_singleton = ai_mgr

@@ -48,7 +48,7 @@ async function pollAiBusy() {
   try {
     const headers: Record<string, string> = {}
     if (token.value) headers['Authorization'] = 'Bearer ' + token.value
-    const resp = await fetch('/api/ai-chat/tasks?limit=1', { headers })
+    const resp = await fetch('/api/ext/ai_chat/tasks?limit=1', { headers })
     if (!resp.ok) return
     const d: any = await resp.json()
     busyMap.value = { ai_chat: !!(d.active) || (d.pending && d.pending.length > 0) }

@@ -19,6 +19,43 @@ if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
 from routes import script_bp, init_script_engine
+from manifest import load_all, scripts_base_dir
+from plugin_host import build_host
+
+
+def _load_plugins(app):
+    """动态加载「纯插件」：扫描 manifest 声明了 backend 段的插件，
+    构造 host 宿主对象并注册其 Blueprint。删除插件文件夹即自动跳过，框架零入侵。"""
+    try:
+        base = scripts_base_dir()
+        scripts = load_all(base)
+    except Exception as e:
+        app.logger.error('插件扫描失败: %s', e)
+        return
+    # 将插件根目录（dbox/extensions 的父目录，即项目根）加入 sys.path，
+    # 使 importlib 能按 'extensions.scripts.<id>.backend.server' 解析插件模块。
+    # 否则直接 `python src/extensions_host/app.py` 运行时（如 NSSM 启动）会因
+    # sys.path 不含项目根而报 No module named 'extensions'。
+    _ext_root = os.path.dirname(base)           # dbox/extensions
+    _proj_root = os.path.dirname(_ext_root)     # dbox/
+    if _proj_root not in sys.path:
+        sys.path.insert(0, _proj_root)
+    for sc in scripts.values():
+        be = sc.get('backend')
+        if not be:
+            continue
+        mod_path = be.get('module') or 'backend.server'
+        try:
+            import importlib
+            mod = importlib.import_module(
+                'extensions.scripts.%s.%s' % (sc['id'], mod_path))
+            factory = getattr(mod, be.get('factory', 'create_blueprint'))
+            host = build_host(sc, app)
+            bp = factory(host)
+            app.register_blueprint(bp)
+            app.logger.info('插件已加载: %s (prefix=%s)', sc['id'], host.url_prefix)
+        except Exception as e:
+            app.logger.error('插件 %s 加载失败: %s', sc.get('id'), e)
 
 
 def create_app():
@@ -42,6 +79,7 @@ def create_app():
 
     app.register_blueprint(script_bp)
     init_script_engine(app)
+    _load_plugins(app)
     return app
 
 

@@ -783,7 +783,7 @@
     msgs.querySelectorAll('[data-undo]').forEach(async (box) => {
       const id = box.getAttribute('data-undo');
       try {
-        const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(id) + '/changes');
+        const resp = await api('/api/ext/ai_chat/tasks/' + encodeURIComponent(id) + '/changes');
         const d = await resp.json();
         if (!d || !d.success) { box.style.display = 'none'; return; }
         if (!d.has_changes) { box.style.display = 'none'; return; } // 无改动无需撤销
@@ -802,7 +802,7 @@
   async function rollbackTask(taskId) {
     if (!confirm('确定撤销本次改动？将把仓库回退到该任务开始前的状态（git reset --hard + 清理未提交文件），此操作不可恢复。')) return;
     try {
-      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/rollback', { method: 'POST' });
+      const resp = await api('/api/ext/ai_chat/tasks/' + encodeURIComponent(taskId) + '/rollback', { method: 'POST' });
       const d = await resp.json();
       if (!d || !d.success) { alert('撤销失败：' + ((d && d.message) || '未知错误')); return; }
       const box = document.getElementById('undowrap-' + taskId);
@@ -939,7 +939,7 @@
   // ---------- 数据拉取 ----------
   async function refresh() {
     try {
-      const resp = await api('/api/ai-chat/tasks?limit=10');
+      const resp = await api('/api/ext/ai_chat/tasks?limit=10');
       if (!resp.ok) return;
       const d = await resp.json();
       if (!d.success) return;
@@ -972,7 +972,7 @@
   async function expandMore() {
     if (state.nextCursor == null) return;
     try {
-      const resp = await api('/api/ai-chat/history?cursor=' + encodeURIComponent(state.nextCursor) + '&limit=10');
+      const resp = await api('/api/ext/ai_chat/history?cursor=' + encodeURIComponent(state.nextCursor) + '&limit=10');
       const d = await resp.json();
       if (d.success && d.history && d.history.length) {
         // 更早的页面插到 older 前面（older 始终为“更旧”的一侧）
@@ -1004,7 +1004,7 @@
       return h;
     };
     try {
-      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/stream');
+      const resp = await api('/api/ext/ai_chat/tasks/' + encodeURIComponent(taskId) + '/stream');
       if (!resp.ok) { subscribed.delete(taskId); return; }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -1149,7 +1149,7 @@
       // 用户所选模型（可选）
       const selModel = modelSel.value;
       if (selModel) wfBody.model = selModel;
-      const resp = await api('/api/ai-chat', {
+      const resp = await api('/api/ext/ai_chat', {
         method: 'POST',
         body: JSON.stringify(Object.assign({ message: v }, wfBody))
       });
@@ -1192,7 +1192,7 @@
           if (!TOKEN) TOKEN = readToken();
         }
       }
-      const resp = await api('/api/ai-chat/models');
+      const resp = await api('/api/ext/ai_chat/models');
       if (resp.ok) {
         const d = await resp.json();
         if (d.success && Array.isArray(d.models) && d.models.length) {
@@ -1246,9 +1246,9 @@
   async function loadWorkflows() {
     try {
       // 关键修复：token 可能由宿主通过 postMessage 异步回填，若此刻为空则短暂等待，
-      // 否则 /api/ai-chat/workflows 返回 401，导致下拉菜单为空。
+      // 否则 /api/ext/ai_chat/workflows 返回 401，导致下拉菜单为空。
       await ensureToken();
-      const resp = await api('/api/ai-chat/workflows');
+      const resp = await api('/api/ext/ai_chat/workflows');
       if (!resp.ok) return;
       const d = await resp.json();
       if (!d.success || !d.workflows) return;
@@ -1322,7 +1322,7 @@
         const choice = (o.options || [])[i];
         btn.disabled = true;
         try {
-          await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId) + '/answer', {
+          await api('/api/ext/ai_chat/tasks/' + encodeURIComponent(taskId) + '/answer', {
             method: 'POST', body: JSON.stringify({ step_id: o.step_id, choice: choice })
           });
           btn.textContent = choice + ' ✓';
@@ -1346,7 +1346,7 @@
   async function deleteTask(taskId) {
     try {
       subscribed.delete(taskId);
-      const resp = await api('/api/ai-chat/tasks/' + encodeURIComponent(taskId), { method: 'DELETE' });
+      const resp = await api('/api/ext/ai_chat/tasks/' + encodeURIComponent(taskId), { method: 'DELETE' });
       refresh();
     } catch (e) { /* ignore */ }
   }
@@ -1358,7 +1358,7 @@
       subscribed.clear();
       expandedIds.clear();
       Object.keys(liveRender).forEach(k => delete liveRender[k]);
-      await api('/api/ai-chat/clear', { method: 'POST' });
+      await api('/api/ext/ai_chat/clear', { method: 'POST' });
       state = { pending: [], active: null, history: [], has_more: false, older: [], nextCursor: null, canExpand: false };
       render();
     } catch (e) { /* ignore */ }
@@ -1407,7 +1407,7 @@
   function resolveResource(type, ref) {
     const key = type + '|' + ref;
     if (Object.prototype.hasOwnProperty.call(refCache, key)) return Promise.resolve(refCache[key]);
-    return api('/api/ai-chat/resource-resolve?type=' + encodeURIComponent(type) + '&ref=' + encodeURIComponent(ref))
+    return api('/api/ext/ai_chat/resource-resolve?type=' + encodeURIComponent(type) + '&ref=' + encodeURIComponent(ref))
       .then(r => r.json()).then(d => { refCache[key] = d; return d; })
       .catch(() => ({ found: false }));
   }
@@ -1520,7 +1520,7 @@
     planListEl.hidden = false;
     planListEl.innerHTML = '<div class="plan-empty">加载中…</div>';
     try {
-      const resp = await api('/api/ai-chat/plans', { method: 'GET' });
+      const resp = await api('/api/ext/ai_chat/plans', { method: 'GET' });
       const d = await resp.json();
       if (!d.success) { planListEl.innerHTML = '<div class="plan-empty">加载失败</div>'; return; }
       const plans = d.plans || [];
@@ -1553,7 +1553,7 @@
     planDetailBody.innerHTML = '<div class="plan-empty">加载中…</div>';
     planCommentsEl.innerHTML = '';
     try {
-      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(planId), { method: 'GET' });
+      const resp = await api('/api/ext/ai_chat/plans/' + encodeURIComponent(planId), { method: 'GET' });
       const d = await resp.json();
       if (!d.success) { planDetailBody.innerHTML = '<div class="plan-empty">加载失败</div>'; return; }
       const p = d.plan;
@@ -1586,7 +1586,7 @@
     const comment = planCommentInput.value.trim();
     if (!comment || !currentPlanId) return;
     try {
-      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId) + '/comment', {
+      const resp = await api('/api/ext/ai_chat/plans/' + encodeURIComponent(currentPlanId) + '/comment', {
         method: 'POST', body: JSON.stringify({ comment })
       });
       const d = await resp.json();
@@ -1605,7 +1605,7 @@
       const execBody = {};
       const selModel = modelSel ? modelSel.value : '';
       if (selModel) execBody.model = selModel;
-      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId) + '/execute', {
+      const resp = await api('/api/ext/ai_chat/plans/' + encodeURIComponent(currentPlanId) + '/execute', {
         method: 'POST', body: JSON.stringify(execBody)
       });
       const d = await resp.json();
@@ -1621,7 +1621,7 @@
     if (!currentPlanId) return;
     if (!confirm('确定删除该计划？删除后不可恢复。')) return;
     try {
-      const resp = await api('/api/ai-chat/plans/' + encodeURIComponent(currentPlanId), { method: 'DELETE' });
+      const resp = await api('/api/ext/ai_chat/plans/' + encodeURIComponent(currentPlanId), { method: 'DELETE' });
       const d = await resp.json();
       if (!d.success) { alert('删除失败：' + (d.message || '')); return; }
       currentPlanId = null;
@@ -1640,7 +1640,7 @@
     const deadline = Date.now() + (timeoutMs || 60000);
     while (Date.now() < deadline) {
       try {
-        const resp = await api('/api/ai-chat/plans', { method: 'GET' });
+        const resp = await api('/api/ext/ai_chat/plans', { method: 'GET' });
         const d = await resp.json();
         if (d.success && (d.plans || []).some(p => (p.created_at || 0) >= sentTs)) {
           return true;
@@ -1663,7 +1663,7 @@
       const body = { message: v, plan_mode: true };
       const selModel = modelSel ? modelSel.value : '';
       if (selModel) body.model = selModel;
-      const resp = await api('/api/ai-chat', {
+      const resp = await api('/api/ext/ai_chat', {
         method: 'POST',
         body: JSON.stringify(body)
       });

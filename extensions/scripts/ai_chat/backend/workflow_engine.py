@@ -29,8 +29,8 @@ except ImportError:
     yaml = None
 
 WORKFLOWS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),  # src/
-    'extensions', 'scripts', 'ai_chat', 'workflows'
+    os.path.dirname(os.path.dirname(__file__)),  # backend/ 的父目录 = ai_chat/
+    'workflows'
 )
 
 DEFAULT_WORKFLOW = 'chat'
