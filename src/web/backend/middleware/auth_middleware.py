@@ -124,9 +124,15 @@ def setup_auth_middleware(app):
                 'code': 401
             }), 401
 
-        # 6. 将用户信息注入 g，后续路由处理函数可直接使用
+        # 6. 将用户信息注入 g，后续路由处理函数可直接使用（role 从 DB 取最新值）
         g.user_id = payload.get('user_id')
-        g.user_role = payload.get('role')
+        uid = payload.get('user_id')
+        if uid:
+            from core.models import User as _User
+            _u = _User.query.get(uid)
+            g.user_role = int(_u.role) if _u else payload.get('role')
+        else:
+            g.user_role = payload.get('role')
         g.username = payload.get('username')
 
         log.debug('DEBUG', f"[Auth] 鉴权通过: user={g.username}, path={path}")

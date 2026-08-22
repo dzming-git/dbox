@@ -109,9 +109,15 @@ def auth_required(f):
                 'code': 401
             }), 401
         
-        # 将用户信息存储到g对象
+        # 将用户信息存储到g对象（role 从 DB 取最新值，避免 stale JWT role）
         g.user_id = payload.get('user_id')
-        g.user_role = payload.get('role')
+        uid = payload.get('user_id')
+        if uid:
+            from core.models import User as _User
+            _u = _User.query.get(uid)
+            g.user_role = int(_u.role) if _u else payload.get('role')
+        else:
+            g.user_role = payload.get('role')
         g.username = payload.get('username')
         
         return f(*args, **kwargs)

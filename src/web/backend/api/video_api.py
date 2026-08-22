@@ -1220,6 +1220,7 @@ def get_tags():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
+                # 注意：下面 resolve_identity() 会覆盖 user_role，此处仅作预填
                 user_role = _payload.get('role', UserRole.GUEST)
             except Exception:
                 pass

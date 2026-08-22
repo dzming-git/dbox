@@ -52,7 +52,12 @@ def _resolve_identity():
             try:
                 payload = _jwt.decode(auth[7:], JWT_SECRET_KEY)
                 if payload.get('type') == 'access':
-                    return payload.get('user_id'), int(payload.get('role', UserRole.GUEST))
+                    uid = payload.get('user_id')
+                    if uid:
+                        u = User.query.get(uid)
+                        if u:
+                            return uid, int(u.role)
+                    return uid, int(payload.get('role', UserRole.GUEST))
             except Exception:
                 pass
     try:

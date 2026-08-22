@@ -48,7 +48,13 @@ def resolve_identity():
                 except Exception:
                     continue
             if _payload and _payload.get('type') == 'access':
-                return _payload.get('user_id'), int(_payload.get('role', UserRole.GUEST))
+                uid = _payload.get('user_id')
+                # 优先从 DB 取最新 role（避免 JWT 签发后角色体系变更导致 stale role）
+                if uid:
+                    u = User.query.get(uid)
+                    if u:
+                        return uid, int(u.role)
+                return uid, int(_payload.get('role', UserRole.GUEST))
         except Exception:
             pass
         # 前端实际鉴权方式：Bearer 后接的是 session_token（非 JWT），
@@ -80,7 +86,12 @@ def resolve_identity():
                 except Exception:
                     continue
             if _payload and _payload.get('type') == 'access':
-                return _payload.get('user_id'), int(_payload.get('role', UserRole.GUEST))
+                uid = _payload.get('user_id')
+                if uid:
+                    u = User.query.get(uid)
+                    if u:
+                        return uid, int(u.role)
+                return uid, int(_payload.get('role', UserRole.GUEST))
         except Exception:
             pass
     return None, UserRole.GUEST
@@ -562,7 +573,12 @@ def auth_required(f):
                     payload = _jwt.decode(token, _secret)
                     if payload.get('type') == 'access':
                         g.user_id = payload.get('user_id')
-                        g.role = payload.get('role', UserRole.GUEST)
+                        uid = payload.get('user_id')
+                        if uid:
+                            u = User.query.get(uid)
+                            g.role = int(u.role) if u else int(payload.get('role', UserRole.GUEST))
+                        else:
+                            g.role = int(payload.get('role', UserRole.GUEST))
                         g.username = payload.get('username')
                         return f(*args, **kwargs)
                 except Exception:

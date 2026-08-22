@@ -1169,11 +1169,10 @@ def get_user_libraries():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
+                # 注意：后续 resolve_identity() / session 会覆盖 user_role
                 user_role = _payload.get('role', UserRole.GUEST)
             except Exception:
                 pass
-        
-        # 方式2: 从 g.user 获取（如果存在）
         if not user_id and hasattr(g, 'user') and g.user:
             user_id = g.user.id
             user_role = g.user.role
@@ -1262,6 +1261,7 @@ def switch_user_library():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = payload.get('user_id')
+                # 注意：后续 session/resolve_identity 会覆盖
                 user_role = payload.get('role', UserRole.GUEST)
             except Exception:
                 pass
