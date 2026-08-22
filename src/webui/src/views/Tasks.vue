@@ -170,7 +170,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, type Task } from '../api/task'
-import { scriptApi, type PendingInput } from '../api/script'
+import { type PendingInput } from '../api/script'
 
 const router = useRouter()
 const tasks = ref<Task[]>([])
@@ -193,7 +193,7 @@ let pollTimer: any = null
 const interaction = ref<PendingInput | null>(null)
 const interactionValue = ref<any>('')
 const interactionText = ref('')
-const currentJobId = ref<string | null>(null)
+
 const submitting = ref(false)
 
 function kindLabel(k: string) {
@@ -417,33 +417,8 @@ async function handleTask(t: Task) {
     router.push(t.action_data.url)
     return
   }
-  if (t.action_kind === 'script_interactive' && t.action_data?.job_id) {
-    currentJobId.value = t.action_data.job_id
-    // 先尝试拉取脚本任务的交互详情；失败则仅展示提示信息，不阻塞处理弹窗。
-    try {
-      const res: any = await scriptApi.getJob(t.action_data.job_id)
-      const job = res.job
-      if (job && job.pending_input) {
-        interaction.value = job.pending_input
-        interactionValue.value = job.pending_input.multi ? [] : ''
-        interactionText.value = ''
-      } else {
-        interaction.value = {
-          kind: 'text',
-          prompt: t.action_hint || '该任务需要你处理',
-        }
-        interactionValue.value = ''
-        interactionText.value = ''
-      }
-    } catch (e: any) {
-      interaction.value = {
-        kind: 'text',
-        prompt: t.action_hint || '该任务需要你处理',
-      }
-      interactionValue.value = ''
-      interactionText.value = ''
-    }
-  }
+  // 旧「脚本交互」(script_interactive) 已由拓展插件体系接管：
+  // 插件通过统一任务系统的 action 自行实现交互，不再依赖已移除的脚本执行引擎。
 }
 
 function closeInteraction() {
@@ -454,36 +429,10 @@ function closeInteraction() {
 }
 
 async function submitInteraction() {
-  if (!interaction.value || !currentJobId.value) return
-  let val: any
-  if (interaction.value.multi) {
-    val = Array.isArray(interactionValue.value) ? [...interactionValue.value] : []
-    if (interaction.value.allow_text && interactionText.value.trim()) {
-      val.push(interactionText.value.trim())
-    }
-    if (!val.length) {
-      alert('请至少选择一项')
-      return
-    }
-  } else if (interaction.value.allow_text && interactionText.value.trim()) {
-    val = interactionText.value.trim()
-  } else {
-    val = interactionValue.value
-    if (!val) {
-      alert('请选择一项')
-      return
-    }
-  }
-  submitting.value = true
-  try {
-    await scriptApi.respondJob(currentJobId.value, val)
-    closeInteraction()
-    refresh()
-  } catch (e: any) {
-    alert('提交失败：' + (e?.message || e))
-  } finally {
-    submitting.value = false
-  }
+  if (!interaction.value) return
+  // 旧脚本交互提交接口已移除；插件的二次交互由插件后端自行处理。
+  alert('该交互类型已升级为拓展插件，请在「扩展管理」中操作。')
+  closeInteraction()
 }
 
 onMounted(() => {

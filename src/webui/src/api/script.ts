@@ -92,15 +92,6 @@ export const scriptApi = {
   disable: (id: string) => api.post(`/api/admin/scripts/${id}/disable`),
   reload: () => api.post('/api/admin/scripts/reload'),
 
-  // 运行 / 任务
-  run: (id: string, params: Record<string, any>) =>
-    api.post(`/api/scripts/${id}/run`, { params }),
-  listJobs: () => api.get('/api/scripts/jobs'),
-  getJob: (jobId: string) => api.get(`/api/scripts/jobs/${jobId}`),
-  cancelJob: (jobId: string) => api.post(`/api/scripts/jobs/${jobId}/cancel`),
-  respondJob: (jobId: string, value: any) =>
-    api.post(`/api/scripts/jobs/${jobId}/respond`, { value }),
-
   // 凭证保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),
   createCookie: (data: { kind?: string; name: string; domain: string; format?: string; value: string; note?: string }) =>
