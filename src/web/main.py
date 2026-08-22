@@ -141,7 +141,7 @@ register_core_blueprints(app)
 _EXTENSIONS_HOST_URL = 'http://127.0.0.1:8093'
 _SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies',
                     '/api/ui-extensions', '/api/ui-panel', '/api/ui-proxy',
-                    '/api/ai-chat')
+                    '/api/ext/ai_chat')
 
 
 def _proxy_to_extensions_host(path):
