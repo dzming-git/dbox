@@ -162,6 +162,24 @@ class Host:
             return f(*args, **kwargs)
         return decorated
 
+    # ---- 资源入库（把插件下载的文件纳入资源/图集库）----
+    def ingest(self, library_id, path, kind=None, modes=('video', 'image'),
+               hidden=False, meta=None, owner_id=None):
+        """将磁盘上的文件登记进指定资源库。
+
+        直接复用框架内部的 ingest_file，避免插件自行处理鉴权与入库细节。
+        返回 ingest_file 的结果（资源记录或错误信息）。
+        """
+        try:
+            from platform_client import ingest_file
+            return ingest_file(
+                library_id, path, kind=kind, modes=modes,
+                hidden=hidden, meta=meta, owner_id=owner_id,
+            )
+        except Exception as e:
+            self.logger.error('ingest 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
 
 def build_host(manifest, app):
     return Host(manifest, app)
