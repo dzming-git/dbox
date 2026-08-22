@@ -1,0 +1,4 @@
+[submodule "extensions/x_downloader"]
+	path = extensions/x_downloader
+	url = git@github.com:dzming-git/dbox-x-downloader.git
+	branch = main
