@@ -176,19 +176,7 @@ def _public_script(sc, include_disabled=False):
     return out
 
 
-@script_bp.route('/api/scripts', methods=['GET'])
-@admin_required
-def list_scripts():
-    include = request.args.get('all') == '1'
-    out = []
-    for sc in mgr.scripts.values():
-        if not include and not sc.get('enabled'):
-            continue
-        out.append(_public_script(sc, include))
-    return jsonify({'success': True, 'scripts': out})
-
-
-# ---------- 管理员：脚本/插件管理 ----------
+# ---------- 管理员：插件管理 ----------
 @script_bp.route('/api/admin/scripts', methods=['GET'])
 @admin_required
 def admin_list():
@@ -313,36 +301,6 @@ def get_panel(script_id):
                     headers={'Cache-Control': 'no-store'})
 
 
-@script_bp.route('/api/ui-proxy', methods=['POST'])
-@admin_required
-def ui_proxy():
-    """扩展 UI（iframe 内）调用外部服务的代理。可选注入管理员 token 到下游请求头。
-    请求体：{ url, method?, headers?, body?, inject_token? }
-    """
-    import requests as _requests
-    data = request.get_json(silent=True) or {}
-    url = data.get('url')
-    if not url:
-        return jsonify({'success': False, 'message': 'url 必填'}), 400
-    method = (data.get('method') or 'POST').upper()
-    headers = dict(data.get('headers') or {})
-    body = data.get('body')
-    if data.get('inject_token'):
-        headers['Authorization'] = request.headers.get('Authorization', '')
-    try:
-        resp = _requests.request(
-            method, url, headers=headers,
-            json=body if isinstance(body, (dict, list)) else None,
-            data=body if isinstance(body, str) else None,
-            timeout=30, verify=False,
-        )
-        # 透传下游响应（限制体积，避免超大响应）
-        text = resp.text
-        if len(text) > 5 * 1024 * 1024:
-            text = text[:5 * 1024 * 1024]
-        return Response(text, status=resp.status_code,
-                        mimetype=resp.headers.get('Content-Type', 'application/json'))
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'代理请求失败: {e}'}), 502
+# ---------- 扩展 UI 代理已由插件 backend 蓝图替代，/api/ui-proxy 路由已移除 ----------
 
 
