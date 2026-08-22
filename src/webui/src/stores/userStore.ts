@@ -17,6 +17,18 @@ const getStoredUser = (): User | null => {
   return null
 }
 
+// 从 token 解析 role 兜底：JWT payload 含 role 字段，避免 localStorage 中
+// user 对象缺失/损坏 role 时 isAdmin 误判为 false（菜单不显示）。
+const getRoleFromToken = (tok: string | null): number | undefined => {
+  if (!tok) return undefined
+  try {
+    const payload = JSON.parse(atob(tok.split('.')[1]))
+    return typeof payload.role === 'number' ? payload.role : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(getStoredUser())
   const token = ref<string | null>(localStorage.getItem('token'))
@@ -26,7 +38,7 @@ export const useUserStore = defineStore('user', () => {
   const refreshUserInfo = async () => {
     if (!token.value) return
     try {
-      const res = await api.get('/v2/auth/me') as any
+      const res = await api.get('/api/v2/auth/me') as any
       if (res?.success && res?.data) {
         const freshUser: User = res.data
         user.value = freshUser
@@ -40,8 +52,15 @@ export const useUserStore = defineStore('user', () => {
   refreshUserInfo()
   
   const isLoggedIn = computed(() => !!token.value)
+  // 优先用 user.role；若 localStorage user 无 role 字段（旧格式/重排前），
+  // 则从 JWT token payload 兜底取 role，确保 isAdmin 判断可靠。
+  const effectiveRole = computed<number | undefined>(() => {
+    const r = user.value?.role
+    if (typeof r === 'number') return r
+    return getRoleFromToken(token.value)
+  })
   const isAdmin = computed(() =>
-    user.value?.role !== undefined && user.value.role <= UserRole.ADMIN
+    effectiveRole.value !== undefined && effectiveRole.value <= UserRole.ADMIN
   )
   const isRoot = computed(() => 
     user.value?.role === UserRole.ROOT
