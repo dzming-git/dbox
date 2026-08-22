@@ -67,7 +67,7 @@
 
 ```json
 {
-  "id": "ai_chat",
+  "id": "ai_assistant",
   "name": "AI 对话助手",
   "command": "run.py",
   "runtime": "python",
@@ -140,11 +140,11 @@ parent.postMessage({ type: 'dbox:job-progress', jobId, percent }, '*')
 
 ## 7. 两个示范实现
 
-### 7.1 AI 对话悬浮窗（ai_chat）
+### 7.1 AI 对话悬浮窗（ai_assistant）
 
 - manifest.ui.mount = floating，needs_credential = codebuddy token
 - assets/index.html：一个聊天界面（输入框 + 消息流）
-- 发消息 → `POST /api/scripts/ai_chat/proxy` → 后端用保险库 token 调 AI → SSE 流式返回
+- 发消息 → `POST /api/scripts/ai_assistant/proxy` → 后端用保险库 token 调 AI → SSE 流式返回
 - 不跑子进程、不落临时文件，纯 UI + 代理
 
 ### 7.2 X 下载器预览（x_downloader 增强）

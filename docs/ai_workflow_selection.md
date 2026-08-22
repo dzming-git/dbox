@@ -60,7 +60,7 @@
 
 ## 3. 配置文件 Schema（方案 2 的核心）
 
-文件位置：`extensions/ai_chat/workflows/*.yaml`（每个工作流一个文件，便于独立维护）。
+文件位置：`extensions/ai_assistant/workflows/*.yaml`（每个工作流一个文件，便于独立维护）。
 
 统一字段：
 
@@ -271,12 +271,12 @@ class WorkflowEngine:
 1. 「建议 / 缺陷」**保持两个**（分类边界清晰）。✅ 已实现（suggest.yaml / defect.yaml）。
 2. `resume`（继续）**默认手动、不推断**。✅ 已实现（auto_infer=false）。
 3. `ask` 步骤**一期即做真正挂起/恢复**（worker 阻塞 + 前端选择卡 + answer 接口唤醒）。✅ 已实现。
-4. 配置文件放 `extensions/ai_chat/workflows/`。✅ 已实现。
+4. 配置文件放 `extensions/ai_assistant/workflows/`。✅ 已实现。
 
 ## 11. 实现记录（一期落地）
 
 - 后端框架：`src/extensions_host/workflow_engine.py`（加载 yaml / 关键词推断 / 编译 prompt / 执行 shell 步）。
-- 配置：`extensions/ai_chat/workflows/{defect,suggest,resume,chat}.yaml`。
+- 配置：`extensions/ai_assistant/workflows/{defect,suggest,resume,chat}.yaml`。
 - `ai_chat.py`：`enqueue` 增 `workflow_id`/`manual`；`_process` 改为配置驱动；新增 `list_workflows`、
   `_resolve_workflow`、`_run_ask_step`（挂起）、`answer_task`（唤醒）、`_git_has_new_commit`、`_recent_unfinished_tasks`；
   `ai_tasks` 表新增 `extra` 列（存 workflow 元数据）。

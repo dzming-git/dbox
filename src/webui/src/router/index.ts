@@ -159,7 +159,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '拓展脚本', requiresAuth: true, requiresAdmin: true }
   },
   {
-    // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-chat）在应用启动时
+    // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-assistant）在应用启动时
     // 由 registerExtensionRoutes() 动态 addRoute 注入，框架不在此硬编码任何插件路径。
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
@@ -181,7 +181,7 @@ const router = createRouter({
 
 export { routes }
 
-// 插件独立全屏路由：由各插件在 manifest 的 ui.standalone_route 声明（如 "/ai-chat"）。
+// 插件独立全屏路由：由各插件在 manifest 的 ui.standalone_route 声明（如 "/ai-assistant"）。
 // 框架不硬编码任何插件路径——启动后拉取 ui-extensions，凡声明了 standalone_route 且
 // 已启用的插件，都在其路径上挂载 ExtensionStandalone 全屏页（按插件 id 注入）。
 // 若某插件目录被删除，这里自然不会注册其路由，实现「删掉即无、框架零入侵」。
