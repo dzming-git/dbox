@@ -117,8 +117,28 @@ def _load_codebuddy_token() -> str:
 
 
 def _project_root() -> str:
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))         # src/extensions_host
-    return os.path.dirname(os.path.dirname(pkg_dir))             # 向上两级 -> 项目根 (dbox)
+    """定位 dbox 项目根目录。
+
+    引擎文件历史上位于 src/extensions_host/，后迁移为纯插件（自包含于
+    extensions/scripts/ai_chat/backend/）。为避免按相对层级硬编码导致的越迁
+    错位（少/多上一级都会让 git / --add-dir 指向错误目录），改为**向上查找
+    首个含 .git 的目录**作为项目根——该插件目录本身处于 dbox 仓库内，故能
+    稳定命中 dbox 根。
+    """
+    d = os.path.dirname(os.path.abspath(__file__))
+    # 优先用环境变量（若宿主显式指定了仓库根）
+    env_root = os.environ.get('DBOX_PROJECT_ROOT') or os.environ.get('DBOX_REPO_ROOT')
+    if env_root and os.path.isdir(os.path.join(env_root, '.git')):
+        return env_root
+    while True:
+        if os.path.isdir(os.path.join(d, '.git')):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            # 走到盘符仍未找到 .git，回退到相对估算（backend 上四级）
+            return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))))
+        d = parent
 
 
 def _resolve_buddy_cli() -> str:
