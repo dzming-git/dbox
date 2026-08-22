@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '../types'
 import { UserRole } from '../types'
-import { libraryApi } from '../api'
+import { libraryApi, api } from '../api'
 
 // 从 localStorage 恢复用户信息
 const getStoredUser = (): User | null => {
@@ -21,6 +21,23 @@ export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(getStoredUser())
   const token = ref<string | null>(localStorage.getItem('token'))
   const refreshToken = ref<string | null>(localStorage.getItem('refresh_token'))
+
+  // 启动时从服务端刷新用户信息（确保 role 等字段是最新的）
+  const refreshUserInfo = async () => {
+    if (!token.value) return
+    try {
+      const res = await api.get('/v2/auth/me') as any
+      if (res?.success && res?.data) {
+        const freshUser: User = res.data
+        user.value = freshUser
+        localStorage.setItem('user', JSON.stringify(freshUser))
+      }
+    } catch {
+      // 静默失败，保留 localStorage 中的旧值
+    }
+  }
+  // 自动执行一次（非阻塞）
+  refreshUserInfo()
   
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() =>
