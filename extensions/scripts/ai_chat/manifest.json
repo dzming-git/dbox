@@ -10,7 +10,7 @@
     "mount": "floating",
     "title": "AI 助手",
     "icon": "💬",
-    "entry": "ui/panel.html",
+    "entry": "panel.html",
     "needs_credential": { "kind": "token", "domain": "codebuddy" },
     "sandbox": "allow-scripts allow-same-origin allow-forms allow-popups"
   },
