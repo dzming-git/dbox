@@ -1,4 +1,17 @@
-"""脚本清单（manifest）加载：扫描 extensions/scripts/ 下所有脚本包。"""
+"""脚本清单（manifest）加载：扫描 extensions/ 下所有脚本包。
+
+目录约定（纯插件布局）：
+    extensions/
+        <plugin_a>/          # 每个子目录即一个自包含插件
+            manifest.json
+            backend/  ui/  workflows/  ...（插件私有，框架不关心内部结构）
+        <plugin_b>/
+        ...
+
+框架只扫描 extensions/ 一级子目录，读取其 manifest.*；不关心插件内部实现，
+也不在任何框架源码中硬编码插件 id——插件是否启用、如何挂载 UI、是否暴露独立
+路由、是否轮询忙碌态，全部由 manifest 字段声明（详见 docs/development/plugin_architecture.md）。
+"""
 import os
 import json
 
@@ -10,13 +23,13 @@ except Exception:  # pragma: no cover
 
 
 def scripts_base_dir():
-    """extensions/scripts 目录（位于项目根目录下）。
+    """extensions/ 目录（位于项目根目录下），所有插件平铺于此。
 
-    本包位于 <root>/src/extensions_host，故从包目录向上 3 级到达项目根。
+    本包位于 <root>/src/extensions_host，故从包目录向上 2 级到达项目根。
     """
     pkg_dir = os.path.dirname(os.path.abspath(__file__))        # src/extensions_host
     project_root = os.path.dirname(os.path.dirname(pkg_dir))      # 向上两级 -> 项目根 (dbox)
-    return os.path.join(project_root, 'extensions', 'scripts')
+    return os.path.join(project_root, 'extensions')
 
 
 def _load_one(ms_dir):

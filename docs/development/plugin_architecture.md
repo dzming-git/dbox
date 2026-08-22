@@ -15,26 +15,36 @@
 | **契约通信** | 插件只通过框架注入的 `host` 宿主对象与框架交互，禁止 `import` 框架业务代码 |
 | **独立命名空间** | 插件路由统一挂载在 `/api/ext/<plugin_id>/*`，互不冲突、可单独卸载 |
 | **声明式** | 框架只需读取 `manifest.json`，不感知任何插件业务逻辑 |
+| **框架零硬编码** | **框架任何源码（后端 / 前端）不得出现具体插件 id**（如 `ai_chat`）。插件是否启用、如何挂载、是否有独立路由、是否轮询忙碌态，全部由 manifest 字段声明，前端按字段动态渲染。删掉插件目录后，其所有行为自动消失，框架代码原样不变 |
 
 ---
 
 ## 2. 目录结构（压缩包内部）
 
+所有插件**平铺**于 `extensions/` 一级子目录（无 `scripts` 中间层）：
+
 ```
-<plugin_id>/                       ← 插件根目录（= 压缩包解压目标）
-├── manifest.json                  ← 唯一入口：元信息 + 能力声明
-├── backend/                       ← 插件后端（可选，脚本型插件可无）
-│   ├── server.py                  ← 导出 create_blueprint(host) 工厂
-│   ├── engine.py                  ← 业务逻辑（原 ai_chat.py 等）
-│   ├── workflow_engine.py         ← 插件私有依赖（不共用框架模块）
-│   └── db.py                      ← 自带 SQLite 封装
-├── ui/                            ← 前端（可选）
-│   ├── panel.html                 ← iframe 入口
-│   └── assets/                    ← css/js 静态资源
-├── workflows/                     ← 配置驱动的步骤定义（可选）
-│   └── *.yaml
-└── requirements.txt               ← 插件私有依赖（可选）
+extensions/                        ← 所有插件的根（框架仅扫描此一级）
+├── ai_chat/                       ← 插件根目录（= 压缩包解压目标）
+│   ├── manifest.json              ← 唯一入口：元信息 + 能力声明
+│   ├── backend/                   ← 插件后端（可选，纯前端插件可无）
+│   │   ├── server.py              ← 导出 create_blueprint(host) 工厂
+│   │   ├── engine.py              ← 业务逻辑
+│   │   └── db.py                  ← 自带 SQLite 封装
+│   ├── ui/                        ← 前端（可选）
+│   │   ├── panel.html             ← iframe 入口
+│   │   └── assets/                ← css/js 静态资源
+│   ├── workflows/                 ← 配置驱动的步骤定义（可选）
+│   │   └── *.yaml
+│   └── requirements.txt           ← 插件私有依赖（可选）
+├── x_downloader/                  ← 另一个插件（同样自包含）
+└── ...
 ```
+
+> **为什么没有 `scripts` 这一层？** 历史上插件曾放在 `extensions/scripts/<id>/`，
+> 但 `extensions` 与 `scripts` 语义重复（都是「扩展/脚本」）。现已扁平化：
+> `extensions/<id>/` 直接一个插件一目录，框架扫描 `extensions/` 一级子目录。
+> `scripts_base_dir()` 返回 `extensions`，不再拼接 `scripts`。
 
 **关键约束**：`backend/` 内的模块**只 import 标准库、第三方库、以及自身目录**，
 **严禁** `import extensions_host`、`import shared`、`import web`、`import manager` 等框架内部包。
@@ -57,8 +67,11 @@
     "mount": "floating",          // floating | tab | sidebar | none
     "title": "AI 助手",
     "icon": "💬",
-    "entry": "ui/panel.html",     // 相对插件根目录
-    "sandbox": "allow-scripts allow-same-origin"
+    "entry": "panel.html",        // ⚠️ 相对 ui/ 目录，不是 "ui/panel.html"（框架自动拼 ui/）
+    "sandbox": "allow-scripts allow-same-origin",
+    "needs_credential": { "kind": "token", "domain": "codebuddy" },
+    "standalone_route": "/ai-chat",   // 可选：声明后框架动态注册独立全屏路由
+    "busy_poll": "/api/ext/ai_chat/tasks"  // 可选：声明后悬浮气泡周期轮询该接口（驱动忙碌/未读态）
   },
 
   "backend": {                     // 省略则表示纯前端/脚本型插件
@@ -76,10 +89,18 @@
 | `name` / `description` | ✅ | 展示用 |
 | `version` / `api_version` | ✅ | 插件契约版本，框架据此做兼容校验 |
 | `ui.mount` | ❌ | 前端挂载形态；`none` 时不加载 UI |
+| `ui.entry` | ❌ | UI 入口文件，**相对 `ui/` 目录**（框架拼接 `ui/`），如 `panel.html` |
+| `ui.standalone_route` | ❌ | 独立全屏路由路径（如 `/ai-chat`）；声明后框架 `addRoute` 注册，不声明则无独立页 |
+| `ui.busy_poll` | ❌ | 忙碌态轮询接口（相对路径）；声明且 `mount=floating` 时，宿主周期轮询驱动气泡动画/未读角标 |
+| `ui.needs_credential` | ❌ | 凭据声明，框架据此在 UI 提示用户配置 |
 | `backend.module` | ❌ | 有后端逻辑时必填 |
 | `backend.factory` | ❌ | 默认 `create_blueprint` |
 | `backend.url_prefix` | ❌ | 默认 `/api/ext/<id>` |
 | `backend.needs` | ❌ | 能力声明清单，缺失则框架启动告警 |
+
+> **`ui.entry` 的坑**：框架 `get_panel` 路由会自动在 `entry` 前拼接 `ui/` 目录，
+> 因此 `entry` 必须是 `ui/` 内的相对路径（如 `panel.html`），写成 `ui/panel.html`
+> 会得到 `ui/ui/panel.html` 导致 404。
 
 ---
 
@@ -147,14 +168,15 @@ def create_app():
     return app
 
 def _load_plugins(app):
-    base = scripts_base_dir()
+    base = scripts_base_dir()                # -> <root>/extensions
     for sc in load_all(base).values():
         be = sc.get('backend')
         if not be:
             continue
         try:
+            # ⚠️ 扁平化后模块路径为 extensions.<id>.backend.server（不再有 scripts 层）
             mod = importlib.import_module(
-                f"extensions.scripts.{sc['id']}.backend.server")
+                f"extensions.{sc['id']}.backend.server")
             factory = getattr(mod, be.get('factory', 'create_blueprint'))
             host = build_host(sc, app)        # 构造宿主对象
             bp = factory(host)
@@ -165,6 +187,18 @@ def _load_plugins(app):
 
 **删除插件文件夹 → `load_all` 扫不到 → 跳过 → 框架无感知。**
 
+### 前端加载流程（零硬编码）
+
+- 前端在启动时调用 `GET /api/ui-extensions` 拿到所有声明了 `ui` 段的已启用插件。
+- **悬浮面板**（`ExtensionHost.vue`）：遍历列表渲染每个 `mount=floating` 的插件气泡；
+  若插件声明了 `ui.busy_poll`，宿主周期轮询该接口驱动忙碌动画与未读角标；
+  若插件声明了 `ui.standalone_route`，则当路由正处于该路径时自动隐藏悬浮气泡（避免重复）。
+  **全程不出现任何具体插件 id。**
+- **独立全屏路由**（`main.ts` → `registerExtensionRoutes()`）：遍历列表，
+  对每个声明了 `ui.standalone_route` 的插件动态 `router.addRoute()`，
+  挂载通用 `ExtensionStandalone.vue`（按 `props.id` 取对应 panel.html）。
+  **框架路由表不写死任何插件路径。**
+
 ---
 
 ## 6. UI 挂载规范
@@ -172,20 +206,27 @@ def _load_plugins(app):
 - 前端只读取 `manifest.json` 的 `ui` 段决定挂载形态，**不缓存** `panel.html`（每次打开重新拉取，`Cache-Control: no-store`）。
 - `panel.html` 通过标准 iframe 加载，框架注入 `token` 后通过 `postMessage` 下发。
 - 插件前端调用自身后端：`/api/ext/<plugin_id>/*`，由框架代理鉴权。
+- 主服务网关（`src/web/main.py`）以通用前缀 `/api/ext` 代理所有插件后端，
+  **不在 `_SCRIPT_PREFIXES` 中硬编码任何具体插件的路径**。
 
 ---
 
 ## 7. 迁移检查清单（以 ai_chat 为例）
 
-- [ ] 创建 `extensions/scripts/ai_chat/backend/server.py` 导出 `create_blueprint(host)`
+- [ ] 将插件目录放到 `extensions/ai_chat/`（扁平，无 `scripts` 中间层）
+- [ ] 创建 `extensions/ai_chat/backend/server.py` 导出 `create_blueprint(host)`
 - [ ] 将 `ai_chat.py` / `workflow_engine.py` / `plan_manager.py` 移入 `backend/`
 - [ ] 替换所有 `from shared.xxx import` → `host.xxx`
 - [ ] 替换 `from ai_chat import ai_mgr` / `from workflow_engine` → 同目录相对 import
-- [ ] 路由前缀改为 `/api/ext/ai_chat/*`
-- [ ] `manifest.json` 增加 `backend` 段
+- [ ] 路由前缀改为 `/api/ext/ai_chat/*`（manifest `backend.url_prefix`）
+- [ ] `manifest.json` 增加 `backend` 段；`ui.entry` 写 `panel.html`（非 `ui/panel.html`）
+- [ ] 若需独立全屏页：`ui.standalone_route: "/ai-chat"`；若需气泡轮询：`ui.busy_poll`
 - [ ] 从 `routes.py` 删除所有 `/api/ai-chat/*` 硬编码路由
 - [ ] 从 `extensions_host` 包移除 `ai_chat.py` / `workflow_engine.py` / `plan_manager.py`
-- [ ] 验证：删除 `ai_chat/` 文件夹，框架启动不报错
+- [ ] **前端**：`router/index.ts` 不得写死 `/ai-chat`，改为 `registerExtensionRoutes()` 动态注册
+- [ ] **前端**：`ExtensionHost.vue` 不得写死 `ai_chat`，改为遍历 `busy_poll` / `standalone_route`
+- [ ] 验证：删除 `ai_chat/` 文件夹，框架启动不报错；刷新前端 `/ai-chat` 自然失效
+- [ ] 更新本文档与 `ai_workflow_selection.md` 中的路径引用
 
 ---
 
@@ -209,3 +250,18 @@ host.vault.get('codebuddy_token')
 @host.login_required
 def handler(): ...
 ```
+
+```typescript
+// ❌ 禁止：前端源码写死具体插件 id
+if (ext.id === 'ai_chat') { ... }
+const resp = await fetch('/api/ext/ai_chat/tasks')
+router.addRoute({ path: '/ai-chat', ... })
+
+// ✅ 正确：按 manifest 字段驱动，id 完全来自数据
+if (ext.ui?.standalone_route) router.addRoute({ path: ext.ui.standalone_route, ... })
+if (ext.ui?.busy_poll) poll(ext.ui.busy_poll)
+```
+
+> **零硬编码是这条规范的核心红线**：任何新增插件都不应要求修改框架的
+> 后端 `main.py` / `routes.py` 或前端 `router` / `ExtensionHost` / `App.vue`。
+> 如需新能力，先扩展 manifest 字段与框架的通用处理逻辑，而非特判某个插件。

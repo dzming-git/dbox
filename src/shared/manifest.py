@@ -1,6 +1,8 @@
-"""脚本清单（manifest）加载：扫描 extensions/scripts/ 下所有脚本包。
+"""脚本清单（manifest）加载：扫描 extensions/ 下所有脚本包。
 
 本模块为中立能力，不依赖任何业务模块，仅做文件读取与数据归一化。
+（注：实际运行加载器以 src/extensions_host/manifest.py 为准，本文件为兼容副本，
+路径约定保持一致——所有插件平铺于 extensions/ 一级。）
 """
 import os
 import json
@@ -13,13 +15,13 @@ except Exception:  # pragma: no cover
 
 
 def scripts_base_dir():
-    """extensions/scripts 目录（位于项目根目录下）。
+    """extensions/ 目录（位于项目根目录下），所有插件平铺于此。
 
     本包位于 <root>/src/shared，故从包目录向上 2 级到达项目根。
     """
     pkg_dir = os.path.dirname(os.path.abspath(__file__))        # src/shared
     project_root = os.path.dirname(os.path.dirname(pkg_dir))
-    return os.path.join(project_root, 'extensions', 'scripts')
+    return os.path.join(project_root, 'extensions')
 
 
 def _load_one(ms_dir):

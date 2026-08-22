@@ -23,7 +23,7 @@
       </div>
 
       <div v-if="loadingScripts" class="loading">加载中...</div>
-      <div v-else-if="!scripts.length" class="empty">未发现脚本。请将脚本放到 extensions/scripts/&lt;id&gt;/ 并带 manifest.json。</div>
+      <div v-else-if="!scripts.length" class="empty">未发现脚本。请将脚本放到 extensions/&lt;id&gt;/ 并带 manifest.json。</div>
 
       <div v-else class="script-list">
         <div v-for="sc in scripts" :key="sc.id" class="script-card">

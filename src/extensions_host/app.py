@@ -32,12 +32,11 @@ def _load_plugins(app):
     except Exception as e:
         app.logger.error('插件扫描失败: %s', e)
         return
-    # 将插件根目录（dbox/extensions 的父目录，即项目根）加入 sys.path，
-    # 使 importlib 能按 'extensions.scripts.<id>.backend.server' 解析插件模块。
+    # 将项目根（dbox/）加入 sys.path，使 importlib 能按 'extensions.<id>.backend.server'
+    # 解析插件模块（扁平化布局：extensions/<id>/backend/server.py）。
     # 否则直接 `python src/extensions_host/app.py` 运行时（如 NSSM 启动）会因
     # sys.path 不含项目根而报 No module named 'extensions'。
-    _ext_root = os.path.dirname(base)           # dbox/extensions
-    _proj_root = os.path.dirname(_ext_root)     # dbox/
+    _proj_root = os.path.dirname(base)          # dbox/（base 已是 dbox/extensions）
     if _proj_root not in sys.path:
         sys.path.insert(0, _proj_root)
     for sc in scripts.values():
@@ -48,7 +47,7 @@ def _load_plugins(app):
         try:
             import importlib
             mod = importlib.import_module(
-                'extensions.scripts.%s.%s' % (sc['id'], mod_path))
+                'extensions.%s.%s' % (sc['id'], mod_path))
             factory = getattr(mod, be.get('factory', 'create_blueprint'))
             host = build_host(sc, app)
             bp = factory(host)
