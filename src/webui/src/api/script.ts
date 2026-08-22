@@ -20,7 +20,7 @@ export interface ScriptUI {
   entry?: string
   needs_credential?: boolean
   sandbox?: string
-  /** 独立全屏路由路径（如 "/ai-chat"），由框架动态注册；不声明则无独立页。 */
+  /** 独立全屏路由路径（如 "/ai-assistant"），由框架动态注册；不声明则无独立页。 */
   standalone_route?: string
   /** 忙碌态/未读轮询接口（相对路径），声明后悬浮气泡入口会周期轮询该接口。 */
   busy_poll?: string
