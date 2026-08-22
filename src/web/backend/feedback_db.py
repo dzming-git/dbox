@@ -413,7 +413,7 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
     """创建一条反馈，返回新单号（yyyymmdd+4 位）。
 
     线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
-    AI 助手提单时使用 submitter='自动助手'、source='ai_assistant'、auto_classified=True，
+    AI 助手提单时使用 submitter='自动助手'、source='assistant'、auto_classified=True，
     与项目「反馈中心交互使用自动助手身份」的准则一致。
 
     status / extra 为可选扩展：AI 助手处理完成后的「跟踪单」可传入

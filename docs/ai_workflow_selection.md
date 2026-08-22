@@ -15,7 +15,7 @@
 1. **概念不直观**：「意图」对用户是黑盒，用户无法感知、无法干预，也无法复用。
 2. **无差异流程**：4 类意图只是改了 prompt 措辞，没有真正分叉执行步骤
    （例如「缺陷」明明应该「先查 git → 建单 → 处理 → 最后查 git」，但实际没有这几步）。
-3. **不可扩展**：判断逻辑与提示词写死在 `ai_chat.py` 里，新增一类工作流必须改代码。
+3. **不可扩展**：判断逻辑与提示词写死在具体模块里，新增一类工作流必须改代码。
 
 用户诉求：
 
@@ -38,9 +38,9 @@
 │    └─ 点击展开：工作流选择面板 + 「自动推断：开/关」开关               │
 │  输入框（发送前带上 workflow_id，可选 manual_override 标志）          │
 └───────────────┬───────────────────────────────────────────────────┘
-                │  POST /api/ai-chat  { message, workflow_id?, manual? }
+                │  POST /api/<chat-route>  { message, workflow_id?, manual? }
                 ▼
-┌───────────────────────── 后端 ai_chat.py ──────────────────────────┐
+┌───────────────────────── 后端 chat 模块 ──────────────────────────┐
 │  WorkflowEngine（框架，代码固定）                                    │
 │    ├─ load_workflows()     读取 workflows/*.yaml                    │
 │    ├─ infer_workflow(msg)  实时推断（可选，调 CodeBuddy 分类）       │
@@ -60,7 +60,7 @@
 
 ## 3. 配置文件 Schema（方案 2 的核心）
 
-文件位置：`extensions/ai_assistant/workflows/*.yaml`（每个工作流一个文件，便于独立维护）。
+文件位置：`extensions/<plugin_id>/workflows/*.yaml`（每个工作流一个文件，便于独立维护）。
 
 统一字段：
 
@@ -155,7 +155,7 @@ steps:
 
 ## 5. 后端框架设计（代码固定部分）
 
-`WorkflowEngine`（新增于 `ai_chat.py` 或独立 `workflow_engine.py`）：
+`WorkflowEngine`（新增于 chat 模块或独立 `workflow_engine.py`）：
 
 ```python
 class WorkflowEngine:
@@ -271,17 +271,17 @@ class WorkflowEngine:
 1. 「建议 / 缺陷」**保持两个**（分类边界清晰）。✅ 已实现（suggest.yaml / defect.yaml）。
 2. `resume`（继续）**默认手动、不推断**。✅ 已实现（auto_infer=false）。
 3. `ask` 步骤**一期即做真正挂起/恢复**（worker 阻塞 + 前端选择卡 + answer 接口唤醒）。✅ 已实现。
-4. 配置文件放 `extensions/ai_assistant/workflows/`。✅ 已实现。
+4. 配置文件放 `extensions/<plugin_id>/workflows/`。✅ 已实现。
 
 ## 11. 实现记录（一期落地）
 
 - 后端框架：`src/extensions_host/workflow_engine.py`（加载 yaml / 关键词推断 / 编译 prompt / 执行 shell 步）。
-- 配置：`extensions/ai_assistant/workflows/{defect,suggest,resume,chat}.yaml`。
-- `ai_chat.py`：`enqueue` 增 `workflow_id`/`manual`；`_process` 改为配置驱动；新增 `list_workflows`、
+- 配置：`extensions/<plugin_id>/workflows/{defect,suggest,resume,chat}.yaml`。
+- chat 模块：`enqueue` 增 `workflow_id`/`manual`；`_process` 改为配置驱动；新增 `list_workflows`、
   `_resolve_workflow`、`_run_ask_step`（挂起）、`answer_task`（唤醒）、`_git_has_new_commit`、`_recent_unfinished_tasks`；
-  `ai_tasks` 表新增 `extra` 列（存 workflow 元数据）。
-- `routes.py`：`ai_chat_enqueue` 透传 workflow；新增 `GET /api/ai-chat/workflows`、
-  `POST /api/ai-chat/tasks/<id>/answer`。
+  tasks 表新增 `extra` 列（存 workflow 元数据）。
+- `routes.py`：入队接口透传 workflow；新增 `GET /api/<chat-route>/workflows`、
+  `POST /api/<chat-route>/tasks/<id>/answer`。
 - 前端 `panel.html`：顶部「工作流选择」醒目按钮 + 选择浮层 + 自动推断开关；发送带参；
   SSE `workflow` 回显、`ask` 弹选择卡。
 

@@ -2,8 +2,8 @@
 """通用凭证保险库（cookie / token / password / apikey 统一管理）。
 
 设计目标：
-- 与具体业务解耦，放在 ``common`` 包，供 ``script_engine``、``feedback_ai``
-  等任意子系统复用，不依附于任何单一子系统。
+- 与具体业务解耦，放在 ``common`` 包，供脚本引擎、反馈处理等任意子系统复用，
+  不依附于任何单一子系统。
 - 支持多种凭证类型（``kind``）：
   * ``cookie``  ：浏览器 cookie 集合，可物化为 Netscape/cookies.txt、JSON、header。
   * ``token``   ：API token / bearer key，物化为单文件，便于注入到

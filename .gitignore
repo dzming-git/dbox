@@ -144,17 +144,9 @@ scripts/restore_*.py
 scripts/clean_*.py
 
 # ============================================
-# 用户自定义外部脚本（仅本地运行，不纳入 git）
-# 框架内置示例 demo_download 仍需纳管，故显式放行；
-# 其余 extensions/scripts/<任意id>/ 目录均忽略。
-# 新增内置脚本时，需在此追加对应的 !extensions/scripts/<id>/ 放行。
+# 扩展 / 插件
+# 所有扩展均按需放置、自行维护，主仓库不跟踪任何具体插件目录，
+# 也不在此登记任何插件名称（含私有插件），避免泄露其存在。
 # ============================================
 extensions/scripts/*/
-!extensions/scripts/demo_download/
-!extensions/scripts/x_downloader/
-!extensions/scripts/feedback_ai/
-!extensions/scripts/ai_chat/
-
-# ai_assistant 是独立仓库（外部扩展，已抽离为独立 git 仓库），
-# 主仓库不跟踪其内容，仅保留本地目录供运行时加载。
-extensions/ai_assistant/
+extensions/*/

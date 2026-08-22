@@ -15,7 +15,7 @@
 | **契约通信** | 插件只通过框架注入的 `host` 宿主对象与框架交互，禁止 `import` 框架业务代码 |
 | **独立命名空间** | 插件路由统一挂载在 `/api/ext/<plugin_id>/*`，互不冲突、可单独卸载 |
 | **声明式** | 框架只需读取 `manifest.json`，不感知任何插件业务逻辑 |
-| **框架零硬编码** | **框架任何源码（后端 / 前端）不得出现具体插件 id**（如 `ai_chat`）。插件是否启用、如何挂载、是否有独立路由、是否轮询忙碌态，全部由 manifest 字段声明，前端按字段动态渲染。删掉插件目录后，其所有行为自动消失，框架代码原样不变 |
+| **框架零硬编码** | **框架任何源码（后端 / 前端）不得出现具体插件 id**。插件是否启用、如何挂载、是否有独立路由、是否轮询忙碌态，全部由 manifest 字段声明，前端按字段动态渲染。删掉插件目录后，其所有行为自动消失，框架代码原样不变 |
 
 ---
 
@@ -25,7 +25,7 @@
 
 ```
 extensions/                        ← 所有插件的根（框架仅扫描此一级）
-├── ai_assistant/                       ← 插件根目录（= 压缩包解压目标）
+├── <plugin_id>/                   ← 插件根目录（= 压缩包解压目标）
 │   ├── manifest.json              ← 唯一入口：元信息 + 能力声明
 │   ├── backend/                   ← 插件后端（可选，纯前端插件可无）
 │   │   ├── server.py              ← 导出 create_blueprint(host) 工厂
@@ -57,28 +57,28 @@ extensions/                        ← 所有插件的根（框架仅扫描此�
 
 ```json
 {
-  "id": "ai_assistant",
-  "name": "AI 助手对话",
+  "id": "<plugin_id>",
+  "name": "插件显示名",
   "version": "1.0.0",
-  "description": "右下角悬浮球，与 AI 对话",
+  "description": "插件描述",
   "enabled": true,
   "api_version": 1,
 
   "ui": {
     "mount": "floating",          // floating | tab | sidebar | none
-    "title": "AI 助手",
+    "title": "插件标题",
     "icon": "💬",
     "entry": "panel.html",        // ⚠️ 相对 ui/ 目录，不是 "ui/panel.html"（框架自动拼 ui/）
     "sandbox": "allow-scripts allow-same-origin",
     "needs_credential": { "kind": "token", "domain": "codebuddy" },
-    "standalone_route": "/ai-assistant",   // 可选：声明后框架动态注册独立全屏路由
-    "busy_poll": "/api/ext/ai_assistant/tasks"  // 可选：声明后悬浮气泡周期轮询该接口（驱动忙碌/未读态）
+    "standalone_route": "/<route>",   // 可选：声明后框架动态注册独立全屏路由
+    "busy_poll": "/api/ext/<plugin_id>/tasks"  // 可选：声明后悬浮气泡周期轮询该接口（驱动忙碌/未读态）
   },
 
   "backend": {                     // 省略则表示纯前端/脚本型插件
     "module": "backend.server",   // 框架动态 import 的模块路径
     "factory": "create_blueprint",// 该模块导出的工厂函数名
-    "url_prefix": "/api/ext/ai_assistant",
+    "url_prefix": "/api/ext/<plugin_id>",
     "needs": ["codebuddy_token"]  // 声明需要的宿主能力（见 §4）
   }
 }
@@ -111,26 +111,26 @@ extensions/                        ← 所有插件的根（框架仅扫描此�
 
 ```python
 def create_blueprint(host):
-    bp = Blueprint('ext_ai_assistant', __name__,
+    bp = Blueprint('ext_<plugin_id>', __name__,
                    url_prefix=host.url_prefix)
 
     @bp.route('/chat', methods=['POST'])
     @host.login_required
     def chat():
         # 1) 数据目录（插件私有，删插件即清空）
-        db_path = os.path.join(host.data_dir, 'ai_assistant.db')
+        db_path = os.path.join(host.data_dir, '<plugin_id>.db')
 
         # 2) 凭证读取（替代直接 import credential_vault）
         token = host.vault.get('codebuddy_token')
 
         # 3) 统一任务表注册（替代直接 import unified_tasks）
-        host.tasks.create(kind='ai_assistant', title='...', owner_id=host.user_id)
+        host.tasks.create(kind='<plugin_id>', title='...', owner_id=host.user_id)
 
         # 4) 调用外部服务（替代 import platform_client）
         host.http.post('http://localhost:8080/internal/feedback', json={})
 
         # 5) 日志
-        host.logger.info('ai_assistant enqueue %s', task_id)
+        host.logger.info('<plugin_id> enqueue %s', task_id)
 
         # 6) 插件自维护状态（框架不感知）
         host.app_state['mgr'] = AIChatManager()
@@ -212,21 +212,21 @@ def _load_plugins(app):
 
 ---
 
-## 7. 迁移检查清单（以 ai_assistant 为例）
+## 7. 迁移检查清单（以任一插件为例，下文用 `<plugin_id>` 泛指）
 
-- [ ] 将插件目录放到 `extensions/ai_assistant/`（扁平，无 `scripts` 中间层）
-- [ ] 创建 `extensions/ai_assistant/backend/server.py` 导出 `create_blueprint(host)`
-- [ ] 将 `ai_assistant.py` / `workflow_engine.py` / `plan_manager.py` 移入 `backend/`
+- [ ] 将插件目录放到 `extensions/<plugin_id>/`（扁平，无 `scripts` 中间层）
+- [ ] 创建 `extensions/<plugin_id>/backend/server.py` 导出 `create_blueprint(host)`
+- [ ] 将插件主逻辑模块移入 `backend/`
 - [ ] 替换所有 `from shared.xxx import` → `host.xxx`
-- [ ] 替换 `from ai_assistant import ai_mgr` / `from workflow_engine` → 同目录相对 import
-- [ ] 路由前缀改为 `/api/ext/ai_assistant/*`（manifest `backend.url_prefix`）
+- [ ] 替换跨模块顶层 import → 同目录相对 import
+- [ ] 路由前缀改为 `/api/ext/<plugin_id>/*`（manifest `backend.url_prefix`）
 - [ ] `manifest.json` 增加 `backend` 段；`ui.entry` 写 `panel.html`（非 `ui/panel.html`）
-- [ ] 若需独立全屏页：`ui.standalone_route: "/ai-assistant"`；若需气泡轮询：`ui.busy_poll`
-- [ ] 从 `routes.py` 删除所有 `/api/ai-assistant/*` 硬编码路由
-- [ ] 从 `extensions_host` 包移除 `ai_assistant.py` / `workflow_engine.py` / `plan_manager.py`
-- [ ] **前端**：`router/index.ts` 不得写死 `/ai-assistant`，改为 `registerExtensionRoutes()` 动态注册
-- [ ] **前端**：`ExtensionHost.vue` 不得写死 `ai_assistant`，改为遍历 `busy_poll` / `standalone_route`
-- [ ] 验证：删除 `ai_assistant/` 文件夹，框架启动不报错；刷新前端 `/ai-assistant` 自然失效
+- [ ] 若需独立全屏页：`ui.standalone_route`；若需气泡轮询：`ui.busy_poll`
+- [ ] 从 `routes.py` 删除所有该插件的硬编码路由
+- [ ] 从 `extensions_host` 包移除插件专有模块
+- [ ] **前端**：`router/index.ts` 不得写死具体路由，改为 `registerExtensionRoutes()` 动态注册
+- [ ] **前端**：`ExtensionHost.vue` 不得写死具体插件 id，改为遍历 `busy_poll` / `standalone_route`
+- [ ] 验证：删除该插件文件夹，框架启动不报错；刷新前端对应路由自然失效
 - [ ] 更新本文档与 `ai_workflow_selection.md` 中的路径引用
 
 ---
@@ -235,13 +235,13 @@ def _load_plugins(app):
 
 ```python
 # ❌ 禁止：插件 import 框架内部模块
-from extensions_host.ai_chat import ai_mgr
+from extensions_host.<some_module> import some_mgr
 from shared.credential_vault import CredentialVault
 from manager import mgr
 import web.core.models
 
 # ❌ 禁止：插件路由使用框架全局命名空间
-@script_bp.route('/api/ai-chat', methods=['POST'])
+@script_bp.route('/api/<some-route>', methods=['POST'])
 
 # ❌ 禁止：插件直接解析 JWT / 处理鉴权
 token = request.headers.get('Authorization')
@@ -254,9 +254,9 @@ def handler(): ...
 
 ```typescript
 // ❌ 禁止：前端源码写死具体插件 id
-if (ext.id === 'ai_chat') { ... }
-const resp = await fetch('/api/ext/ai_chat/tasks')
-router.addRoute({ path: '/ai-chat', ... })
+if (ext.id === '<plugin_id>') { ... }
+const resp = await fetch('/api/ext/<plugin_id>/tasks')
+router.addRoute({ path: '/<some-route>', ... })
 
 // ✅ 正确：按 manifest 字段驱动，id 完全来自数据
 if (ext.ui?.standalone_route) router.addRoute({ path: ext.ui.standalone_route, ... })
