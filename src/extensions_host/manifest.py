@@ -52,6 +52,10 @@ def _load_one(ms_dir):
             data.setdefault('interface', 1)
             data.setdefault('runtime', 'executable')
             data.setdefault('timeout', 0)
+            # 透传 settings 段（插件独立设置页 schema）；框架按 schema 动态渲染表单。
+            # 每项: {key, label, type, default, options?, required?, description?, group?}
+            # type ∈ switch | text | number | radio | checkbox | select
+            data.setdefault('settings', [])
             return data
         except Exception as e:
             return {'_dir': ms_dir, 'id': os.path.basename(ms_dir), '_error': str(e)}

@@ -237,6 +237,52 @@ class ScriptJobManager:
             self._save_state()
         return True
 
+    # ---------- 插件独立设置（由 manifest.settings schema 驱动） ----------
+    def _settings_path(self, script_id: str):
+        if not self.base_dir:
+            return None
+        d = os.path.join(self.base_dir, '..', 'data', 'plugins', script_id)
+        return os.path.abspath(d)
+
+    def get_settings(self, script_id: str) -> dict:
+        """返回插件当前保存的设置 {key: value}，缺失项回退到 manifest 默认值。"""
+        sc = self.scripts.get(script_id)
+        if not sc:
+            return {}
+        schema = sc.get('settings', [])
+        # manifest 默认值
+        out = {s['key']: s.get('default') for s in schema if 'key' in s}
+        p = self._settings_path(script_id)
+        fp = os.path.join(p, 'settings.json') if p else None
+        if fp and os.path.isfile(fp):
+            try:
+                saved = json.load(open(fp, 'r', encoding='utf-8'))
+                if isinstance(saved, dict):
+                    out.update(saved)
+            except Exception:
+                pass
+        return out
+
+    def set_settings(self, script_id: str, values: dict) -> bool:
+        """保存插件设置（按 schema 过滤非法 key，仅保留 manifest 声明的项）。"""
+        sc = self.scripts.get(script_id)
+        if not sc:
+            return False
+        schema = sc.get('settings', [])
+        allowed = {s['key'] for s in schema if 'key' in s}
+        clean = {k: v for k, v in (values or {}).items() if k in allowed}
+        p = self._settings_path(script_id)
+        if not p:
+            return False
+        try:
+            os.makedirs(p, exist_ok=True)
+            with open(os.path.join(p, 'settings.json'), 'w', encoding='utf-8') as f:
+                json.dump(clean, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f'[script_engine] 保存插件设置失败 {script_id}: {e}')
+            return False
+
     # ---------- 参数校验 ----------
     def _validate_params(self, manifest, params):
         params = dict(params or {})
