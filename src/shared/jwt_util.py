@@ -43,11 +43,11 @@ def verify_access(token: str, secret: str = None) -> dict:
 
 
 def role_of(token: str, secret: str = None) -> int:
-    """返回令牌中的角色等级（0=访客,1=用户,2=管理员,3=超级管理员）；无效返回 -1。"""
+    """返回令牌中的角色等级（数值越小权限越高：0=ROOT,1=ADMIN,2=USER,3=GUEST）；无效返回 -1。"""
     payload = verify_access(token, secret)
     if not payload:
         return -1
-    return int(payload.get('role', 0) or 0)
+    return int(payload.get('role', 3) or 3)  # 3 = GUEST，未登录默认最低权限
 
 
 def user_id_of(token: str, secret: str = None) -> int:

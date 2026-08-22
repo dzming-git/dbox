@@ -10,7 +10,7 @@ const userStore = useUserStore()
 
 // ROOT 账号仅允许 ROOT 自身操作；普通管理员（ADMIN）不能创建/编辑/删除 ROOT
 const canManageRoot = computed(() => userStore.isRoot)
-const isRootUser = (u: any) => u.role >= 3
+const isRootUser = (u: any) => u.role <= UserRole.ROOT
 
 const users = ref<any[]>([])
 const usersLoading = ref(false)

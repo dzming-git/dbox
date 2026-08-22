@@ -102,7 +102,7 @@ def api_get_settings():
         'defaults': SETTINGS_DEFAULTS,
         'global': global_data,
         'user': user_data,
-        'is_admin': role >= UserRole.ADMIN,
+        'is_admin': role <= UserRole.ADMIN,
     })
 
 @bp.route('/api/settings', methods=['POST'])
@@ -125,7 +125,7 @@ def api_save_settings():
         return jsonify({'success': False, 'message': 'settings 必须是对象', 'code': 400}), 400
 
     if scope == 'global':
-        if role < UserRole.ADMIN:
+        if role > UserRole.ADMIN:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
         owner = ''
     elif scope == 'user':
@@ -753,7 +753,7 @@ def create_admin_user():
         role = role_map.get(role_str, UserRole.USER)
 
         # ROOT 账号仅允许 ROOT 创建，防止普通管理员越权提权
-        if role == UserRole.ROOT and g.role < UserRole.ROOT:
+        if role == UserRole.ROOT and g.role > UserRole.ROOT:
             return jsonify({'success': False, 'message': '只有超级管理员可以创建超级管理员账号'}), 403
 
         if not username or not password:
@@ -811,10 +811,10 @@ def update_admin_user(user_id):
             }
             new_role = role_map.get(data['role'], UserRole.USER)
             # ROOT 账号仅允许 ROOT 修改
-            if user.role == UserRole.ROOT and g.role < UserRole.ROOT:
+            if user.role == UserRole.ROOT and g.role > UserRole.ROOT:
                 return jsonify({'success': False, 'message': '只有超级管理员可以修改超级管理员账号'}), 403
             # 禁止普通管理员把任意账号提权为 ROOT
-            if new_role == UserRole.ROOT and g.role < UserRole.ROOT:
+            if new_role == UserRole.ROOT and g.role > UserRole.ROOT:
                 return jsonify({'success': False, 'message': '只有超级管理员可以设置超级管理员角色'}), 403
             user.role = new_role
 
@@ -847,7 +847,7 @@ def delete_admin_user(user_id):
     try:
         user = User.query.get_or_404(user_id)
         # ROOT 账号仅允许 ROOT 删除
-        if user.role == UserRole.ROOT and g.role < UserRole.ROOT:
+        if user.role == UserRole.ROOT and g.role > UserRole.ROOT:
             return jsonify({'success': False, 'message': '只有超级管理员可以删除超级管理员账号'}), 403
         if user.id == g.user_id:
             return jsonify({'success': False, 'message': '不能删除当前登录用户'}), 400
@@ -865,10 +865,10 @@ def delete_admin_user(user_id):
 def _effective_library_perm(user, library_id):
     """返回用户对某库的实际生效权限级别：'none'/'read'/'write'/'admin'/'full'。
 
-    管理员(role>=ADMIN)对激活库恒为 'full'；普通用户取直接授权/用户组授权/通用授权中
+    管理员(role<=ADMIN，数值越小权限越高)对激活库恒为 'full'；普通用户取直接授权/用户组授权/通用授权中
     最高的一档（admin > write > read；custom 按 permissions 推断，这里简化为 read/write）。
     """
-    if user.role >= UserRole.ADMIN:
+    if user.role <= UserRole.ADMIN:
         lib = ResourceLibrary.query.get(library_id)
         if lib and lib.is_active:
             return 'full'
@@ -917,7 +917,7 @@ def get_user_library_permissions(user_id):
         } for lib in libraries]
         return jsonify({
             'success': True,
-            'is_admin': user.role >= UserRole.ADMIN,
+            'is_admin': user.role <= UserRole.ADMIN,
             'libraries': data,
         })
     except Exception as e:
@@ -933,11 +933,11 @@ def set_user_library_permissions(user_id):
     仅修改该用户的「直接授权」记录。'none' 表示显式拒绝该用户访问该库：写入一条
     access_level='none' 的直接授权（而非仅删除），以覆盖「通用授权(user_id=NULL) /
     用户组授权」，否则对通过通用/组授权获得该库权限的用户，撤回直接授权无效。
-    管理员(role>=ADMIN)对所有激活库默认可读写，不允许通过此接口改降。
+    管理员(role<=ADMIN，数值越小权限越高)对所有激活库默认可读写，不允许通过此接口改降。
     """
     try:
         user = User.query.get_or_404(user_id)
-        if user.role >= UserRole.ADMIN:
+        if user.role <= UserRole.ADMIN:
             return jsonify({'success': False, 'message': '管理员默认拥有全部资源库权限，无需单独设置'}), 400
         data = request.get_json(silent=True) or {}
         items = data.get('permissions', [])

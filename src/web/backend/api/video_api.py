@@ -1067,7 +1067,7 @@ def search_tags():
         user_role = getattr(g, 'role', None)
 
         # 判断是否是管理员/ROOT
-        is_admin = user_id and user_role in [2, 3]  # ADMIN=2, ROOT=3
+        is_admin = user_id and user_role in [UserRole.ROOT, UserRole.ADMIN]  # ROOT=0, ADMIN=1
 
         # 构建查询：匹配路径包含关键词的标签
         query = Tag.query.filter(Tag.path.like(f'%{keyword}%'))
@@ -1212,7 +1212,7 @@ def get_tags():
         
         # ============ 获取用户可访问的资源库 ============
         user_id = None
-        user_role = 0
+        user_role = UserRole.GUEST
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
             try:
@@ -1220,7 +1220,7 @@ def get_tags():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
-                user_role = _payload.get('role', 0)
+                user_role = _payload.get('role', UserRole.GUEST)
             except Exception:
                 pass
         user_id, user_role = resolve_identity()
@@ -1246,7 +1246,7 @@ def get_tags():
                         if lib and lib.is_active and perm.library_id not in allowed_library_ids:
                             allowed_library_ids.append(perm.library_id)
         
-        is_admin = user_id and user_role in [2, 3]
+        is_admin = user_id and user_role in [UserRole.ROOT, UserRole.ADMIN]
         
         # 检查用户是否有资源库权限
         has_library_access = is_admin or (user_id and allowed_library_ids)

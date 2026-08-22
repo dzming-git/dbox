@@ -226,12 +226,12 @@ export interface ThumbnailTask {
   thumbnail_path?: string
 }
 
-// 角色枚举
+// 角色枚举（数值越小权限越高）
 export enum UserRole {
-  GUEST = 0,
-  USER = 1,
-  ADMIN = 2,
-  ROOT = 3
+  ROOT = 0,
+  ADMIN = 1,
+  USER = 2,
+  GUEST = 3
 }
 
 // 意见建议 / Issue（参考 GitHub Issue 风格）

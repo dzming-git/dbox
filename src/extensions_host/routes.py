@@ -28,10 +28,10 @@ import subprocess
 _DEFAULT_JWT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
 
 # 角色阈值：本地常量，避免直接 import 主服务的 core.models。
-# 必须与 core.models.UserRole 的数值保持一致：USER=1, ADMIN=2, ROOT=3。
-# 判定用 g.role >= ADMIN_ROLE，故 ADMIN(2) 与 ROOT(3) 均视为管理员。
-# （历史上此处曾误写为 100，导致 ROOT 用户实际被 403 拦截。）
-ADMIN_ROLE = 2
+# 必须与 core.models.UserRole 的数值保持一致（数值越小权限越高）：
+#   ROOT=0, ADMIN=1, USER=2, GUEST=3。
+# 判定用 g.role <= ADMIN_ROLE（数值越小权限越高），故 ROOT(0) 与 ADMIN(1) 均视为管理员。
+ADMIN_ROLE = 1  # 对应 UserRole.ADMIN（数值越小权限越高）
 
 
 def _resolve_jwt_secrets():
@@ -78,9 +78,9 @@ def admin_required(f):
         if payload.get('type') != 'access':
             return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
         g.user_id = payload.get('user_id')
-        g.role = payload.get('role', 0)
+        g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
         g.username = payload.get('username')
-        if g.role < ADMIN_ROLE:
+        if g.role > ADMIN_ROLE:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
         return f(*args, **kwargs)
     return decorated
@@ -112,7 +112,7 @@ def login_required(f):
         if payload.get('type') != 'access':
             return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
         g.user_id = payload.get('user_id')
-        g.role = payload.get('role', 0)
+        g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
         g.username = payload.get('username')
         return f(*args, **kwargs)
     return decorated

@@ -52,7 +52,7 @@ def _resolve_identity():
             try:
                 payload = _jwt.decode(auth[7:], JWT_SECRET_KEY)
                 if payload.get('type') == 'access':
-                    return payload.get('user_id'), int(payload.get('role', 0))
+                    return payload.get('user_id'), int(payload.get('role', UserRole.GUEST))
             except Exception:
                 pass
     try:
@@ -77,7 +77,7 @@ def current_interaction_key():
 
 def _is_admin():
     _, role = _resolve_identity()
-    return role >= UserRole.ADMIN
+    return role <= UserRole.ADMIN
 
 
 def _gallery_auth_ok():

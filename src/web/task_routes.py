@@ -35,7 +35,7 @@ def _is_admin(role):
     if isinstance(role, str):
         return role in ('admin', 'root')
     try:
-        return int(role) >= UserRole.ADMIN
+        return int(role) <= UserRole.ADMIN
     except (TypeError, ValueError):
         return False
 

@@ -23,8 +23,8 @@ export const useUserStore = defineStore('user', () => {
   const refreshToken = ref<string | null>(localStorage.getItem('refresh_token'))
   
   const isLoggedIn = computed(() => !!token.value)
-  const isAdmin = computed(() => 
-    user.value?.role !== undefined && user.value.role >= UserRole.ADMIN
+  const isAdmin = computed(() =>
+    user.value?.role !== undefined && user.value.role <= UserRole.ADMIN
   )
   const isRoot = computed(() => 
     user.value?.role === UserRole.ROOT

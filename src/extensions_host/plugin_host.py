@@ -130,7 +130,7 @@ class Host:
             if payload.get('type') != 'access':
                 return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
             g.user_id = payload.get('user_id')
-            g.role = payload.get('role', 0)
+            g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
             g.username = payload.get('username')
             return f(*args, **kwargs)
         return decorated
@@ -155,9 +155,9 @@ class Host:
             if payload.get('type') != 'access':
                 return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
             g.user_id = payload.get('user_id')
-            g.role = payload.get('role', 0)
+            g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
             g.username = payload.get('username')
-            if g.role < ADMIN_ROLE:
+            if g.role > ADMIN_ROLE:
                 return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
             return f(*args, **kwargs)
         return decorated

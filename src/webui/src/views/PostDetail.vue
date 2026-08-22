@@ -176,7 +176,7 @@ const toggleWatchLater = () => {
 const canManage = computed(() => {
   const u = userStore.user
   if (!u || !post.value) return false
-  return u.role >= 2 || u.id === post.value.owner_id
+  return u.role <= UserRole.ADMIN || u.id === post.value.owner_id
 })
 
 // 删除弹卡
