@@ -155,7 +155,7 @@ def ingest_asset(app, library_id, path, kind,
 - 脚本运行 UI（`AdminScripts.vue`）：解析 manifest 的 `target_modes`（`multi_enum` 类型，manager 已支持校验），
   渲染为多选模式；运行结果回传 `modes` 给 `ingest_asset`。
 - `Texts.vue`（新增，最小）：文本列表 + 查看/新建（调用 textApi）。
-- manifest 示例（`extensions/x_downloader/manifest.json`）：新增
+- manifest 示例（某插件 `extensions/<plugin_id>/manifest.json`）：新增
   ```json
   {"key":"target_modes","label":"入库模式","type":"multi_enum",
    "options":["video","comic","text","dynamic"],"default":["video"]}

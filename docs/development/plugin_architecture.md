@@ -38,8 +38,7 @@ extensions/                        ← 所有插件的根（框架仅扫描此�
 │   │   └── *.yaml
 │   └── requirements.txt           ← 插件私有依赖（可选）
 
-> **注**：示例插件 `ai_assistant` 已抽离为独立仓库 [dbox-ai-assistant](https://github.com/dzming-git/dbox-ai-assistant)，不再位于本仓库 `extensions/` 内；此处仅作契约示例。
-├── x_downloader/                  ← 另一个插件（同样自包含）
+> **注**：`extensions/` 下的每个插件都是自包含目录，插件本体可独立维护、按需放置；框架扫描 `extensions/` 一级子目录即可发现并加载，无需在本仓库登记。
 └── ...
 ```
 
