@@ -12,19 +12,19 @@ db = SQLAlchemy()
 
 
 class UserRole(IntEnum):
-    """用户角色枚举"""
-    GUEST = 0      # 游客 - 未登录用户
-    USER = 1       # 普通用户
-    ADMIN = 2      # 管理员
-    ROOT = 3       # 超级管理员
+    """用户角色枚举（数值越小权限越高）"""
+    ROOT = 0       # 超级管理员
+    ADMIN = 1      # 管理员
+    USER = 2       # 普通用户
+    GUEST = 3      # 游客 - 未登录用户
 
 
 # 角色名称映射
 ROLE_NAMES = {
-    UserRole.GUEST: '游客',
-    UserRole.USER: '用户',
+    UserRole.ROOT: '超级管理员',
     UserRole.ADMIN: '管理员',
-    UserRole.ROOT: '超级管理员'
+    UserRole.USER: '用户',
+    UserRole.GUEST: '游客',
 }
 
 
@@ -60,18 +60,20 @@ class User(db.Model):
 
     def has_permission(self, required_role):
         """检查是否具有指定权限
-        
+
+        约定：数值越小权限越高，故权限满足条件为 role <= required_role。
+
         Args:
             required_role: 需要的角色 (UserRole枚举值)
-        
+
         Returns:
             bool: 是否具有权限
         """
-        return self.role >= required_role
+        return self.role <= required_role
 
     def is_admin_or_above(self):
-        """是否是管理员或以上"""
-        return self.role >= UserRole.ADMIN
+        """是否是管理员或以上（数值越小权限越高，ADMIN=1 含 ROOT=0）"""
+        return self.role <= UserRole.ADMIN
 
     def is_root(self):
         """是否是超级管理员"""

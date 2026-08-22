@@ -81,7 +81,7 @@ def update_post(did):
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Post.query.get_or_404(did)
-    if d.owner_id != user.id and user.role < UserRole.ADMIN:
+    if d.owner_id != user.id and user.role > UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
     data = request.get_json(force=True, silent=True) or {}
     if 'title' in data:
@@ -105,7 +105,7 @@ def delete_post(did):
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Post.query.get_or_404(did)
-    if d.owner_id != user.id and user.role < UserRole.ADMIN:
+    if d.owner_id != user.id and user.role > UserRole.ADMIN:
         return jsonify({'error': '无权删除'}), 403
     data = request.get_json(force=True, silent=True) or {}
     delete_resources = bool(data.get('delete_resources', False))
@@ -161,7 +161,7 @@ def add_post_ref(did):
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Post.query.get_or_404(did)
-    if d.owner_id != user.id and user.role < UserRole.ADMIN:
+    if d.owner_id != user.id and user.role > UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
     data = request.get_json(force=True, silent=True) or {}
     refs = _resolve_post_refs([data])
@@ -181,7 +181,7 @@ def remove_post_ref(did, rid):
     if not user:
         return jsonify({'error': '未登录'}), 401
     d = Post.query.get_or_404(did)
-    if d.owner_id != user.id and user.role < UserRole.ADMIN:
+    if d.owner_id != user.id and user.role > UserRole.ADMIN:
         return jsonify({'error': '无权修改'}), 403
     ref = PostRef.query.filter_by(id=rid, post_id=did).first_or_404()
     db.session.delete(ref)
@@ -368,7 +368,7 @@ def available_modes():
 def repoint_resource_index(rid):
     """重新指向磁盘位置：移动 / 重命名资源只需更新索引表一行，所有引用它的实体自动跟随。"""
     user = AuthService.get_current_user()
-    if not user or user.role < UserRole.ADMIN:
+    if not user or user.role > UserRole.ADMIN:
         return jsonify({'error': '需要管理员权限'}), 403
     ri = ResourceIndex.query.get_or_404(rid)
     data = request.get_json(force=True, silent=True) or {}
@@ -387,7 +387,7 @@ def set_resource_index_hidden(rid):
     仅管理员可操作（来自帖子详情点进资源界面后编辑）。
     """
     user_id, role = resolve_identity()
-    if not user_id or role < UserRole.ADMIN:
+    if not user_id or role > UserRole.ADMIN:
         return jsonify({'error': '需要管理员权限'}), 403
     ri = ResourceIndex.query.get_or_404(rid)
     data = request.get_json(force=True, silent=True) or {}

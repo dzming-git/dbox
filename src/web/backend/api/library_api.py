@@ -84,7 +84,7 @@ def get_my_libraries():
         user_id, role = resolve_identity()
         if not user_id:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-        if role >= UserRole.ADMIN:
+        if role <= UserRole.ADMIN:
             libs = ResourceLibrary.query.order_by(ResourceLibrary.created_at.desc()).all()
         else:
             admin_ids = _user_library_admin_ids(user_id)
@@ -821,7 +821,7 @@ def scan_folder():
         
         # 资源库管理员（非全局管理员）只能扫描其管理的资源库下的文件夹
         user_id, role = resolve_identity()
-        if role < UserRole.ADMIN and _HAS_RESOURCE_DB:
+        if role > UserRole.ADMIN and _HAS_RESOURCE_DB:
             admin_ids = _user_library_admin_ids(user_id)
             allowed = False
             norm_target = os.path.normcase(os.path.abspath(folder_path))
@@ -1159,7 +1159,7 @@ def get_user_libraries():
     """获取当前用户可访问的资源库列表"""
     try:
         user_id = None
-        user_role = 0
+        user_role = UserRole.GUEST
         
         # 方式1: 从 JWT Token 获取用户信息（前端使用）
         auth_header = request.headers.get('Authorization', '')
@@ -1169,7 +1169,7 @@ def get_user_libraries():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 _payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = _payload.get('user_id')
-                user_role = _payload.get('role', 0)
+                user_role = _payload.get('role', UserRole.GUEST)
             except Exception:
                 pass
         
@@ -1253,7 +1253,7 @@ def switch_user_library():
 
         # 验证用户身份：优先 JWT token，其次 session
         user_id = None
-        user_role = 0
+        user_role = UserRole.GUEST
         # 尝试 JWT token
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
@@ -1262,13 +1262,13 @@ def switch_user_library():
                 _secret = 'dbox-jwt-secret-key-change-in-production-2024'
                 payload = _jwt.decode(auth_header[7:], _secret)
                 user_id = payload.get('user_id')
-                user_role = payload.get('role', 0)
+                user_role = payload.get('role', UserRole.GUEST)
             except Exception:
                 pass
         # 无 token 时使用 session
         if not user_id:
             user_id = session.get('user_id')
-            user_role = session.get('role', 0)
+            user_role = session.get('role', UserRole.GUEST)
 
         if not user_id:
             return jsonify({'success': False, 'message': '请先登录'}), 401

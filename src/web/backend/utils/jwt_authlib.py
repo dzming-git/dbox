@@ -7,6 +7,7 @@ from functools import wraps
 from flask import request, jsonify, g
 from typing import Optional, Dict, Any
 from liblog import get_service_logger
+from core.models import UserRole
 log = get_service_logger('dbox-web')
 
 # JWT配置 - 从环境变量读取，生产环境必须设置 DBOX_JWT_SECRET
@@ -119,21 +120,21 @@ def auth_required(f):
 
 
 def admin_required(f):
-    """管理员权限装饰器 - 需要管理员权限"""
+    """管理员权限装饰器 - 需要管理员权限（数值越小权限越高：ROOT=0,ADMIN=1,USER=2,GUEST=3）"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # 检查用户角色
-        user_role = getattr(g, 'user_role', 0)
-        if user_role < 2:  # 角色等级：0=访客, 1=普通用户, 2=管理员, 3=超级管理员
+        user_role = getattr(g, 'user_role', 99)
+        if user_role > UserRole.ADMIN:  # 高于 ADMIN(1) 即权限不足
             return jsonify({
                 'success': False,
                 'data': None,
                 'message': '需要管理员权限',
                 'code': 403
             }), 403
-        
+
         return f(*args, **kwargs)
-    
+
     return decorated_function
 
 
@@ -142,8 +143,8 @@ def root_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # 检查用户角色
-        user_role = getattr(g, 'user_role', 0)
-        if user_role < 3:
+        user_role = getattr(g, 'user_role', 99)
+        if user_role > UserRole.ROOT:
             return jsonify({
                 'success': False,
                 'data': None,

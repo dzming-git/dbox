@@ -97,7 +97,7 @@ def _auth():
 
 
 def _is_admin():
-    return _auth()[1] >= UserRole.ADMIN
+    return _auth()[1] <= UserRole.ADMIN
 
 
 def _strip_contact(issue_dict, admin):

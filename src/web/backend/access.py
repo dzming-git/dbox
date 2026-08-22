@@ -48,7 +48,7 @@ def resolve_identity():
                 except Exception:
                     continue
             if _payload and _payload.get('type') == 'access':
-                return _payload.get('user_id'), int(_payload.get('role', 0))
+                return _payload.get('user_id'), int(_payload.get('role', UserRole.GUEST))
         except Exception:
             pass
         # 前端实际鉴权方式：Bearer 后接的是 session_token（非 JWT），
@@ -80,10 +80,10 @@ def resolve_identity():
                 except Exception:
                     continue
             if _payload and _payload.get('type') == 'access':
-                return _payload.get('user_id'), int(_payload.get('role', 0))
+                return _payload.get('user_id'), int(_payload.get('role', UserRole.GUEST))
         except Exception:
             pass
-    return None, 0
+    return None, UserRole.GUEST
 
 
 def current_interaction_key():
@@ -562,7 +562,7 @@ def auth_required(f):
                     payload = _jwt.decode(token, _secret)
                     if payload.get('type') == 'access':
                         g.user_id = payload.get('user_id')
-                        g.role = payload.get('role', 0)
+                        g.role = payload.get('role', UserRole.GUEST)
                         g.username = payload.get('username')
                         return f(*args, **kwargs)
                 except Exception:
@@ -578,7 +578,7 @@ def admin_required(f):
         user_id, role = resolve_identity()
         if not user_id:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-        if role < UserRole.ADMIN:
+        if role > UserRole.ADMIN:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
         g.user_id = user_id
         g.role = role
@@ -596,7 +596,7 @@ def library_admin_required(param='library_id'):
             user_id, role = resolve_identity()
             if not user_id:
                 return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-            if role >= UserRole.ADMIN:
+            if role <= UserRole.ADMIN:
                 return f(*args, **kwargs)
             lid = kwargs.get(param)
             if param == 'folder_id':
@@ -615,7 +615,7 @@ def resource_manager_required(f):
         user_id, role = resolve_identity()
         if not user_id:
             return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-        if role >= UserRole.ADMIN:
+        if role <= UserRole.ADMIN:
             return f(*args, **kwargs)
         if _user_library_admin_ids(user_id):
             return f(*args, **kwargs)
@@ -658,7 +658,7 @@ def library_write_required(param='library_id'):
             user_id, role = resolve_identity()
             if not user_id:
                 return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-            if role >= UserRole.ADMIN:
+            if role <= UserRole.ADMIN:
                 return f(*args, **kwargs)
             lid = kwargs.get(param)
             if param == 'folder_id':

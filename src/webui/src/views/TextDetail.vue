@@ -23,7 +23,7 @@ const toggleWatchLater = () => {
 }
 
 // 删除（仅管理员，列表/卡片已不再提供删除入口）
-const canManage = computed(() => !!userStore.user && userStore.user.role >= 2)
+const canManage = computed(() => !!userStore.user && userStore.user.role <= UserRole.ADMIN)
 const removeText = async () => {
   if (!text.value) return
   if (!confirm('确定删除该文本？此操作不可恢复。')) return

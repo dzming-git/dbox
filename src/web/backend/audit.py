@@ -20,8 +20,8 @@ from liblog import get_service_logger
 
 log = get_service_logger('dbox-web')
 
-# Role id -> English role name (for log display only)
-_ROLE_NAMES = {0: 'guest', 1: 'user', 2: 'admin', 3: 'super_admin'}
+# Role id -> English role name (for log display only). 数值越小权限越高：0=ROOT,1=ADMIN,2=USER,3=GUEST
+_ROLE_NAMES = {0: 'super_admin', 1: 'admin', 2: 'user', 3: 'guest'}
 
 # Endpoints that should not be recorded by the automatic after_request hook
 _AUTO_AUDIT_EXCLUDE_PREFIXES = (
@@ -51,11 +51,11 @@ def _current_identity():
     """
     cu = getattr(g, 'current_user', None)
     if cu:
-        return cu.get('user_id'), cu.get('username') or '', cu.get('role', 0)
+        return cu.get('user_id'), cu.get('username') or '', cu.get('role', 3)
     cug = getattr(g, 'current_user', None)
     if cug:
-        return cug.get('user_id'), cug.get('username') or '', cug.get('role', 0)
-    return None, '', 0
+        return cug.get('user_id'), cug.get('username') or '', cug.get('role', 3)
+    return None, '', 3
 
 
 def _format_actor(user_id, username, role):
@@ -86,7 +86,7 @@ def log_operation(action, target='', detail='', success=True, user=None, ip=None
     if user is not None:
         uid = user.get('user_id')
         uname = user.get('username') or ''
-        role = user.get('role', 0)
+        role = user.get('role', 3)
     else:
         uid, uname, role = _current_identity()
 

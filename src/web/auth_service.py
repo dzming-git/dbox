@@ -269,7 +269,7 @@ class AuthService:
             bool: 是否具有权限
         """
         current_role = AuthService.get_current_role()
-        return current_role >= required_role
+        return current_role <= required_role
 
     @staticmethod
     def change_password(user_id, old_password, new_password):
