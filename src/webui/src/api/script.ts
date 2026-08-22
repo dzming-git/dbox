@@ -114,6 +114,12 @@ export const scriptApi = {
   saveDefaults: (id: string, defaults: Record<string, any>) =>
     api.put(`/api/admin/scripts/${id}/defaults`, { defaults }),
 
+  // 插件独立设置（由 manifest.settings schema 驱动）
+  getSettings: (id: string) =>
+    api.get(`/api/admin/scripts/${id}/settings`),
+  saveSettings: (id: string, values: Record<string, any>) =>
+    api.put(`/api/admin/scripts/${id}/settings`, { values }),
+
   // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本
   listExtensions: () => api.get('/api/ui-extensions'),
   getPanel: (id: string) => api.get(`/api/ui-panel/${id}`),

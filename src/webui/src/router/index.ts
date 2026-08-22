@@ -159,6 +159,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '拓展脚本', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/plugins',
+    name: 'Plugins',
+    component: () => import('../views/Plugins.vue'),
+    meta: { title: '扩展管理', requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/plugins/:id/settings',
+    name: 'PluginSettings',
+    component: () => import('../views/PluginSettings.vue'),
+    meta: { title: '插件设置', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-assistant）在应用启动时
     // 由 registerExtensionRoutes() 动态 addRoute 注入，框架不在此硬编码任何插件路径。
     path: '/:pathMatch(.*)*',

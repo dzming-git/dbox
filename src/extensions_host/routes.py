@@ -28,8 +28,10 @@ import subprocess
 _DEFAULT_JWT_SECRET = 'dbox-jwt-secret-key-change-in-production-2024'
 
 # 角色阈值：本地常量，避免直接 import 主服务的 core.models。
-# 需与 core.models.UserRole.ADMIN 的数值保持一致（管理员=100）。
-ADMIN_ROLE = 100
+# 必须与 core.models.UserRole 的数值保持一致：USER=1, ADMIN=2, ROOT=3。
+# 判定用 g.role >= ADMIN_ROLE，故 ADMIN(2) 与 ROOT(3) 均视为管理员。
+# （历史上此处曾误写为 100，导致 ROOT 用户实际被 403 拦截。）
+ADMIN_ROLE = 2
 
 
 def _resolve_jwt_secrets():
@@ -246,6 +248,36 @@ def disable_script(script_id):
     if not mgr.set_enabled(script_id, False):
         return jsonify({'success': False, 'message': '脚本不存在'}), 404
     return jsonify({'success': True})
+
+
+@script_bp.route('/api/admin/scripts/<script_id>/settings', methods=['GET'])
+@admin_required
+def get_script_settings(script_id):
+    """读取插件独立设置（按 manifest.settings schema 回退默认值）。"""
+    sc = mgr.scripts.get(script_id)
+    if not sc:
+        return jsonify({'success': False, 'message': '脚本不存在'}), 404
+    schema = sc.get('settings', [])
+    values = mgr.get_settings(script_id)
+    return jsonify({
+        'success': True,
+        'script_id': script_id,
+        'schema': schema,
+        'values': values,
+    })
+
+
+@script_bp.route('/api/admin/scripts/<script_id>/settings', methods=['PUT'])
+@admin_required
+def update_script_settings(script_id):
+    """保存插件独立设置（框架按 manifest.settings 过滤非法 key）。"""
+    body = request.get_json(silent=True) or {}
+    values = body.get('values')
+    if not isinstance(values, dict):
+        return jsonify({'success': False, 'message': 'values 必须是对象'}), 400
+    if not mgr.set_settings(script_id, values):
+        return jsonify({'success': False, 'message': '脚本不存在或保存失败'}), 404
+    return jsonify({'success': True, 'values': mgr.get_settings(script_id)})
 
 
 @script_bp.route('/api/admin/scripts/reload', methods=['POST'])
