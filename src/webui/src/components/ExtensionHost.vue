@@ -36,34 +36,43 @@ function fabBusy(id: string) { return !!busyMap.value[id] }
 // 悬浮气泡入口显示角标，避免用户忘记曾布置过任务。打开面板即清空未读。
 const unreadMap = ref<Record<string, number>>({})
 function fabUnread(id: string) { return unreadMap.value[id] || 0 }
-// 用户「正在看 AI 对话」的两种情形：悬浮面板展开 / 全屏对话页（/ai-chat 路由）。
+// 用户「正在查看某扩展对话」的两种情形：悬浮面板展开 / 处于该扩展的独立全屏路由。
 // 两者都算已查看，未读角标不应增长也不应残留。
-const aiChatViewing = computed(() => openId.value === 'ai_chat' || route.path === '/ai-chat')
-let lastHistoryTop: string | null = null  // 上一次轮询到的最近已完成任务 id
-let seeded = false                         // 首次轮询仅建立基线，不误报未读
+function isViewing(id: string): boolean {
+  if (openId.value === id) return true
+  const ext = extensions.value.find((e) => e.id === id)
+  const routePath = ext?.ui?.standalone_route
+  return !!(routePath && route.path === routePath)
+}
+// 每个扩展独立维护轮询基线（最近一条已完成任务 id），避免相互干扰。
+const lastTopById = ref<Record<string, string | null>>({})
+const seededById = ref<Record<string, boolean>>({})
 let busyTimer: any = null
-async function pollAiBusy() {
-  const hasAi = extensions.value.some((e) => e.id === 'ai_chat' && e.ui?.mount === 'floating')
-  if (!hasAi) { busyMap.value = {}; unreadMap.value = {}; lastHistoryTop = null; seeded = false; return }
-  try {
-    const headers: Record<string, string> = {}
-    if (token.value) headers['Authorization'] = 'Bearer ' + token.value
-    const resp = await fetch('/api/ext/ai_chat/tasks?limit=1', { headers })
-    if (!resp.ok) return
-    const d: any = await resp.json()
-    busyMap.value = { ai_chat: !!(d.active) || (d.pending && d.pending.length > 0) }
-    // 完成态检测：最新一条已完成对话（history 顶部）发生变化 = 有任务刚产出结果。
-    // 若此时面板处于收起状态（用户没在看），记为一条未读；首次轮询只建基线不计数。
-    const topId = d.history && d.history.length ? d.history[0].id : null
-    if (topId && topId !== lastHistoryTop) {
-      // 悬浮面板未展开「且」未处于全屏对话页时，才累计未读；正在看则不算未读
-      if (seeded && !aiChatViewing.value) {
-        unreadMap.value = { ...unreadMap.value, ai_chat: (unreadMap.value.ai_chat || 0) + 1 }
+async function pollBusy() {
+  // 仅轮询声明了 ui.busy_poll 且以 floating 挂载的扩展（如 AI 助手）。
+  const targets = extensions.value.filter((e) => e.ui?.busy_poll && e.ui?.mount === 'floating')
+  if (!targets.length) { busyMap.value = {}; unreadMap.value = {}; return }
+  const headers: Record<string, string> = {}
+  if (token.value) headers['Authorization'] = 'Bearer ' + token.value
+  for (const ext of targets) {
+    const id = ext.id
+    try {
+      const resp = await fetch(ext.ui!.busy_poll as string, { headers })
+      if (!resp.ok) continue
+      const d: any = await resp.json()
+      busyMap.value = { ...busyMap.value, [id]: !!(d.active) || (d.pending && d.pending.length > 0) }
+      const topId = d.history && d.history.length ? d.history[0].id : null
+      const lastTop = lastTopById.value[id] ?? null
+      if (topId && topId !== lastTop) {
+        // 悬浮面板未展开「且」未处于全屏对话页时，才累计未读；正在看则不算未读
+        if ((seededById.value[id]) && !isViewing(id)) {
+          unreadMap.value = { ...unreadMap.value, [id]: (unreadMap.value[id] || 0) + 1 }
+        }
+        lastTopById.value = { ...lastTopById.value, [id]: topId }
       }
-      lastHistoryTop = topId
-    }
-    seeded = true
-  } catch (e) { /* 网络抖动忽略，下个周期重试 */ }
+      seededById.value = { ...seededById.value, [id]: true }
+    } catch (e) { /* 单个扩展网络抖动忽略，下个周期重试 */ }
+  }
 }
 
 async function loadToken() {
@@ -145,9 +154,9 @@ onMounted(async () => {
   await loadExtensions()
   window.addEventListener('message', onMessage)
   syncScrollLock()
-  // 轻量轮询 AI 忙碌态以驱动气泡入口动画（即使面板收起也持续生效）
-  pollAiBusy()
-  busyTimer = setInterval(pollAiBusy, 2000)
+  // 轻量轮询各扩展忙碌态以驱动气泡入口动画（即使面板收起也持续生效）
+  pollBusy()
+  busyTimer = setInterval(pollBusy, 2000)
 })
 
 onUnmounted(() => {
@@ -176,10 +185,14 @@ watch(openId, (id) => {
   syncScrollLock()
 })
 
-// 进入全屏对话页（/ai-chat）即视为已查看：清空未读角标，避免退出后仍提示未读
-watch(aiChatViewing, (v) => {
-  if (v && unreadMap.value['ai_chat']) {
-    unreadMap.value = { ...unreadMap.value, ai_chat: 0 }
+// 路由变化时：若当前进入了某扩展的独立全屏页（其 standalone_route），
+// 视为已查看，清空该扩展未读角标，避免退出后仍提示未读。
+watch(() => route.path, (p) => {
+  for (const ext of extensions.value) {
+    const rp = ext.ui?.standalone_route
+    if (rp && p === rp && unreadMap.value[ext.id]) {
+      unreadMap.value = { ...unreadMap.value, [ext.id]: 0 }
+    }
   }
 })
 </script>
@@ -192,7 +205,7 @@ watch(aiChatViewing, (v) => {
     <template v-for="ext in extensions" :key="ext.id">
       <!-- 悬浮球入口 -->
       <div
-        v-if="ext.ui.mount === 'floating' && !(ext.id === 'ai_chat' && route.path === '/ai-chat')"
+        v-if="ext.ui.mount === 'floating' && !(ext.ui.standalone_route && route.path === ext.ui.standalone_route)"
         class="ext-fab"
         :class="{ 'is-open': openId === ext.id, 'is-busy': fabBusy(ext.id) }"
         :title="ext.ui.title"

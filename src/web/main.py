@@ -139,9 +139,11 @@ register_core_blueprints(app)
 
 # ===== 拓展管理宿主网关代理 =====
 _EXTENSIONS_HOST_URL = 'http://127.0.0.1:8093'
+# 注意：/api/ext 为通用前缀，覆盖所有插件后端（如 /api/ext/<plugin_id>/*），
+# 不在框架中硬编码任何具体插件 id。
 _SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies',
                     '/api/ui-extensions', '/api/ui-panel', '/api/ui-proxy',
-                    '/api/ext/ai_chat')
+                    '/api/ext')
 
 
 def _proxy_to_extensions_host(path):

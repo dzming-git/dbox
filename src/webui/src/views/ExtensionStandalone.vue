@@ -5,13 +5,13 @@ import { scriptApi } from '../api/script'
 
 // 拓展插件式全屏页：按扩展 id 复用其 panel.html（与悬浮面板同一份 UI 资源），
 // 仅在「独享一个界面」的全屏 iframe 中渲染。任意声明了 ui.entry 的扩展都可用此页，
-// 不限于 AI 助手——AI 助手通过 /ai-chat 路由（props.id=ai_chat）独享该界面。
+// 其 id 由路由（registerExtensionRoutes 动态注入的 props.id）或路由参数提供。
 const props = defineProps<{ id?: string }>()
 const route = useRoute()
 const router = useRouter()
 
-const extId = props.id || (route.params.id as string) || 'ai_chat'
-const title = ref('AI 助手')
+const extId = props.id || (route.params.id as string) || ''
+const title = ref('')
 const html = ref('')
 const loading = ref(true)
 const error = ref('')

@@ -12,7 +12,9 @@
     "icon": "💬",
     "entry": "panel.html",
     "needs_credential": { "kind": "token", "domain": "codebuddy" },
-    "sandbox": "allow-scripts allow-same-origin allow-forms allow-popups"
+    "sandbox": "allow-scripts allow-same-origin allow-forms allow-popups",
+    "standalone_route": "/ai-chat",
+    "busy_poll": "/api/ext/ai_chat/tasks"
   },
   "backend": {
     "module": "backend.server",

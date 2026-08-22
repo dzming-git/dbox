@@ -262,7 +262,12 @@ def reload_scripts():
 @script_bp.route('/api/ui-extensions', methods=['GET'])
 @login_required
 def list_extensions():
-    """返回当前已启用且声明了 ui 的脚本 UI 元信息，供前端全局挂载悬浮面板/标签页。"""
+    """返回当前已启用且声明了 ui 的脚本 UI 元信息，供前端全局挂载悬浮面板/标签页。
+
+    注意：ui 段原样透传（不做字段白名单裁剪），以便插件通过 manifest 声明任意
+    自定义能力字段（如 standalone_route、busy_poll），前端按字段动态渲染，框架
+    不硬编码任何插件行为（零入侵原则）。
+    """
     out = []
     for sc in mgr.scripts.values():
         if not sc.get('enabled'):
@@ -280,6 +285,9 @@ def list_extensions():
                 'entry': ui.get('entry'),
                 'needs_credential': bool(ui.get('needs_credential', False)),
                 'sandbox': ui.get('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups'),
+                # 透传插件声明的自定义能力字段（框架不感知其含义，纯数据下发）
+                'standalone_route': ui.get('standalone_route'),
+                'busy_poll': ui.get('busy_poll'),
             },
         })
     return jsonify({'success': True, 'extensions': out})

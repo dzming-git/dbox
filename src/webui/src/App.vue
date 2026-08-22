@@ -774,8 +774,9 @@ body.reader-active .main-content {
   padding-top: 0 !important;
 }
 
-/* 拓展脚本全屏独立页（如 AI 助手 /ai-chat）：隐藏全局导航，让扩展界面独享整个视口。
-   页面自身提供「返回」入口，无需全局导航。仅由 ExtensionStandalone.vue 在挂载时短暂加在 body 上。 */
+/* 拓展脚本全屏独立页（插件在 manifest 的 ui.standalone_route 声明独立路由，如 /ai-chat）：
+   隐藏全局导航，让扩展界面独享整个视口。页面自身提供「返回」入口，无需全局导航。
+   仅由 ExtensionStandalone.vue 在挂载时短暂加在 body 上。 */
 body.ext-standalone .nav {
   display: none !important;
 }
