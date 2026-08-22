@@ -92,7 +92,10 @@ except Exception:
 from backend.trash import move_to_trash, purge_trash, restore_from_trash, get_trash_list, get_trash_obj
 
 # ============ 配置 ============
-app = Flask(__name__)
+# 前端构建产物位于 src/static/dist（Vite outDir: ../static/dist），
+# 此处将 Flask 的 static_folder 指向该目录，使主服务能直接 serve SPA。
+_DIST_DIR = os.path.join(_SRC_DIR, 'static', 'dist')
+app = Flask(__name__, static_folder=_DIST_DIR if os.path.isdir(_DIST_DIR) else None)
 app.config['SECRET_KEY'] = 'dbox2-secret-key-change-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(_DATA_DIR, 'databases', 'dbox.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -129,6 +132,30 @@ with app.app_context():
 # 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变
 from backend.blueprints import register_core_blueprints, register_domain_blueprints
 register_core_blueprints(app)
+
+# ===== SPA 前端入口（serve src/static/dist/index.html） =====
+# 主服务直接托管前端构建产物，支持 history 路由（非 /api 路径均回退到 index.html）。
+import os as _os
+from flask import send_from_directory, send_file as _send_file
+
+_DIST_DIR = _os.path.join(_SRC_DIR, 'static', 'dist')
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def _serve_spa(path):
+    # API 路由已由蓝图处理，此处只处理前端资源
+    if path.startswith('api/'):
+        abort(404)
+    # 尝试静态资源（带哈希的文件名）
+    candidate = _os.path.join(_DIST_DIR, path)
+    if path and _os.path.isfile(candidate):
+        return _send_file(candidate)
+    # SPA 回退：非资源路径返回 index.html
+    index_file = _os.path.join(_DIST_DIR, 'index.html')
+    if _os.path.isfile(index_file):
+        return _send_file(index_file)
+    abort(404)
+
 # 注：「拓展管理」（外部脚本执行引擎、脚本管理、UI 扩展面板、AI 助手、凭证保险库）
 #     已完全独立为 extensions_host 进程（src/extensions_host，端口 8093）。
 #     主 Web 服务不再注册任何 script_engine 蓝图，仅作为网关把相关接口反向代理过去

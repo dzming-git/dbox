@@ -1,6 +1,6 @@
 # 认证API v2 - JWT认证（前后端分离版本）
 from flask import Blueprint, request, jsonify, current_app
-from core.models import db, User, UserSession
+from core.models import db, User, UserSession, UserRole
 from backend.utils.jwt_authlib import create_access_token, create_refresh_token, verify_token, auth_required
 from backend.utils.validators import validate_username, validate_password, validate_email
 from authlib.common.security import generate_token
@@ -429,11 +429,11 @@ def get_current_user():
 
 
 def get_role_name(role: int) -> str:
-    """获取角色名称"""
+    """获取角色名称（数值越小权限越高：0=ROOT, 1=ADMIN, 2=USER, 3=GUEST）"""
     role_names = {
-        0: '访客',
-        1: '普通用户',
-        2: '管理员',
-        3: '超级管理员'
+        UserRole.ROOT: '超级管理员',
+        UserRole.ADMIN: '管理员',
+        UserRole.USER: '用户',
+        UserRole.GUEST: '访客',
     }
     return role_names.get(role, '未知')
