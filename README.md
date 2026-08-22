@@ -209,7 +209,7 @@ python scripts/service_manager.py restart-all   # 重启全部
 
 **脚本结构**
 ```
-extensions/scripts/demo_download/
+extensions/scripts/<name>/
 ├── manifest.json     # 声明参数、入口、说明
 └── run.py            # 脚本主体
 ```

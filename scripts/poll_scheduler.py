@@ -13,8 +13,8 @@ Dbox 通用脚本轮询调度器
 
 manifest 约定（extensions/scripts/<id>/manifest.json）：
   {
-    "id": "feedback_ai",
-    "name": "反馈 AI 自动处理",
+    "id": "<script_id>",
+    "name": "脚本显示名",
     "enabled": true,
     "runtime": "python",            # 可选，默认 python
     "command": "run.py",           # 相对脚本包目录的可执行文件

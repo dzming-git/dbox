@@ -261,7 +261,7 @@ def feedback():
     comments = data.get('comments') or None
     issue_id = db_create_issue(
         title=title, content=content, category=ftype,
-        submitter='自动助手', source='ai_assistant', auto_classified=True,
+        submitter='自动助手', source='assistant', auto_classified=True,
         status=status, extra=extra, comment=comment, comments=comments,
     )
     return jsonify({'success': True, 'issue_id': issue_id})
