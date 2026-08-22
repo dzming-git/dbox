@@ -78,7 +78,27 @@ def admin_required(f):
         if payload.get('type') != 'access':
             return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
         g.user_id = payload.get('user_id')
-        g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
+        # 优先从主服务 DB 查最新 role（避免 stale JWT role）
+        uid = payload.get('user_id')
+        _db_role = None
+        if uid:
+            try:
+                import os, sqlite3 as _sqlite
+                _data_dir = os.environ.get('DBOX_DATA_DIR')
+                if not _data_dir:
+                    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
+                    _project_root = os.path.dirname(os.path.dirname(_pkg_dir))
+                    _data_dir = os.path.join(_project_root, 'data')
+                _main_db = os.path.join(_data_dir, 'databases', 'dbox.db')
+                if os.path.exists(_main_db):
+                    _conn = _sqlite.connect(_main_db)
+                    _row = _conn.execute('SELECT role FROM users WHERE id=?', (uid,)).fetchone()
+                    if _row is not None:
+                        _db_role = int(_row[0])
+                    _conn.close()
+            except Exception:
+                pass
+        g.role = _db_role if _db_role is not None else payload.get('role', 3)
         g.username = payload.get('username')
         if g.role > ADMIN_ROLE:
             return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
@@ -112,7 +132,26 @@ def login_required(f):
         if payload.get('type') != 'access':
             return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
         g.user_id = payload.get('user_id')
-        g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
+        uid = payload.get('user_id')
+        _db_role = None
+        if uid:
+            try:
+                import os, sqlite3 as _sqlite
+                _data_dir = os.environ.get('DBOX_DATA_DIR')
+                if not _data_dir:
+                    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
+                    _project_root = os.path.dirname(os.path.dirname(_pkg_dir))
+                    _data_dir = os.path.join(_project_root, 'data')
+                _main_db = os.path.join(_data_dir, 'databases', 'dbox.db')
+                if os.path.exists(_main_db):
+                    _conn = _sqlite.connect(_main_db)
+                    _row = _conn.execute('SELECT role FROM users WHERE id=?', (uid,)).fetchone()
+                    if _row is not None:
+                        _db_role = int(_row[0])
+                    _conn.close()
+            except Exception:
+                pass
+        g.role = _db_role if _db_role is not None else payload.get('role', 3)
         g.username = payload.get('username')
         return f(*args, **kwargs)
     return decorated
