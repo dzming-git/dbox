@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { scriptApi, type ScriptInfo } from '../api/script'
+import { scriptApi } from '../api/script'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,6 +13,8 @@ interface ExtensionUI {
   entry?: string
   needs_credential: boolean
   sandbox: string
+  standalone_route?: string
+  busy_poll?: string
 }
 
 interface Extension {
@@ -27,30 +29,40 @@ const openId = ref<string | null>(null)
 const token = ref('')
 // 面板收起后暂存各扩展未发送的输入草稿，重新展开时回填（避免误触收起丢失已输入内容）
 const drafts = ref<Record<string, string>>({})
-// AI 助手忙碌态：气泡入口的灵动反馈。由宿主侧轻量轮询后端任务接口得到「是否有正在处理/
-// 排队的 AI 任务」，与面板 iframe 生命周期解耦——即使面板收起（iframe 被卸载），
-// 气泡也能在 AI 后台工作时持续显示忙碌动画。
+// 忙碌态：由宿主侧轻量轮询后端任务接口得到「是否有正在处理/排队的任务」，
+// 与面板 iframe 生命周期解耦——即使面板收起（iframe 被卸载），
+// 入口也能在后台工作时持续显示忙碌动画。
 const busyMap = ref<Record<string, boolean>>({})
 function fabBusy(id: string) { return !!busyMap.value[id] }
-// AI 助手未读提醒：面板收起期间若有任务产出结果（history 顶部变化），累计未读数，
-// 悬浮气泡入口显示角标，避免用户忘记曾布置过任务。打开面板即清空未读。
+// 未读提醒：面板收起期间若有任务产出结果（history 顶部变化），累计未读数，
+// 入口显示角标，避免用户忘记曾布置过任务。打开面板即清空未读。
 const unreadMap = ref<Record<string, number>>({})
 function fabUnread(id: string) { return unreadMap.value[id] || 0 }
-// 用户「正在查看某扩展对话」的两种情形：悬浮面板展开 / 处于该扩展的独立全屏路由。
-// 两者都算已查看，未读角标不应增长也不应残留。
+// 用户「正在查看某扩展」的两种情形：面板展开 / 处于该扩展的独立全屏路由。
 function isViewing(id: string): boolean {
   if (openId.value === id) return true
   const ext = extensions.value.find((e) => e.id === id)
   const routePath = ext?.ui?.standalone_route
   return !!(routePath && route.path === routePath)
 }
+
+// ---- apps 启动器状态 ----
+// 右下角统一 apps 启动器：点击弹出 apps 列表（所有扩展的图标入口）。
+const launcherOpen = ref(false)
+// 聚合所有扩展的未读总数（app 启动器右上角角标）
+const totalUnread = computed(() =>
+  Object.values(unreadMap.value).reduce((a, b) => a + b, 0),
+)
+// 聚合忙碌态：任一扩展在处理中即视为忙碌
+const anyBusy = computed(() => extensions.value.some((e) => fabBusy(e.id)))
+
 // 每个扩展独立维护轮询基线（最近一条已完成任务 id），避免相互干扰。
 const lastTopById = ref<Record<string, string | null>>({})
 const seededById = ref<Record<string, boolean>>({})
 let busyTimer: any = null
 async function pollBusy() {
-  // 仅轮询声明了 ui.busy_poll 且以 floating 挂载的扩展（如 AI 助手）。
-  const targets = extensions.value.filter((e) => e.ui?.busy_poll && e.ui?.mount === 'floating')
+  // 仅轮询声明了 ui.busy_poll 的扩展（如 AI 助手）。
+  const targets = extensions.value.filter((e) => e.ui?.busy_poll)
   if (!targets.length) { busyMap.value = {}; unreadMap.value = {}; return }
   const headers: Record<string, string> = {}
   if (token.value) headers['Authorization'] = 'Bearer ' + token.value
@@ -64,7 +76,7 @@ async function pollBusy() {
       const topId = d.history && d.history.length ? d.history[0].id : null
       const lastTop = lastTopById.value[id] ?? null
       if (topId && topId !== lastTop) {
-        // 悬浮面板未展开「且」未处于全屏对话页时，才累计未读；正在看则不算未读
+        // 面板未展开「且」未处于全屏页时，才累计未读；正在看则不算未读
         if ((seededById.value[id]) && !isViewing(id)) {
           unreadMap.value = { ...unreadMap.value, [id]: (unreadMap.value[id] || 0) + 1 }
         }
@@ -91,25 +103,34 @@ async function loadExtensions() {
   }
 }
 
-async function toggle(id: string) {
-  if (openId.value === id) {
-    openId.value = null
-    return
-  }
+// 打开某扩展的面板（浮动/侧边面板），并加载其 panel.html
+async function openPanel(id: string) {
   openId.value = id
   const ext = extensions.value.find((e) => e.id === id)
   if (!ext?.ui.entry) return
   // 每次打开都重新拉取最新 panel.html：后端已设 no-store，但 Vue 变量缓存会让旧版本
-  // 残留（导致新功能如实时思考块不生效）。重新获取的成本极低，优先保证 UI 最新。
+  // 残留（导致新功能不生效）。重新获取成本极低，优先保证 UI 最新。
   try {
     const res: any = await scriptApi.getPanel(id)
     panelHtml.value[id] = res
   } catch (e) {
     panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }
-  // token 就绪后通过 postMessage 注入给 iframe（供其调用后端 / ui-proxy）
   await nextTick()
   pushToken(id)
+}
+
+// apps 列表点击某 app：打开对应面板（floating → 浮动面板；panel → 侧边面板）。
+// 独立全屏路由 standalone_route 保留给面板内「全屏」入口或导航，不在此自动跳转，
+// 以维持右下角浮层内的即时操作体验。
+async function openApp(id: string) {
+  launcherOpen.value = false
+  await openPanel(id)
+}
+
+// apps 启动器点击：切换抽屉
+function toggleLauncher() {
+  launcherOpen.value = !launcherOpen.value
 }
 
 function pushToken(id: string) {
@@ -131,20 +152,18 @@ function onMessage(e: MessageEvent) {
     const id = e.data.extId
     if (id) drafts.value[id] = typeof e.data.text === 'string' ? e.data.text : ''
   }
-  // iframe 请求父页面跳转（如 AI 助手面板中点击反馈单引用，跳转到反馈中心详情）。
-  // 任何聊天框内的跳转都遵循同一逻辑：跳转后自动收起聊天窗口，避免遮挡目标页。
+  // iframe 请求父页面跳转（如面板中点击反馈单引用，跳转到反馈中心详情）。
   if (e.data?.type === 'DBOX_NAVIGATE' && e.data.path) {
-    // '__back__' 为全屏页「退出全屏」语义：返回进入全屏前的页面（悬浮面板所在页）
     if (e.data.path === '__back__') router.back()
     else router.push(e.data.path)
-    // 除非显式声明 keepPanel，否则跳转后收起面板（统一逻辑，供未来各类资源跳转复用）
+    // 除非显式声明 keepPanel，否则跳转后收起面板
     if (e.data.keepPanel !== true) {
       openId.value = null
     }
   }
 }
 
-// 点击面板以外（遮罩层）时自动收起；遮罩同时拦截点击，避免误触到后面的页面内容
+// 点击面板以外（遮罩层）时自动收起
 function closePanel() {
   openId.value = null
 }
@@ -154,7 +173,6 @@ onMounted(async () => {
   await loadExtensions()
   window.addEventListener('message', onMessage)
   syncScrollLock()
-  // 轻量轮询各扩展忙碌态以驱动气泡入口动画（即使面板收起也持续生效）
   pollBusy()
   busyTimer = setInterval(pollBusy, 2000)
 })
@@ -162,11 +180,10 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('message', onMessage)
   if (busyTimer) clearInterval(busyTimer)
-  // 组件卸载（理论上为全局常驻）时释放背景滚动锁，避免残留锁定
   document.body.classList.remove('ext-no-scroll')
 })
 
-// 呼出悬浮面板（带遮罩）时锁定背景滚动，避免面板后的页面跟随鼠标滚轮/触摸上下滑动
+// 呼出悬浮面板（带遮罩）时锁定背景滚动
 function syncScrollLock() {
   const ext = openId.value ? extensions.value.find((e) => e.id === openId.value) : null
   if (openId.value && ext?.ui?.mount === 'floating') {
@@ -179,14 +196,12 @@ function syncScrollLock() {
 watch(openId, (id) => {
   if (id) {
     pushToken(id)
-    // 打开面板即视为已查看：清空该扩展未读角标
     if (unreadMap.value[id]) unreadMap.value = { ...unreadMap.value, [id]: 0 }
   }
   syncScrollLock()
 })
 
-// 路由变化时：若当前进入了某扩展的独立全屏页（其 standalone_route），
-// 视为已查看，清空该扩展未读角标，避免退出后仍提示未读。
+// 路由变化时：若进入某扩展独立全屏页，视为已查看，清空未读角标
 watch(() => route.path, (p) => {
   for (const ext of extensions.value) {
     const rp = ext.ui?.standalone_route
@@ -199,24 +214,53 @@ watch(() => route.path, (p) => {
 
 <template>
   <div class="ext-host">
-    <!-- 展开时的遮罩：拦截对页面内容的点击，点击遮罩收起面板 -->
-    <div v-if="openId" class="ext-mask" @click="closePanel"></div>
+    <!-- 展开面板时的遮罩：拦截页面点击，点击遮罩收起 -->
+    <div v-if="openId || launcherOpen" class="ext-mask" @click="closePanel"></div>
 
-    <template v-for="ext in extensions" :key="ext.id">
-      <!-- 悬浮球入口 -->
-      <div
-        v-if="ext.ui.mount === 'floating' && !(ext.ui.standalone_route && route.path === ext.ui.standalone_route)"
-        class="ext-fab"
-        :class="{ 'is-open': openId === ext.id, 'is-busy': fabBusy(ext.id) }"
-        :title="ext.ui.title"
-        @click="toggle(ext.id)"
-      >
-        <span class="ext-fab-icon">{{ ext.ui.icon }}</span>
-        <span v-if="fabUnread(ext.id)" class="ext-fab-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
-        <span class="ext-fab-label">{{ fabBusy(ext.id) ? 'AI 正在思考…' : ext.ui.title }}</span>
+    <!-- 统一的 apps 启动器（右下角单个悬浮球） -->
+    <div
+      class="ext-launcher-fab"
+      :class="{ 'is-open': launcherOpen, 'is-busy': anyBusy }"
+      title="应用"
+      @click.stop="toggleLauncher"
+    >
+      <svg class="launcher-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+      </svg>
+      <span v-if="totalUnread" class="ext-fab-badge">{{ totalUnread > 99 ? '99+' : totalUnread }}</span>
+    </div>
+
+    <!-- apps 列表抽屉 -->
+    <transition name="launcher">
+      <div v-if="launcherOpen" class="ext-launcher" @click.stop>
+        <div class="ext-launcher-header">
+          <span>应用</span>
+          <button class="ext-close" @click="launcherOpen = false">×</button>
+        </div>
+        <div class="ext-launcher-grid">
+          <button
+            v-for="ext in extensions"
+            :key="ext.id"
+            class="ext-app"
+            @click="openApp(ext.id)"
+          >
+            <span class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
+            <span class="ext-app-name">{{ ext.ui.title || ext.name }}</span>
+            <span v-if="fabUnread(ext.id)" class="ext-app-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
+          </button>
+          <div v-if="!extensions.length" class="ext-launcher-empty">
+            暂无可用应用
+          </div>
+        </div>
       </div>
+    </transition>
 
-      <!-- 展开的面板 -->
+    <!-- 各扩展的面板（展开时渲染） -->
+    <template v-for="ext in extensions" :key="ext.id">
+      <!-- 浮动面板 -->
       <div
         v-if="ext.ui.mount === 'floating' && openId === ext.id"
         class="ext-panel"
@@ -238,6 +282,10 @@ watch(() => route.path, (p) => {
         v-if="ext.ui.mount === 'panel' && openId === ext.id"
         class="ext-side-panel"
       >
+        <div class="ext-side-header">
+          <span>{{ ext.ui.title }}</span>
+          <button class="ext-close" @click="openId = null">×</button>
+        </div>
         <iframe
           :id="`ext-frame-${ext.id}`"
           class="ext-frame"
@@ -256,15 +304,16 @@ watch(() => route.path, (p) => {
   background: rgba(0, 0, 0, 0.12);
   z-index: 8999;
 }
-/* 悬浮入口：始终为圆形按钮，半透明低遮挡；悬停/展开时仅放大并提升不透明度，
-   不展开成椭圆。文字标签只在悬停时以左侧气泡形式提示，避免遮挡页面 */
-.ext-fab {
+
+/* ---- apps 启动器球 ---- */
+.ext-launcher-fab {
   position: fixed;
   right: 16px;
   bottom: 18px;
-  height: 44px;
-  width: 44px;
+  height: 48px;
+  width: 48px;
   padding: 0;
+  border: none;
   border-radius: 50%;
   background: var(--accent, #4f8cff);
   color: #fff;
@@ -274,22 +323,19 @@ watch(() => route.path, (p) => {
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   z-index: 9000;
-  opacity: 0.82;
+  opacity: 0.9;
   overflow: visible;
   transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.ext-fab:hover,
-.ext-fab.is-open {
+.ext-launcher-fab:hover,
+.ext-launcher-fab.is-open {
   opacity: 1;
   transform: scale(1.08);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
-.ext-fab-icon {
-  font-size: 20px;
-  line-height: 1;
+.launcher-icon {
+  display: block;
 }
-/* 未读角标：面板收起期间有任务产出结果时，悬浮入口右上角显示红点计数，
-   提醒用户曾布置过任务；带轻微脉冲以吸引注意，但足够克制不打扰。 */
 .ext-fab-badge {
   position: absolute;
   top: -5px;
@@ -308,18 +354,11 @@ watch(() => route.path, (p) => {
   box-sizing: content-box;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   pointer-events: none;
-  animation: fab-badge-pulse 1.8s ease-in-out infinite;
 }
-@keyframes fab-badge-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.12); }
-}
-/* AI 忙碌态：外部气泡入口的灵动反馈——旋转光环 + 呼吸光晕 + 图标轻浮，
-   与面板内 AI 头像的「旋转光环」视觉语言保持一致；空闲/错误态完全静态，不打扰。 */
-.ext-fab.is-busy {
+.ext-launcher-fab.is-busy {
   animation: fab-breathe 1.8s ease-in-out infinite;
 }
-.ext-fab.is-busy::after {
+.ext-launcher-fab.is-busy::after {
   content: '';
   position: absolute;
   inset: -4px;
@@ -330,47 +369,123 @@ watch(() => route.path, (p) => {
   animation: fab-spin 1.1s linear infinite;
   pointer-events: none;
 }
-.ext-fab.is-busy .ext-fab-icon {
-  animation: fab-bob 1.8s ease-in-out infinite;
-}
 @keyframes fab-spin { to { transform: rotate(360deg); } }
 @keyframes fab-breathe {
   0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
   50% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0.16), 0 6px 18px rgba(79, 140, 255, 0.5); }
 }
-@keyframes fab-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .ext-fab.is-busy,
-  .ext-fab.is-busy::after,
-  .ext-fab.is-busy .ext-fab-icon { animation: none; }
-  .ext-fab.is-busy::after { opacity: 0.6; }
-  .ext-fab-badge { animation: none; }
+  .ext-launcher-fab.is-busy,
+  .ext-launcher-fab.is-busy::after { animation: none; }
+  .ext-launcher-fab.is-busy::after { opacity: 0.6; }
 }
-/* 竖屏沉浸模式下隐藏悬浮气泡入口，避免遮挡视频内容 */
-:global(body.portrait-mode-active .ext-fab) {
-  display: none !important;
+
+/* ---- apps 列表抽屉 ---- */
+.ext-launcher {
+  position: fixed;
+  right: 20px;
+  bottom: 84px;
+  width: 320px;
+  max-width: 92vw;
+  max-height: 70vh;
+  background: var(--bg-elevated, #1e1e22);
+  border: 1px solid var(--border-default, #333);
+  border-radius: 14px;
+  z-index: 9001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
-.ext-fab-label {
-  position: absolute;
-  right: 56px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font-size: 13px;
+.ext-launcher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-surface-2, #2a2a30);
+  color: var(--text-primary, #eee);
+  font-size: 14px;
   font-weight: 600;
-  padding: 5px 10px;
-  border-radius: 6px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
 }
-.ext-fab:hover .ext-fab-label {
-  opacity: 1;
+.ext-launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+}
+.ext-launcher-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 32px 0;
+  color: var(--text-tertiary, #888);
+  font-size: 13px;
+}
+.ext-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 6px;
+  background: var(--bg-surface, #232329);
+  border: 1px solid var(--border-subtle, #2e2e34);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+}
+.ext-app:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent, #4f8cff);
+  background: var(--bg-surface-2, #2a2a30);
+}
+.ext-app-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+.ext-app-name {
+  font-size: 12px;
+  color: var(--text-secondary, #bbb);
+  text-align: center;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ext-app-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #f5455c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.launcher-enter-active,
+.launcher-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+.launcher-enter-from,
+.launcher-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* ---- 面板 ---- */
+.ext-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
 }
 .ext-panel {
   position: fixed;
@@ -399,14 +514,6 @@ watch(() => route.path, (p) => {
   font-size: 14px;
   font-weight: 600;
 }
-.ext-close {
-  background: none;
-  border: none;
-  color: var(--text-secondary, #aaa);
-  font-size: 20px;
-  cursor: pointer;
-  line-height: 1;
-}
 .ext-frame {
   flex: 1;
   width: 100%;
@@ -422,7 +529,20 @@ watch(() => route.path, (p) => {
   max-width: 92vw;
   background: var(--bg-elevated, #1e1e22);
   z-index: 9002;
+  display: flex;
+  flex-direction: column;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+}
+.ext-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-surface-2, #2a2a30);
+  color: var(--text-primary, #eee);
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 </style>
 
@@ -430,5 +550,9 @@ watch(() => route.path, (p) => {
 <style>
 body.ext-no-scroll {
   overflow: hidden;
+}
+/* 竖屏沉浸模式下隐藏 apps 启动器，避免遮挡视频内容 */
+body.portrait-mode-active .ext-launcher-fab {
+  display: none !important;
 }
 </style>
