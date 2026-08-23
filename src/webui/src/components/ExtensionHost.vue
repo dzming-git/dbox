@@ -268,11 +268,11 @@ watch(() => route.path, (p) => {
       </div>
     </transition>
 
-    <!-- 各扩展的面板（展开时渲染） -->
+    <!-- 各扩展的面板（用 v-show 而非 v-if，切换 app 时保留 iframe 状态避免中断） -->
     <template v-for="ext in extensions" :key="ext.id">
       <!-- 浮动面板 -->
       <div
-        v-if="ext.ui.mount === 'floating' && openId === ext.id"
+        v-show="ext.ui.mount === 'floating' && openId === ext.id"
         class="ext-panel"
       >
         <div class="ext-panel-header">
@@ -289,7 +289,7 @@ watch(() => route.path, (p) => {
 
       <!-- 固定侧边面板 -->
       <div
-        v-if="ext.ui.mount === 'panel' && openId === ext.id"
+        v-show="ext.ui.mount === 'panel' && openId === ext.id"
         class="ext-side-panel"
       >
         <div class="ext-side-header">
