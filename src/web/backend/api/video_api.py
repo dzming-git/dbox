@@ -546,6 +546,14 @@ def play_video(video_id):
                     }), 403
         
         video_path = video.local_path or video.url
+        # 如果 local_path 为空且 url 是 /local_video/ 路径，提取实际文件路径
+        if not video_path or (not os.path.exists(video_path) and video_path.startswith('/local_video/')):
+            from urllib.parse import unquote
+            extracted = unquote(video_path.replace('/local_video/', '', 1))
+            # 将 URL 风格路径转为系统路径（/ → \）
+            extracted = extracted.replace('/', os.sep)
+            if os.path.exists(extracted):
+                video_path = extracted
         if not video_path or not os.path.exists(video_path):
             return jsonify({'success': False, 'message': '视频文件不存在'}), 404
         
