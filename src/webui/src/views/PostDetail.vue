@@ -279,13 +279,14 @@ const removePost = async () => {
               <div class="inline-gallery">
                 <img v-for="(src, gi) in (toMediaItem(seg.ref) as any).images" :key="gi" :src="src" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(seg.ref) as any).images, gi)" />
               </div>
+              <span v-if="(toMediaItem(seg.ref) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(seg.ref) as any).images.length }} 张图片 · 点击放大</span>
             </template>
             <a v-else-if="mediaTypeOf(seg.ref) === 'document'" class="doc-card" :href="(toMediaItem(seg.ref) as any).docUrl" target="_blank" download>
               <span class="doc-icon">📄</span>
               <span class="doc-name">{{ (toMediaItem(seg.ref) as any).title }}</span>
               <span class="doc-dl">下载</span>
             </a>
-            <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" @click="openRefLink(seg.ref)" />
+            <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" :hide-filename="true" @click="openRefLink(seg.ref)" />
           </span>
         </template>
       </div>
@@ -293,17 +294,23 @@ const removePost = async () => {
       <div v-if="renderedOrphans.length" class="detail-refs">
         <div v-for="(ro, i) in renderedOrphans" :key="ro.refItem.ref_id || i" class="ref-block">
           <div v-if="ro.refItem.note" class="ref-note">{{ ro.refItem.note }}</div>
+          <!-- 图集（含 gallery_folder / gallery 实体）：≤9 张时内联展示全部图片，>9 张用 MediaCard -->
           <template v-if="ro.item && (ro.item.type === 'gallery_folder' || (ro.item.type === 'gallery' && ro.item.images && ro.item.images.length))">
-            <div class="inline-gallery">
-              <img v-for="(src, gi) in ro.item.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images.map(withToken), gi)" />
-            </div>
+            <template v-if="ro.item.images.length <= 9">
+              <div class="inline-gallery">
+                <img v-for="(src, gi) in ro.item.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images.map(withToken), gi)" />
+              </div>
+              <span v-if="ro.item.images.length > 1" class="gallery-count">{{ ro.item.images.length }} 张图片 · 点击放大</span>
+            </template>
+            <MediaCard v-else :item="ro.item" :hide-filename="true" @click="openRefLink(ro.refItem)" />
           </template>
           <a v-else-if="ro.item && ro.item.type === 'document'" class="doc-card" :href="ro.item.docUrl" target="_blank" download>
             <span class="doc-icon">📄</span>
             <span class="doc-name">{{ ro.item.title }}</span>
             <span class="doc-dl">下载</span>
           </a>
-          <MediaCard v-else-if="ro.item" :item="ro.item" @click="openRefLink(ro.refItem)" />
+          <!-- 视频 / 其他：隐藏文件名 -->
+          <MediaCard v-else-if="ro.item" :item="ro.item" :hide-filename="true" @click="openRefLink(ro.refItem)" />
         </div>
       </div>
       <p v-if="!post.content && (!post.refs || !post.refs.length)" class="no-refs">（暂无内容）</p>
@@ -393,6 +400,7 @@ const removePost = async () => {
 .inline-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; max-width: 640px; }
 .inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid var(--border-default); transition: transform .15s; }
 .inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
+.gallery-count { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; text-align: center; }
 .doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid var(--bg-surface-2); border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
 .doc-card:hover { border-color: var(--accent); color: var(--accent); }
 .doc-icon { font-size: 22px; }

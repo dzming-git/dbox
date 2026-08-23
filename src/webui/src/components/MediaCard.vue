@@ -9,8 +9,10 @@ const props = withDefaults(defineProps<{
   item: MediaItem
   actions?: string[]   // 'unfavorite' | 'unlike' | 'restore' | 'continue' | 'delete' | 'addCollection'
   showTypeBadge?: boolean
+  hideFilename?: boolean  // 隐藏文件名（帖子场景：X下载的文件名是时间戳，无意义）
 }>(), {
-  showTypeBadge: true
+  showTypeBadge: true,
+  hideFilename: false
 })
 const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
@@ -125,7 +127,7 @@ const onAction = (name: string, e: Event) => {
     </div>
 
     <div class="media-info">
-      <h3 v-if="item.title" class="media-title">{{ item.title }}</h3>
+      <h3 v-if="item.title && !hideFilename" class="media-title">{{ item.title }}</h3>
       <div class="media-meta">
         <span v-if="item.date">{{ formatDate(item.date) }}</span>
         <span v-if="item.type === 'gallery' && item.progress" class="progress-text">
