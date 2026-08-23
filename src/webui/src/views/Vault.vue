@@ -146,14 +146,15 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 新增/编辑弹窗 -->
-    <div v-if="showForm" class="modal-mask" @click.self="showForm = false">
-      <div class="modal">
-        <div class="modal-head">
+    <!-- 新增/编辑弹窗（用 Teleport 渲染到 body，避开任何祖先布局/transform 影响） -->
+    <Teleport to="body">
+    <div v-if="showForm" class="vlt-modal-mask" @click.self="showForm = false">
+      <div class="vlt-modal">
+        <div class="vlt-modal-head">
           <span>{{ isEditing ? '编辑凭证' : '新增凭证' }}</span>
           <button class="close" @click="showForm = false">×</button>
         </div>
-        <div class="modal-body">
+        <div class="vlt-modal-body">
           <label>类型</label>
           <select v-model="form.kind">
             <option value="cookie">Cookie</option>
@@ -186,7 +187,7 @@ onMounted(load)
 
           <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
         </div>
-        <div class="modal-foot">
+        <div class="vlt-modal-foot">
           <button class="btn-ghost" @click="showForm = false">取消</button>
           <button class="btn-primary" :disabled="saving" @click="submit">
             {{ saving ? '保存中…' : '保存' }}
@@ -194,6 +195,7 @@ onMounted(load)
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -261,4 +263,36 @@ onMounted(load)
 }
 .modal-body textarea { resize: vertical; min-height: 60px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
+</style>
+
+<!-- Teleport 到 body 后元素脱离 scoped 作用域，弹窗样式用全局规则兜底（命名加 vlt 前缀避免与其它组件冲突） -->
+<style>
+.vlt-modal-mask {
+  /* 关键：用 transform 居中 + z-index 9500，基于视口定位，避开任何祖先布局/transform */
+  position: fixed; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 480px; max-width: 92vw;
+  height: 540px; max-height: calc(100vh - 32px);
+  background: var(--bg-elevated, #1e1e22); border-radius: 12px;
+  z-index: 9500;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.vlt-modal-mask::before {
+  content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: -1;
+}
+.vlt-modal { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.vlt-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--bg-surface-2, #2a2a30); font-weight: 600; flex-shrink: 0; }
+.vlt-modal-head .close { background: none; border: none; color: var(--text-secondary, #aaa); font-size: 22px; cursor: pointer; line-height: 1; }
+.vlt-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
+.vlt-modal-body label { font-size: 13px; color: var(--text-secondary, #bbb); margin-top: 6px; }
+.vlt-modal-body input,
+.vlt-modal-body select,
+.vlt-modal-body textarea {
+  background: var(--bg-surface, #232329); border: 1px solid var(--border-subtle, #2e2e34);
+  border-radius: 8px; padding: 8px 10px; color: var(--text-primary, #eee); font-size: 14px;
+  font-family: inherit; resize: none;
+}
+.vlt-modal-body textarea { resize: vertical; min-height: 60px; }
+.vlt-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
 </style>
