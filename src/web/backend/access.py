@@ -291,31 +291,40 @@ def apply_gallery_visibility(query, allowed_ids=None):
     return query
 
 
-def is_video_visible(video, allowed_ids=None):
-    """判断单个视频对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。"""
+def is_video_visible(video, allowed_ids=None, *, allow_hidden=False):
+    """判断单个视频对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。
+
+    allow_hidden=True 时跳过 hidden 检查，用于帖子内嵌引用等场景：
+    hidden 资源不在视频库列表中出现，但在帖子详情页中应可预览。
+    """
     if not video:
         return False
     if allowed_ids is None:
         allowed_ids = get_allowed_library_ids()
     if getattr(video, 'in_trash', False):
         return False
-    ri = getattr(video, 'resource_index', None)
-    if ri is not None and getattr(ri, 'hidden', False):
-        return False
+    if not allow_hidden:
+        ri = getattr(video, 'resource_index', None)
+        if ri is not None and getattr(ri, 'hidden', False):
+            return False
     return video.library_id in set(allowed_ids)
 
 
-def is_gallery_visible(gallery, allowed_ids=None):
-    """判断单个图集对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。"""
+def is_gallery_visible(gallery, allowed_ids=None, *, allow_hidden=False):
+    """判断单个图集对当前用户是否可见（库已激活 + 未删除 + 未隐藏）。
+
+    allow_hidden=True 时跳过 hidden 检查，用于帖子内嵌引用等场景。
+    """
     if not gallery:
         return False
     if allowed_ids is None:
         allowed_ids = get_allowed_library_ids()
     if getattr(gallery, 'in_trash', False):
         return False
-    ri = getattr(gallery, 'resource_index', None)
-    if ri is not None and getattr(ri, 'hidden', False):
-        return False
+    if not allow_hidden:
+        ri = getattr(gallery, 'resource_index', None)
+        if ri is not None and getattr(ri, 'hidden', False):
+            return False
     return gallery.library_id in set(allowed_ids)
 
 

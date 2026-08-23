@@ -70,11 +70,16 @@ def compute_thumb_stats():
 
 @bp.route('/thumbnail/<video_hash>')
 def get_thumbnail(video_hash):
-    """获取缩略图，支持懒加载生成 - 需要检查资源库权限"""
+    """获取缩略图，支持懒加载生成 - 需要检查资源库权限。
+
+    支持 ?post=1 参数跳过 hidden 检查（帖子内嵌引用场景）：
+    hidden 资源不在视频库列表中出现，但在帖子详情页中应可预览。
+    """
     # 权限必须先于文件读取：缩略图缓存文件以 hash 命名且长期驻留磁盘，
     # 若先返回文件再校验，未激活资源库的封面仍可被直接取走。
     video = Video.query.filter_by(hash=video_hash).first()
-    if not is_video_visible(video):
+    allow_hidden = request.args.get('post', '0') == '1'
+    if not is_video_visible(video, allow_hidden=allow_hidden):
         abort(404)
 
     # 以资源索引规定的路径为准取图（可指向默认文件夹之外）；
@@ -174,9 +179,10 @@ def _lazy_generate_sprite(video, video_hash):
 
 @bp.route('/thumbnail/<video_hash>/sprite')
 def get_thumbnail_sprite(video_hash):
-    """获取雪碧图（悬停预览用）。权限校验同 /thumbnail/。"""
+    """获取雪碧图（悬停预览用）。权限校验同 /thumbnail/，支持 ?post=1。"""
     video = Video.query.filter_by(hash=video_hash).first()
-    if not is_video_visible(video):
+    allow_hidden = request.args.get('post', '0') == '1'
+    if not is_video_visible(video, allow_hidden=allow_hidden):
         abort(404)
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     path = os.path.join(thumb_dir, f'{video_hash}.sprite.jpg')
@@ -193,9 +199,10 @@ def get_thumbnail_sprite(video_hash):
 
 @bp.route('/thumbnail/<video_hash>/preview.vtt')
 def get_thumbnail_vtt(video_hash):
-    """获取 WebVTT 预览索引（雪碧图帧坐标与时间区间）。"""
+    """获取 WebVTT 预览索引（雪碧图帧坐标与时间区间）。支持 ?post=1。"""
     video = Video.query.filter_by(hash=video_hash).first()
-    if not is_video_visible(video):
+    allow_hidden = request.args.get('post', '0') == '1'
+    if not is_video_visible(video, allow_hidden=allow_hidden):
         abort(404)
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     path = os.path.join(thumb_dir, f'{video_hash}.vtt')

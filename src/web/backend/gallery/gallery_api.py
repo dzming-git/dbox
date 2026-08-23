@@ -653,9 +653,11 @@ def serve_resource_document(rid):
 
 @gallery_bp.route('/gallery-cover/<gallery_hash>', methods=['GET'])
 def serve_gallery_cover(gallery_hash):
+    """获取图集封面。支持 ?post=1 跳过 hidden 检查（帖子内嵌引用场景）。"""
     try:
         c = Gallery.query.filter_by(hash=gallery_hash).first_or_404()
-        if not is_gallery_visible(c):
+        allow_hidden = request.args.get('post', '0') == '1'
+        if not is_gallery_visible(c, allow_hidden=allow_hidden):
             abort(404)
         if not c.cover_path or not os.path.isfile(c.cover_path):
             abort(404)

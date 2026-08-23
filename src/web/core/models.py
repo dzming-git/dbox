@@ -1732,18 +1732,24 @@ class Post(db.Model):
 
     @staticmethod
     def _ref_cover_url(ri):
-        """按资源索引类型推导单条引用的封面 URL（不依赖 cover 字段是否设置）。"""
+        """按资源索引类型推导单条引用的封面 URL（不依赖 cover 字段是否设置）。
+
+        帖子内嵌引用场景：hidden 资源在帖子中应可预览，因此缩略图/图集封面 URL
+        自动附加 ?post=1 参数以跳过 hidden 检查。
+        """
         if ri is None:
             return None
         if ri.kind == 'gallery_folder':
             c = Gallery.query.filter_by(resource_index_id=ri.id).first()
             if c and c.hash:
-                return c.cover_url or f'/gallery-cover/{c.hash}'
+                base = c.cover_url or f'/gallery-cover/{c.hash}'
+                return base + ('' if '?' in base else '?post=1')
             return f'/resource-file/{ri.id}/0'
         if ri.kind == 'video_file':
             v = Video.query.filter_by(resource_index_id=ri.id).first()
             if v:
-                return v.thumbnail or f'/thumbnail/{v.hash}'
+                base = v.thumbnail or f'/thumbnail/{v.hash}'
+                return base + ('' if '?' in base else '?post=1')
         if ri.cover:
             return ri.cover
         return None
