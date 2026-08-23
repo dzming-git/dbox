@@ -48,6 +48,17 @@ export interface CookieProfile {
   note?: string
   created_at?: string
   updated_at?: string
+  has_value?: boolean
+}
+
+export interface VaultPayload {
+  kind?: string
+  name?: string
+  domain: string
+  format?: string
+  note?: string
+  value?: string
+  cookies?: { name: string; value: string; domain?: string; path?: string }[]
 }
 
 export interface JobLog {
@@ -94,10 +105,8 @@ export const scriptApi = {
 
   // 凭证保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),
-  createCookie: (data: { kind?: string; name: string; domain: string; format?: string; value: string; note?: string }) =>
-    api.post('/api/admin/cookies', data),
-  updateCookie: (id: string, data: { kind?: string; name?: string; domain?: string; format?: string; value?: string; note?: string }) =>
-    api.put(`/api/admin/cookies/${id}`, data),
+  createCookie: (data: VaultPayload) => api.post('/api/admin/cookies', data),
+  updateCookie: (id: string, data: VaultPayload) => api.put(`/api/admin/cookies/${id}`, data),
   deleteCookie: (id: string) => api.delete(`/api/admin/cookies/${id}`),
 
   // 脚本参数用户默认值（管理员）

@@ -301,6 +301,136 @@ def get_panel(script_id):
                     headers={'Cache-Control': 'no-store'})
 
 
+# ---------- 管理员：凭证保险库（cookie / token / password / apikey 统一管理）----------
+# 独立于脚本引擎的通用能力：任何子系统（插件、下载器、CLI 免登录调用等）都通过
+# 同一份加密落盘的凭证库读写凭证。仅管理员可读写；列表只回传元信息，不回传明文密文。
+
+
+def _vault_public(rec):
+    """凭证元信息（脱敏）：绝不下发明文 value/cookies 或 secret 密文。"""
+    return {
+        'id': rec.get('id'),
+        'kind': rec.get('kind'),
+        'name': rec.get('name'),
+        'domain': rec.get('domain'),
+        'format': rec.get('format'),
+        'note': rec.get('note'),
+        'created_at': rec.get('created_at'),
+        'updated_at': rec.get('updated_at'),
+        # 是否已存有凭证明文（供前端展示「已配置/未配置」状态，不泄露内容）
+        'has_value': bool(rec.get('value') or rec.get('cookies')),
+    }
+
+
+def _parse_cookie_value(raw):
+    """把用户粘贴的 cookie 文本解析为 list[dict]。
+
+    支持两种输入：
+    1. header 字符串：'auth_token=xxx; ct0=yyy; k=1; v=2' 或 'k=1; v=2'
+    2. 已是 list[dict]（直接透传）
+    """
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str):
+        return []
+    cookies = []
+    # 按分号切分，兼容 '; ' 与 ';'
+    for part in raw.split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        if '=' not in part:
+            continue
+        k, _, v = part.partition('=')
+        cookies.append({'name': k.strip(), 'value': v.strip()})
+    return cookies
+
+
+def _vault_or_404():
+    if not getattr(mgr, 'vault', None):
+        return None
+    return mgr.vault
+
+
+@script_bp.route('/api/admin/cookies', methods=['GET'])
+@admin_required
+def vault_list():
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    return jsonify({'success': True, 'cookies': [_vault_public(r) for r in vault.list_all()]})
+
+
+@script_bp.route('/api/admin/cookies', methods=['POST'])
+@admin_required
+def vault_create():
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    data = request.get_json(silent=True) or {}
+    kind = data.get('kind') or 'cookie'
+    name = (data.get('name') or '').strip()
+    domain = (data.get('domain') or '').strip()
+    if not domain:
+        return jsonify({'success': False, 'message': 'domain 不能为空'}), 400
+    if kind in ('token', 'password', 'apikey'):
+        value = data.get('value')
+        if not isinstance(value, str) or not value:
+            return jsonify({'success': False, 'message': '标量凭证需提供非空 value'}), 400
+    else:
+        raw = data.get('cookies') if data.get('cookies') is not None else data.get('value')
+        value = _parse_cookie_value(raw)
+        if not value:
+            return jsonify({'success': False, 'message': 'cookie 凭证需提供有效的 cookies 文本'}), 400
+    pid = vault.add(kind, name or f'{kind}:{domain}', domain, value,
+                    note=data.get('note') or '', fmt=data.get('format') or 'netscape')
+    return jsonify({'success': True, 'id': pid})
+
+
+@script_bp.route('/api/admin/cookies/<cid>', methods=['PUT'])
+@admin_required
+def vault_update(cid):
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    existing = vault.get(cid)
+    if not existing:
+        return jsonify({'success': False, 'message': '凭证不存在'}), 404
+    data = request.get_json(silent=True) or {}
+    kind = data.get('kind') or existing.get('kind') or 'cookie'
+    name = (data.get('name') if data.get('name') is not None else existing.get('name')) or ''
+    domain = (data.get('domain') if data.get('domain') is not None else existing.get('domain')) or ''
+    fmt = data.get('format') or existing.get('format') or 'netscape'
+    note = data.get('note') if data.get('note') is not None else existing.get('note', '')
+    if kind in ('token', 'password', 'apikey'):
+        value = data.get('value')
+        if value is None:
+            value = existing.get('value', '')
+    else:
+        raw = data.get('cookies') if data.get('cookies') is not None else data.get('value')
+        if raw is None:
+            value = existing.get('cookies', [])
+        else:
+            value = _parse_cookie_value(raw)
+            if not value:
+                return jsonify({'success': False, 'message': 'cookie 凭证需提供有效的 cookies 文本'}), 400
+    # 覆盖写入：先删后加（add 的 pid 由 kind|domain|name 哈希决定，同 key 会得到同 pid）
+    vault.delete(cid)
+    new_pid = vault.add(kind, name or f'{kind}:{domain}', domain, value, note=note, fmt=fmt)
+    return jsonify({'success': True, 'id': new_pid})
+
+
+@script_bp.route('/api/admin/cookies/<cid>', methods=['DELETE'])
+@admin_required
+def vault_delete(cid):
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    if not vault.delete(cid):
+        return jsonify({'success': False, 'message': '凭证不存在'}), 404
+    return jsonify({'success': True})
+
+
 # ---------- 扩展 UI 代理已由插件 backend 蓝图替代，/api/ui-proxy 路由已移除 ----------
 
 

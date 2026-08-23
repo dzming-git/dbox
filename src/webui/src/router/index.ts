@@ -165,6 +165,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '插件设置', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/vault',
+    name: 'Vault',
+    component: () => import('../views/Vault.vue'),
+    meta: { title: '凭证保险库', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-assistant）在应用启动时
     // 由 registerExtensionRoutes() 动态 addRoute 注入，框架不在此硬编码任何插件路径。
     path: '/:pathMatch(.*)*',
