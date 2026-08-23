@@ -48,8 +48,10 @@ function openCreate() {
   showForm.value = true
 }
 
-function openEdit(p: CookieProfile) {
+async function openEdit(p: CookieProfile) {
   editingId.value = p.id
+  // 先打开弹窗并填入元信息；Cookie 明文需经详情接口拉取后再预填，
+  // 避免编辑时文本框为空导致用户重新粘贴漏粘/粘错（已知 bug）。
   form.value = {
     kind: p.kind || 'cookie',
     name: p.name || '',
@@ -59,6 +61,19 @@ function openEdit(p: CookieProfile) {
     cookies: ''
   }
   showForm.value = true
+  try {
+    const res: any = await scriptApi.getCookie(p.id)
+    const c = res?.cookie
+    if (c) {
+      if (c.kind === 'cookie') {
+        form.value.cookies = c.cookies_header || ''
+      } else {
+        form.value.value = c.value || ''
+      }
+    }
+  } catch (e: any) {
+    errorMsg.value = e?.response?.data?.message || '加载凭证内容失败'
+  }
 }
 
 async function submit() {

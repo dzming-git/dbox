@@ -105,6 +105,7 @@ export const scriptApi = {
 
   // 凭证保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),
+  getCookie: (id: string) => api.get(`/api/admin/cookies/${id}`),
   createCookie: (data: VaultPayload) => api.post('/api/admin/cookies', data),
   updateCookie: (id: string, data: VaultPayload) => api.put(`/api/admin/cookies/${id}`, data),
   deleteCookie: (id: string) => api.delete(`/api/admin/cookies/${id}`),

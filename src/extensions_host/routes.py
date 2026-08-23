@@ -387,6 +387,32 @@ def vault_create():
     return jsonify({'success': True, 'id': pid})
 
 
+@script_bp.route('/api/admin/cookies/<cid>', methods=['GET'])
+@admin_required
+def vault_detail(cid):
+    """凭证详情（含明文，供编辑弹窗预填）。
+
+    列表接口刻意脱敏（不下发明文），但编辑时需要把现有内容回填到表单，
+    否则用户看到空框重新粘贴极易漏粘/粘错，导致存储残缺（已发生过的真实 case）。
+    明文仅在管理员会话内返回，不落日志、不进列表响应。
+    """
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    rec = vault.get(cid)
+    if not rec:
+        return jsonify({'success': False, 'message': '凭证不存在'}), 404
+    out = _vault_public(rec)
+    # 明文仅在此详情接口返回
+    if rec.get('kind') in ('token', 'password', 'apikey'):
+        out['value'] = rec.get('value', '')
+    else:
+        cookies = rec.get('cookies') or []
+        out['cookies_header'] = '; '.join(
+            f"{c.get('name')}={c.get('value')}" for c in cookies if c.get('name'))
+    return jsonify({'success': True, 'cookie': out})
+
+
 @script_bp.route('/api/admin/cookies/<cid>', methods=['PUT'])
 @admin_required
 def vault_update(cid):
