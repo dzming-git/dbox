@@ -34,7 +34,38 @@ class _VaultProxy:
         self._vault = CredentialVault(data_dir_for())
 
     def get(self, domain):
-        return self._vault.get_token(domain=domain)
+        """按域名获取凭证明文：优先 token（标量），其次 cookie（netscape 格式）。"""
+        v = self._vault
+        # 1) 标量凭证（token/password/apikey）
+        t = v.get_token(domain=domain)
+        if t:
+            return t
+        # 2) cookie 凭证（非标量，需从解密后的 cookies 列表还原为头/Netscape 字符串）
+        rec = v.get_by_domain(domain, kind='cookie')
+        if not rec:
+            return None
+        fmt = (rec.get('format') or 'netscape').lower()
+        cookies = rec.get('cookies') or []
+        # 如果 cookies 列表为空但 secret 解密后是原始文本（netscape 格式直接存储），
+        # 则从 _raw_secret 取明文
+        if not cookies and '_raw' in rec:
+            raw = rec['_raw']
+            if isinstance(raw, bytes):
+                raw = raw.decode('utf-8', errors='replace')
+            # 原始文本就是 netscape 格式，直接返回
+            if raw.strip():
+                return raw
+        if fmt == 'header':
+            return '; '.join(f"{c.get('name','')}={c.get('value','')}" for c in cookies)
+        # netscape / json → Netscape 格式文本（run.py 的 read_cookie_file 可处理）
+        lines = []
+        for c in cookies:
+            name = c.get('name', '')
+            value = c.get('value', '')
+            if name and value:
+                lines.append(f'{c.get("domain","")}\tTRUE\t/\t{c.get("path","/")}\t'
+                             f'{c.get("secure", "FALSE")}\t0\t{name}\t{value}')
+        return '\n'.join(lines)
 
     def set(self, domain, token):
         return self._vault.set_token(domain=domain, token=token)

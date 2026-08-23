@@ -200,7 +200,9 @@ class CredentialVault:
             try:
                 out['cookies'] = json.loads(raw.decode('utf-8', errors='replace'))
             except Exception:
+                # JSON 解析失败（如 netscape 文本直接加密存储），保留原始明文
                 out['cookies'] = []
+                out['_raw'] = raw.decode('utf-8', errors='replace')
         return out
 
     # ---------- 标量凭证（token / password / apikey）便捷方法 ----------
