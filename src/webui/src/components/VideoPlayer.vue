@@ -123,6 +123,8 @@ defineExpose({
   pause,
   seekTo,
   setMuted,
+  enterPortraitMode,
+  exitPortraitMode,
   get el() { return player.value },
   get currentTime() { return currentTime.value },
   get duration() { return duration.value },

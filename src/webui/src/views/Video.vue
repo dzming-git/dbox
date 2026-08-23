@@ -54,630 +54,8 @@ const updateMobileState = () => {
 }
 const updateFullscreenState = () => {
   isFullscreen.value = !!document.fullscreenElement
-  // 退出全屏时清除竖屏横屏标记，并将 video 还原回 portrait-item
-  if (!isFullscreen.value) {
-    portraitLandscapeActive.value = false
-    // 延迟一帧再归位 video：退出原生全屏时浏览器有收缩动画/重排，
-    // 若同帧把 video 跨 DOM 树移回（overflow:hidden + transform 容器）会争用主线程，
-    // 在移动端表现为概率性卡顿。等浏览器完成退出动画后再静默归位可消除顿挫
-    if (portraitFsWrapper.value) {
-      requestAnimationFrame(() => restorePortraitVideo())
-    } else {
-      restorePortraitVideo()
-    }
-  }
 }
 
-// ===== 竖屏全屏短视频模式（抖音式沉浸播放 · 跟手 feed track）=====
-// playMode: 'normal' 详情模式 / 'portrait' 竖屏沉浸模式
-const playMode = ref<'normal' | 'portrait'>('normal')
-const feedList = ref<string[]>([]) // 累积的视频 hash 序列（记住历史）
-const feedIndex = ref(0) // 当前播放位置
-const portraitHash = computed(() => feedList.value[feedIndex.value] || videoHash.value)
-const showPortraitDoubleLike = ref(false) // 双击爱心动画
-let doubleLikeTimer: number | null = null
-// 从竖屏进入横屏原生全屏的标记：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
-const portraitLandscapeActive = ref(false)
-// 竖屏右上角「更多」菜单展开状态（收纳不常用按钮，如不喜欢）
-const portraitMoreOpen = ref(false)
-const togglePortraitMore = () => {
-  portraitMoreOpen.value = !portraitMoreOpen.value
-}
-const closePortraitMore = () => {
-  portraitMoreOpen.value = false
-}
-
-// 竖屏沉浸：控件显隐（点击屏幕切换 / 播放中无操作数秒后自动隐藏）
-const portraitUiVisible = ref(true)
-let portraitUiHideTimer: number | null = null
-const PORTRAIT_UI_HIDE_DELAY = 3000
-const showPortraitUi = () => {
-  portraitUiVisible.value = true
-  // 隐藏控件时一并收起更多菜单，避免悬浮菜单孤立残留
-  if (portraitMoreOpen.value) portraitMoreOpen.value = false
-  if (portraitUiHideTimer) window.clearTimeout(portraitUiHideTimer)
-  portraitUiHideTimer = window.setTimeout(() => {
-    // 仅播放中且未展开更多菜单时自动隐藏（暂停时保留，便于交互）
-    if (portraitPlaying.value && !portraitMoreOpen.value) portraitUiVisible.value = false
-  }, PORTRAIT_UI_HIDE_DELAY)
-}
-const hidePortraitUi = () => {
-  // 更多菜单展开时不隐藏，避免用户正在操作时控件消失
-  if (portraitMoreOpen.value) return
-  portraitUiVisible.value = false
-}
-
-// 跟手滑动轨道状态
-const portraitDragY = ref(0) // 当前轨道纵向位移（px，跟手指）
-const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
-const portraitTransition = ref(false) // 是否开启吸附动画
-const portraitViewportH = ref(0) // 视口高度（用于阈值与位移比例）
-const portraitSwitching = ref(false) // 吸附动画进行中，防重复触发
-
-// 三格视频对象（含 url/title/cover）：[prev, current, next]
-// 用 v-for + 稳定 :key（视频 hash）渲染，切换时旋转数组且 DOM 复用，零黑屏重载
-const portraitSlots = ref<any[]>([])
-// 三个 video 元素引用（按槽位收集）
-const slotPlayers = ref<(HTMLVideoElement | null)[]>([null, null, null])
-// 当前播放的槽位索引（恒为 1，中间格）
-const PORTRAIT_CUR_SLOT = 1
-// 仅在视频真实缓冲时才显示轻量指示（不再整屏转圈）
-const portraitBuffering = ref(false)
-// 空槽位对象
-const EMPTY_SLOT = () => ({ hash: '', title: '', file_name: '', cover: '', url: '' })
-// 防止三格出现相同 hash 导致 :key 冲突（DOM 复用错位 → 黑屏只有声音）
-const slotHashExists = (h: string, exceptIndex = -1): boolean => {
-  if (!h) return false
-  return portraitSlots.value.some((s, idx) => idx !== exceptIndex && s?.hash === h)
-}
-
-// 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
-const portraitTrackY = computed(() => -portraitViewportH.value + portraitDragY.value)
-
-// 收集槽位 video 元素
-const setSlotPlayer = (i: number, el: any) => {
-  if (el) slotPlayers.value[i] = el as HTMLVideoElement
-}
-
-// 从路由 query 初始化播放模式
-const initPlayMode = () => {
-  playMode.value = route.query.mode === 'portrait' ? 'portrait' : 'normal'
-}
-
-// 进入竖屏模式时锁定的底层滚动位置，退出时恢复
-let portraitBodyScrollY = 0
-
-// 进入竖屏模式：把当前视频作为流首，自动播放
-const enterPortraitMode = () => {
-  feedList.value = [videoHash.value]
-  feedIndex.value = 0
-  portraitVideo.value = video.value
-  portraitDragY.value = 0
-  portraitBuffering.value = false
-  syncPortraitInteractions()
-  // 进入时展示控件，随后按无操作计时自动隐藏（沉浸观看）
-  showPortraitUi()
-  // 初始化三格：[prev空, current, next空]，next 在进入后异步预取
-  portraitSlots.value = [
-    { hash: '', title: '', file_name: '', cover: '', url: '' },
-    toSlotItem(video.value),
-    { hash: '', title: '', file_name: '', cover: '', url: '' },
-  ]
-  playMode.value = 'portrait'
-  portraitViewportH.value = window.innerHeight
-  // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
-  document.body.classList.add('portrait-mode-active')
-  // 锁定底层 body 滚动：彻底阻止 iOS 原生下拉回弹/页面刷新穿透到首页
-  portraitBodyScrollY = window.scrollY
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${portraitBodyScrollY}px`
-  document.body.style.left = '0'
-  document.body.style.right = '0'
-  document.body.style.width = '100%'
-  document.body.style.overflow = 'hidden'
-  router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
-  nextTick(() => {
-    // 当前视频有声播放；预取下一个以便上滑即见
-    const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (cur) { cur.muted = false; cur.play().catch(() => {}) }
-    fetchNextPreview()
-  })
-}
-
-// 视频对象转槽位数据（hash/url/title/cover）
-const toSlotItem = (v: any) => ({
-  hash: v?.hash || '',
-  title: v?.title || '',
-  file_name: v?.file_name || '',
-  cover: v?.cover || v?.thumbnail || '',
-  url: buildPortraitUrl(v?.url || ''),
-})
-
-// 同步竖屏当前视频的互动状态到本地 ref
-const syncPortraitInteractions = () => {
-  const v = portraitVideo.value
-  if (!v) return
-  isLiked.value = !!v.is_liked
-  isFavorited.value = !!v.is_favorited
-  isDisliked.value = !!v.is_disliked
-}
-
-// 退出竖屏模式，回到普通详情页
-const exitPortraitMode = () => {
-  portraitMoreOpen.value = false
-  playMode.value = 'normal'
-  // 解锁底层 body 滚动并恢复到原位置
-  unlockPortraitBody()
-  if (portraitBodyScrollY) window.scrollTo(0, portraitBodyScrollY)
-  const q = { ...route.query }
-  delete q.mode
-  router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: q })
-  // 同步详情页视频源
-  if (videoHash.value !== portraitHash.value) {
-    router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: q })
-  }
-}
-
-// 竖屏模式下跳转详情页（普通模式）
-const openDetailFromPortrait = () => {
-  const q = { ...route.query }
-  delete q.mode
-  router.push({ name: 'Video', params: { hash: portraitHash.value }, query: q })
-}
-
-// 竖屏模式下请求横屏全屏（原生全屏）：保持竖屏模式存活，退出全屏后回到竖屏而非详情页
-const portraitFsWrapper = ref<HTMLDivElement | null>(null)
-const portraitFsOriginalParent = ref<Element | null>(null)
-const enterLandscapeFromPortrait = () => {
-  // 幂等守卫：若已处于竖屏横屏全屏（video 已移入临时 wrapper），避免重复移动导致多个游离 wrapper 泄漏
-  if (portraitFsWrapper.value) return
-  portraitLandscapeActive.value = true
-  // 保留 mode=portrait，不切到 normal 模式，避免竖屏 UI 被销毁
-  router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: { ...route.query, mode: 'portrait' } })
-  nextTick(() => {
-    const el = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (!el || !el.requestFullscreen) { el?.parentElement?.requestFullscreen?.().catch(() => {}); return }
-    // 将 video 从 portrait-item（overflow:hidden + 父级 transform）中移出，
-    // 放入临时全屏 wrapper（append 到 body），避免移动端浏览器因嵌套布局导致全屏尺寸异常
-    const wrapper = document.createElement('div')
-    wrapper.className = 'portrait-fs-wrapper'
-    portraitFsOriginalParent.value = el.parentElement
-    wrapper.appendChild(el)
-    document.body.appendChild(wrapper)
-    portraitFsWrapper.value = wrapper
-    // 强制重排后请求全屏
-    el.requestFullscreen().catch(() => { restorePortraitVideo(); portraitLandscapeActive.value = false })
-  })
-}
-
-// 全屏退出时将 video 还原回 portrait-item 原位
-const restorePortraitVideo = () => {
-  const wrapper = portraitFsWrapper.value
-  const origParent = portraitFsOriginalParent.value
-  if (wrapper) {
-    const video = wrapper.querySelector('video') as HTMLVideoElement | null
-    if (video) {
-      // 优先还原到记录的原始父节点；若该节点已脱离文档树（如切换视频导致 Vue 重渲染），
-      // 则回退到当前竖屏中间槽位（slot 1）对应的 video 容器，避免 video 永久游离在 body 上
-      let target: Element | null = origParent
-      if (target && !target.isConnected) {
-        const slotEl = slotPlayers.value[PORTRAIT_CUR_SLOT]
-        target = slotEl ? slotEl.parentElement : null
-      }
-      if (target && target.isConnected) {
-        // 外借期间若 Vue 因响应式更新在该父节点重建了同名 video，先移除它，
-        // 避免同一 slot 出现两个 video 或 key 冲突导致画面错乱/卡顿
-        const dup = target.querySelector('video')
-        if (dup && dup !== video) dup.remove()
-        target.appendChild(video)
-      } else {
-        // 兜底：连同 wrapper 一起移除，交给 Vue 重新渲染对应的 video 元素
-        video.remove()
-      }
-    }
-    wrapper.remove()
-  }
-  portraitFsWrapper.value = null
-  portraitFsOriginalParent.value = null
-}
-
-// 竖屏视频数据对象（当前播放项，指向 portraitSlots[1]）
-const portraitVideo = ref<any>(null)
-
-// 相对/绝对 URL 统一拼 token
-const buildPortraitUrl = (url: string): string => {
-  if (!url) return ''
-  const token = localStorage.getItem('token')
-  const abs = url.startsWith('http') ? url : `${location.origin}${url.startsWith('/') ? '' : '/'}${url}`
-  return token ? `${abs}${abs.includes('?') ? '&' : '?'}${token ? `token=${token}` : ''}` : abs
-}
-
-// 加载指定 hash 的视频数据对象（用于信息栏/点赞/收藏，不控制播放器显隐）
-const loadPortraitVideo = async (hash: string) => {
-  try {
-    const res = await (videoApi.getVideo(hash) as any)
-    if (res?.success && res.video) {
-      portraitVideo.value = res.video
-    } else if (res?.video) {
-      portraitVideo.value = res.video
-    }
-    syncPortraitInteractions()
-  } catch (e) {
-    console.error('竖屏加载视频失败:', e)
-  }
-}
-
-// 预取下一个随机视频（上滑方向）：从推荐接口取一个非当前视频，并预载其播放 URL 到 next 槽
-const fetchNextPreview = async () => {
-  if (portraitSlots.value[2]?.hash) return
-  try {
-    const response = await (videoApi.getVideos({ limit: 10, sort: 'recommended' }) as any)
-    const list: any[] = response?.videos || []
-    const curHash = portraitSlots.value[1]?.hash
-    // 排除当前与相邻槽已有的 hash，避免三格出现相同 hash 引起 :key 冲突
-    const next = list.find((v) => v.hash !== curHash && !slotHashExists(v.hash))
-    if (next) {
-      portraitSlots.value[2] = toSlotItem(next)
-      // 确保 next 槽元素开始预载（iOS 需显式触发）
-      nextTick(() => {
-        const el = slotPlayers.value[2]
-        if (el && el.src !== portraitSlots.value[2].url) {
-          el.load()
-        }
-        el?.play().catch(() => {})
-      })
-    }
-  } catch (e) {
-    console.error('预取下一个视频失败:', e)
-  }
-}
-
-// 预载指定槽位的相邻视频（用于下滑回看历史时补齐 prev 槽）
-const buildPrevSlotFromHistory = (idx: number) => {
-  if (idx < 0) {
-    portraitSlots.value[0] = { hash: '', title: '', file_name: '', cover: '', url: '' }
-    return
-  }
-  const h = feedList.value[idx]
-  if (!h) return
-  // 该 hash 已在三格中（如等于新当前或下一个），避免 :key 冲突，prev 槽留空
-  if (slotHashExists(h)) {
-    portraitSlots.value[0] = EMPTY_SLOT()
-    return
-  }
-  // 历史视频优先用已缓存对象；否则仅记 hash，标题待补全
-  const cached = portraitSlots.value.find((s) => s.hash === h)
-  if (cached) {
-    portraitSlots.value[0] = { ...cached }
-  } else {
-    portraitSlots.value[0] = { hash: h, title: '', file_name: '', cover: '', url: '' }
-    loadPortraitVideo(h).then(() => {
-      const v = portraitVideo.value
-      if (v && v.hash === h) {
-        portraitSlots.value[0] = toSlotItem(v)
-        nextTick(() => {
-          const el = slotPlayers.value[0]
-          if (el) el.play().catch(() => {})
-        })
-      }
-    })
-  }
-}
-
-// 上一个视频（下滑）：回退到历史位置（记住，不重新请求网络）
-const loadPrevPortraitVideo = () => {
-  if (feedIndex.value > 0) {
-    feedIndex.value -= 1
-    const h = feedList.value[feedIndex.value]
-    const leaving = portraitSlots.value[1] // 刚离开的当前
-    // 旋转：原 [prev, cur, next] -> [earlierPrev, oldPrev(cur), leaving(cur->next)]
-    // 新 cur = 历史项 h；新 prev = 更早历史（待补）；新 next = 刚离开的当前
-    const old = portraitSlots.value
-    portraitSlots.value = [
-      { hash: '', title: '', file_name: '', cover: '', url: '' }, // prev 待补
-      old[0], // 原 prev 升为 cur（DOM 复用在播视频，零黑屏）
-      leaving, // 刚离开的当前降为 next
-    ]
-    // 若原 prev 槽为空（首次下滑前未预载），用历史项补全
-    if (!old[0]?.hash) {
-      portraitSlots.value[1] = { hash: h, title: '', file_name: '', cover: '', url: '' }
-      loadPortraitVideo(h).then(() => {
-        if (portraitVideo.value?.hash === h) {
-          portraitSlots.value[1] = toSlotItem(portraitVideo.value)
-          syncPortraitInteractions()
-          showPortraitUi()
-        }
-      })
-    } else {
-      portraitVideo.value = old[0]
-      syncPortraitInteractions()
-      showPortraitUi()
-    }
-    // 补齐 prev 槽（更早历史）
-    buildPrevSlotFromHistory(feedIndex.value - 1)
-    return true
-  }
-  return false
-}
-
-// 下一个随机视频（上滑）：从 next 槽取 hash，追加到 feedList，旋转槽位数组（DOM 复用零黑屏）
-const loadNextPortraitVideo = async () => {
-  if (!portraitSlots.value[2]?.hash) {
-    await fetchNextPreview()
-  }
-  if (portraitSlots.value[2]?.hash) {
-    const nextItem = portraitSlots.value[2]
-    const h = nextItem.hash
-    // 旋转：原 [prev, cur, next] -> [cur, next, newNext]
-    const old = portraitSlots.value
-    portraitSlots.value = [
-      old[1], // 原 current 降为 prev
-      old[2], // 原 next 升为 cur（DOM 复用在播视频，零黑屏）
-      { hash: '', title: '', file_name: '', cover: '', url: '' }, // new next 待预取
-    ]
-    // 更新 portraitVideo 指向新 cur，并同步互动
-    portraitVideo.value = await resolveVideo(h)
-    syncPortraitInteractions()
-    // 切换视频后展示控件（随后自动隐藏）
-    showPortraitUi()
-    // 避免重复 hash 追加到 feed 序列（上下交替滑动时会导致三格 hash 冲突）
-    if (h !== feedList.value[feedIndex.value]) {
-      feedList.value.push(h)
-    }
-    feedIndex.value = feedList.value.length - 1
-    // 立即预取新的下一个（旋转后槽2 已空）
-    fetchNextPreview()
-    return true
-  }
-  showToast('没有更多视频了')
-  return false
-}
-
-// 取视频对象（优先 slots 内，否则请求接口）
-const resolveVideo = async (hash: string): Promise<any> => {
-  const inSlots = portraitSlots.value.find((s) => s.hash === hash)
-  if (inSlots && inSlots.url) return inSlots
-  try {
-    const res = await (videoApi.getVideo(hash) as any)
-    const v = res?.video
-    if (v) { syncPortraitInteractions(); return v }
-  } catch (e) { /* ignore */ }
-  return { hash }
-}
-
-// ===== 跟手滑动手势 =====
-const portraitTouchStartY = ref(0)
-const portraitTouchStartX = ref(0)
-const onPortraitTouchStart = (e: TouchEvent) => {
-  const t = e.touches[0]
-  if (!t) return
-  portraitTouchStartY.value = t.clientY
-  portraitTouchStartX.value = t.clientX
-  portraitDragging.value = true
-  portraitTransition.value = false
-  portraitViewportH.value = window.innerHeight
-}
-const onPortraitTouchMove = (e: TouchEvent) => {
-  if (!portraitDragging.value || portraitSwitching.value) return
-  const t = e.touches[0]
-  if (!t) return
-  const dy = t.clientY - portraitTouchStartY.value
-  const dx = t.clientX - portraitTouchStartX.value
-  // 限制横向滑动不跟手（保留给可能的横向操作）
-  if (Math.abs(dy) < Math.abs(dx)) {
-    portraitDragY.value = 0
-    return
-  }
-  portraitDragY.value = dy
-}
-const PORTRAIT_SWIPE_THRESHOLD = 60
-const onPortraitTouchEnd = (e: TouchEvent) => {
-  if (!portraitDragging.value) return
-  // 吸附动画进行中（前一次切换未结束）忽略本次，防旋转重入导致黑屏
-  if (portraitSwitching.value) {
-    portraitDragging.value = false
-    return
-  }
-  portraitDragging.value = false
-  const t = e.changedTouches[0]
-  if (!t) return
-  const dy = t.clientY - portraitTouchStartY.value
-  const dx = t.clientX - portraitTouchStartX.value
-  portraitTransition.value = true // 开启吸附动画
-  if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD || Math.abs(dy) <= Math.abs(dx)) {
-    // 未达阈值：回弹
-    portraitDragY.value = 0
-    return
-  }
-  if (dy < 0) {
-    // 上滑：切到下一个（随机），轨道向上飞
-    portraitSwitching.value = true
-    portraitDragY.value = -portraitViewportH.value
-    setTimeout(async () => {
-      const ok = await loadNextPortraitVideo()
-      // 切换后瞬时归位到 current（无动画），相邻视频 DOM 复用已播，无黑屏
-      portraitTransition.value = false
-      portraitDragY.value = 0
-      portraitSwitching.value = false
-      if (ok) {
-        // 新 current（槽1）已是复用 DOM 在播，确保有声；相邻格静音预载
-        nextTick(() => {
-          const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-          if (cur) { cur.muted = false; cur.play().catch(() => {}) }
-          slotPlayers.value[2]?.pause()
-          slotPlayers.value[0]?.pause()
-        })
-      } else {
-        portraitDragY.value = 0
-      }
-    }, 280)
-  } else {
-    // 下滑：回到上一个（历史），轨道向下飞
-    const ok = loadPrevPortraitVideo()
-    if (ok) {
-      portraitSwitching.value = true
-      portraitDragY.value = portraitViewportH.value
-      setTimeout(() => {
-        portraitTransition.value = false
-        portraitDragY.value = 0
-        portraitSwitching.value = false
-        nextTick(() => {
-          const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-          if (cur) { cur.muted = false; cur.play().catch(() => {}) }
-          slotPlayers.value[2]?.pause()
-          slotPlayers.value[0]?.pause()
-        })
-      }, 280)
-    } else {
-      portraitDragY.value = 0
-    }
-  }
-}
-
-// 竖屏双击点赞 + 单击暂停（延迟单击避免与双击冲突）
-const portraitLastTap = ref(0)
-let portraitTapTimer: number | null = null
-const onPortraitTap = () => {
-  // 点击视频区域时收起「更多」菜单
-  if (portraitMoreOpen.value) {
-    portraitMoreOpen.value = false
-    return
-  }
-  const now = Date.now()
-  if (now - portraitLastTap.value < 300) {
-    // 双击：点赞
-    portraitLastTap.value = 0
-    if (portraitTapTimer) { clearTimeout(portraitTapTimer); portraitTapTimer = null }
-    if (!isLiked.value) handleLike()
-    showPortraitDoubleLike.value = true
-    if (doubleLikeTimer) clearTimeout(doubleLikeTimer)
-    doubleLikeTimer = window.setTimeout(() => { showPortraitDoubleLike.value = false }, 700)
-  } else {
-    portraitLastTap.value = now
-    // 延迟执行单击动作（切换控件显隐），避免把双击的第一下误判为切换
-    if (portraitTapTimer) clearTimeout(portraitTapTimer)
-    portraitTapTimer = window.setTimeout(() => {
-      // 沉浸式：单击视频区域在「显示/隐藏」控件间切换；隐藏后只剩纯视频画面
-      if (portraitUiVisible.value) hidePortraitUi()
-      else showPortraitUi()
-      portraitTapTimer = null
-    }, 300)
-  }
-}
-
-// 竖屏播放控制：播放状态 + 进度条
-const portraitPlaying = ref(true)
-const portraitSlotTimes = ref<{ current: number; duration: number }[]>([
-  { current: 0, duration: 0 },
-  { current: 0, duration: 0 },
-  { current: 0, duration: 0 },
-])
-const togglePortraitPlay = () => {
-  const v = slotPlayers.value[PORTRAIT_CUR_SLOT]
-  if (!v) return
-  if (v.paused) v.play().catch(() => {})
-  else v.pause()
-}
-const onPortraitPlay = () => {
-  portraitPlaying.value = true
-  // 开始播放后按无操作计时，数秒后自动隐藏控件
-  showPortraitUi()
-}
-const onPortraitPause = () => {
-  portraitPlaying.value = false
-  // 暂停时保留控件，便于用户操作；清除自动隐藏计时
-  portraitUiVisible.value = true
-  if (portraitUiHideTimer) window.clearTimeout(portraitUiHideTimer)
-}
-const onPortraitTimeUpdate = (i: number) => {
-  const v = slotPlayers.value[i]
-  if (!v) return
-  const t = portraitSlotTimes.value
-  if (!t[i]) t[i] = { current: 0, duration: 0 }
-  t[i].current = v.currentTime
-  if (v.duration && !isNaN(v.duration)) t[i].duration = v.duration
-}
-const onPortraitMeta = (i: number) => {
-  const v = slotPlayers.value[i]
-  if (!v) return
-  const t = portraitSlotTimes.value
-  if (!t[i]) t[i] = { current: 0, duration: 0 }
-  if (v.duration && !isNaN(v.duration)) t[i].duration = v.duration
-}
-
-// 竖屏进度条拖动/点击跳转（每格独立，绑定对应 slot 的 video，随轨道一起平移）
-const seekFromPortraitBar = (e: MouseEvent | TouchEvent, i: number) => {
-  const bar = e.currentTarget as HTMLElement
-  const v = slotPlayers.value[i]
-  if (!bar || !v) return
-  const rect = bar.getBoundingClientRect()
-  const clientX = 'touches' in e ? (e as TouchEvent).touches[0]?.clientX : (e as MouseEvent).clientX
-  if (clientX == null) return
-  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-  const dur = Number(v.duration) || (portraitSlotTimes.value[i]?.duration || 0)
-  v.currentTime = ratio * dur
-  if (portraitSlotTimes.value[i]) portraitSlotTimes.value[i].current = ratio * dur
-}
-
-// 竖屏内点赞/收藏/不喜欢：直接基于竖屏当前视频 hash 调后端，同步本地状态
-const portraitHandleLike = async () => {
-  const h = portraitHash.value
-  if (!h) return
-  const response = await (videoStore.likeVideo(h) as any)
-  if (response && response.like_count !== undefined) {
-    isLiked.value = response.liked
-    if (portraitVideo.value) portraitVideo.value.like_count = response.like_count
-  }
-}
-const portraitHandleFavorite = async () => {
-  const h = portraitHash.value
-  if (!h) return
-  const response = await (videoStore.favoriteVideo(h) as any)
-  if (response && response.favorite_count !== undefined) {
-    isFavorited.value = response.favorited
-    if (portraitVideo.value) portraitVideo.value.favorite_count = response.favorite_count
-  }
-  showToast(isFavorited.value ? '已添加到收藏' : '已取消收藏')
-}
-const portraitHandleDislike = async () => {
-  const h = portraitHash.value
-  if (!h) return
-  if (isLiked.value) {
-    const r = await (videoStore.likeVideo(h) as any)
-    isLiked.value = r?.liked ?? false
-  }
-  const response = await (videoStore.dislikeVideo(h) as any)
-  if (response && response.success) {
-    isDisliked.value = response.disliked
-  } else {
-    isDisliked.value = !isDisliked.value
-  }
-  showToast(isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽')
-}
-
-// 竖屏视频播放结束：自动进入下一个（带轨道吸附动画）
-const onPortraitEnded = () => {
-  if (portraitSwitching.value) return
-  portraitTransition.value = true
-  portraitSwitching.value = true
-  portraitDragY.value = -portraitViewportH.value
-  setTimeout(async () => {
-    const ok = await loadNextPortraitVideo()
-    portraitTransition.value = false
-    portraitDragY.value = 0
-    portraitSwitching.value = false
-    if (ok) {
-      nextTick(() => {
-        const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-        if (cur) { cur.muted = false; cur.play().catch(() => {}) }
-        slotPlayers.value[2]?.pause()
-        slotPlayers.value[0]?.pause()
-      })
-    } else {
-      portraitDragY.value = 0
-    }
-  }, 280)
-}
 
 // 精彩片段标记（用户个人时间戳）——业务层，依赖底层 <video> 的 currentTime/duration
 const markers = ref<VideoMarker[]>([])
@@ -899,6 +277,127 @@ const videoPosterUrl = computed(() => {
   return withThumbToken(thumb + (route.query.post === '1' && !thumb.includes('?') ? '?post=1' : ''))
 })
 
+// ===== 竖屏（复用 VideoPlayer 组件，数据通过 playlist/loadMore/emits 注入） =====
+// 竖屏组件播放列表：稳定数组，首个元素为当前视频（字段在互动时原位更新，避免重建数组导致 feed 丢失）
+const portraitPlaylist = ref<any[]>([])
+function resetPortraitPlaylist() {
+  portraitPlaylist.value = [
+    {
+      src: videoUrl.value,
+      poster: videoPosterUrl.value,
+      title: video.value?.title || '',
+      hash: video.value?.hash || videoHash.value,
+      like_count: video.value?.like_count || 0,
+      favorite_count: video.value?.favorite_count || 0,
+      is_liked: isLiked.value,
+      is_favorited: isFavorited.value,
+      is_disliked: isDisliked.value,
+    },
+  ]
+}
+watch(videoHash, resetPortraitPlaylist, { immediate: true })
+watch(video, () => {
+  if (portraitPlaylist.value[0] && video.value && portraitPlaylist.value[0].hash === video.value.hash) {
+    Object.assign(portraitPlaylist.value[0], {
+      src: videoUrl.value,
+      poster: videoPosterUrl.value,
+      title: video.value.title || '',
+      like_count: video.value.like_count || 0,
+      favorite_count: video.value.favorite_count || 0,
+      is_liked: isLiked.value,
+      is_favorited: isFavorited.value,
+      is_disliked: isDisliked.value,
+    })
+  }
+})
+
+// 拼接视频播放 URL（带鉴权 token）
+const buildPortraitUrl = (raw: string) => {
+  if (!raw) return ''
+  const u = new URL(raw, window.location.origin)
+  if (route.query.post === '1' && !u.searchParams.has('post')) u.searchParams.set('post', '1')
+  return u.toString()
+}
+
+// 竖屏上滑到末尾时加载下一个推荐视频（追加到组件 playlist）
+const portraitLoadMore = async () => {
+  try {
+    const response = await (videoApi.getVideos({ limit: 10, sort: 'recommended' }) as any)
+    const list: any[] = response?.videos || []
+    const curHash = portraitPlaylist.value[0]?.hash
+    const next = list.find((v) => v.hash !== curHash)
+    if (next) {
+      return {
+        src: buildPortraitUrl(next.url || next.video_url || ''),
+        poster: next.cover || next.thumbnail || '',
+        title: next.title || '',
+        hash: next.hash,
+        like_count: next.like_count || 0,
+        favorite_count: next.favorite_count || 0,
+        is_liked: !!next.is_liked,
+        is_favorited: !!next.is_favorited,
+        is_disliked: !!next.is_disliked,
+      }
+    }
+  } catch (e) {
+    console.error('竖屏加载下一个失败:', e)
+  }
+  return null
+}
+
+// 竖屏内点赞/收藏/不喜欢：基于竖屏当前视频 hash 调后端，同步本地状态（供组件 emit 调用）
+const portraitHandleLike = async (item: any) => {
+  const h = item?.hash || videoHash.value
+  if (!h) return
+  const response = await (videoStore.likeVideo(h) as any)
+  if (response && response.like_count !== undefined) {
+    isLiked.value = response.liked
+    if (video.value) video.value.like_count = response.like_count
+    const cur = portraitPlaylist.value[0]
+    if (cur && cur.hash === h) Object.assign(cur, { is_liked: response.liked, like_count: response.like_count })
+  }
+}
+const portraitHandleFavorite = async (item: any) => {
+  const h = item?.hash || videoHash.value
+  if (!h) return
+  const response = await (videoStore.favoriteVideo(h) as any)
+  if (response && response.favorite_count !== undefined) {
+    isFavorited.value = response.favorited
+    if (video.value) video.value.favorite_count = response.favorite_count
+    const cur = portraitPlaylist.value[0]
+    if (cur && cur.hash === h) Object.assign(cur, { is_favorited: response.favorited, favorite_count: response.favorite_count })
+  }
+  showToast(isFavorited.value ? '已添加到收藏' : '已取消收藏')
+}
+const portraitHandleDislike = async (item: any) => {
+  const h = item?.hash || videoHash.value
+  if (!h) return
+  if (isLiked.value) {
+    const r = await (videoStore.likeVideo(h) as any)
+    isLiked.value = r?.liked ?? false
+    const cur = portraitPlaylist.value[0]
+    if (cur && cur.hash === h) Object.assign(cur, { is_liked: r?.liked ?? false })
+  }
+  const response = await (videoStore.dislikeVideo(h) as any)
+  if (response && response.success) {
+    isDisliked.value = response.disliked
+  } else {
+    isDisliked.value = !isDisliked.value
+  }
+  const cur = portraitPlaylist.value[0]
+  if (cur && cur.hash === h) Object.assign(cur, { is_disliked: isDisliked.value })
+  showToast(isDisliked.value ? '已屏蔽，将不再出现在列表中' : '已取消屏蔽')
+}
+
+// 竖屏模式下跳转详情页（普通模式）：跳到当前播放视频的详情
+const openDetailFromPortrait = (item: any) => {
+  const h = item?.hash || videoHash.value
+  if (!h) return
+  const q = { ...route.query }
+  delete q.mode
+  router.push({ name: 'Video', params: { hash: h }, query: q })
+}
+
 // 完整加载一个视频（含标记/历史/合集上下文）。供 onMounted 与切换视频复用。
 const loadVideo = async () => {
   if (!videoHash.value) return
@@ -917,20 +416,6 @@ const loadVideo = async () => {
       await loadCollectionContext()
       loadVideoCollections()
       loadContinueWatchState()
-
-      // 若当前是竖屏模式，同步 portraitVideo（确保视频源可用）
-      if (playMode.value === 'portrait' && video.value) {
-        if (!portraitVideo.value || portraitVideo.value.hash !== video.value.hash) {
-          portraitVideo.value = video.value
-          syncPortraitInteractions()
-        }
-        // 刷新或重新拉取后，若当前竖屏槽位 url 尚未就绪/与最新视频不一致，
-        // 用最新的 video.value 重填当前槽。否则竖屏当前视频源为空会黑屏“看不到”。
-        const cur = portraitSlots.value[1]
-        if (cur && (!cur.url || cur.hash !== video.value.hash)) {
-          portraitSlots.value[1] = toSlotItem(video.value)
-        }
-      }
     }
   } catch (error) {
     console.error('Failed to load video:', error)
@@ -943,37 +428,17 @@ onMounted(async () => {
   // 先检查是否是共享链接访问
   await checkSharedLink()
   await loadVideo()
-  // 刷新或深链直接进入竖屏（URL 带 ?mode=portrait）时，需真正装配三格视频，
-  // 否则 portraitSlots 为空、只有黑底空壳、视频不可见。
-  // 注意：enterPortraitMode 依赖 video.value 已就绪（上面 loadVideo 已完成）。
+  // 深链直接进入竖屏（URL 带 ?mode=portrait）：通知组件进入竖屏
   if (route.query.mode === 'portrait') {
-    enterPortraitMode()
-  } else {
-    initPlayMode()
+    nextTick(() => {
+      videoPlayerRef.value?.enterPortraitMode?.()
+    })
   }
   document.addEventListener('click', onDocClickCloseMenu)
   updateMobileState()
   updateFullscreenState()
   window.addEventListener('resize', updateMobileState)
   document.addEventListener('fullscreenchange', updateFullscreenState)
-})
-
-// 路由 query.mode 变化时同步竖屏模式（支持外链直接进入竖屏）
-watch(() => route.query.mode, (m) => {
-  const target = m === 'portrait' ? 'portrait' : 'normal'
-  if (target === 'portrait' && playMode.value !== 'portrait') {
-    feedList.value = [videoHash.value]
-    feedIndex.value = 0
-    portraitVideo.value = video.value
-    syncPortraitInteractions()
-    // 若三格尚未装配（非按钮触发、而是 query 直接变为 portrait 的路径），补齐装配，
-    // 否则同样会只剩黑底空壳。enterPortraitMode 内已把 playMode 置为 portrait，
-    // 二次触发本 watch 时因 playMode 已为 portrait 而跳过，不会死循环。
-    if (portraitSlots.value.length < 3 && video.value) {
-      enterPortraitMode()
-    }
-  }
-  playMode.value = target
 })
 
 // 顶部下拉刷新：重新加载当前视频及其推荐
@@ -998,16 +463,10 @@ onMounted(registerPtr)
 onActivated(registerPtr)
 onUnmounted(() => {
   ptr.clearHandler()
-  // 离开页面时必须清理竖屏全屏临时 wrapper，否则游离的 <video> 会持续占用
-  // 网络/解码资源，导致回到首页或再次进入视频时长时间「加载中」甚至加载失败，且无法自愈
-  restorePortraitVideo()
-  unlockPortraitBody()
   document.removeEventListener('fullscreenchange', updateFullscreenState)
 })
 onDeactivated(() => {
   ptr.clearHandler()
-  restorePortraitVideo()
-  unlockPortraitBody()
 })
 
 function onDocClickCloseMenu(e: Event) {
@@ -2247,19 +1706,6 @@ const handleDelete = async () => {
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
-            <!-- PC 端竖屏全屏入口（右上角；移动端用底部竖屏按钮） -->
-            <button
-              v-if="!isMobile"
-              class="portrait-entry-pc"
-              @click.stop="enterPortraitMode"
-              title="竖屏全屏"
-              aria-label="竖屏全屏"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="7" y="2" width="10" height="20" rx="2" />
-                <line x1="11" y1="18" x2="13" y2="18" />
-              </svg>
-            </button>
             <!-- 精彩片段标记进度条 -->
             <div class="marker-track" v-if="markerTrack.length" @click.stop>
               <div
@@ -2275,28 +1721,21 @@ const handleDelete = async () => {
             </div>
             <VideoPlayer
               ref="videoPlayerRef"
-              :playlist="[{ src: videoUrl, poster: videoPosterUrl }]"
+              :playlist="portraitPlaylist"
               :autoplay="false"
-              :enable-portrait="false"
+              :enable-portrait="true"
+              :portrait-interactions="true"
+              :load-more="portraitLoadMore"
               @play="onPlay"
               @pause="onPause"
               @timeupdate="onTimeUpdate"
               @seeked="onSeeked"
               @ended="onVideoEnded"
+              @like="portraitHandleLike"
+              @favorite="portraitHandleFavorite"
+              @dislike="portraitHandleDislike"
+              @open-detail="openDetailFromPortrait"
             />
-            <!-- 移动端竖屏全屏按钮（底部控制栏同款；组件竖屏已禁用，走本页完整竖屏） -->
-            <button
-              v-if="isMobile"
-              class="portrait-entry-mobile"
-              @click.stop="enterPortraitMode"
-              aria-label="竖屏全屏"
-              title="竖屏全屏"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="7" y="2" width="10" height="20" rx="2" />
-                <line x1="11" y1="18" x2="13" y2="18" />
-              </svg>
-            </button>
             <!-- 自动续播倒计时遮罩 -->
             <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
               <div class="ac-card">
@@ -2312,158 +1751,6 @@ const handleDelete = async () => {
           </div>
         </div>
 
-        <!-- 竖屏全屏短视频模式（抖音式沉浸播放 · 跟手 feed track），Teleport 到 body 避免父级 overflow 裁剪 -->
-        <Teleport to="body">
-          <div class="portrait-mode" v-if="playMode === 'portrait'" @click="onPortraitTap">
-            <!-- 纵向 feed 轨道：prev / current / next 三格，v-for + 稳定 :key 复用 DOM，零黑屏切换 -->
-            <div
-              class="portrait-track"
-              :class="{ dragging: portraitDragging, animating: portraitTransition }"
-              :style="{ transform: `translateY(${portraitTrackY}px)` }"
-              @touchstart="onPortraitTouchStart"
-              @touchmove.prevent="onPortraitTouchMove"
-              @touchend="onPortraitTouchEnd"
-            >
-              <div
-                v-for="(item, i) in portraitSlots"
-                :key="item.hash || 'slot-' + i"
-                class="portrait-item"
-              >
-                <video
-                  :ref="(el) => setSlotPlayer(i, el)"
-                  :src="item.url"
-                  class="portrait-video"
-                  :autoplay="i === 1"
-                  :muted="i !== 1"
-                  playsinline
-                  webkit-playsinline
-                  x5-playsinline
-                  x5-video-player-type="h5-page"
-                  preload="auto"
-                  @ended="() => { if (i === 1) onPortraitEnded() }"
-                  @waiting="() => { if (i === 1) portraitBuffering = true }"
-                  @playing="() => { if (i === 1) portraitBuffering = false }"
-                  @play="() => { if (i === 1) onPortraitPlay() }"
-                  @pause="() => { if (i === 1) onPortraitPause() }"
-                  @timeupdate="() => onPortraitTimeUpdate(i)"
-                  @loadedmetadata="() => onPortraitMeta(i)"
-                  @durationchange="() => onPortraitMeta(i)"
-                  @click.stop="onPortraitTap"
-                ></video>
-
-                <!-- 仅当前槽(i===1)渲染控制层：作为轨道子节点，随 translateY 与视频一起上下滑动 -->
-                <template v-if="i === 1">
-                  <!-- 右侧竖排操作栏：点赞 / 收藏 -->
-                  <div class="portrait-actions" :class="{ 'ui-hidden': !portraitUiVisible }" @touchstart.stop>
-                    <button class="portrait-action" :class="{ active: isLiked }" @click.stop="portraitHandleLike" aria-label="点赞">
-                      <span class="portrait-action-icon">
-                        <svg width="30" height="30" viewBox="0 0 24 24" :fill="isLiked ? '#ff2d55' : 'none'" stroke="currentColor" stroke-width="2">
-                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                        </svg>
-                      </span>
-                      <span class="portrait-action-count">{{ portraitVideo?.like_count || 0 }}</span>
-                    </button>
-                    <button class="portrait-action" :class="{ active: isFavorited }" @click.stop="portraitHandleFavorite" aria-label="收藏">
-                      <span class="portrait-action-icon">
-                        <svg width="30" height="30" viewBox="0 0 24 24" :fill="isFavorited ? '#ffd60a' : 'none'" stroke="currentColor" stroke-width="2">
-                          <path d="M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z" />
-                        </svg>
-                      </span>
-                      <span class="portrait-action-count">{{ portraitVideo?.favorite_count || 0 }}</span>
-                    </button>
-                  </div>
-
-                  <!-- 底部控制栏：标题 / 进度条 / 播放·全屏·详情 -->
-                  <div class="portrait-bottom-bar" :class="{ 'ui-hidden': !portraitUiVisible }" @touchstart.stop>
-                    <div class="pb-title">
-                      <span class="pb-title-text">{{ item.title }}</span>
-                      <span class="pb-meta" v-if="item.file_name">{{ item.file_name }}</span>
-                    </div>
-                    <div
-                      class="pb-progress"
-                      @touchstart.stop.prevent="seekFromPortraitBar($event, i)"
-                      @touchmove.stop.prevent="seekFromPortraitBar($event, i)"
-                      @click.stop="seekFromPortraitBar($event, i)"
-                    >
-                      <div class="pp-track">
-                        <div class="pp-played" :style="{ width: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
-                        <div class="pp-thumb" :style="{ left: ((portraitSlotTimes[i]?.duration || 0) ? (portraitSlotTimes[i].current / portraitSlotTimes[i].duration) * 100 : 0) + '%' }"></div>
-                      </div>
-                      <div class="pp-time">{{ formatTime(portraitSlotTimes[i]?.current || 0) }} / {{ formatTime(portraitSlotTimes[i]?.duration || 0) }}</div>
-                    </div>
-                    <div class="pb-buttons">
-                      <button class="pb-btn" @click.stop="togglePortraitPlay" :aria-label="portraitPlaying ? '暂停' : '播放'">
-                        <svg v-if="portraitPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                          <rect x="6" y="5" width="4" height="14" rx="1" />
-                          <rect x="14" y="5" width="4" height="14" rx="1" />
-                        </svg>
-                        <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </button>
-                      <div class="pb-right">
-                        <button class="pb-btn" @click.stop="enterLandscapeFromPortrait" aria-label="横屏全屏" title="横屏全屏">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
-                          </svg>
-                        </button>
-                        <button class="pb-btn" @click.stop="openDetailFromPortrait" aria-label="详情" title="详情模式">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="4" width="18" height="16" rx="2" />
-                            <line x1="3" y1="9" x2="21" y2="9" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-
-            <!-- 双击爱心动画 -->
-            <transition name="heart-pop">
-              <div v-if="showPortraitDoubleLike" class="portrait-heart">
-                <svg width="80" height="80" viewBox="0 0 24 24" fill="#ff2d55">
-                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                </svg>
-              </div>
-            </transition>
-
-            <!-- 右上角：更多（不常用按钮收纳） -->
-            <div class="portrait-more" :class="{ 'ui-hidden': !portraitUiVisible }">
-              <button class="portrait-top-btn" @click.stop="togglePortraitMore" aria-label="更多">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="12" cy="19" r="2" />
-                </svg>
-              </button>
-              <div v-if="portraitMoreOpen" class="portrait-more-menu" @click.stop>
-                <button class="portrait-more-item" :class="{ active: isDisliked }" @click.stop="portraitHandleDislike(); closePortraitMore()" aria-label="不喜欢">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="9" />
-                    <line x1="8" y1="8" x2="16" y2="16" />
-                    <line x1="16" y1="8" x2="8" y2="16" />
-                  </svg>
-                  <span>不喜欢</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 左上角：退出（←） -->
-            <button class="portrait-back-btn" :class="{ 'ui-hidden': !portraitUiVisible }" @click.stop="exitPortraitMode" aria-label="退出竖屏">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-
-            <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
-            <div v-if="portraitBuffering && !portraitDragging" class="portrait-buffering">
-              <div class="buffering-spinner"></div>
-            </div>
-          </div>
-        </Teleport>
 
         <!-- 合集连播导航条 -->
         <div class="collection-nav" v-if="inCollection">
@@ -3412,506 +2699,11 @@ const handleDelete = async () => {
 }
 
 /* PC 端竖屏全屏入口按钮 */
-.portrait-entry-pc {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 10;
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  transition: background 0.2s;
-}
-.portrait-entry-pc:hover {
-  background: rgba(0, 0, 0, 0.75);
-}
-
-/* 移动端竖屏全屏入口按钮（右下角，仿底部控制栏风格） */
-.portrait-entry-mobile {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 10;
-  width: 42px;
-  height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-}
-.portrait-entry-mobile:active {
-  background: rgba(0, 0, 0, 0.75);
-}
-
 /* 全屏时铺满整个屏幕 */
 .video-player-container:fullscreen {
   width: 100vw;
   height: 100vh;
   aspect-ratio: auto;
-}
-
-/* ===== 竖屏全屏短视频模式（抖音式沉浸）===== */
-.portrait-mode {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  background: #000;
-  z-index: 2000;
-  overflow: hidden;
-  touch-action: none;
-  overscroll-behavior: contain;
-}
-/* 纵向 feed 轨道：三格（prev/current/next），每格一个视口高 */
-.portrait-track {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 300%;
-  will-change: transform;
-}
-.portrait-track.animating {
-  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.portrait-item {
-  position: relative;
-  width: 100%;
-  height: 33.3333%;
-  overflow: hidden;
-  background: #000;
-}
-.portrait-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
-}
-/* 相邻视频预览层 */
-.portrait-item-cover {
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  filter: brightness(0.7);
-}
-.portrait-item-ph {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #0a0a0a;
-}
-/* 双击爱心动画 */
-.portrait-heart {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 5;
-  pointer-events: none;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
-}
-.heart-pop-enter-active {
-  animation: heart-pop 0.7s ease-out;
-}
-@keyframes heart-pop {
-  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
-  30% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-  70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
-}
-/* 右上角更多菜单容器 */
-.portrait-more {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top));
-  right: 12px;
-  z-index: 11;
-}
-/* 更多下拉菜单（不常用按钮收纳） */
-.portrait-more-menu {
-  position: absolute;
-  top: 48px;
-  right: 0;
-  min-width: 112px;
-  padding: 6px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.portrait-more-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.portrait-more-item:active {
-  background: rgba(255, 255, 255, 0.12);
-}
-.portrait-more-item.active {
-  color: #cfcfcf;
-}
-/* 底部控制栏：标题(倒数三行) / 进度(倒数二行) / 按钮(最下一行)，贯穿左右至屏幕边缘；右侧点赞收藏浮于其上 */
-.portrait-bottom-bar {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)));
-  z-index: 14;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  pointer-events: none;
-}
-.portrait-bottom-bar > * {
-  pointer-events: auto;
-}
-.pb-title {
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
-  font-size: 14px;
-  line-height: 1.35;
-}
-.pb-title-text {
-  font-weight: 600;
-}
-.pb-meta {
-  display: block;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pb-progress {
-  width: 100%;
-}
-.pb-progress .pp-track {
-  position: relative;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.35);
-  border-radius: 3px;
-}
-.pb-progress .pp-played {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  background: #ff2d55;
-  border-radius: 3px;
-}
-.pb-progress .pp-thumb {
-  position: absolute;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  background: #fff;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-.pb-progress .pp-time {
-  margin-top: 2px;
-  font-size: 11px;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-}
-.pb-buttons {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.pb-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.pb-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-.pb-btn:active {
-  background: rgba(0, 0, 0, 0.7);
-}
-.portrait-top-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-.portrait-top-btn:active {
-  background: rgba(0, 0, 0, 0.7);
-}
-/* 右侧竖排操作栏（上移，避免与右下角竖排按钮在底部重叠） */
-.portrait-actions {
-  position: absolute;
-  right: 14px;
-  bottom: 124px;
-  z-index: 13;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
-}
-.portrait-action {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  background: none;
-  border: none;
-  color: #fff;
-  cursor: pointer;
-}
-.portrait-action-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
-  transition: transform 0.15s, background 0.2s;
-}
-.portrait-action:active .portrait-action-icon {
-  transform: scale(0.9);
-}
-/* 竖屏沉浸：控件（侧栏/底栏/更多/退出）淡出，点击屏幕可切回 */
-.portrait-actions,
-.portrait-bottom-bar,
-.portrait-more,
-.portrait-back-btn {
-  transition: opacity 0.25s ease;
-}
-.portrait-actions.ui-hidden,
-.portrait-bottom-bar.ui-hidden,
-.portrait-more.ui-hidden,
-.portrait-back-btn.ui-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.portrait-action.active .portrait-action-icon {
-  background: none;
-}
-.portrait-action.active {
-  color: #ff2d55;
-}
-/* 不喜欢为否定操作，激活时用灰色而非红心色，避免与点赞混淆 */
-.portrait-action.dislike.active {
-  color: #cfcfcf;
-}
-.portrait-action:nth-child(2).active {
-  color: #ffd60a;
-}
-.portrait-action-count {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-}
-/* 左上角退出箭头 */
-.portrait-back-btn {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top));
-  left: 12px;
-  z-index: 10;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-.portrait-back-btn:active {
-  background: rgba(0, 0, 0, 0.7);
-}
-/* 进度条通用样式（底部控制栏复用） */
-.pp-track {
-  position: relative;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.35);
-  border-radius: 3px;
-}
-.pp-played {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  background: #ff2d55;
-  border-radius: 3px;
-}
-.pp-thumb {
-  position: absolute;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  background: #fff;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-.pp-time {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  text-align: center;
-}
-.portrait-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.portrait-meta {
-  font-size: 12px;
-  opacity: 0.7;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* 轻量缓冲指示：居中小圈，不遮挡画面 */
-.portrait-buffering {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-/* 相邻格视频未加载时占位暗色（避免纯黑割裂） */
-.portrait-item-ph {
-  position: absolute;
-  inset: 0;
-  background: #0a0a0a;
-}
-/* 竖屏→横屏全屏临时容器：将 video 从 portrait-item 移出后放入此 wrapper 再 requestFullscreen，
-   避免移动端浏览器因 overflow:hidden + 父级 transform 导致全屏尺寸计算异常（视频缩成一小条） */
-.portrait-fs-wrapper {
-  width: 100vw;
-  height: 100vh;
-  background: #000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.portrait-fs-wrapper video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.video-element {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-/* 精彩片段标记进度条 */
-.marker-track {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-  z-index: 3;
-  pointer-events: auto;
-}
-
-.marker-tick {
-  position: absolute;
-  top: 50%;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  transform: translateY(-50%);
-  background: #ff4d6d;
-  border: 2px solid var(--text-primary);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: transform 0.15s;
-}
-
-.marker-tick:hover {
-  transform: translateY(-50%) scale(1.4);
-}
-
-.marker-tip {
-  position: absolute;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  background: #000;
-  color: var(--text-on-accent);
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-
-.marker-tick:hover .marker-tip {
-  opacity: 1;
 }
 
 .auto-continue-overlay {
