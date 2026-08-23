@@ -236,16 +236,24 @@ onMounted(load)
 .modal-mask {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9500;
   display: flex; align-items: center; justify-content: center;
+  /* 兜底：浏览器高度变化时仍居中 */
+  padding: 16px;
 }
-.modal { width: 480px; max-width: 92vw; max-height: 90vh; background: var(--bg-elevated, #1e1e22); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.modal {
+  /* 固定一个合理高度：宽 480px × 高 540px，足够装所有字段并留余量 */
+  width: 480px; max-width: 92vw; height: 540px; max-height: 85vh;
+  background: var(--bg-elevated, #1e1e22); border-radius: 12px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--bg-surface-2, #2a2a30); font-weight: 600; flex-shrink: 0; }
 .modal-head .close { background: none; border: none; color: var(--text-secondary, #aaa); font-size: 22px; cursor: pointer; line-height: 1; }
-.modal-body { padding: 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0; }
-.modal-body label { font-size: 13px; color: var(--text-secondary, #bbb); margin-top: 8px; }
+.modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
+.modal-body label { font-size: 13px; color: var(--text-secondary, #bbb); margin-top: 6px; }
 .modal-body input, .modal-body select, .modal-body textarea {
   background: var(--bg-surface, #232329); border: 1px solid var(--border-subtle, #2e2e34);
   border-radius: 8px; padding: 8px 10px; color: var(--text-primary, #eee); font-size: 14px;
-  font-family: inherit; resize: vertical;
+  font-family: inherit; resize: none;
 }
-.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
+.modal-body textarea { resize: vertical; min-height: 60px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
 </style>
