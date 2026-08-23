@@ -238,8 +238,8 @@ onMounted(load)
   position: fixed; left: 50%; top: 50%;
   transform: translate(-50%, -50%);
   width: 480px; max-width: 92vw;
-  /* 留一些视口上下边距，避免贴边 */
-  max-height: calc(100vh - 32px);
+  /* 固定高度 540px + 不超过视口减 32px：装得下就 540（紧凑），装不下就内部滚动 */
+  height: 540px; max-height: calc(100vh - 32px);
   background: var(--bg-elevated, #1e1e22); border-radius: 12px;
   z-index: 9500;
   display: flex; flex-direction: column; overflow: hidden;
