@@ -291,7 +291,9 @@ def get_gallery(gallery_hash):
         # 资源库未激活 / 无权访问时，外界完全感知不到该图集存在（含详情页、名称、页面）
         # 注意：图集链接属于「资源对外访问」通道，即使是管理员也不允许在详情页泄露名称；
         # 未激活资源库的可见性例外仅限于后台资源库管理界面，不扩展到图集详情页。
-        if not is_gallery_visible(c):
+        # ?post=1 时跳过 hidden 检查（帖子内嵌引用场景）。
+        allow_hidden = request.args.get('post', '0') == '1'
+        if not is_gallery_visible(c, allow_hidden=allow_hidden):
             return deny_missing()
         key = current_interaction_key()
         d = c.to_dict()
@@ -774,7 +776,8 @@ def list_gallery_tags():
 def get_gallery_tags(gallery_hash):
     try:
         c = Gallery.query.filter_by(hash=gallery_hash).first()
-        if not is_gallery_visible(c):
+        allow_hidden = request.args.get('post', '0') == '1'
+        if not is_gallery_visible(c, allow_hidden=allow_hidden):
             return deny_missing()
         tag_ids = [r[0] for r in db.session.query(GalleryTag.tag_id).filter_by(gallery_id=c.id).all()]
         tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []

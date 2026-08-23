@@ -97,9 +97,9 @@ function mediaTypeOf(refItem: any) {
 
 function openRefLink(r: any) {
   if (!r) return
-  if (r.video) { router.push(`/video/${r.video.hash}`); return }
-  if (r.gallery) { router.push(`/gallery/${r.gallery.hash}`); return }
-  if (r.text) { router.push(`/text/${r.text.id}`); return }
+  if (r.video) { router.push(`/video/${r.video.hash}?post=1`); return }
+  if (r.gallery) { router.push(`/gallery/${r.gallery.hash}?post=1`); return }
+  if (r.text) { router.push(`/text/${r.text.id}?post=1`); return }
 }
 
 function formatDate(s?: string) {

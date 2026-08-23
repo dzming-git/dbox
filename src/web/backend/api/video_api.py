@@ -187,7 +187,9 @@ def get_video(video_hash):
         # 一律以资源库可见性为准，不再为管理员开后门：
         # 资源库未激活即等同不存在。响应与「资源真的不存在」完全一致，
         # 避免通过状态码或文案差异探测资源是否存在。
-        if not is_video_visible(video):
+        # ?post=1 时跳过 hidden 检查（帖子内嵌引用场景）。
+        allow_hidden = request.args.get('post', '0') == '1'
+        if not is_video_visible(video, allow_hidden=allow_hidden):
             return deny_missing()
 
         video_dict = video.to_dict()
@@ -508,6 +510,7 @@ def increment_view_count(video_hash):
 def play_video(video_id):
     """播放视频 - 需要检查资源库权限"""
     try:
+        allow_hidden = request.args.get('post', '0') == '1'
         video = Video.query.get(video_id)
         if not video:
             return jsonify({'success': False, 'message': '视频不存在'}), 404

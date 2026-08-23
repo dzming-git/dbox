@@ -161,8 +161,8 @@ function labelForRef(r: any) {
 
 function openRefLink(r: any) {
   if (!r) return
-  if (r.video) { router.push(`/video/${r.video.hash}`); return }
-  if (r.gallery) { router.push(`/gallery/${r.gallery.hash}`); return }
+  if (r.video) { router.push(`/video/${r.video.hash}?post=1`); return }
+  if (r.gallery) { router.push(`/gallery/${r.gallery.hash}?post=1`); return }
   // 文本 / 仅属于帖子的资源没有独立播放页，链接仅作展示
 }
 

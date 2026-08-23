@@ -52,8 +52,9 @@ const formatDate = (dateStr?: string): string => {
 }
 
 const onOpen = () => {
-  if (props.item.type === 'video') router.push(`/video/${props.item.hash}`)
-  else router.push(`/gallery/${props.item.hash}`)
+  // ?post=1 用于帖子内嵌引用场景：跳过 hidden 检查，允许在帖子中预览资源
+  if (props.item.type === 'video') router.push(`/video/${props.item.hash}?post=1`)
+  else router.push(`/gallery/${props.item.hash}?post=1`)
 }
 const onAction = (name: string, e: Event) => {
   e.stopPropagation()

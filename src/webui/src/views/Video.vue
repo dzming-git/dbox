@@ -1005,7 +1005,8 @@ const videoUrl = computed(() => {
   const url = video.value?.url || ''
   if (!url) return ''
   const token = localStorage.getItem('token')
-  return token ? `${url}?token=${token}` : url
+  const postCtx = route.query.post === '1' ? '&post=1' : ''
+  return token ? `${url}?token=${token}${postCtx}` : `${url}${postCtx ? '?' + postCtx.slice(1) : ''}`
 })
 
 // 完整加载一个视频（含标记/历史/合集上下文）。供 onMounted 与切换视频复用。
@@ -1013,7 +1014,9 @@ const loadVideo = async () => {
   if (!videoHash.value) return
   loading.value = true
   try {
-    const response = await videoStore.fetchVideo(videoHash.value)
+    // 从帖子打开时带 ?post=1，跳过 hidden 检查（帖子内嵌引用场景）
+    const postCtx = route.query.post === '1' ? '?post=1' : ''
+    const response = await videoStore.fetchVideo(videoHash.value + postCtx)
     if (response && response.video) {
       video.value = response.video
       await loadMarkers()

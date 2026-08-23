@@ -536,7 +536,9 @@ const loadGallery = async (hash: string) => {
   gallery.value = null
   failedPages.value = new Set()  // 失败页标记随图集重置，重新加载后已修复的页要能重新显示
   try {
-    const res: any = await (await import('../api')).galleryApi.getGallery(hash)
+    // 从帖子打开时带 ?post=1，跳过 hidden 检查（帖子内嵌引用场景）
+    const postCtx = route.query.post === '1' ? '?post=1' : ''
+    const res: any = await (await import('../api')).galleryApi.getGallery(hash + postCtx)
     if (res.success) {
       gallery.value = res.gallery
       isInContinue.value = !!(res.gallery && res.gallery.in_continue)
