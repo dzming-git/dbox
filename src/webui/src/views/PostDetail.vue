@@ -173,7 +173,14 @@ interface DetailMedia {
   videoHash?: string
   playUrl?: string            // 视频播放地址
 }
-const viewMode = ref<'grid' | 'reader'>('grid')
+const VIEW_MODE_KEY = 'post_detail_view_mode'
+const viewMode = ref<'grid' | 'reader'>(
+  (localStorage.getItem(VIEW_MODE_KEY) as 'grid' | 'reader') || 'grid'
+)
+function setViewMode(m: 'grid' | 'reader') {
+  viewMode.value = m
+  localStorage.setItem(VIEW_MODE_KEY, m)
+}
 const detailMedia = computed<DetailMedia[]>(() => {
   if (!post.value) return []
   const out: DetailMedia[] = []
@@ -340,8 +347,8 @@ const removePost = async () => {
         <div class="media-toolbar">
           <span class="media-count">{{ detailMedia.length }} 项媒体 · 视频 {{ detailMedia.filter(m => m.kind === 'video').length }}</span>
           <div class="view-toggle">
-            <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">网格</button>
-            <button :class="{ active: viewMode === 'reader' }" @click="viewMode = 'reader'">大图</button>
+            <button :class="{ active: viewMode === 'grid' }" @click="setViewMode('grid')">网格</button>
+            <button :class="{ active: viewMode === 'reader' }" @click="setViewMode('reader')">大图</button>
           </div>
         </div>
 
