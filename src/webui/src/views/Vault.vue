@@ -234,17 +234,22 @@ onMounted(load)
 .profile-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 .modal-mask {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9500;
-  display: flex; align-items: center; justify-content: center;
-  /* 兜底：浏览器高度变化时仍居中 */
-  padding: 16px;
-}
-.modal {
-  /* 固定一个合理高度：宽 480px × 高 540px，足够装所有字段并留余量 */
-  width: 480px; max-width: 92vw; height: 540px; max-height: 85vh;
+  /* 使用 transform 居中，比 flex 更稳定，不受祖先布局/视口高度变化影响 */
+  position: fixed; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 480px; max-width: 92vw;
+  /* 留一些视口上下边距，避免贴边 */
+  max-height: calc(100vh - 32px);
   background: var(--bg-elevated, #1e1e22); border-radius: 12px;
+  z-index: 9500;
   display: flex; flex-direction: column; overflow: hidden;
+  /* 半透明黑色背景覆盖整页 */
 }
+.modal-mask::before {
+  /* 用伪元素做整页遮罩，固定到视口，不受 .modal-mask 尺寸影响 */
+  content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: -1;
+}
+.modal { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--bg-surface-2, #2a2a30); font-weight: 600; flex-shrink: 0; }
 .modal-head .close { background: none; border: none; color: var(--text-secondary, #aaa); font-size: 22px; cursor: pointer; line-height: 1; }
 .modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
