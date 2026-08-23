@@ -2276,9 +2276,8 @@ const handleDelete = async () => {
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
-            <!-- PC 端竖屏全屏入口（移动端用底部控制栏的按钮） -->
+            <!-- 竖屏全屏入口（桌面/移动端统一走本页的完整竖屏 feed；组件内竖屏已禁用） -->
             <button
-              v-if="!isMobile"
               class="portrait-entry-pc"
               @click.stop="enterPortraitMode"
               title="竖屏全屏"
@@ -2306,6 +2305,7 @@ const handleDelete = async () => {
               ref="videoPlayerRef"
               :playlist="[{ src: videoUrl, poster: videoPosterUrl }]"
               :autoplay="false"
+              :enable-portrait="false"
               @play="onPlay"
               @pause="onPause"
               @timeupdate="onTimeUpdate"

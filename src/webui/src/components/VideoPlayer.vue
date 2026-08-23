@@ -12,8 +12,9 @@ const props = withDefaults(
     playlist: PlayItem[] // 视频列表（按播放顺序）；单视频时长度为 1
     initialIndex?: number
     autoplay?: boolean
+    enablePortrait?: boolean // 是否启用组件内竖屏模式；false 时隐藏竖屏入口且竖屏按钮无效
   }>(),
-  { initialIndex: 0, autoplay: false }
+  { initialIndex: 0, autoplay: false, enablePortrait: true }
 )
 
 const emit = defineEmits<{
@@ -357,7 +358,7 @@ function showPortraitUiTemporarily() {
 }
 
 function enterPortraitMode() {
-  if (props.playlist.length === 0) return
+  if (!props.enablePortrait || props.playlist.length === 0) return
   mode.value = 'portrait'
   portraitDragY.value = 0
   portraitViewportH.value = window.innerHeight
@@ -479,14 +480,14 @@ document.addEventListener('fullscreenchange', onFsChange)
             <svg v-if="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 0 0 1 2 2v3M8 21H5a2 0 0 1-2-2v-3M16 21h3a2 0 0 0 2-2v-3" /></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 0 0 1-2 2H3M21 8h-3a2 0 0 1-2-2V3M3 16h3a2 0 0 1 2 2v3M16 21v-3a2 0 0 1 2-2h3" /></svg>
           </button>
-          <button class="mc-btn" @click.stop="enterPortraitMode" aria-label="竖屏全屏" title="竖屏全屏">
+          <button v-if="enablePortrait" class="mc-btn" @click.stop="enterPortraitMode" aria-label="竖屏全屏" title="竖屏全屏">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2" /><line x1="11" y1="18" x2="13" y2="18" /></svg>
           </button>
         </div>
       </div>
 
       <!-- PC 端竖屏入口 -->
-      <button v-if="!isMobile" class="portrait-entry-pc" @click="enterPortraitMode" title="竖屏全屏" aria-label="竖屏全屏">竖屏</button>
+      <button v-if="!isMobile && enablePortrait" class="portrait-entry-pc" @click="enterPortraitMode" title="竖屏全屏" aria-label="竖屏全屏">竖屏</button>
     </template>
 
     <!-- 竖屏沉浸模式：Teleport 到 body 避免裁剪 -->
