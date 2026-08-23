@@ -171,6 +171,15 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '凭证保险库', requiresAuth: true, requiresAdmin: true }
   },
   {
+    // 已知核心扩展的全屏兜底路由：静态预注册，避免扩展宿主接口在刷新竞态中
+    // 暂不可用时 /x-downloader 未动态注入而 404。其它扩展仍走 registerExtensionRoutes 动态注册。
+    path: '/x-downloader',
+    name: 'ext-x_downloader',
+    component: () => import('../views/ExtensionStandalone.vue'),
+    props: { id: 'x_downloader' },
+    meta: { title: 'X 下载', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-assistant）在应用启动时
     // 由 registerExtensionRoutes() 动态 addRoute 注入，框架不在此硬编码任何插件路径。
     path: '/:pathMatch(.*)*',
