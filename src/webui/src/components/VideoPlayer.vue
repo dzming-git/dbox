@@ -292,6 +292,11 @@ function onPortraitTouchMove(e: TouchEvent) {
   const t = e.touches[0]
   if (!t) return
   const dy = t.clientY - portraitTouchStartY
+  // 单视频流：自由跟手，便于上滑揭示 / 下滑收起（不做边界阻尼）
+  if (props.playlist.length <= 1) {
+    portraitDragY.value = dy
+    return
+  }
   // 边界阻尼：第一格上滑 / 最后一格下滑 不跟手（停住）
   const atTop = curIndex.value === 0 && dy > 0
   const atBottom = curIndex.value === props.playlist.length - 1 && dy < 0
