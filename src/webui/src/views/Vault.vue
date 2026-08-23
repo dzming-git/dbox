@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { scriptApi, type CookieProfile } from '../api/script'
+import BaseModal from '../components/BaseModal.vue'
 
 const loading = ref(false)
 const profiles = ref<CookieProfile[]>([])
@@ -146,56 +147,56 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 新增/编辑弹窗（用 Teleport 渲染到 body，避开任何祖先布局/transform 影响） -->
-    <Teleport to="body">
-    <div v-if="showForm" class="vlt-modal-mask" @click.self="showForm = false">
-      <div class="vlt-modal">
-        <div class="vlt-modal-head">
-          <span>{{ isEditing ? '编辑凭证' : '新增凭证' }}</span>
-          <button class="close" @click="showForm = false">×</button>
-        </div>
-        <div class="vlt-modal-body">
-          <label>类型</label>
-          <select v-model="form.kind">
-            <option value="cookie">Cookie</option>
-            <option value="token">Token</option>
-            <option value="password">密码</option>
-            <option value="apikey">API Key</option>
-          </select>
-
-          <label>域名（如 x.com）</label>
-          <input v-model="form.domain" placeholder="x.com" />
-
-          <label>名称（可选）</label>
-          <input v-model="form.name" placeholder="用于识别，如「X 登录态」" />
-
-          <template v-if="form.kind === 'cookie'">
-            <label>Cookie 内容（header 字符串）</label>
-            <textarea
-              v-model="form.cookies"
-              rows="5"
-              placeholder="auth_token=xxx; ct0=yyy; ..."
-            ></textarea>
-          </template>
-          <template v-else>
-            <label>凭证值</label>
-            <textarea v-model="form.value" rows="3" placeholder="粘贴 token / 密码 / key"></textarea>
-          </template>
-
-          <label>备注（可选）</label>
-          <input v-model="form.note" placeholder="用途说明" />
-
-          <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
-        </div>
-        <div class="vlt-modal-foot">
-          <button class="btn-ghost" @click="showForm = false">取消</button>
-          <button class="btn-primary" :disabled="saving" @click="submit">
-            {{ saving ? '保存中…' : '保存' }}
-          </button>
-        </div>
+    <!-- 新增/编辑弹窗：统一走 BaseModal（自适应尺寸 + 内部滚动 + 点外关闭 + 内容缓存） -->
+    <BaseModal
+      v-model:visible="showForm"
+      :title="isEditing ? '编辑凭证' : '新增凭证'"
+      max-width="460px"
+      @close="errorMsg = ''"
+    >
+      <div class="form-field">
+        <label>类型</label>
+        <select v-model="form.kind">
+          <option value="cookie">Cookie</option>
+          <option value="token">Token</option>
+          <option value="password">密码</option>
+          <option value="apikey">API Key</option>
+        </select>
       </div>
-    </div>
-    </Teleport>
+
+      <div class="form-field">
+        <label>域名（如 x.com）</label>
+        <input v-model="form.domain" placeholder="x.com" />
+      </div>
+
+      <div class="form-field">
+        <label>名称（可选）</label>
+        <input v-model="form.name" placeholder="用于识别，如「X 登录态」" />
+      </div>
+
+      <div v-if="form.kind === 'cookie'" class="form-field">
+        <label>Cookie 内容（header 字符串）</label>
+        <textarea v-model="form.cookies" rows="5" placeholder="auth_token=xxx; ct0=yyy; ..."></textarea>
+      </div>
+      <div v-else class="form-field">
+        <label>凭证值</label>
+        <textarea v-model="form.value" rows="3" placeholder="粘贴 token / 密码 / key"></textarea>
+      </div>
+
+      <div class="form-field">
+        <label>备注（可选）</label>
+        <input v-model="form.note" placeholder="用途说明" />
+      </div>
+
+      <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+
+      <template #footer>
+        <button class="btn-ghost" @click="showForm = false">取消</button>
+        <button class="btn-primary" :disabled="saving" @click="submit">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -205,10 +206,8 @@ onMounted(load)
 .page-head h2 { margin: 0; font-size: 20px; }
 .hint { color: var(--text-tertiary, #999); font-size: 13px; margin: 0 0 20px; line-height: 1.6; }
 
-.btn-primary {
-  background: var(--accent, #4f8cff); color: #fff; border: none; border-radius: 8px;
-  padding: 8px 16px; cursor: pointer; font-size: 14px;
-}
+.btn-primary { background: var(--accent, #4f8cff); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--text-secondary, #bbb); border: 1px solid var(--border-default, #444); border-radius: 8px; padding: 8px 16px; cursor: pointer; }
 .btn-text { background: none; border: none; color: var(--accent, #4f8cff); cursor: pointer; font-size: 13px; padding: 4px 8px; }
 .btn-text.danger { color: #f5455c; }
@@ -223,10 +222,7 @@ onMounted(load)
   border-radius: 10px; padding: 14px 16px;
 }
 .profile-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.kind-badge {
-  flex-shrink: 0; background: var(--bg-surface-2, #2a2a30); color: var(--text-secondary, #bbb);
-  border-radius: 6px; padding: 2px 8px; font-size: 12px;
-}
+.kind-badge { flex-shrink: 0; background: var(--bg-surface-2, #2a2a30); color: var(--text-secondary, #bbb); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
 .profile-name { font-weight: 600; white-space: nowrap; }
 .profile-domain { color: var(--text-tertiary, #999); font-size: 13px; }
 .profile-meta { display: flex; align-items: center; gap: 12px; color: var(--text-tertiary, #999); font-size: 12px; }
@@ -235,64 +231,13 @@ onMounted(load)
 .status.ok { background: rgba(52, 199, 123, 0.15); color: #34c77b; }
 .profile-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
-.modal-mask {
-  /* 使用 transform 居中，比 flex 更稳定，不受祖先布局/视口高度变化影响 */
-  position: fixed; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  width: 480px; max-width: 92vw;
-  /* 固定高度 540px + 不超过视口减 32px：装得下就 540（紧凑），装不下就内部滚动 */
-  height: 540px; max-height: calc(100vh - 32px);
-  background: var(--bg-elevated, #1e1e22); border-radius: 12px;
-  z-index: 9500;
-  display: flex; flex-direction: column; overflow: hidden;
-  /* 半透明黑色背景覆盖整页 */
-}
-.modal-mask::before {
-  /* 用伪元素做整页遮罩，固定到视口，不受 .modal-mask 尺寸影响 */
-  content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: -1;
-}
-.modal { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--bg-surface-2, #2a2a30); font-weight: 600; flex-shrink: 0; }
-.modal-head .close { background: none; border: none; color: var(--text-secondary, #aaa); font-size: 22px; cursor: pointer; line-height: 1; }
-.modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
-.modal-body label { font-size: 13px; color: var(--text-secondary, #bbb); margin-top: 6px; }
-.modal-body input, .modal-body select, .modal-body textarea {
+/* 表单字段 */
+.form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.form-field label { font-size: 13px; color: var(--text-secondary, #bbb); }
+.form-field input, .form-field select, .form-field textarea {
   background: var(--bg-surface, #232329); border: 1px solid var(--border-subtle, #2e2e34);
   border-radius: 8px; padding: 8px 10px; color: var(--text-primary, #eee); font-size: 14px;
-  font-family: inherit; resize: none;
+  font-family: inherit;
 }
-.modal-body textarea { resize: vertical; min-height: 60px; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
-</style>
-
-<!-- Teleport 到 body 后元素脱离 scoped 作用域，弹窗样式用全局规则兜底（命名加 vlt 前缀避免与其它组件冲突） -->
-<style>
-.vlt-modal-mask {
-  /* 关键：用 transform 居中 + z-index 9500，基于视口定位，避开任何祖先布局/transform */
-  position: fixed; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  width: 480px; max-width: 92vw;
-  height: 540px; max-height: calc(100vh - 32px);
-  background: var(--bg-elevated, #1e1e22); border-radius: 12px;
-  z-index: 9500;
-  display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-}
-.vlt-modal-mask::before {
-  content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: -1;
-}
-.vlt-modal { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.vlt-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--bg-surface-2, #2a2a30); font-weight: 600; flex-shrink: 0; }
-.vlt-modal-head .close { background: none; border: none; color: var(--text-secondary, #aaa); font-size: 22px; cursor: pointer; line-height: 1; }
-.vlt-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1 1 0; min-height: 0; }
-.vlt-modal-body label { font-size: 13px; color: var(--text-secondary, #bbb); margin-top: 6px; }
-.vlt-modal-body input,
-.vlt-modal-body select,
-.vlt-modal-body textarea {
-  background: var(--bg-surface, #232329); border: 1px solid var(--border-subtle, #2e2e34);
-  border-radius: 8px; padding: 8px 10px; color: var(--text-primary, #eee); font-size: 14px;
-  font-family: inherit; resize: none;
-}
-.vlt-modal-body textarea { resize: vertical; min-height: 60px; }
-.vlt-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border-subtle, #2e2e34); flex-shrink: 0; }
+.form-field textarea { resize: vertical; min-height: 60px; }
 </style>
