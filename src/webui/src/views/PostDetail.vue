@@ -59,7 +59,10 @@ function orphanRefs(p: any) {
 function toMediaItem(refItem: any) {
   if (refItem.video) {
     const v = refItem.video
-    return { type: 'video', hash: v.hash, title: v.title, cover: v.thumbnail || '', duration: v.duration || 0, date: v.created_at }
+    // 优先用 ref 级别 cover_url（_ref_cover_url 已自动附加 ?post=1），
+    // 确保 hidden 资源在帖子中可预览；video 实体的 thumbnail 作为最终回退
+    const cover = refItem.cover_url || v.thumbnail || ''
+    return { type: 'video', hash: v.hash, title: v.title, cover, duration: v.duration || 0, date: v.created_at }
   }
   if (refItem.gallery) {
     const c = refItem.gallery
@@ -85,7 +88,9 @@ function toMediaItem(refItem: any) {
       }
     }
     const isVideo = refItem.kind === 'video_file'
-    return { type: isVideo ? 'video' : 'gallery', hash: String(refItem.resource_index_id), title: p.title || '未命名资源', cover: p.thumbnail || '', duration: isVideo ? (p.duration || 0) : 0, pageCount: isVideo ? 0 : (p.page_count || 0) }
+    // presentation fallback: 优先用 presentation.thumbnail，回退到 ref 级别 cover_url
+    const cover2 = (p as any).thumbnail || refItem.cover_url || ''
+    return { type: isVideo ? 'video' : 'gallery', hash: String(refItem.resource_index_id), title: p.title || '未命名资源', cover: cover2, duration: isVideo ? (p.duration || 0) : 0, pageCount: isVideo ? 0 : (p.page_count || 0) }
   }
   return null
 }
