@@ -143,6 +143,11 @@ function pushToken(id: string) {
   if (iframe?.contentWindow) {
     iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: token.value }, '*')
     iframe.contentWindow.postMessage({ type: 'DBOX_DRAFT', text: drafts.value[id] || '' }, '*')
+    const ext = extensions.value.find((e) => e.id === id)
+    if (ext?.ui?.standalone_route) {
+      iframe.contentWindow.postMessage(
+        { type: 'DBOX_EXT_INFO', standalone_route: ext.ui.standalone_route }, '*')
+    }
   }
 }
 
