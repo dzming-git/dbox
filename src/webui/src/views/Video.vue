@@ -113,8 +113,6 @@ const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
 const portraitTransition = ref(false) // 是否开启吸附动画
 const portraitViewportH = ref(0) // 视口高度（用于阈值与位移比例）
 const portraitSwitching = ref(false) // 吸附动画进行中，防重复触发
-// 单视频竖屏流：初始不展示，需用户上滑手势才揭示（下滑收起）
-const portraitRevealed = ref(false)
 
 // 三格视频对象（含 url/title/cover）：[prev, current, next]
 // 用 v-for + 稳定 :key（视频 hash）渲染，切换时旋转数组且 DOM 复用，零黑屏重载
@@ -134,11 +132,7 @@ const slotHashExists = (h: string, exceptIndex = -1): boolean => {
 }
 
 // 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
-// 单视频未揭示时基准为 0（第 1 格为空），把视频藏在屏幕下方
-const portraitTrackY = computed(() => {
-  const base = portraitRevealed.value ? -portraitViewportH.value : 0
-  return base + portraitDragY.value
-})
+const portraitTrackY = computed(() => -portraitViewportH.value + portraitDragY.value)
 
 // 收集槽位 video 元素
 const setSlotPlayer = (i: number, el: any) => {
@@ -171,8 +165,6 @@ const enterPortraitMode = () => {
   ]
   playMode.value = 'portrait'
   portraitViewportH.value = window.innerHeight
-  // 单视频流初始不展示，需上滑揭示；多视频流首条直接展示
-  portraitRevealed.value = feedList.value.length > 1
   // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
   document.body.classList.add('portrait-mode-active')
   // 锁定底层 body 滚动：彻底阻止 iOS 原生下拉回弹/页面刷新穿透到首页
@@ -185,9 +177,9 @@ const enterPortraitMode = () => {
   document.body.style.overflow = 'hidden'
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
-    // 当前视频有声播放（仅已揭示时）；预取下一个以便上滑即见
+    // 当前视频有声播放；预取下一个以便上滑即见
     const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (portraitRevealed.value && cur) { cur.muted = false; cur.play().catch(() => {}) }
+    if (cur) { cur.muted = false; cur.play().catch(() => {}) }
     fetchNextPreview()
   })
 }
@@ -491,27 +483,6 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
   if (!t) return
   const dy = t.clientY - portraitTouchStartY.value
   const dx = t.clientX - portraitTouchStartX.value
-  const isSingle = feedList.value.length <= 1
-  // 单视频流：未揭示时上滑揭示，已揭示时下滑收起（无需切下一个/上一个）
-  if (isSingle) {
-    if (!portraitRevealed.value && dy < -PORTRAIT_SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
-      portraitRevealed.value = true
-      portraitTransition.value = true
-      portraitDragY.value = 0
-      nextTick(() => {
-        const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-        if (cur) { cur.muted = false; cur.play().catch(() => {}) }
-      })
-    } else if (portraitRevealed.value && dy > PORTRAIT_SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
-      portraitRevealed.value = false
-      portraitTransition.value = true
-      portraitDragY.value = 0
-      slotPlayers.value[PORTRAIT_CUR_SLOT]?.pause()
-    } else {
-      portraitDragY.value = 0
-    }
-    return
-  }
   portraitTransition.value = true // 开启吸附动画
   if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD || Math.abs(dy) <= Math.abs(dx)) {
     // 未达阈值：回弹
@@ -2276,8 +2247,9 @@ const handleDelete = async () => {
         <!-- 视频播放器区域 -->
         <div class="player-section">
           <div class="video-player-container" data-testid="video-player" :class="{ 'hide-on-mobile': showTagEditor }">
-            <!-- 竖屏全屏入口（桌面/移动端统一走本页的完整竖屏 feed；组件内竖屏已禁用） -->
+            <!-- PC 端竖屏全屏入口（右上角；移动端用底部竖屏按钮） -->
             <button
+              v-if="!isMobile"
               class="portrait-entry-pc"
               @click.stop="enterPortraitMode"
               title="竖屏全屏"
@@ -2312,6 +2284,19 @@ const handleDelete = async () => {
               @seeked="onSeeked"
               @ended="onVideoEnded"
             />
+            <!-- 移动端竖屏全屏按钮（底部控制栏同款；组件竖屏已禁用，走本页完整竖屏） -->
+            <button
+              v-if="isMobile"
+              class="portrait-entry-mobile"
+              @click.stop="enterPortraitMode"
+              aria-label="竖屏全屏"
+              title="竖屏全屏"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="7" y="2" width="10" height="20" rx="2" />
+                <line x1="11" y1="18" x2="13" y2="18" />
+              </svg>
+            </button>
             <!-- 自动续播倒计时遮罩 -->
             <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
               <div class="ac-card">
@@ -2476,12 +2461,6 @@ const handleDelete = async () => {
             <!-- 轻量缓冲指示：仅在视频真实等待缓冲时显示，不再整屏转圈 -->
             <div v-if="portraitBuffering && !portraitDragging" class="portrait-buffering">
               <div class="buffering-spinner"></div>
-            </div>
-
-            <!-- 单视频未揭示：提示上滑查看（初始不自动展示视频） -->
-            <div v-if="!portraitRevealed && feedList.length <= 1 && !portraitDragging" class="portrait-reveal-hint">
-              <div class="prh-arrow">︿</div>
-              <div class="prh-text">上滑查看视频</div>
             </div>
           </div>
         </Teleport>
@@ -3455,6 +3434,28 @@ const handleDelete = async () => {
   background: rgba(0, 0, 0, 0.75);
 }
 
+/* 移动端竖屏全屏入口按钮（右下角，仿底部控制栏风格） */
+.portrait-entry-mobile {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+.portrait-entry-mobile:active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
 /* 全屏时铺满整个屏幕 */
 .video-player-container:fullscreen {
   width: 100vw;
@@ -3830,32 +3831,6 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-}
-/* 单视频未揭示提示 */
-.portrait-reveal-hint {
-  position: absolute;
-  inset: 0;
-  z-index: 7;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-  pointer-events: none;
-  animation: prh-bob 1.8s ease-in-out infinite;
-}
-.prh-arrow {
-  font-size: 34px;
-  line-height: 1;
-}
-.prh-text {
-  font-size: 15px;
-  letter-spacing: 1px;
-}
-@keyframes prh-bob {
-  0%, 100% { transform: translateY(0); opacity: 0.85; }
-  50% { transform: translateY(-8px); opacity: 1; }
 }
 /* 相邻格视频未加载时占位暗色（避免纯黑割裂） */
 .portrait-item-ph {
