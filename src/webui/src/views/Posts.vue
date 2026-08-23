@@ -177,46 +177,69 @@ function orphanRefs(post: any) {
   return (post.refs || []).filter((r: any) => !ids.has(r.resource_index_id))
 }
 
-// 合并帖子所有媒体资源（内嵌 + 孤立），统一为朋友圈式媒体流
-function flatMediaList(d: Post): { type: 'gallery' | 'video'; item: any; images?: string[]; note?: string }[] {
-  const result: ReturnType<typeof flatMediaList> = []
+// 合并帖子所有媒体为朋友圈式统一图片网格
+// 每个媒体贡献 1~N 张图片：图集展开全部图片，视频/大图集只用封面缩略图
+interface GridImage {
+  src: string          // 图片 URL（已带 ?post=1）
+  type: 'image' | 'video' | 'gallery'  // 点击行为区分
+  link?: string        // 视频/图集点击跳转链接
+}
+function flatMediaGrid(d: Post): GridImage[] {
+  const images: GridImage[] = []
   const seen = new Set<number>()
 
-  // 1. 正文内嵌引用（embed 模式的资源）
+  const addRef = (ref: any) => {
+    if (!ref || seen.has(ref.resource_index_id)) return
+    seen.add(ref.resource_index_id)
+    const mi = toMediaItem(ref)
+    if (!mi) return
+
+    // 图集且图片数 ≤9：全部展开为独立图片
+    if ((mi as any).images?.length && (mi as any).images.length <= 9) {
+      for (const src of (mi as any).images) {
+        images.push({ src: withToken(src), type: 'image' })
+      }
+      return
+    }
+
+    // 视频：用封面缩略图作为一张网格图，点击跳转视频页
+    if ((mi as any).type === 'video' && (mi as any).cover) {
+      const v = ref.video
+      if (v) {
+        images.push({ src: withToken((mi as any).cover), type: 'video', link: `/video/${v.hash}?post=1` })
+        return
+      }
+    }
+
+    // 大图集(>9)：用封面作为一张网格图，点击跳转图集页
+    if ((mi as any).type === 'gallery' && (mi as any).cover) {
+      const g = ref.gallery
+      if (g) {
+        images.push({ src: withToken((mi as any).cover), type: 'gallery', link: `/gallery/${g.hash}?post=1` })
+        return
+      }
+    }
+
+    // 兜底：有 cover 就展示
+    if ((mi as any).cover) {
+      images.push({ src: withToken((mi as any).cover), type: 'image' })
+    }
+  }
+
+  // 1. 正文内嵌 embed 引用
   if (d.content && d.refs?.length) {
     const byId = new Map((d.refs || []).map((r: any) => [r.resource_index_id, r]))
     POST_TOKEN_RE.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = POST_TOKEN_RE.exec(d.content))) {
-      const rid = parseInt(m[2], 10)
-      const ref = byId.get(rid)
-      if (ref && m[3] === 'embed' && !seen.has(rid)) {
-        seen.add(rid)
-        const mi = toMediaItem(ref)
-        if (!mi) continue
-        if ((mi as any).images?.length <= 9) {
-          result.push({ type: 'gallery', item: mi, images: (mi as any).images })
-        } else {
-          result.push({ type: (mi as any).type === 'video' ? 'video' : 'gallery', item: mi })
-        }
-      }
+      if (m[3] === 'embed') addRef(byId.get(parseInt(m[2], 10)))
     }
   }
 
-  // 2. 孤立引用（未在正文中出现的资源）
-  for (const ref of orphanRefs(d)) {
-    if (seen.has(ref.resource_index_id)) continue
-    seen.add(ref.resource_index_id)
-    const mi = toMediaItem(ref)
-    if (!mi) continue
-    if ((mi as any).images?.length <= 9) {
-      result.push({ type: 'gallery', item: mi, images: (mi as any).images, note: ref.note || undefined })
-    } else {
-      result.push({ type: (mi as any).type === 'video' ? 'video' : 'gallery', item: mi, note: ref.note || undefined })
-    }
-  }
+  // 2. 孤立引用
+  for (const ref of orphanRefs(d)) addRef(ref)
 
-  return result
+  return images
 }
 
 function labelForRef(r: any) {
@@ -362,19 +385,20 @@ const formatDate = (s?: string) => {
           </template>
         </div>
 
-        <!-- 统一媒体流（朋友圈式：图片网格 + 视频，无"引用/孤立"区分） -->
-        <div v-if="flatMediaList(d).length" class="post-media">
-          <template v-for="(mi, miIdx) in flatMediaList(d)" :key="miIdx">
-            <!-- 图集 ≤9：直接展示全部缩略图 -->
-            <template v-if="mi.type === 'gallery' && mi.images?.length">
-              <div class="inline-gallery" :class="`g-${Math.min(mi.images.length, 9)}`">
-                <img v-for="(src, gi) in mi.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(mi.images!, gi)" />
-              </div>
-              <span v-if="mi.images!.length > 1" class="gallery-count">{{ mi.images!.length }} 张图片</span>
+        <!-- 统一媒体流（朋友圈式：所有媒体混排为图片网格） -->
+        <div v-if="flatMediaGrid(d).length" class="post-media">
+          <div class="moments-grid" :class="`g-${Math.min(flatMediaGrid(d).length, 9)}`">
+            <template v-for="(img, gi) in flatMediaGrid(d)" :key="gi">
+              <!-- 视频/图集封面：点击跳转详情 -->
+              <a v-if="img.link" :href="img.link" class="grid-img-wrap">
+                <img :src="img.src" class="grid-img" loading="lazy" />
+                <span v-if="img.type === 'video'" class="grid-badge video">▶</span>
+              </a>
+              <!-- 普通图片：点击灯箱放大 -->
+              <img v-else :src="img.src" class="grid-img" loading="lazy"
+                @click="openLightbox(flatMediaGrid(d).filter(i => i.type === 'image').map(i => i.src), gi)" />
             </template>
-            <!-- 视频 / 大图集 (>9)：用 MediaCard（隐藏文件名） -->
-            <MediaCard v-else :item="mi.item" :hide-filename="true" />
-          </template>
+          </div>
         </div>
         <p v-if="!d.content && (!d.refs || !d.refs.length)" class="no-refs">（暂无内容）</p>
         <div class="post-card-foot">
@@ -503,33 +527,43 @@ const formatDate = (s?: string) => {
 .ref-link { color: var(--accent); cursor: pointer; text-decoration: none; }
 .ref-link:hover { text-decoration: underline; }
 
-/* 统一媒体流（朋友圈式） */
-.post-media { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+/* 统一媒体流（朋友圈式网格） */
+.post-media { margin-top: 10px; }
 
-/* 图片网格 —— 仿朋友圈布局 */
-.inline-gallery { display: grid; gap: 5px; border-radius: 10px; overflow: hidden; width: fit-content; max-width: 420px; }
-.inline-gallery-img { width: 120px; height: 120px; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
-.inline-gallery-img:hover { opacity: 0.85; }
+/* 朋友圈图片网格 —— 所有媒体（图片/视频封面/图集封面）统一混排 */
+.moments-grid { display: grid; gap: 4px; border-radius: 10px; overflow: hidden; width: fit-content; max-width: 480px; }
+.grid-img-wrap { position: relative; display: block; cursor: pointer; border-radius: 6px; overflow: hidden; }
+.grid-img { display: block; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
+.grid-img:hover { opacity: 0.88; }
 
-/* 1 张：大图 */
-.inline-gallery.g-1 { grid-template-columns: 1fr; }
-.inline-gallery.g-1 .inline-gallery-img { width: 280px; height: auto; aspect-ratio: 16/10; border-radius: 10px; }
-/* 2 张：并排 */
-.inline-gallery.g-2 { grid-template-columns: repeat(2, 1fr); }
-.inline-gallery.g-2 .inline-gallery-img { width: 180px; height: 180px; }
-/* 3 张：三列 */
-.inline-gallery.g-3 { grid-template-columns: repeat(3, 1fr); }
-/* 4 张：2×2 方阵 */
-.inline-gallery.g-4 { grid-template-columns: repeat(2, 1fr); }
-.inline-gallery.g-4 .inline-gallery-img { width: 160px; height: 160px; }
-/* 5~9 张：三列，最后一张可能跨行 */
-.inline-gallery.g-5,
-.inline-gallery.g-6,
-.inline-gallery.g-7,
-.inline-gallery.g-8,
-.inline-gallery.g-9 { grid-template-columns: repeat(3, 1fr); }
+/* 视频播放角标 */
+.grid-badge.video {
+  position: absolute; bottom: 8px; right: 8px;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,0.55); color: #fff;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
 
-.gallery-count { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+/* 网格布局 —— 仿微信朋友圈 */
+.moments-grid.g-1 { grid-template-columns: 1fr; }
+.moments-grid.g-1 .grid-img { width: 280px; height: auto; aspect-ratio: 16/10; border-radius: 10px; }
+.moments-grid.g-2 { grid-template-columns: repeat(2, 1fr); }
+.moments-grid.g-2 .grid-img { width: 180px; height: 180px; }
+.moments-grid.g-3 { grid-template-columns: repeat(3, 1fr); }
+.moments-grid.g-3 .grid-img { width: 120px; height: 120px; }
+.moments-grid.g-4 { grid-template-columns: repeat(2, 1fr); }
+.moments-grid.g-4 .grid-img { width: 160px; height: 160px; }
+.moments-grid.g-5,
+.moments-grid.g-6,
+.moments-grid.g-7,
+.moments-grid.g-8,
+.moments-grid.g-9 { grid-template-columns: repeat(3, 1fr); }
+.moments-grid[class*="g-5"] .grid-img,
+.moments-grid[class*="g-6"] .grid-img,
+.moments-grid[class*="g-7"] .grid-img,
+.moments-grid[class*="g-8"] .grid-img,
+.moments-grid[class*="g-9"] .grid-img { width: 120px; height: 120px; }
 /* 灯箱 */
 .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
