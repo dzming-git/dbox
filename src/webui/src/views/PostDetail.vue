@@ -496,24 +496,24 @@ const removePost = async () => {
 .view-toggle button.active { background: var(--accent); color: #fff; }
 
 /* 网格模式（放大版朋友圈网格） */
-.detail-grid { display: grid; gap: 8px; border-radius: 12px; overflow: hidden; width: fit-content; max-width: 760px; }
+.detail-grid { display: grid; gap: 8px; border-radius: 12px; overflow: hidden; width: 100%; max-width: 760px; box-sizing: border-box; }
 .grid-cell { position: relative; display: block; cursor: pointer; border-radius: 8px; overflow: hidden; }
-.grid-img { display: block; object-fit: cover; background: var(--bg-surface-hover); border-radius: 8px; transition: opacity .15s; }
+.grid-img { display: block; width: 100%; height: auto; object-fit: cover; background: var(--bg-surface-hover); border-radius: 8px; transition: opacity .15s; }
 .grid-img:hover { opacity: .9; }
 .detail-grid.g-1 { grid-template-columns: 1fr; }
-.detail-grid.g-1 .grid-img { width: 420px; height: auto; aspect-ratio: 16/10; border-radius: 12px; }
+.detail-grid.g-1 .grid-img { width: 100%; max-width: 460px; height: auto; aspect-ratio: 16/10; border-radius: 12px; }
 .detail-grid.g-2 { grid-template-columns: repeat(2, 1fr); }
-.detail-grid.g-2 .grid-img { width: 280px; height: 280px; }
+.detail-grid.g-2 .grid-img { aspect-ratio: 1 / 1; }
 .detail-grid.g-3 { grid-template-columns: repeat(3, 1fr); }
-.detail-grid.g-3 .grid-img { width: 200px; height: 200px; }
+.detail-grid.g-3 .grid-img { aspect-ratio: 1 / 1; }
 .detail-grid.g-4 { grid-template-columns: repeat(2, 1fr); }
-.detail-grid.g-4 .grid-img { width: 280px; height: 280px; }
+.detail-grid.g-4 .grid-img { aspect-ratio: 1 / 1; }
 .detail-grid.g-5, .detail-grid.g-6, .detail-grid.g-7, .detail-grid.g-8, .detail-grid.g-9 { grid-template-columns: repeat(3, 1fr); }
 .detail-grid[class*="g-5"] .grid-img,
 .detail-grid[class*="g-6"] .grid-img,
 .detail-grid[class*="g-7"] .grid-img,
 .detail-grid[class*="g-8"] .grid-img,
-.detail-grid[class*="g-9"] .grid-img { width: 200px; height: 200px; }
+.detail-grid[class*="g-9"] .grid-img { aspect-ratio: 1 / 1; }
 .grid-play { position: absolute; inset: 0; margin: auto; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .video-cell .grid-img { border: 2px solid rgba(255,255,255,.08); }
 

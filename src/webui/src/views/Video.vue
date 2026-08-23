@@ -113,6 +113,8 @@ const portraitDragging = ref(false) // 是否正在拖动（关闭 transition）
 const portraitTransition = ref(false) // 是否开启吸附动画
 const portraitViewportH = ref(0) // 视口高度（用于阈值与位移比例）
 const portraitSwitching = ref(false) // 吸附动画进行中，防重复触发
+// 单视频竖屏流：初始不展示，需用户上滑手势才揭示（下滑收起）
+const portraitRevealed = ref(false)
 
 // 三格视频对象（含 url/title/cover）：[prev, current, next]
 // 用 v-for + 稳定 :key（视频 hash）渲染，切换时旋转数组且 DOM 复用，零黑屏重载
@@ -132,8 +134,9 @@ const slotHashExists = (h: string, exceptIndex = -1): boolean => {
 }
 
 // 轨道实时 translateY：current 始终位于第 2 格（index=1），基准 -viewportH
+// 单视频未揭示时基准为 0（第 1 格为空），把视频藏在屏幕下方
 const portraitTrackY = computed(() => {
-  const base = -portraitViewportH.value // current 在第 2 格
+  const base = portraitRevealed.value ? -portraitViewportH.value : 0
   return base + portraitDragY.value
 })
 
@@ -168,6 +171,8 @@ const enterPortraitMode = () => {
   ]
   playMode.value = 'portrait'
   portraitViewportH.value = window.innerHeight
+  // 单视频流初始不展示，需上滑揭示；多视频流首条直接展示
+  portraitRevealed.value = feedList.value.length > 1
   // 标记竖屏激活，阻止底层 PullToRefresh 接管手势
   document.body.classList.add('portrait-mode-active')
   // 锁定底层 body 滚动：彻底阻止 iOS 原生下拉回弹/页面刷新穿透到首页
@@ -180,9 +185,9 @@ const enterPortraitMode = () => {
   document.body.style.overflow = 'hidden'
   router.replace({ name: 'Video', params: { hash: videoHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
-    // 当前视频有声播放；预取下一个以便上滑即见
+    // 当前视频有声播放（仅已揭示时）；预取下一个以便上滑即见
     const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+    if (portraitRevealed.value && cur) { cur.muted = false; cur.play().catch(() => {}) }
     fetchNextPreview()
   })
 }
@@ -486,6 +491,27 @@ const onPortraitTouchEnd = (e: TouchEvent) => {
   if (!t) return
   const dy = t.clientY - portraitTouchStartY.value
   const dx = t.clientX - portraitTouchStartX.value
+  const isSingle = feedList.value.length <= 1
+  // 单视频流：未揭示时上滑揭示，已揭示时下滑收起（无需切下一个/上一个）
+  if (isSingle) {
+    if (!portraitRevealed.value && dy < -PORTRAIT_SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
+      portraitRevealed.value = true
+      portraitTransition.value = true
+      portraitDragY.value = 0
+      nextTick(() => {
+        const cur = slotPlayers.value[PORTRAIT_CUR_SLOT]
+        if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+      })
+    } else if (portraitRevealed.value && dy > PORTRAIT_SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
+      portraitRevealed.value = false
+      portraitTransition.value = true
+      portraitDragY.value = 0
+      slotPlayers.value[PORTRAIT_CUR_SLOT]?.pause()
+    } else {
+      portraitDragY.value = 0
+    }
+    return
+  }
   portraitTransition.value = true // 开启吸附动画
   if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD || Math.abs(dy) <= Math.abs(dx)) {
     // 未达阈值：回弹
@@ -2451,6 +2477,12 @@ const handleDelete = async () => {
             <div v-if="portraitBuffering && !portraitDragging" class="portrait-buffering">
               <div class="buffering-spinner"></div>
             </div>
+
+            <!-- 单视频未揭示：提示上滑查看（初始不自动展示视频） -->
+            <div v-if="!portraitRevealed && feedList.length <= 1 && !portraitDragging" class="portrait-reveal-hint">
+              <div class="prh-arrow">︿</div>
+              <div class="prh-text">上滑查看视频</div>
+            </div>
           </div>
         </Teleport>
 
@@ -3798,6 +3830,32 @@ const handleDelete = async () => {
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+/* 单视频未揭示提示 */
+.portrait-reveal-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  pointer-events: none;
+  animation: prh-bob 1.8s ease-in-out infinite;
+}
+.prh-arrow {
+  font-size: 34px;
+  line-height: 1;
+}
+.prh-text {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+@keyframes prh-bob {
+  0%, 100% { transform: translateY(0); opacity: 0.85; }
+  50% { transform: translateY(-8px); opacity: 1; }
 }
 /* 相邻格视频未加载时占位暗色（避免纯黑割裂） */
 .portrait-item-ph {
