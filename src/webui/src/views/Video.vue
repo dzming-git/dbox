@@ -9,6 +9,7 @@ import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
 import BaseModal from '../components/BaseModal.vue'
+import VideoPlayer from '../components/VideoPlayer.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
 import { withThumbToken } from '../utils/media'
 
@@ -36,22 +37,14 @@ const loading = ref(true)
 const isFavorited = ref(false)
 const isLiked = ref(false)
 const isDisliked = ref(false)
-const videoPlayer = ref<HTMLVideoElement | null>(null)
+// videoPlayer 现在是对 VideoPlayer 组件暴露的底层 <video> 元素的引用（复用组件，单一播放器代码）
+const videoPlayerRef = ref<any>(null)
+const videoPlayer = computed<HTMLVideoElement | null>(() => videoPlayerRef.value?.el ?? null)
 const isPlaying = ref(false)
 const isFullscreen = ref(false)
 
-// 移动端手势控制
+// 移动端状态（用于 PC/移动端入口判断；播放器手势/控制栏已由 VideoPlayer 组件统一处理）
 const isMobile = ref(false)
-const isTouchMode = computed(() => isMobile.value && !isFullscreen.value)
-const touchStartX = ref(0)
-const touchStartY = ref(0)
-const touchStartCurrent = ref(0)
-const touchMoved = ref(false)
-const lastTapTime = ref(0)
-const tapTimer = ref<number | null>(null)
-const seekFeedbackVisible = ref(false)
-const seekFeedbackText = ref('')
-let seekFeedbackTimer: number | null = null
 
 const updateMobileState = () => {
   // 触摸设备（pointer: coarse）或窄视口（手机竖屏/小窗模式）均启用自定义控制栏
@@ -72,23 +65,6 @@ const updateFullscreenState = () => {
     } else {
       restorePortraitVideo()
     }
-  }
-}
-const togglePlay = () => {
-  const p = videoPlayer.value
-  if (!p) return
-  if (p.paused) p.play().catch(() => {})
-  else p.pause()
-}
-
-// 全屏切换
-const toggleFullscreen = () => {
-  const el = videoPlayer.value?.parentElement || videoPlayer.value
-  if (!el) return
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {})
-  } else {
-    el.requestFullscreen?.().catch(() => {})
   }
 }
 
@@ -263,7 +239,7 @@ const enterLandscapeFromPortrait = () => {
   router.replace({ name: 'Video', params: { hash: portraitHash.value }, query: { ...route.query, mode: 'portrait' } })
   nextTick(() => {
     const el = slotPlayers.value[PORTRAIT_CUR_SLOT]
-    if (!el || !el.requestFullscreen) { toggleFullscreen(); return }
+    if (!el || !el.requestFullscreen) { el?.parentElement?.requestFullscreen?.().catch(() => {}); return }
     // 将 video 从 portrait-item（overflow:hidden + 父级 transform）中移出，
     // 放入临时全屏 wrapper（append 到 body），避免移动端浏览器因嵌套布局导致全屏尺寸异常
     const wrapper = document.createElement('div')
@@ -706,67 +682,7 @@ const onPortraitEnded = () => {
   }, 280)
 }
 
-// 移动端控制栏自动隐藏
-const showControls = ref(true)
-let controlsTimer: number | null = null
-const showControlsTemporarily = () => {
-  showControls.value = true
-  if (controlsTimer) window.clearTimeout(controlsTimer)
-  controlsTimer = window.setTimeout(() => {
-    // 仅在点暂停或静止时自动隐藏，播放中且未交互才隐藏
-    if (isPlaying.value && !isBuffering.value) showControls.value = false
-  }, 3000)
-}
-
-// 缓冲/网速状态
-const isBuffering = ref(false)
-const netSpeed = ref(0) // KB/s
-let speedTimer: number | null = null
-let speedBytesStart = 0
-let speedTimeStart = 0
-
-const onWaiting = () => {
-  isBuffering.value = true
-  showControls.value = true
-  if (controlsTimer) window.clearTimeout(controlsTimer)
-  startSpeedMonitor()
-}
-
-const onPlaying = () => {
-  // 播放恢复，结束缓冲转圈
-  isBuffering.value = false
-  startSpeedMonitor()
-}
-
-const onStalled = () => {
-  isBuffering.value = true
-  showControls.value = true
-  if (controlsTimer) window.clearTimeout(controlsTimer)
-}
-
-// 通过轮询 video.buffered 末端字节估算网速
-const startSpeedMonitor = () => {
-  if (speedTimer) window.clearInterval(speedTimer)
-  speedBytesStart = videoPlayer.value?.buffered.length
-    ? videoPlayer.value.buffered.end(videoPlayer.value.buffered.length - 1) * (videoPlayer.value.videoWidth * videoPlayer.value.videoHeight * 0.08)
-    : 0
-  speedTimeStart = performance.now()
-  speedTimer = window.setInterval(() => {
-    const v = videoPlayer.value
-    if (!v || !v.buffered.length) return
-    const bufferedEnd = v.buffered.end(v.buffered.length - 1)
-    const bytes = bufferedEnd * (v.videoWidth * v.videoHeight * 0.08)
-    const dt = (performance.now() - speedTimeStart) / 1000
-    if (dt > 0) {
-      const kbps = (bytes - speedBytesStart) / 1024 / dt
-      netSpeed.value = kbps > 0 ? kbps : 0
-    }
-    speedBytesStart = bytes
-    speedTimeStart = performance.now()
-  }, 1000)
-}
-
-// 精彩片段标记（用户个人时间戳）
+// 精彩片段标记（用户个人时间戳）——业务层，依赖底层 <video> 的 currentTime/duration
 const markers = ref<VideoMarker[]>([])
 const showMarkerForm = ref(false)
 const markerNote = ref('')
@@ -796,7 +712,6 @@ const seekTo = (time: number) => {
     player.play().catch(() => {})
   }
 }
-
 const formatTime = (sec: number) => {
   const s = Math.max(0, Math.floor(sec || 0))
   const m = Math.floor(s / 60)
@@ -805,26 +720,6 @@ const formatTime = (sec: number) => {
   const mm = h > 0 ? String(m % 60).padStart(2, '0') : String(m)
   const ss = String(r).padStart(2, '0')
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
-
-const formatSpeed = (kbps: number) => {
-  if (kbps >= 1024) return (kbps / 1024).toFixed(1) + ' MB'
-  return Math.round(kbps) + ' KB'
-}
-
-// 移动端进度条拖动/点击跳转
-const progressBarRef = ref<HTMLElement | null>(null)
-const draggingProgress = ref(false)
-const seekFromBar = (e: MouseEvent | TouchEvent) => {
-  const bar = progressBarRef.value
-  const player = videoPlayer.value
-  if (!bar || !player) return
-  const rect = bar.getBoundingClientRect()
-  const clientX = 'touches' in e ? (e as TouchEvent).touches[0]?.clientX : (e as MouseEvent).clientX
-  if (clientX == null) return
-  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-  player.currentTime = ratio * (Number(player.duration) || videoDuration.value)
-  if (isPlaying.value) player.play().catch(() => {})
 }
 
 const videoHash = computed(() => route.params.hash as string)
@@ -963,17 +858,7 @@ const cancelAutoContinue = () => {
   clearAutoContinueTimer()
 }
 
-const stopSpeedMonitor = () => {
-  if (speedTimer) {
-    window.clearInterval(speedTimer)
-    speedTimer = null
-  }
-}
-
 const onVideoEnded = () => {
-  isBuffering.value = false
-  netSpeed.value = 0
-  stopSpeedMonitor()
   if (!getEffectiveSettings().autoContinue) {
     if (nextItem.value) goCollectionItem(nextItem.value)
     return
@@ -1283,7 +1168,6 @@ const goBack = () => {
 // 播放事件 - 用于共享观看同步
 const onPlay = () => {
   isPlaying.value = true
-  showControlsTemporarily()
   // 共享模式下立即同步播放状态
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = true
@@ -1294,11 +1178,6 @@ const onPlay = () => {
 
 const onPause = () => {
   isPlaying.value = false
-  isBuffering.value = false
-  showControls.value = true
-  netSpeed.value = 0
-  stopSpeedMonitor()
-  if (controlsTimer) window.clearTimeout(controlsTimer)
   // 共享模式下立即同步播放状态
   if (isSharedMode.value && shareCode.value && videoPlayer.value) {
     lastSyncedPlaying.value = false
@@ -1307,78 +1186,6 @@ const onPause = () => {
   }
 }
 
-// ===== 移动端触摸手势：单击/双击切换播放，左右滑动快进快退 =====
-const SEEK_SENSITIVITY = 0.4 // 滑动一屏宽度约等于 40% 总时长
-
-const onGestureStart = (e: TouchEvent) => {
-  const t = e.touches[0]
-  if (!t) return
-  touchStartX.value = t.clientX
-  touchStartY.value = t.clientY
-  touchStartCurrent.value = videoPlayer.value?.currentTime || 0
-  touchMoved.value = false
-}
-
-const onGestureMove = (e: TouchEvent) => {
-  if (!videoPlayer.value) return
-  const t = e.touches[0]
-  if (!t) return
-  const dx = t.clientX - touchStartX.value
-  const dy = t.clientY - touchStartY.value
-  if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
-  if (Math.abs(dx) > Math.abs(dy)) {
-    // 水平滑动：快进 / 快退
-    touchMoved.value = true
-    const ratio = dx / window.innerWidth
-    const delta = ratio * videoDuration.value * SEEK_SENSITIVITY
-    const target = Math.max(0, Math.min(videoDuration.value, touchStartCurrent.value + delta))
-    videoPlayer.value.currentTime = target
-    const sign = delta >= 0 ? '快进' : '快退'
-    seekFeedbackText.value = `${sign} ${Math.abs(Math.round(delta))} 秒`
-    seekFeedbackVisible.value = true
-    if (seekFeedbackTimer) clearTimeout(seekFeedbackTimer)
-  } else {
-    // 垂直滑动：标记为已移动，避免误触发播放/暂停
-    touchMoved.value = true
-  }
-}
-
-const onGestureEnd = () => {
-  if (touchMoved.value) {
-    if (seekFeedbackTimer) clearTimeout(seekFeedbackTimer)
-    seekFeedbackTimer = window.setTimeout(() => {
-      seekFeedbackVisible.value = false
-    }, 500)
-    touchMoved.value = false
-    return
-  }
-  // 轻触：用定时器区分单击与双击
-  const now = Date.now()
-  if (now - lastTapTime.value < 300) {
-    // 双击：切换播放/暂停
-    if (tapTimer.value) {
-      clearTimeout(tapTimer.value)
-      tapTimer.value = null
-    }
-    togglePlay()
-    lastTapTime.value = 0
-  } else {
-    // 单击：切换操作栏显示/隐藏，不暂停视频
-    lastTapTime.value = now
-    if (tapTimer.value) clearTimeout(tapTimer.value)
-    tapTimer.value = window.setTimeout(() => {
-      if (controlsTimer) window.clearTimeout(controlsTimer)
-      showControls.value = !showControls.value
-      if (showControls.value && isPlaying.value) {
-        // 显示后若正在播放，定时自动隐藏
-        controlsTimer = window.setTimeout(() => {
-          if (isPlaying.value && !isBuffering.value) showControls.value = false
-        }, 3000)
-      }
-      tapTimer.value = null
-    }, 280)
-  }
-}
 
 const onSeeked = () => {
   // 用户拖动进度条后立即同步
@@ -1800,10 +1607,6 @@ const deleteMarker = async (id: number) => {
 
 let lastReportTime = 0
 const durationLoaded = ref(0)
-const onLoadedMetadata = () => {
-  // 元信息加载完成，强制 videoDuration 重新计算（读取 <video> 元素真实时长）
-  durationLoaded.value++
-}
 const onTimeUpdate = () => {
   if (videoPlayer.value) currentTime.value = videoPlayer.value.currentTime
   // 每 10 秒上报一次观看进度（节流，避免频繁请求）
@@ -2473,92 +2276,16 @@ const handleDelete = async () => {
                 <span class="marker-tip">{{ mk.note }}</span>
               </div>
             </div>
-            <video
-              ref="videoPlayer"
-              :src="videoUrl"
-              class="video-element"
-              playsinline
-              webkit-playsinline
-              x5-playsinline
-              x5-video-player-type="h5-page"
-              x5-video-player-fullscreen="true"
-              :poster="videoPosterUrl"
+            <VideoPlayer
+              ref="videoPlayerRef"
+              :playlist="[{ src: videoUrl, poster: videoPosterUrl }]"
+              :autoplay="false"
               @play="onPlay"
               @pause="onPause"
-              @seeked="onSeeked"
               @timeupdate="onTimeUpdate"
-              @loadedmetadata="onLoadedMetadata"
-              @waiting="onWaiting"
-              @playing="onPlaying"
-              @stalled="onStalled"
+              @seeked="onSeeked"
               @ended="onVideoEnded"
-              preload="metadata"
-              :controls="!isMobile"
-            ></video>
-            <!-- 缓冲转圈 + 网速 -->
-            <div v-if="isBuffering" class="buffering-overlay">
-              <div class="buffering-spinner"></div>
-              <div class="buffering-speed" v-if="netSpeed > 0">{{ formatSpeed(netSpeed) }}/s</div>
-            </div>
-            <!-- 移动端手势层：双击/左右滑动控制播放进度 -->
-            <div
-              v-if="isTouchMode"
-              class="gesture-layer"
-              @touchstart="onGestureStart"
-              @touchmove.prevent="onGestureMove"
-              @touchend="onGestureEnd"
-            ></div>
-            <!-- 快进/快退反馈 -->
-            <div v-if="isTouchMode && seekFeedbackVisible" class="seek-feedback">
-              {{ seekFeedbackText }}
-            </div>
-            <!-- 移动端底部控制栏：播放/暂停 + 进度条 + 全屏（原生控件在触摸模式下关闭） -->
-            <div
-              v-if="isMobile && !autoContinueVisible"
-              class="mobile-controls"
-              :class="{ hidden: !showControls }"
-              @click.stop
-            >
-              <div
-                ref="progressBarRef"
-                class="mp-bar"
-                @touchstart.prevent="seekFromBar($event)"
-                @touchmove.prevent="seekFromBar($event)"
-                @click="seekFromBar($event)"
-              >
-                <div class="mp-played" :style="{ width: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
-                <div class="mp-thumb" :style="{ left: (videoDuration ? (currentTime / videoDuration) * 100 : 0) + '%' }"></div>
-              </div>
-              <div class="mc-row">
-                <button class="mc-btn" @click.stop="togglePlay" :aria-label="isPlaying ? '暂停' : '播放'">
-                  <svg v-if="!isPlaying" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                  <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
-                  </svg>
-                </button>
-                <div class="mp-time">
-                  <span>{{ formatTime(currentTime) }}</span>
-                  <span>{{ formatTime(videoDuration) }}</span>
-                </div>
-                <button class="mc-btn" @click.stop="toggleFullscreen" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
-                  <svg v-if="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
-                  </svg>
-                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" />
-                  </svg>
-                </button>
-                <!-- 竖屏全屏（短视频沉浸模式）入口 -->
-                <button class="mc-btn" @click.stop="enterPortraitMode" :aria-label="'竖屏全屏'" title="竖屏全屏">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="7" y="2" width="10" height="20" rx="2" />
-                    <line x1="11" y1="18" x2="13" y2="18" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+            />
             <!-- 自动续播倒计时遮罩 -->
             <div class="auto-continue-overlay" v-if="autoContinueVisible" @click.stop>
               <div class="ac-card">

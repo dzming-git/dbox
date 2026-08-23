@@ -19,6 +19,10 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:index', index: number): void
   (e: 'ended', index: number): void
+  (e: 'play', currentTime: number): void
+  (e: 'pause', currentTime: number): void
+  (e: 'timeupdate', currentTime: number): void
+  (e: 'seeked', currentTime: number): void
 }>()
 
 // ===== 模式 =====
@@ -53,10 +57,12 @@ function onLoadedMetadata() {
 }
 function onTimeUpdate() {
   if (player.value) currentTime.value = player.value.currentTime
+  emit('timeupdate', currentTime.value)
 }
 function onPlay() {
   isPlaying.value = true
   showControlsTemporarily()
+  emit('play', currentTime.value)
 }
 function onPause() {
   isPlaying.value = false
@@ -65,6 +71,7 @@ function onPause() {
   netSpeed.value = 0
   stopSpeedMonitor()
   if (controlsTimer) window.clearTimeout(controlsTimer)
+  emit('pause', currentTime.value)
 }
 function onWaiting() {
   isBuffering.value = true
@@ -76,12 +83,32 @@ function onPlaying() {
   isBuffering.value = false
   startSpeedMonitor()
 }
+function onSeeked() {
+  emit('seeked', currentTime.value)
+}
 function onEnded() {
   isBuffering.value = false
   netSpeed.value = 0
   stopSpeedMonitor()
   emit('ended', curIndex.value)
 }
+
+// 供父组件（如 Video.vue 竖屏槽位、业务代码）调用 / 访问
+function seekTo(t: number) {
+  if (player.value) player.value.currentTime = t
+}
+function play() { player.value?.play().catch(() => {}) }
+function pause() { player.value?.pause() }
+function setMuted(v: boolean) { if (player.value) player.value.muted = v }
+defineExpose({
+  play,
+  pause,
+  seekTo,
+  setMuted,
+  get el() { return player.value },
+  get currentTime() { return currentTime.value },
+  get duration() { return duration.value },
+})
 
 // 控制栏自动隐藏
 function showControlsTemporarily() {
@@ -205,20 +232,20 @@ function onGestureEnd() {
   }
   const now = Date.now()
   if (now - lastTapTime.value < 300) {
-    if (tapTimer.value) { clearTimeout(tapTimer.value); tapTimer.value = null }
+    if (tapTimer) { clearTimeout(tapTimer); tapTimer = null }
     togglePlay()
     lastTapTime.value = 0
   } else {
     lastTapTime.value = now
-    if (tapTimer.value) clearTimeout(tapTimer.value)
-    tapTimer.value = window.setTimeout(() => {
+    if (tapTimer) clearTimeout(tapTimer)
+    tapTimer = window.setTimeout(() => {
       showControls.value = !showControls.value
       if (showControls.value && isPlaying.value) {
         controlsTimer = window.setTimeout(() => {
           if (isPlaying.value && !isBuffering.value) showControls.value = false
         }, 3000)
       }
-      tapTimer.value = null
+      tapTimer = null
     }, 280)
   }
 }
@@ -490,7 +517,7 @@ document.addEventListener('fullscreenchange', onFsChange)
               ></video>
               <div class="portrait-bottom-bar" :class="{ 'ui-hidden': !showControls }" @touchstart.stop>
                 <div class="pb-title"><span class="pb-title-text">{{ item.title || ('视频 ' + (curIndex - 1 + i + 1)) }}</span></div>
-                <div class="pb-progress" @touchstart.stop.prevent="(e) => { /* seek handled by slot */ }">
+                <div class="pb-progress" @touchstart.stop.prevent>
                   <div class="pp-track">
                     <div class="pp-played" :style="{ width: ((slotTimes[i].duration || 0) ? (slotTimes[i].current / slotTimes[i].duration) * 100 : 0) + '%' }"></div>
                   </div>
