@@ -632,6 +632,9 @@ if __name__ == '__main__':
 
     host = app_config.get('host', '0.0.0.0')
     port = app_config.get('ports', {}).get('web', 8080)
+    # 端口单实例守卫：防止生产服务 + 开发模式手动启动双实例抢 8080
+    from port_guard import guard_port
+    guard_port(host, port)
     tls_cfg = app_config.get('tls', {}) or {}
     tls_port = int(tls_cfg.get('port', 8443)) if isinstance(tls_cfg, dict) else 8443
     # 开发模式不做 TLS（避免与调试器/热重载冲突）；生产模式按配置启用 HTTPS

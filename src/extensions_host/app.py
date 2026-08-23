@@ -18,6 +18,12 @@ _SRC_DIR = os.path.dirname(_THIS_DIR)                             # src/
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+# configs/services 提供启动守卫（launcher_guard / port_guard），加入 path 以便导入
+_ROOT_DIR = os.path.dirname(_SRC_DIR)                            # dbox/
+_SERVICES_DIR = os.path.join(_ROOT_DIR, 'configs', 'services')
+if _SERVICES_DIR not in sys.path:
+    sys.path.insert(0, _SERVICES_DIR)
+
 from routes import script_bp, init_script_engine
 from manifest import load_all, scripts_base_dir
 from plugin_host import build_host
@@ -94,6 +100,9 @@ def _data_dir():
 def main():
     port = int(os.environ.get('EXTENSIONS_HOST_PORT', '8093'))
     host = os.environ.get('EXTENSIONS_HOST_HOST', '0.0.0.0')
+    # 端口单实例守卫：防止 NSSM 服务 + 手动 python 双实例抢端口
+    from port_guard import guard_port
+    guard_port(host, port)
     app = create_app()
     # 关闭 werkzeug reloader：避免 fork worker 使用旧 .pyc 导致代码修改不刷新，
     # 也避免同一端口出现多 main 实例抢端口（旧实例未退出时新代码不生效）。
@@ -101,4 +110,7 @@ def main():
 
 
 if __name__ == '__main__':
+    # 启动守卫：生产模式必须经 NSSM 启动（与 web/downloader 保持一致）
+    from launcher_guard import check_service_launch
+    check_service_launch('Dbox Extensions Host', 'src/extensions_host/app.py')
     main()

@@ -60,5 +60,8 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('DOWNLOADER_PORT', 8092))
+    # 端口单实例守卫：防止 NSSM 服务 + 手动 python 双实例抢端口
+    from port_guard import guard_port
+    guard_port('0.0.0.0', port)
     # 关闭 werkzeug reloader：与 Flask reloader / zmq 不兼容，且避免旧实例抢端口。
     app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False)
