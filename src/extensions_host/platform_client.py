@@ -154,7 +154,7 @@ def library_disk_targets(library_id: int) -> list:
 
 def upsert_post_by_group(group_key, title=None, content='', resource_index_ids=None,
                          user_id=None, display_modes=None, author_name=None,
-                         author_url=None, source_url=None) -> dict:
+                         author_url=None, source_url=None, library_id=None) -> dict:
     """按 group_key 创建/更新帖子（供 X 下载脚本在入库后生成帖子）。"""
     return _post('/upsert-post', {
         'group_key': group_key,
@@ -166,6 +166,7 @@ def upsert_post_by_group(group_key, title=None, content='', resource_index_ids=N
         'author_name': author_name,
         'author_url': author_url,
         'source_url': source_url,
+        'library_id': library_id,
     })
 
 

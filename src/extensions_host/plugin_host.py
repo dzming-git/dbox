@@ -205,10 +205,31 @@ class Host:
             from platform_client import ingest_file
             return ingest_file(
                 library_id, path, kind=kind, modes=modes,
-                hidden=hidden, meta=meta, owner_id=owner_id,
+                hidden=hidden, meta=meta, user_id=owner_id,
             )
         except Exception as e:
             self.logger.error('ingest 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
+    def upsert_post_by_group(self, group_key, title=None, content='',
+                             resource_index_ids=None, user_id=None,
+                             display_modes=None, author_name=None,
+                             author_url=None, source_url=None, library_id=None):
+        """按 group_key 创建/更新帖子（X 下载器：把同一条推文的多文件聚合成一条帖子）。
+
+        X 下载器把图片/视频聚合为一条帖子时调用，通过框架内部接口生成帖子。
+        """
+        try:
+            from platform_client import upsert_post_by_group
+            return upsert_post_by_group(
+                group_key, title=title, content=content,
+                resource_index_ids=resource_index_ids, user_id=user_id,
+                display_modes=display_modes, author_name=author_name,
+                author_url=author_url, source_url=source_url,
+                library_id=library_id,
+            )
+        except Exception as e:
+            self.logger.error('upsert_post_by_group 失败: %s', e)
             return {'success': False, 'message': str(e)}
 
 

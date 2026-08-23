@@ -396,7 +396,8 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
 
 
 def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None,
-                author_name=None, author_url=None, source_url=None, group_key=None):
+                author_name=None, author_url=None, source_url=None, group_key=None,
+                library_id=None):
     """由一组资源索引创建一条帖子（组合模式）。
 
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
@@ -413,6 +414,7 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
         author_url=author_url,
         source_url=source_url,
         group_key=group_key,
+        library_id=library_id,
     )
     db.session.add(d)
     db.session.flush()
@@ -429,7 +431,7 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
 
 def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=None,
                          display_modes=None, author_name=None, author_url=None,
-                         source_url=None):
+                         source_url=None, library_id=None):
     """按 group_key 查重：已存在同组帖子则更新（重建引用 + 同步来源信息），否则新建。
 
     重复下载同一来源（如同一推文）时避免产生多条重复帖子。
@@ -444,6 +446,7 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
         existing.author_name = author_name
         existing.author_url = author_url
         existing.source_url = source_url
+        existing.library_id = library_id
         # 重复下载（同来源）视为「重新生成帖子」，应从回收站恢复，
         # 否则用户删除过一次后，后续重复下载只会更新同 group_key 帖子、
         # in_trash 保持 True，导致帖子流永远看不到该帖子。
@@ -464,7 +467,8 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
         return existing
     return create_post(title, content, resource_index_ids, user_id=user_id,
                        display_modes=display_modes, author_name=author_name,
-                       author_url=author_url, source_url=source_url, group_key=group_key)
+                       author_url=author_url, source_url=source_url, group_key=group_key,
+                       library_id=library_id)
 
 
 class Video(db.Model):

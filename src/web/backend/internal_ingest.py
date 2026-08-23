@@ -13,9 +13,55 @@ library_watcher / backend.gallery.scanner 等业务模块。独立运行的拓�
 以 HTTP 调用本能力，从而实现拓展管理与主模块的彻底解耦。
 """
 import os
+import shutil
 from urllib.parse import quote
 
 from core.models import ResourceIndex, ResourceMode, set_resource_modes, db, Video
+
+
+def _resolve_storage_dir(library_id, app):
+    """解析库的持久存储目录：优先用库 config 里的 path，否则回退到 data/uploads/lib_<id>。"""
+    storage = ''
+    try:
+        from core.models import ResourceLibrary
+        lib = ResourceLibrary.query.get(library_id)
+        cfg = (lib.config or {}) if lib else {}
+        if isinstance(cfg, dict):
+            storage = cfg.get('path') or ''
+    except Exception:
+        storage = ''
+    if not storage or not os.path.isdir(storage):
+        try:
+            from backend.paths import DATA_DIR
+        except Exception:
+            DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        storage = os.path.join(DATA_DIR, 'uploads', f'lib_{library_id}')
+    return storage
+
+
+def _persist_file(path, library_id, app):
+    """把来自任务临时目录的文件/目录落地到库的持久存储目录，返回落地后的路径。
+
+    任务结束后临时目录会被清理，若不落地，ResourceIndex.location 将指向已删除的文件。
+    """
+    storage = _resolve_storage_dir(library_id, app)
+    try:
+        os.makedirs(storage, exist_ok=True)
+    except Exception:
+        return path
+    dest = os.path.join(storage, os.path.basename(path))
+    if os.path.abspath(dest) == os.path.abspath(path):
+        return path  # 已经在存储目录里，无需复制
+    try:
+        if os.path.isdir(path):
+            if os.path.exists(dest):
+                shutil.rmtree(dest)
+            shutil.copytree(path, dest)
+        else:
+            shutil.copy2(path, dest)
+        return dest
+    except Exception:
+        return path
 
 
 def _is_video_ext(path):
@@ -50,6 +96,11 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
     """
     if not path or not (os.path.isfile(path) or os.path.isdir(path)):
         return {'success': False, 'message': f'文件不存在: {path}'}
+
+    # 把任务临时目录里的文件落地到库的持久存储目录，避免任务结束后文件被清理
+    path = _persist_file(path, library_id, app)
+    if not (os.path.isfile(path) or os.path.isdir(path)):
+        return {'success': False, 'message': f'文件落地失败: {path}'}
 
     if kind is None:
         if os.path.isfile(path) and _is_video_ext(path):

@@ -229,6 +229,7 @@ def upsert_post():
         author_name=data.get('author_name'),
         author_url=data.get('author_url'),
         source_url=data.get('source_url'),
+        library_id=data.get('library_id'),
     )
     return jsonify({'success': True, 'post_id': post.id})
 
