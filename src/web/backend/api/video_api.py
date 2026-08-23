@@ -193,6 +193,10 @@ def get_video(video_hash):
             return deny_missing()
 
         video_dict = video.to_dict()
+        # 若 DB 中 thumbnail 为空但 hash 存在，构造标准缩略图 URL
+        # （缩略图按需懒生成：/thumbnail/{hash} 首次访问时自动从视频文件提取）
+        if not video_dict.get('thumbnail') and video.hash:
+            video_dict['thumbnail'] = f'/thumbnail/{video.hash}'
         # 注入当前用户对视频的交互状态（以后端为准，登录用户绑定账号，跨设备一致）
         key = current_interaction_key()
         for _itype, _flag in (('favorite', 'is_favorited'), ('like', 'is_liked'), ('dislike', 'is_disliked')):

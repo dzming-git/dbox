@@ -1009,6 +1009,14 @@ const videoUrl = computed(() => {
   return token ? `${url}?token=${token}${postCtx}` : `${url}${postCtx ? '?' + postCtx.slice(1) : ''}`
 })
 
+// 视频封面/预览图 URL - 用于 <video poster> 属性，播放前显示缩略图
+const videoPosterUrl = computed(() => {
+  const thumb = video.value?.thumbnail || video.value?.cover_url || ''
+  if (!thumb || thumb.startsWith('data:')) return thumb
+  // 帖子内嵌引用场景：附加 post=1 跳过 hidden 检查
+  return withThumbToken(thumb + (route.query.post === '1' && !thumb.includes('?') ? '?post=1' : ''))
+})
+
 // 完整加载一个视频（含标记/历史/合集上下文）。供 onMounted 与切换视频复用。
 const loadVideo = async () => {
   if (!videoHash.value) return
@@ -2474,6 +2482,7 @@ const handleDelete = async () => {
               x5-playsinline
               x5-video-player-type="h5-page"
               x5-video-player-fullscreen="true"
+              :poster="videoPosterUrl"
               @play="onPlay"
               @pause="onPause"
               @seeked="onSeeked"
