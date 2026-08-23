@@ -143,6 +143,35 @@ def get_thumbnail(video_hash):
             'video_hash': video_hash
         }), 202
 
+def _lazy_generate_sprite(video, video_hash):
+    """sprite/vtt 缺失时异步下发生成任务（后台线程，不阻塞请求）。
+
+    sprite 模式会一次产出 poster/sprite/vtt 三件套；前端首次请求 404 后，
+    缩略图服务会开始生成，后续请求即可命中。返回 True 表示已触发。
+    """
+    if not video or not getattr(video, 'local_path', None):
+        return False
+    if not runtime.thumbnail_bus:
+        return False
+    vp = video.local_path
+    vh = video_hash
+
+    def _async_generate(vp_, vh_):
+        try:
+            output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
+            runtime.thumbnail_bus.call_method(
+                service='com.dbox.thumbnaild',
+                interface='com.dbox.Thumbnaild',
+                method='Generate',
+                params={'video_path': vp_, 'video_hash': vh_, 'output_format': output_format}
+            )
+        except Exception as e:
+            log.debug('ERROR', f"后台封面生成失败: {e}")
+
+    threading.Thread(target=_async_generate, args=(vp, vh), daemon=True).start()
+    return True
+
+
 @bp.route('/thumbnail/<video_hash>/sprite')
 def get_thumbnail_sprite(video_hash):
     """获取雪碧图（悬停预览用）。权限校验同 /thumbnail/。"""
@@ -152,6 +181,10 @@ def get_thumbnail_sprite(video_hash):
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     path = os.path.join(thumb_dir, f'{video_hash}.sprite.jpg')
     if not os.path.exists(path):
+        # 缺失：懒触发 sprite 生成（poster/sprite/vtt 一并产出）
+        if _lazy_generate_sprite(video, video_hash):
+            return jsonify({'success': False, 'status': 'generating',
+                            'message': '预览图正在生成中'}), 202
         abort(404)
     resp = send_file(path, mimetype='image/jpeg')
     resp.cache_control.max_age = 3600
@@ -167,6 +200,10 @@ def get_thumbnail_vtt(video_hash):
     thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     path = os.path.join(thumb_dir, f'{video_hash}.vtt')
     if not os.path.exists(path):
+        # 缺失：懒触发 sprite 生成（poster/sprite/vtt 一并产出）
+        if _lazy_generate_sprite(video, video_hash):
+            return jsonify({'success': False, 'status': 'generating',
+                            'message': '预览索引正在生成中'}), 202
         abort(404)
     resp = send_file(path, mimetype='text/vtt')
     resp.cache_control.max_age = 3600

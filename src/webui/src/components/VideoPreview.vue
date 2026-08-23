@@ -140,6 +140,11 @@ function toSeconds(h: string, m: string, s: string): number {
   return parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseFloat(s)
 }
 
+// 预览文件首次缺失时，后端会懒触发生成（返回 202），前端延迟重试。
+// 生成耗时（sprite 需整片抽帧）较长，故最多重试若干次、每次间隔递增。
+let retryTimer: any = null
+let retryCount = 0
+
 async function loadPreview() {
   const urls = buildPreviewUrls(props.hash)
   if (!urls || spriteLoaded.value || spriteError.value || disposed) return
@@ -147,6 +152,18 @@ async function loadPreview() {
   try {
     // 先取 VTT（轻量），成功后再加载雪碧图
     const vttRes = await fetch(urls.vttUrl)
+    if (vttRes.status === 202) {
+      // 后端正在生成预览，延迟重试
+      if (retryCount < 8) {
+        retryCount++
+        retryTimer = setTimeout(() => {
+          if (!disposed && inView.value) loadPreview()
+        }, 1500 * retryCount)
+      } else {
+        spriteError.value = true
+      }
+      return
+    }
     if (!vttRes.ok) throw new Error('vtt not found')
     const vttText = await vttRes.text()
     const parsed = parseVtt(vttText)
@@ -265,6 +282,8 @@ watch(() => props.hash, () => {
   spriteUrl.value = ''
   cues.value = []
   stopAutoplay()
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+  retryCount = 0
   activeFrame.value = 0
   if (inView.value) loadPreview()
 })
@@ -305,6 +324,7 @@ let resizeObserver: ResizeObserver | null = null
 onBeforeUnmount(() => {
   disposed = true
   stopAutoplay()
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
   observer?.disconnect()
   observer = null
   resizeObserver?.disconnect()

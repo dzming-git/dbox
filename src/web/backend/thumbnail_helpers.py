@@ -268,6 +268,12 @@ def _generate_missing_thumbnails(config=None):
         db_videos = []
 
     missing_videos = []
+    # sprite 模式下，除 poster 外还需产出 .sprite.jpg + .vtt 两件预览文件；
+    # 存量视频常只有旧版 poster/gif、缺 sprite/vtt，前端悬停预览会 404。
+    # 因此 sprite 模式下把「缺 sprite 或 vtt」也判为缺失，纳入重新生成。
+    output_format = config.get('output_format', 'sprite')
+    _want_sprite = (output_format == 'sprite')
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
     for v in db_videos:
         if not (v.hash and v.local_path and os.path.exists(v.local_path)):
             continue
@@ -275,7 +281,13 @@ def _generate_missing_thumbnails(config=None):
         # 索引记录的路径若文件尚不存在，即视为缺失、需要生成。
         existing = resolve_thumbnail_path_for_video(v)
         if existing and os.path.exists(existing):
-            continue
+            # poster 已有；sprite 模式下若缺 sprite/vtt 预览，仍需补生成
+            if not _want_sprite:
+                continue
+            sprite_ok = os.path.exists(os.path.join(thumb_dir, f'{v.hash}.sprite.jpg'))
+            vtt_ok = os.path.exists(os.path.join(thumb_dir, f'{v.hash}.vtt'))
+            if sprite_ok and vtt_ok:
+                continue
         # 把缩略图「默认落点路径」写回资源索引（force：即便是已失效的自定义路径也改指新生成文件），
         # 使索引成为缩略图位置的权威来源
         _record_thumbnail_path_in_index(v, force=True)

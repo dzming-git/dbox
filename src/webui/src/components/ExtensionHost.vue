@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { scriptApi } from '../api/script'
+import { useUserStore } from '../stores/userStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -88,8 +89,10 @@ async function pollBusy() {
 }
 
 async function loadToken() {
-  // 从 localStorage 读取当前管理员的 access token（与 axios 拦截器一致）
-  const raw = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token')
+  // 优先用 Pinia userStore 里的 token（与 media.ts / axios 拦截器同源），
+  // 兜底读 localStorage，确保传给 iframe 的一定是当前登录用户的 token。
+  const store = useUserStore()
+  const raw = store.token || localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token')
   token.value = raw || ''
 }
 
@@ -108,6 +111,8 @@ async function openPanel(id: string) {
   openId.value = id
   const ext = extensions.value.find((e) => e.id === id)
   if (!ext?.ui.entry) return
+  // 每次打开都刷新 token（用户可能刚登录/刷新过 token），确保推给 iframe 的是最新值
+  await loadToken()
   // 每次打开都重新拉取最新 panel.html：后端已设 no-store，但 Vue 变量缓存会让旧版本
   // 残留（导致新功能不生效）。重新获取成本极低，优先保证 UI 最新。
   try {

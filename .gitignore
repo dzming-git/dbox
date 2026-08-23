@@ -142,3 +142,9 @@ scripts/export_*.py
 scripts/backup_*.py
 scripts/restore_*.py
 scripts/clean_*.py
+
+# ============================================
+# 拓展层：extensions/ 下每个子目录是独立的 git 仓库（如各插件），
+# 主仓库整层忽略，不跟踪任何拓展代码。
+# ============================================
+extensions/
