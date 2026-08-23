@@ -4,6 +4,7 @@ import { api } from '../api'
 import { useUserStore } from '../stores/userStore'
 import { useToast } from '../composables/useToast'
 import { formatDate, getRoleClass } from '../utils/adminCommon'
+import BaseModal from '../components/BaseModal.vue'
 
 const { showToast } = useToast()
 const userStore = useUserStore()
@@ -230,148 +231,77 @@ onMounted(() => {
     </div>
 
     <!-- 用户创建/编辑弹窗 -->
-    <Teleport to="body">
-      <div v-if="showUserModal" class="modal-overlay" @click="showUserModal = false">
-        <div class="modal-content" @click.stop>
-          <div class="modal-header">
-            <h3>{{ editingUser ? '编辑用户' : '添加用户' }}</h3>
-            <button class="close-btn" @click="showUserModal = false">×</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label>用户名</label>
-              <input v-model="userForm.username" type="text" />
-            </div>
-            <div class="form-group">
-              <label>密码{{ editingUser ? '（留空表示不修改）' : '' }}</label>
-              <input v-model="userForm.password" type="password" :placeholder="editingUser ? '留空表示不修改密码' : ''" />
-            </div>
-            <div class="form-group">
-              <label>角色</label>
-              <select v-model="userForm.role">
-                <option value="user">普通用户</option>
-                <option value="admin">管理员</option>
-                <option value="root" :disabled="!canManageRoot">超级管理员</option>
-              </select>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="action-btn" @click="showUserModal = false">取消</button>
-            <button class="action-btn primary" @click="editingUser ? updateUser() : createUser()">
-              {{ editingUser ? '保存' : '创建' }}
-            </button>
-          </div>
+    <BaseModal v-model:visible="showUserModal" :title="editingUser ? '编辑用户' : '添加用户'" max-width="440px">
+      <div class="modal-body">
+        <div class="form-group">
+          <label>用户名</label>
+          <input v-model="userForm.username" type="text" />
+        </div>
+        <div class="form-group">
+          <label>密码{{ editingUser ? '（留空表示不修改）' : '' }}</label>
+          <input v-model="userForm.password" type="password" :placeholder="editingUser ? '留空表示不修改密码' : ''" />
+        </div>
+        <div class="form-group">
+          <label>角色</label>
+          <select v-model="userForm.role">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+            <option value="root" :disabled="!canManageRoot">超级管理员</option>
+          </select>
         </div>
       </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showUserModal = false">取消</button>
+        <button class="action-btn primary" @click="editingUser ? updateUser() : createUser()">
+          {{ editingUser ? '保存' : '创建' }}
+        </button>
+      </template>
+    </BaseModal>
 
     <!-- 资源库权限控制弹窗 -->
-    <Teleport to="body">
-      <div v-if="showPermModal" class="modal-overlay perm-modal-overlay" @click="showPermModal = false">
-        <div class="modal-content perm-modal" @click.stop>
-          <div class="modal-header">
-            <h3>资源库权限 - {{ permUser?.username }}</h3>
-            <button class="close-btn" @click="showPermModal = false">×</button>
+    <BaseModal v-model:visible="showPermModal" :title="'资源库权限 - ' + (permUser?.username || '')" max-width="520px">
+      <div class="modal-body">
+        <div v-if="permLoading" class="perm-loading">加载中...</div>
+        <template v-else>
+          <div class="perm-legend">
+            <span class="legend-item"><span class="dot dot-none"></span>无权限</span>
+            <span class="legend-item"><span class="dot dot-read"></span>只读</span>
+            <span class="legend-item"><span class="dot dot-write"></span>读写</span>
           </div>
-          <div class="modal-body">
-            <div v-if="permLoading" class="perm-loading">加载中...</div>
-            <template v-else>
-              <div class="perm-legend">
-                <span class="legend-item"><span class="dot dot-none"></span>无权限</span>
-                <span class="legend-item"><span class="dot dot-read"></span>只读</span>
-                <span class="legend-item"><span class="dot dot-write"></span>读写</span>
-              </div>
-              <div class="perm-table-header">
-                <span class="th-name">资源库名称</span>
-                <span class="th-actions">访问权限</span>
-              </div>
-              <div class="perm-list">
-                <div v-for="lib in permLibs" :key="lib.library_id" class="perm-row" :class="{ locked: lib.locked }">
-                  <span class="perm-name">{{ lib.library_name }}</span>
-                  <div class="perm-actions">
-                    <button
-                      v-for="opt in LEVEL_OPTIONS"
-                      :key="opt.value"
-                      class="perm-chip"
-                      :class="[opt.value, { active: lib.level === opt.value }]"
-                      :disabled="lib.locked"
-                      @click="!lib.locked && (lib.level = opt.value)"
-                    >{{ opt.label }}</button>
-                  </div>
-                  <span v-if="lib.locked" class="perm-lock-hint">管理员默认全权</span>
-                </div>
-              </div>
-              <p v-if="permLibs.length === 0 && !permLoading" class="perm-empty">暂无可管理的资源库</p>
-            </template>
+          <div class="perm-table-header">
+            <span class="th-name">资源库名称</span>
+            <span class="th-actions">访问权限</span>
           </div>
-          <div class="modal-footer">
-            <button class="action-btn" @click="showPermModal = false">取消</button>
-            <button class="action-btn primary" @click="savePerms" :disabled="permSaving || permLibs.length === 0">
-              {{ permSaving ? '保存中...' : '保存' }}
-            </button>
+          <div class="perm-list">
+            <div v-for="lib in permLibs" :key="lib.library_id" class="perm-row" :class="{ locked: lib.locked }">
+              <span class="perm-name">{{ lib.library_name }}</span>
+              <div class="perm-actions">
+                <button
+                  v-for="opt in LEVEL_OPTIONS"
+                  :key="opt.value"
+                  class="perm-chip"
+                  :class="[opt.value, { active: lib.level === opt.value }]"
+                  :disabled="lib.locked"
+                  @click="!lib.locked && (lib.level = opt.value)"
+                >{{ opt.label }}</button>
+              </div>
+              <span v-if="lib.locked" class="perm-lock-hint">管理员默认全权</span>
+            </div>
           </div>
-        </div>
+          <p v-if="permLibs.length === 0 && !permLoading" class="perm-empty">暂无可管理的资源库</p>
+        </template>
       </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showPermModal = false">取消</button>
+        <button class="action-btn primary" @click="savePerms" :disabled="permSaving || permLibs.length === 0">
+          {{ permSaving ? '保存中...' : '保存' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
 <style scoped>
-/* 弹窗：强制固定在视口中央，不受父级 transform/overflow 影响 */
-.modal-overlay {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  z-index: 10000;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 24px 16px;
-}
-
-.modal-content {
-  background: var(--bg-surface);
-  border-radius: 12px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: modalIn 0.3s ease;
-}
-
-@keyframes modalIn {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: var(--text-tertiary);
-}
-
 .modal-body {
   padding: 20px;
   max-height: 60vh;

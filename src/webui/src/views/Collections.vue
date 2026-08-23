@@ -5,6 +5,7 @@ import { collectionSetApi, videoApi, galleryApi } from '../api'
 import { useUserStore } from '../stores/userStore'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -325,33 +326,27 @@ onDeactivated(() => ptr.clearHandler())
     </div>
 
     <!-- 添加资源弹窗 -->
-    <div class="modal-overlay" v-if="showAdd" @click.self="closeAdd">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>添加资源到合集</h3>
-          <button class="close" @click="closeAdd">✕</button>
-        </div>
-        <div class="modal-search">
-          <input v-model="search" placeholder="搜索视频或图集..." @input="doSearch" @keyup.enter="doSearch" />
-          <button @click="doSearch">搜索</button>
-        </div>
-        <div class="modal-results" v-if="searchResults.length">
-          <div
-            class="result-card"
-            v-for="(res, i) in searchResults"
-            :key="i"
-            @click="addResource(res)"
-          >
-            <div class="rc-cover" :style="res.cover ? { backgroundImage: `url(${res.cover})` } : {}">
-              <span class="rc-type">{{ res.type === 'video' ? '视频' : '图集' }}</span>
-            </div>
-            <div class="rc-title">{{ res.title }}</div>
-          </div>
-        </div>
-        <div class="modal-empty" v-else-if="searching">搜索中...</div>
-        <div class="modal-empty" v-else>输入关键词搜索视频/图集，点击结果即可加入</div>
+    <BaseModal v-model:visible="showAdd" title="添加资源到合集" max-width="520px">
+      <div class="modal-search">
+        <input v-model="search" placeholder="搜索视频或图集..." @input="doSearch" @keyup.enter="doSearch" />
+        <button @click="doSearch">搜索</button>
       </div>
-    </div>
+      <div class="modal-results" v-if="searchResults.length">
+        <div
+          class="result-card"
+          v-for="(res, i) in searchResults"
+          :key="i"
+          @click="addResource(res)"
+        >
+          <div class="rc-cover" :style="res.cover ? { backgroundImage: `url(${res.cover})` } : {}">
+            <span class="rc-type">{{ res.type === 'video' ? '视频' : '图集' }}</span>
+          </div>
+          <div class="rc-title">{{ res.title }}</div>
+        </div>
+      </div>
+      <div class="modal-empty" v-else-if="searching">搜索中...</div>
+      <div class="modal-empty" v-else>输入关键词搜索视频/图集，点击结果即可加入</div>
+    </BaseModal>
 
     <transition name="fade">
       <div class="toast" v-if="toastShow">{{ toast }}</div>
@@ -566,36 +561,7 @@ onDeactivated(() => ptr.clearHandler())
 }
 .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); }
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.modal {
-  width: 560px;
-  max-width: 92vw;
-  max-height: 80vh;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-default);
-}
-.modal-header h3 { margin: 0; font-size: 16px; }
-.modal-header .close { background: none; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
-.modal-search { display: flex; gap: 8px; padding: 16px; border-bottom: 1px solid var(--border-default); }
+.modal-search { display: flex; gap: 8px; padding: 0 0 16px; }
 .modal-search input {
   flex: 1;
   background: var(--bg-surface);

@@ -6,6 +6,7 @@ import { textApi } from '../api'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { TextResource } from '../types'
 import PlainListRow from '../components/PlainListRow.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -67,6 +68,14 @@ const openCreate = () => {
   formSummary.value = ''
   formBody.value = ''
   dialogVisible.value = true
+}
+
+// 关闭前拦截：内容已填但未保存时二次确认（防误触丢失）
+const beforeClose = () => {
+  if (!formTitle.value.trim() && !formSummary.value.trim() && !formBody.value.trim()) {
+    return true
+  }
+  return window.confirm('内容未保存，确定放弃吗？')
 }
 
 const save = async () => {
@@ -135,21 +144,23 @@ const formatDate = (s?: string) => {
       </PlainListRow>
     </div>
 
-    <div v-if="dialogVisible" class="modal-mask" @click.self="dialogVisible = false">
-      <div class="modal">
-        <h3 class="modal-title">{{ editingId ? '编辑文本' : '新建文本' }}</h3>
-        <label class="field-label">标题</label>
-        <input class="text-input" v-model="formTitle" placeholder="标题" />
-        <label class="field-label">摘要</label>
-        <input class="text-input" v-model="formSummary" placeholder="一句话摘要（可选）" />
-        <label class="field-label">正文</label>
-        <textarea class="text-area" v-model="formBody" rows="10" placeholder="写点什么..."></textarea>
-        <div class="modal-ops">
-          <button class="cancel-btn" @click="dialogVisible = false">取消</button>
-          <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存' }}</button>
-        </div>
-      </div>
-    </div>
+    <BaseModal
+      v-model:visible="dialogVisible"
+      :title="editingId ? '编辑文本' : '新建文本'"
+      max-width="640px"
+      :before-close="beforeClose"
+    >
+      <label class="field-label">标题</label>
+      <input class="text-input" v-model="formTitle" placeholder="标题" />
+      <label class="field-label">摘要</label>
+      <input class="text-input" v-model="formSummary" placeholder="一句话摘要（可选）" />
+      <label class="field-label">正文</label>
+      <textarea class="text-area" v-model="formBody" rows="10" placeholder="写点什么..."></textarea>
+      <template #footer>
+        <button class="cancel-btn" @click="dialogVisible = false">取消</button>
+        <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存' }}</button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -176,9 +187,6 @@ const formatDate = (s?: string) => {
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .text-summary { color: var(--text-secondary); font-size: 13px; margin: 8px 0 4px; }
 .text-body { color: var(--text-secondary); font-size: 14px; line-height: 1.6; white-space: pre-wrap; margin: 0; }
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-.modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; }
-.modal-title { color: var(--text-primary); margin: 0 0 16px; font-size: 18px; }
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-primary); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }

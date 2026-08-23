@@ -7,6 +7,7 @@ import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 import WatchLaterButton from '../components/WatchLaterButton.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -165,6 +166,12 @@ function openRefLink(r: any) {
   // 文本 / 仅属于帖子的资源没有独立播放页，链接仅作展示
 }
 
+// 关闭前拦截：正文/标题已填但未保存时二次确认
+const beforeClose = () => {
+  if (!formTitle.value.trim() && !formContent.value.trim()) return true
+  return window.confirm('内容未保存，确定放弃吗？')
+}
+
 const openCreate = async () => {
   editingId.value = null
   formTitle.value = ''
@@ -307,68 +314,70 @@ const formatDate = (s?: string) => {
     </div>
 
     <!-- 新建 / 编辑弹窗 -->
-    <div v-if="dialogVisible" class="modal-mask" @click.self="dialogVisible = false">
-      <div class="modal">
-        <h3 class="modal-title">{{ editingId ? '编辑帖子' : '新建帖子' }}</h3>
+    <BaseModal
+      v-model:visible="dialogVisible"
+      :title="editingId ? '编辑帖子' : '新建帖子'"
+      max-width="820px"
+      :before-close="beforeClose"
+    >
+      <label class="field-label">标题</label>
+      <input class="text-input" v-model="formTitle" placeholder="给这条帖子起个标题" />
 
-        <label class="field-label">标题</label>
-        <input class="text-input" v-model="formTitle" placeholder="给这条帖子起个标题" />
-
-        <label class="field-label">正文</label>
-        <div class="content-toolbar">
-          <button type="button" class="insert-res-btn" @click="openResourcePicker">插入资源</button>
-          <span class="content-tip">在正文中随时「插入资源」：以超链接方式嵌入，可选择仅超链接或超链接+内嵌预览。</span>
-        </div>
-        <textarea ref="contentInput" class="text-area" v-model="formContent" rows="6"
-          placeholder="写点什么... 例如：今天看了 [一个很棒的片子](res:12:embed)，强烈推荐！"></textarea>
-
-        <div class="modal-ops">
-          <button class="cancel-btn" @click="dialogVisible = false">取消</button>
-          <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存' }}</button>
-        </div>
+      <label class="field-label">正文</label>
+      <div class="content-toolbar">
+        <button type="button" class="insert-res-btn" @click="openResourcePicker">插入资源</button>
+        <span class="content-tip">在正文中随时「插入资源」：以超链接方式嵌入，可选择仅超链接或超链接+内嵌预览。</span>
       </div>
-    </div>
+      <textarea ref="contentInput" class="text-area" v-model="formContent" rows="6"
+        placeholder="写点什么... 例如：今天看了 [一个很棒的片子](res:12:embed)，强烈推荐！"></textarea>
+
+      <template #footer>
+        <button class="cancel-btn" @click="dialogVisible = false">取消</button>
+        <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存' }}</button>
+      </template>
+    </BaseModal>
 
     <!-- 插入资源弹窗 -->
-    <div v-if="resourcePickerVisible" class="modal-mask" @click.self="resourcePickerVisible = false">
-      <div class="modal picker-modal">
-        <h3 class="modal-title">插入资源</h3>
-        <p class="content-tip">选择一个资源插入到正文光标处，作为超链接；可指定展示方式。</p>
+    <BaseModal
+      v-model:visible="resourcePickerVisible"
+      title="插入资源"
+      max-width="720px"
+    >
+      <p class="content-tip">选择一个资源插入到正文光标处，作为超链接；可指定展示方式。</p>
 
-        <div class="picker">
-          <div class="picker-tabs">
-            <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
-            <button :class="{ active: candidateTab === 'gallery_folder' }" @click="candidateTab = 'gallery_folder'; candidatesLoaded = false; loadCandidates()">图集</button>
-            <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
-            <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
-          </div>
-          <div class="picker-grid">
-            <div
-              v-for="item in candidates"
-              :key="item.id"
-              class="picker-item"
-              :class="{ selected: selectedCandidate && selectedCandidate.id === item.id }"
-              @click="selectedCandidate = item"
-            >
-              <img :src="item.presentation?.thumbnail || ''" class="picker-thumb" />
-              <span class="picker-name">{{ item.presentation?.title || item.location }}</span>
-            </div>
-            <p v-if="candidates.length === 0" class="ref-empty">该模式暂无资源</p>
-          </div>
+      <div class="picker">
+        <div class="picker-tabs">
+          <button :class="{ active: candidateTab === 'video_file' }" @click="candidateTab = 'video_file'; candidatesLoaded = false; loadCandidates()">视频</button>
+          <button :class="{ active: candidateTab === 'gallery_folder' }" @click="candidateTab = 'gallery_folder'; candidatesLoaded = false; loadCandidates()">图集</button>
+          <button :class="{ active: candidateTab === 'text' }" @click="candidateTab = 'text'; candidatesLoaded = false; loadCandidates()">文本</button>
+          <input class="picker-search" v-model="candidateSearch" @keyup.enter="onSearchCandidate" placeholder="搜索" />
         </div>
-
-        <div class="display-mode">
-          <span class="field-label" style="margin:0">展示方式</span>
-          <label class="mode-opt"><input type="radio" value="embed" v-model="pickerDisplayMode" /> 超链接 + 内嵌预览</label>
-          <label class="mode-opt"><input type="radio" value="link" v-model="pickerDisplayMode" /> 仅超链接</label>
-        </div>
-
-        <div class="modal-ops">
-          <button class="cancel-btn" @click="resourcePickerVisible = false">取消</button>
-          <button class="save-btn" :disabled="!selectedCandidate" @click="insertResource">插入</button>
+        <div class="picker-grid">
+          <div
+            v-for="item in candidates"
+            :key="item.id"
+            class="picker-item"
+            :class="{ selected: selectedCandidate && selectedCandidate.id === item.id }"
+            @click="selectedCandidate = item"
+          >
+            <img :src="item.presentation?.thumbnail || ''" class="picker-thumb" />
+            <span class="picker-name">{{ item.presentation?.title || item.location }}</span>
+          </div>
+          <p v-if="candidates.length === 0" class="ref-empty">该模式暂无资源</p>
         </div>
       </div>
-    </div>
+
+      <div class="display-mode">
+        <span class="field-label" style="margin:0">展示方式</span>
+        <label class="mode-opt"><input type="radio" value="embed" v-model="pickerDisplayMode" /> 超链接 + 内嵌预览</label>
+        <label class="mode-opt"><input type="radio" value="link" v-model="pickerDisplayMode" /> 仅超链接</label>
+      </div>
+
+      <template #footer>
+        <button class="cancel-btn" @click="resourcePickerVisible = false">取消</button>
+        <button class="save-btn" :disabled="!selectedCandidate" @click="insertResource">插入</button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -413,10 +422,7 @@ const formatDate = (s?: string) => {
 .ref-note { font-size: 12px; color: var(--text-secondary); background: var(--info-soft); border-radius: 6px; padding: 4px 8px; align-self: flex-start; }
 .no-refs { color: var(--text-tertiary); font-size: 13px; }
 
-/* 弹窗 */
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-.modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 14px; padding: 24px; width: 100%; max-width: 820px; max-height: 90vh; overflow-y: auto; }
-.modal-title { color: var(--text-primary); margin: 0 0 16px; font-size: 18px; }
+/* 弹窗内容 */
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-primary); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }
@@ -442,7 +448,6 @@ const formatDate = (s?: string) => {
 .ref-empty { color: var(--text-tertiary); font-size: 13px; }
 
 /* 插入资源弹窗 */
-.picker-modal { max-width: 720px; }
 .display-mode { display: flex; align-items: center; gap: 18px; margin-top: 16px; flex-wrap: wrap; }
 .mode-opt { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; cursor: pointer; }
 .mode-opt input { accent-color: var(--accent); }

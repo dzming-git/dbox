@@ -5,6 +5,7 @@ import { useUserStore } from '../stores/userStore'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import CollectionPanel from '../components/CollectionPanel.vue'
+import BaseModal from '../components/BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import type { Gallery } from '../types'
 
@@ -783,20 +784,17 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     </div>
 
     <!-- 删除确认对话框 -->
-    <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
-      <div class="dialog">
-        <h3>删除图集</h3>
-        <p>确定将图集「{{ gallery?.title }}」移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
-        <label class="delete-file-option">
-          <input type="checkbox" v-model="deleteFileOption" />
-          永久删除（不可恢复，将同时删除文件）
-        </label>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
-          <button class="btn-danger" @click="handleDelete">删除</button>
-        </div>
-      </div>
-    </div>
+    <BaseModal v-model:visible="showDeleteConfirm" title="删除图集" max-width="440px">
+      <p>确定将图集「{{ gallery?.title }}」移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
+      <label class="delete-file-option">
+        <input type="checkbox" v-model="deleteFileOption" />
+        永久删除（不可恢复，将同时删除文件）
+      </label>
+      <template #footer>
+        <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+        <button class="btn-danger" @click="handleDelete">删除</button>
+      </template>
+    </BaseModal>
   </div>
 
   <!-- 加载中 / 加载失败：必须与上面的 .reader(v-if="gallery") 构成同一条
@@ -935,9 +933,6 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .more-item.active { color: #ffd93d; }
 
 /* 删除确认对话框 */
-.dialog-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.dialog { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px 22px; max-width: 440px; width: 100%; }
-.dialog h3 { margin: 0 0 12px; color: var(--text-primary); font-size: 16px; }
 .dialog p { color: #bbb; font-size: 14px; line-height: 1.6; margin: 0; }
 .delete-file-option { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #aaa; font-size: 13px; cursor: pointer; }
 .delete-file-option input { width: 16px; height: 16px; accent-color: #e53935; }

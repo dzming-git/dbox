@@ -7,6 +7,7 @@ import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { tagApi } from '../api/tag'
 import { libraryApi } from '../api/library'
 import type { Tag } from '../types'
+import BaseModal from '../components/BaseModal.vue'
 
 const userStore = useUserStore()
 const tagStore = useTagStore()
@@ -566,118 +567,110 @@ const confirmMerge = async () => {
   </div>
 
   <!-- 新建 / 编辑标签对话框 -->
-  <div v-if="showDialog" class="dialog-overlay" @click.self="showDialog = false">
-    <div class="dialog">
-      <h3>{{ dialogMode === 'create' ? '新建标签' : '编辑标签' }}</h3>
-      <div class="form-group">
-        <label>标签名称</label>
-        <input v-model="dialogName" type="text" placeholder="如：科幻" maxlength="20" @keydown.enter="submitDialog" />
-      </div>
-      <div class="form-group">
-        <label>分类（可选）</label>
-        <input v-model="dialogCategory" type="text" placeholder="如：类型" maxlength="20" />
-      </div>
-      <div class="form-group">
-        <label>补充项（可选，每行或逗号分隔，如：白 / 长毛 / 橘；视频打此标签时从中勾选）</label>
-        <textarea v-model="dialogQualifiers" rows="2" placeholder="留空则无补充项"></textarea>
-      </div>
-      <div class="form-group">
-        <label>父标签（可选）</label>
-        <select v-model="dialogParentId" class="parent-select">
-          <option :value="null">顶级标签</option>
-          <option
-            v-for="t in allTagsList.filter(t => t.id !== dialogTag?.id)"
-            :key="t.id"
-            :value="t.id"
-          >{{ t.path || t.name }}</option>
-        </select>
-      </div>
-      <div class="form-group" v-if="isAdmin">
-        <label>标签集（资源库，可选）</label>
-        <select v-model="dialogLibraryId" class="parent-select">
-          <option :value="null">全局标签（所有资源库可用）</option>
-          <option
-            v-for="lib in libraries"
-            :key="lib.id"
-            :value="lib.id"
-          >{{ lib.name }}</option>
-        </select>
-        <p class="hint-text">归属到指定资源库后，仅该资源库下的视频可使用此标签；留空则为全局标签。</p>
-      </div>
-      <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
-      <div class="dialog-actions">
-        <button class="btn-secondary" @click="showDialog = false">取消</button>
-        <button class="btn-primary" @click="submitDialog">
-          {{ dialogMode === 'create' ? '创建' : '保存' }}
-        </button>
-      </div>
+  <BaseModal
+    v-model:visible="showDialog"
+    :title="dialogMode === 'create' ? '新建标签' : '编辑标签'"
+    max-width="520px"
+  >
+    <div class="form-group">
+      <label>标签名称</label>
+      <input v-model="dialogName" type="text" placeholder="如：科幻" maxlength="20" @keydown.enter="submitDialog" />
     </div>
-  </div>
+    <div class="form-group">
+      <label>分类（可选）</label>
+      <input v-model="dialogCategory" type="text" placeholder="如：类型" maxlength="20" />
+    </div>
+    <div class="form-group">
+      <label>补充项（可选，每行或逗号分隔，如：白 / 长毛 / 橘；视频打此标签时从中勾选）</label>
+      <textarea v-model="dialogQualifiers" rows="2" placeholder="留空则无补充项"></textarea>
+    </div>
+    <div class="form-group">
+      <label>父标签（可选）</label>
+      <select v-model="dialogParentId" class="parent-select">
+        <option :value="null">顶级标签</option>
+        <option
+          v-for="t in allTagsList.filter(t => t.id !== dialogTag?.id)"
+          :key="t.id"
+          :value="t.id"
+        >{{ t.path || t.name }}</option>
+      </select>
+    </div>
+    <div class="form-group" v-if="isAdmin">
+      <label>标签集（资源库，可选）</label>
+      <select v-model="dialogLibraryId" class="parent-select">
+        <option :value="null">全局标签（所有资源库可用）</option>
+        <option
+          v-for="lib in libraries"
+          :key="lib.id"
+          :value="lib.id"
+        >{{ lib.name }}</option>
+      </select>
+      <p class="hint-text">归属到指定资源库后，仅该资源库下的视频可使用此标签；留空则为全局标签。</p>
+    </div>
+    <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
+    <template #footer>
+      <button class="btn-secondary" @click="showDialog = false">取消</button>
+      <button class="btn-primary" @click="submitDialog">
+        {{ dialogMode === 'create' ? '创建' : '保存' }}
+      </button>
+    </template>
+  </BaseModal>
 
   <!-- 删除确认 -->
-  <div v-if="pendingDelete" class="dialog-overlay" @click.self="cancelDelete">
-    <div class="dialog">
-      <h3>删除标签</h3>
-      <p class="warning-text">
-        确定要删除标签「{{ pendingDelete.name }}」吗？<br/>
-        该标签及其下所有视频的关联将被移除（子标签会提升为顶级）。
-      </p>
-      <div class="dialog-actions">
-        <button class="btn-secondary" @click="cancelDelete">取消</button>
-        <button class="btn-danger" @click="doDeleteTag">删除</button>
-      </div>
-    </div>
-  </div>
+  <BaseModal :visible="!!pendingDelete" title="删除标签" max-width="440px" @close="pendingDelete = null">
+    <p class="warning-text">
+      确定要删除标签「{{ pendingDelete?.name }}」吗？<br/>
+      该标签及其下所有视频的关联将被移除（子标签会提升为顶级）。
+    </p>
+    <template #footer>
+      <button class="btn-secondary" @click="cancelDelete">取消</button>
+      <button class="btn-danger" @click="doDeleteTag">删除</button>
+    </template>
+  </BaseModal>
 
   <!-- 批量移动父级对话框 -->
-  <div v-if="showBatchMoveDialog" class="dialog-overlay" @click.self="showBatchMoveDialog = false">
-    <div class="dialog">
-      <h3>批量移动父级</h3>
-      <p class="warning-text">将选中的 {{ selectedCount }} 个标签移动到以下父级：</p>
-      <div class="form-group">
-        <label>目标父标签</label>
-        <select v-model="batchMoveParentId" class="parent-select">
-          <option :value="null">顶级标签</option>
-          <option
-            v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
-            :key="t.id"
-            :value="t.id"
-          >{{ t.path || t.name }}</option>
-        </select>
-      </div>
-      <p v-if="batchMoveError" class="error-text">{{ batchMoveError }}</p>
-      <div class="dialog-actions">
-        <button class="btn-secondary" @click="showBatchMoveDialog = false">取消</button>
-        <button class="btn-primary" @click="confirmBatchMove">确定移动</button>
-      </div>
+  <BaseModal v-model:visible="showBatchMoveDialog" title="批量移动父级" max-width="440px">
+    <p class="warning-text">将选中的 {{ selectedCount }} 个标签移动到以下父级：</p>
+    <div class="form-group">
+      <label>目标父标签</label>
+      <select v-model="batchMoveParentId" class="parent-select">
+        <option :value="null">顶级标签</option>
+        <option
+          v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
+          :key="t.id"
+          :value="t.id"
+        >{{ t.path || t.name }}</option>
+      </select>
     </div>
-  </div>
+    <p v-if="batchMoveError" class="error-text">{{ batchMoveError }}</p>
+    <template #footer>
+      <button class="btn-secondary" @click="showBatchMoveDialog = false">取消</button>
+      <button class="btn-primary" @click="confirmBatchMove">确定移动</button>
+    </template>
+  </BaseModal>
 
   <!-- 合并对话框 -->
-  <div v-if="showMergeDialog" class="dialog-overlay" @click.self="showMergeDialog = false">
-    <div class="dialog">
-      <h3>合并标签</h3>
-      <p class="warning-text">
-        将选中的 {{ selectedCount }} 个标签合并到目标标签，源标签的视频关联将转移并删除源标签。
-      </p>
-      <div class="form-group">
-        <label>目标标签</label>
-        <select v-model="mergeTargetId" class="parent-select">
-          <option :value="null">请选择目标标签</option>
-          <option
-            v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
-            :key="t.id"
-            :value="t.id"
-          >{{ t.path || t.name }}</option>
-        </select>
-      </div>
-      <p v-if="mergeError" class="error-text">{{ mergeError }}</p>
-      <div class="dialog-actions">
-        <button class="btn-secondary" @click="showMergeDialog = false">取消</button>
-        <button class="btn-primary" @click="confirmMerge">确定合并</button>
-      </div>
+  <BaseModal v-model:visible="showMergeDialog" title="合并标签" max-width="440px">
+    <p class="warning-text">
+      将选中的 {{ selectedCount }} 个标签合并到目标标签，源标签的视频关联将转移并删除源标签。
+    </p>
+    <div class="form-group">
+      <label>目标标签</label>
+      <select v-model="mergeTargetId" class="parent-select">
+        <option :value="null">请选择目标标签</option>
+        <option
+          v-for="t in allTagsList.filter(t => !selectedIds.includes(t.id))"
+          :key="t.id"
+          :value="t.id"
+        >{{ t.path || t.name }}</option>
+      </select>
     </div>
-  </div>
+    <p v-if="mergeError" class="error-text">{{ mergeError }}</p>
+    <template #footer>
+      <button class="btn-secondary" @click="showMergeDialog = false">取消</button>
+      <button class="btn-primary" @click="confirmMerge">确定合并</button>
+    </template>
+  </BaseModal>
 
   <!-- Toast -->
   <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
@@ -976,35 +969,7 @@ const confirmMerge = async () => {
   color: var(--text-tertiary);
 }
 
-/* 对话框样式 */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.dialog {
-  background: var(--bg-surface);
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 400px;
-}
-
-.dialog h3 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 20px 0;
-}
-
+/* 对话框内容 */
 .form-group {
   margin-bottom: 16px;
 }

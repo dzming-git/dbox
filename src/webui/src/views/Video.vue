@@ -8,6 +8,7 @@ import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
+import BaseModal from '../components/BaseModal.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
 import { withThumbToken } from '../utils/media'
 
@@ -2982,13 +2983,7 @@ const handleDelete = async () => {
       </div>
 
       <!-- 标签编辑器对话框 -->
-      <div v-if="showTagEditor" class="dialog-overlay" @click.self="closeTagEditor">
-        <div class="dialog tag-editor-dialog">
-          <div class="dialog-header">
-            <h3>管理标签</h3>
-            <button class="close-btn" @click="closeTagEditor">&times;</button>
-          </div>
-
+      <BaseModal v-model:visible="showTagEditor" title="管理标签" max-width="720px">
           <div class="tag-editor-body">
             <!-- 左侧：已有标签树 -->
             <div class="tag-tree-panel">
@@ -3178,8 +3173,7 @@ const handleDelete = async () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
+      </BaseModal>
     </div>
 
     <!-- 推荐视频区域（桌面端位于视频右侧，移动端自动移至下方） -->
@@ -3216,71 +3210,65 @@ const handleDelete = async () => {
     </div>
 
       <!-- 删除确认对话框 -->
-      <div v-if="showDeleteConfirm" class="dialog-overlay" data-testid="delete-confirm-dialog">
-        <div class="dialog">
-          <h3>确认删除</h3>
-          <p>确定要将视频 "{{ video.title }}" 移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
-          <div class="dialog-checkbox">
-            <label>
-              <input type="checkbox" v-model="deleteFileOption" />
-              永久删除（不可恢复，将同时删除文件）
-            </label>
-          </div>
-          <div class="dialog-actions">
-            <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
-            <button class="btn-danger" @click="handleDelete" data-testid="confirm-delete-button">删除</button>
-          </div>
+      <BaseModal v-model:visible="showDeleteConfirm" title="确认删除" max-width="440px" data-testid="delete-confirm-dialog">
+        <p>确定要将视频 "{{ video.title }}" 移入回收站吗？管理员可在回收站中恢复或彻底删除。</p>
+        <div class="dialog-checkbox">
+          <label>
+            <input type="checkbox" v-model="deleteFileOption" />
+            永久删除（不可恢复，将同时删除文件）
+          </label>
         </div>
-      </div>
+        <template #footer>
+          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+          <button class="btn-danger" @click="handleDelete" data-testid="confirm-delete-button">删除</button>
+        </template>
+      </BaseModal>
 
       <!-- 共享观看对话框 -->
-      <div v-if="showShareDialog" class="dialog-overlay" data-testid="share-watch-dialog">
-        <div class="dialog share-dialog">
-          <h3>共享观看</h3>
-          <div class="share-info">
-            <p class="share-label">分享链接：</p>
-            <div class="share-url-box">
-              <input 
-                type="text" 
-                :value="shareUrl" 
-                readonly 
-                class="share-url-input"
-                data-testid="share-url-input"
-              />
-              <button 
-                class="btn-copy" 
-                @click="copyShareUrl"
-                data-testid="copy-share-url-button"
-              >
-                复制
-              </button>
-            </div>
-            <p class="share-hint">将此链接分享给好友，即可一起观看视频，播放进度将自动同步</p>
-            <div v-if="sharedSession" class="share-status">
-              <p class="status-item">
-                <span class="status-label">状态：</span>
-                <span :class="['status-value', sharedSession.status]">
-                  {{ sharedSession.status === 'pending' ? '等待加入' : '观看中' }}
-                </span>
-              </p>
-              <p class="status-item" v-if="sharedSession.invitee_id">
-                <span class="status-label">已加入用户</span>
-              </p>
-            </div>
-          </div>
-          <div class="dialog-actions">
-            <button 
-              v-if="isCreator" 
-              class="btn-danger" 
-              @click="endSharedWatchSession(); showShareDialog = false"
-              data-testid="end-share-button"
+      <BaseModal v-model:visible="showShareDialog" title="共享观看" max-width="480px" data-testid="share-watch-dialog">
+        <div class="share-info">
+          <p class="share-label">分享链接：</p>
+          <div class="share-url-box">
+            <input
+              type="text"
+              :value="shareUrl"
+              readonly
+              class="share-url-input"
+              data-testid="share-url-input"
+            />
+            <button
+              class="btn-copy"
+              @click="copyShareUrl"
+              data-testid="copy-share-url-button"
             >
-              结束共享
+              复制
             </button>
-            <button class="btn-secondary" @click="showShareDialog = false">关闭</button>
+          </div>
+          <p class="share-hint">将此链接分享给好友，即可一起观看视频，播放进度将自动同步</p>
+          <div v-if="sharedSession" class="share-status">
+            <p class="status-item">
+              <span class="status-label">状态：</span>
+              <span :class="['status-value', sharedSession.status]">
+                {{ sharedSession.status === 'pending' ? '等待加入' : '观看中' }}
+              </span>
+            </p>
+            <p class="status-item" v-if="sharedSession.invitee_id">
+              <span class="status-label">已加入用户</span>
+            </p>
           </div>
         </div>
-      </div>
+        <template #footer>
+          <button
+            v-if="isCreator"
+            class="btn-danger"
+            @click="endSharedWatchSession(); showShareDialog = false"
+            data-testid="end-share-button"
+          >
+            结束共享
+          </button>
+          <button class="btn-secondary" @click="showShareDialog = false">关闭</button>
+        </template>
+      </BaseModal>
     </div>
 
     <!-- 视频不存在 -->
@@ -5418,40 +5406,7 @@ const handleDelete = async () => {
   background: #f44336;
 }
 
-/* 对话框 */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-
-.dialog {
-  background: var(--bg-surface);
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 400px;
-}
-
-.dialog h3 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 16px 0;
-}
-
-.dialog p {
-  color: var(--text-secondary);
-  margin: 0 0 12px 0;
-}
-
+/* 对话框内容 */
 .warning-text {
   color: #ff9800;
   font-size: 13px;

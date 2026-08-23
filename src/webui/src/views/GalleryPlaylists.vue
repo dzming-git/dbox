@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { galleryApi } from '../api'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import GalleryCard from '../components/GalleryCard.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const router = useRouter()
 const playlists = ref<any[]>([])
@@ -114,18 +115,15 @@ onDeactivated(() => ptr.clearHandler())
       </div>
     </div>
 
-    <div v-if="showCreate" class="dialog-overlay" @click.self="showCreate = false">
-      <div class="dialog">
-        <h3>新建合集</h3>
-        <input v-model="newName" class="fld" placeholder="合集名称" />
-        <textarea v-model="newDesc" class="fld" placeholder="简介（选填）" rows="3"></textarea>
-        <label class="pub"><input type="checkbox" v-model="newPublic" /> 公开合集</label>
-        <div class="dialog-actions">
-          <button @click="showCreate = false">取消</button>
-          <button class="primary" @click="create">创建</button>
-        </div>
-      </div>
-    </div>
+    <BaseModal v-model:visible="showCreate" title="新建合集" max-width="420px">
+      <input v-model="newName" class="fld" placeholder="合集名称" />
+      <textarea v-model="newDesc" class="fld" placeholder="简介（选填）" rows="3"></textarea>
+      <label class="pub"><input type="checkbox" v-model="newPublic" /> 公开合集</label>
+      <template #footer>
+        <button @click="showCreate = false">取消</button>
+        <button class="primary" @click="create">创建</button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -151,9 +149,6 @@ onDeactivated(() => ptr.clearHandler())
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
 .detail-item { position: relative; }
 .remove-btn { position: absolute; top: 6px; right: 6px; z-index: 5; padding: 4px 8px; background: rgba(0,0,0,0.6); border: none; border-radius: 4px; color: var(--text-on-accent); font-size: 12px; cursor: pointer; }
-.dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.dialog { background: var(--bg-surface-hover); border-radius: 16px; padding: 24px; width: 420px; max-width: 90vw; }
-.dialog h3 { color: var(--text-primary); margin: 0 0 16px; }
 .fld { width: 100%; box-sizing: border-box; padding: 10px 12px; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-primary); font-size: 14px; margin-bottom: 12px; font-family: inherit; }
 .fld:focus { outline: none; border-color: var(--accent); }
 .pub { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 14px; margin-bottom: 16px; }

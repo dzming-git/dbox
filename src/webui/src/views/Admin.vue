@@ -21,6 +21,7 @@ import AdminMonitor from '../admin/AdminMonitor.vue'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
 import Pagination from '../components/Pagination.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -1108,24 +1109,6 @@ const openFolderBrowserForAdd = async () => {
   newFolderName.value = ''
   await loadFolderList('', false)
 }
-
-// 弹窗打开时锁定背景滚动，避免滑动弹窗时触发背后界面滚动
-let _bodyLockObserver: MutationObserver | null = null
-onMounted(() => {
-  _bodyLockObserver = new MutationObserver(() => {
-    const hasOverlay = !!document.querySelector('.modal-overlay, .dialog-overlay')
-    document.body.style.overflow = hasOverlay ? 'hidden' : ''
-  })
-  _bodyLockObserver.observe(document.body, { childList: true, subtree: true })
-})
-onUnmounted(() => {
-  if (_bodyLockObserver) {
-    _bodyLockObserver.disconnect()
-    _bodyLockObserver = null
-  }
-  document.body.style.overflow = ''
-})
-
 // 选择文件夹后：作为“其他文件夹”扫描并导入到当前资源库
 const selectCurrentFolder = () => {
   const p = browserPath.value
@@ -2942,137 +2925,136 @@ onUnmounted(() => {
       </div>
 
       <!-- ============ 资源库导入弹窗（替代原向下展开 + 独立批量导入Tab） ============ -->
-      <Teleport to="body">
-        <div v-if="expandedLibraryId" class="modal-overlay" @click="leaveLibraryDetail()">
-          <div class="modal-content import-modal" @click.stop>
-          <div class="modal-header import-modal-header">
-            <div class="import-modal-title">
-              <h3>{{ currentLibrary?.name || '资源库' }} · 导入视频</h3>
-              <p class="modal-subtitle" v-if="currentLibrary?.description">{{ currentLibrary.description }}</p>
-            </div>
-            <button class="close-btn" @click="leaveLibraryDetail()">×</button>
+      <BaseModal
+        class="import-modal"
+        :visible="!!expandedLibraryId"
+        :title="(currentLibrary?.name || '资源库') + ' · 导入视频'"
+        :subtitle="currentLibrary?.description"
+        max-width="820px"
+        :close-on-mask="true"
+        @close="leaveLibraryDetail()"
+      >
+        <div class="import-modal-body">
+          <!-- 扫描控制：固定顶部，与文件列表分离 -->
+          <div class="import-toolbar">
+            <button
+              class="action-btn primary"
+              @click="scanDetailFolder()"
+              :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
+              :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请使用“选择其他文件夹”' : '扫描该库关联文件夹中的视频'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {{ libraryDetailScanning ? '扫描中...' : '扫描关联文件夹' }}
+            </button>
+            <button
+              class="action-btn"
+              @click="openLibraryImportFolderBrowser()"
+              :disabled="libraryDetailScanning || libraryDetailImporting"
+            >
+              📂 选择其他文件夹…
+            </button>
+            <span v-if="libraryDetailScanInfo" class="scan-progress-inline">正在扫描：{{ libraryDetailScanInfo.folder }}（{{ libraryDetailScanInfo.index }}/{{ libraryDetailScanInfo.total }}，已发现 {{ libraryDetailScanInfo.found }}）</span>
+            <span v-else-if="libraryDetailScanning" class="scan-progress-inline">正在准备扫描…</span>
           </div>
 
-          <div class="modal-body import-modal-body">
-            <!-- 扫描控制：固定顶部，与文件列表分离 -->
-            <div class="import-toolbar">
+          <!-- 扫描汇总 -->
+          <div v-if="libraryDetailScanSummary" class="scan-summary-banner">
+            <span class="scan-summary-text">
+              扫描完成：共 <b>{{ libraryDetailScanSummary.total }}</b> 个视频，
+              <b class="new-count">{{ libraryDetailScanSummary.newCount }}</b> 个新视频，
+              {{ libraryDetailScanSummary.existCount }} 个已存在
+            </span>
+          </div>
+
+          <!-- 扫描失败提示 -->
+          <div v-if="libraryDetailScanErrors.length > 0" class="scan-error-banner">
+            <div class="scan-error-title">⚠️ {{ libraryDetailScanErrors.length }} 个文件夹扫描失败：</div>
+            <ul class="scan-error-list">
+              <li v-for="(err, idx) in libraryDetailScanErrors" :key="idx">
+                <b>{{ err.folder }}</b>：{{ err.message }}
+              </li>
+            </ul>
+          </div>
+
+          <!-- 关联文件夹标签页 -->
+          <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
+            <h4>关联文件夹</h4>
+            <div class="folder-tabs">
               <button
-                class="action-btn primary"
-                @click="scanDetailFolder()"
-                :disabled="libraryDetailScanning || libraryDetailImporting || libraryDetailFolders.length === 0"
-                :title="libraryDetailFolders.length === 0 ? '该库没有关联文件夹，请使用“选择其他文件夹”' : '扫描该库关联文件夹中的视频'"
+                :class="['folder-tab', { active: libraryDetailFolderKey === '__all__' }]"
+                @click="libraryDetailFolderKey = '__all__'"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                {{ libraryDetailScanning ? '扫描中...' : '扫描关联文件夹' }}
+                所有
+                <span class="tab-count" v-if="libraryDetailFileCache['__all__']">
+                  {{ libraryDetailFileCache['__all__'].length }}
+                </span>
               </button>
               <button
-                class="action-btn"
-                @click="openLibraryImportFolderBrowser()"
-                :disabled="libraryDetailScanning || libraryDetailImporting"
+                v-for="folder in libraryDetailFolders"
+                :key="getFolderKey(folder)"
+                :class="['folder-tab', { active: libraryDetailFolderKey === getFolderKey(folder) }]"
+                @click="libraryDetailFolderKey = getFolderKey(folder)"
               >
-                📂 选择其他文件夹…
+                {{ getFolderLabel(folder) }}
+                <span class="tab-count" v-if="libraryDetailFileCache[getFolderKey(folder)]">
+                  {{ libraryDetailFileCache[getFolderKey(folder)].length }}
+                </span>
               </button>
-              <span v-if="libraryDetailScanInfo" class="scan-progress-inline">正在扫描：{{ libraryDetailScanInfo.folder }}（{{ libraryDetailScanInfo.index }}/{{ libraryDetailScanInfo.total }}，已发现 {{ libraryDetailScanInfo.found }}）</span>
-              <span v-else-if="libraryDetailScanning" class="scan-progress-inline">正在准备扫描…</span>
             </div>
+          </div>
 
-            <!-- 扫描汇总 -->
-            <div v-if="libraryDetailScanSummary" class="scan-summary-banner">
-              <span class="scan-summary-text">
-                扫描完成：共 <b>{{ libraryDetailScanSummary.total }}</b> 个视频，
-                <b class="new-count">{{ libraryDetailScanSummary.newCount }}</b> 个新视频，
-                {{ libraryDetailScanSummary.existCount }} 个已存在
-              </span>
-            </div>
+          <!-- 扫描中 -->
+          <div v-if="(libraryDetailScanning || libraryDetailImporting) && !libraryDetailCurrentFiles.length" class="loading-state">
+            <div class="loading-spinner"></div>
+            <span v-if="libraryDetailImporting" class="scan-progress">正在导入视频...</span>
+            <span v-else-if="libraryDetailScanInfo" class="scan-progress">正在扫描：{{ libraryDetailScanInfo.folder }}</span>
+            <span v-else class="scan-progress">正在准备扫描...</span>
+          </div>
 
-            <!-- 扫描失败提示 -->
-            <div v-if="libraryDetailScanErrors.length > 0" class="scan-error-banner">
-              <div class="scan-error-title">⚠️ {{ libraryDetailScanErrors.length }} 个文件夹扫描失败：</div>
-              <ul class="scan-error-list">
-                <li v-for="(err, idx) in libraryDetailScanErrors" :key="idx">
-                  <b>{{ err.folder }}</b>：{{ err.message }}
-                </li>
-              </ul>
-            </div>
-
-            <!-- 关联文件夹标签页 -->
-            <div class="detail-folders-section" v-if="libraryDetailFolders.length > 0">
-              <h4>关联文件夹</h4>
-              <div class="folder-tabs">
-                <button
-                  :class="['folder-tab', { active: libraryDetailFolderKey === '__all__' }]"
-                  @click="libraryDetailFolderKey = '__all__'"
-                >
-                  所有
-                  <span class="tab-count" v-if="libraryDetailFileCache['__all__']">
-                    {{ libraryDetailFileCache['__all__'].length }}
-                  </span>
-                </button>
-                <button
-                  v-for="folder in libraryDetailFolders"
-                  :key="getFolderKey(folder)"
-                  :class="['folder-tab', { active: libraryDetailFolderKey === getFolderKey(folder) }]"
-                  @click="libraryDetailFolderKey = getFolderKey(folder)"
-                >
-                  {{ getFolderLabel(folder) }}
-                  <span class="tab-count" v-if="libraryDetailFileCache[getFolderKey(folder)]">
-                    {{ libraryDetailFileCache[getFolderKey(folder)].length }}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 扫描中 -->
-            <div v-if="(libraryDetailScanning || libraryDetailImporting) && !libraryDetailCurrentFiles.length" class="loading-state">
-              <div class="loading-spinner"></div>
-              <span v-if="libraryDetailImporting" class="scan-progress">正在导入视频...</span>
-              <span v-else-if="libraryDetailScanInfo" class="scan-progress">正在扫描：{{ libraryDetailScanInfo.folder }}</span>
-              <span v-else class="scan-progress">正在准备扫描...</span>
-            </div>
-
-            <!-- 文件列表（可滚动） -->
-            <div v-if="libraryDetailCurrentFiles.length > 0" class="scan-results import-results">
-              <div class="video-list import-video-list">
-                <div
-                  v-for="video in libraryDetailCurrentFiles"
-                  :key="video.path"
-                  :class="['video-item', { selected: libraryDetailSelectedFiles.includes(video.path), existing: video.exists }]"
-                  @click="!video.exists && detailToggleFile(video.path)"
-                >
-                  <div class="video-checkbox">
-                    <input
-                      v-if="!video.exists"
-                      type="checkbox"
-                      :checked="libraryDetailSelectedFiles.includes(video.path)"
-                      @click.stop
-                      @change="detailToggleFile(video.path)"
-                    />
-                    <span v-else class="exists-badge">已存在</span>
-                  </div>
-                  <div class="video-info">
-                    <div class="video-title">{{ video.title }}</div>
-                    <div class="video-meta">
-                      <span>📁 {{ video.path }}</span>
-                      <span>💾 {{ video.size_mb }} MB</span>
-                    </div>
+          <!-- 文件列表（可滚动） -->
+          <div v-if="libraryDetailCurrentFiles.length > 0" class="scan-results import-results">
+            <div class="video-list import-video-list">
+              <div
+                v-for="video in libraryDetailCurrentFiles"
+                :key="video.path"
+                :class="['video-item', { selected: libraryDetailSelectedFiles.includes(video.path), existing: video.exists }]"
+                @click="!video.exists && detailToggleFile(video.path)"
+              >
+                <div class="video-checkbox">
+                  <input
+                    v-if="!video.exists"
+                    type="checkbox"
+                    :checked="libraryDetailSelectedFiles.includes(video.path)"
+                    @click.stop
+                    @change="detailToggleFile(video.path)"
+                  />
+                  <span v-else class="exists-badge">已存在</span>
+                </div>
+                <div class="video-info">
+                  <div class="video-title">{{ video.title }}</div>
+                  <div class="video-meta">
+                    <span>📁 {{ video.path }}</span>
+                    <span>💾 {{ video.size_mb }} MB</span>
                   </div>
                 </div>
               </div>
-              <div v-if="libraryDetailImporting" class="import-progress-inline">
-                正在导入…（已导入 {{ libraryDetailImportProgress.imported }}，跳过 {{ libraryDetailImportProgress.skipped }}）
-              </div>
             </div>
-
-            <!-- 未扫描引导 -->
-            <div v-else-if="!libraryDetailScanning && !libraryDetailImporting && libraryDetailFolders.length > 0 && !libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
-              <div class="empty-icon">📂</div>
-              <div class="empty-text">点击上方“扫描”按钮开始扫描</div>
-              <div class="empty-hint">将扫描 {{ libraryDetailFolderKey === '__all__' ? '所有关联文件夹' : '当前文件夹' }} 中的视频文件</div>
+            <div v-if="libraryDetailImporting" class="import-progress-inline">
+              正在导入…（已导入 {{ libraryDetailImportProgress.imported }}，跳过 {{ libraryDetailImportProgress.skipped }}）
             </div>
           </div>
 
+          <!-- 未扫描引导 -->
+          <div v-else-if="!libraryDetailScanning && !libraryDetailImporting && libraryDetailFolders.length > 0 && !libraryDetailFileCache[libraryDetailFolderKey]" class="empty-state">
+            <div class="empty-icon">📂</div>
+            <div class="empty-text">点击上方“扫描”按钮开始扫描</div>
+            <div class="empty-hint">将扫描 {{ libraryDetailFolderKey === '__all__' ? '所有关联文件夹' : '当前文件夹' }} 中的视频文件</div>
+          </div>
+        </div>
+
+        <template #footer>
           <!-- 底部固定操作条：全选 + 已选数 + 导入 同处一行 -->
-          <div class="modal-footer import-action-bar" v-if="libraryDetailCurrentFiles.length > 0">
+          <div class="import-action-bar" v-if="libraryDetailCurrentFiles.length > 0">
             <label class="checkbox-label select-all">
               <input
                 type="checkbox"
@@ -3092,9 +3074,8 @@ onUnmounted(() => {
               {{ libraryDetailImporting ? '导入中...' : `导入 ${libraryDetailSelectedFiles.length} 个视频` }}
             </button>
           </div>
-        </div>
-      </div>
-      </Teleport>
+        </template>
+      </BaseModal>
 
       <AdminLogs v-if="activeTab === 'logs'" />
 
@@ -3102,489 +3083,444 @@ onUnmounted(() => {
     </div>
 
     <!-- 视频编辑弹窗 -->
-    <Teleport to="body">
-      <div v-if="showVideoEditModal" class="modal-overlay" @click="showVideoEditModal = false">
-        <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>编辑视频</h3>
-          <button class="close-btn" @click="showVideoEditModal = false">×</button>
+    <BaseModal v-model:visible="showVideoEditModal" title="编辑视频" max-width="520px">
+      <div class="modal-body">
+        <div class="form-group">
+          <label>标题</label>
+          <input v-model="editingVideo.title" type="text" />
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>标题</label>
-            <input v-model="editingVideo.title" type="text" />
-          </div>
-          <div class="form-group">
-            <label>描述</label>
-            <textarea v-model="editingVideo.description" rows="4"></textarea>
-          </div>
-          <div class="form-group">
-            <label>标签（用 "/" 分隔层级）</label>
-            <input 
-              v-model="editingVideoTags" 
-              type="text"
-              placeholder="例如: 动物 / 狗 / 哈士奇"
-            />
-            <small class="form-hint">用 "/" 分隔表示层级，如 "/动物/狗" 是 "/动物" 的子标签</small>
-          </div>
+        <div class="form-group">
+          <label>描述</label>
+          <textarea v-model="editingVideo.description" rows="4"></textarea>
         </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showVideoEditModal = false">取消</button>
-          <button class="action-btn primary" @click="saveVideoEdit">保存</button>
+        <div class="form-group">
+          <label>标签（用 "/" 分隔层级）</label>
+          <input
+            v-model="editingVideoTags"
+            type="text"
+            placeholder="例如: 动物 / 狗 / 哈士奇"
+          />
+          <small class="form-hint">用 "/" 分隔表示层级，如 "/动物/狗" 是 "/动物" 的子标签</small>
         </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showVideoEditModal = false">取消</button>
+        <button class="action-btn primary" @click="saveVideoEdit">保存</button>
+      </template>
+    </BaseModal>
 
     <!-- 资源编辑弹窗（统一：视频/图集/帖子/文本） -->
-    <Teleport to="body">
-      <div v-if="showResourceEditModal" class="modal-overlay" @click="showResourceEditModal = false">
-        <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>编辑{{ editingResource ? resourceTypeLabel(editingResource.type) : '' }}（管理员）</h3>
-          <button class="close-btn" @click="showResourceEditModal = false">×</button>
+    <BaseModal v-model:visible="showResourceEditModal" :title="'编辑' + (editingResource ? resourceTypeLabel(editingResource.type) : '') + '（管理员）'" max-width="520px">
+      <div class="modal-body" v-if="editingResource">
+        <div class="form-group">
+          <label>标题</label>
+          <input v-model="editingResource.title" class="form-input" />
         </div>
-        <div class="modal-body" v-if="editingResource">
-          <div class="form-group">
-            <label>标题</label>
-            <input v-model="editingResource.title" class="form-input" />
-          </div>
-          <div class="form-group" v-if="editingResource.type === 'post'">
-            <label>正文</label>
-            <textarea v-model="editingResource.content" class="form-input" rows="8"></textarea>
-          </div>
-          <div class="form-group" v-if="editingResource.type === 'text'">
-            <label>简介</label>
-            <input v-model="editingResource.summary" class="form-input" />
-            <label>正文</label>
-            <textarea v-model="editingResource.body" class="form-input" rows="8"></textarea>
-          </div>
-          <div class="form-group" v-if="editingResource.type === 'video' || editingResource.type === 'gallery'">
-            <p class="muted">该资源类型仅支持修改标题（其余字段由存储与元数据决定）。</p>
-          </div>
+        <div class="form-group" v-if="editingResource.type === 'post'">
+          <label>正文</label>
+          <textarea v-model="editingResource.content" class="form-input" rows="8"></textarea>
         </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showResourceEditModal = false">取消</button>
-          <button class="action-btn primary" @click="saveResourceEdit">保存</button>
+        <div class="form-group" v-if="editingResource.type === 'text'">
+          <label>简介</label>
+          <input v-model="editingResource.summary" class="form-input" />
+          <label>正文</label>
+          <textarea v-model="editingResource.body" class="form-input" rows="8"></textarea>
+        </div>
+        <div class="form-group" v-if="editingResource.type === 'video' || editingResource.type === 'gallery'">
+          <p class="muted">该资源类型仅支持修改标题（其余字段由存储与元数据决定）。</p>
         </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showResourceEditModal = false">取消</button>
+        <button class="action-btn primary" @click="saveResourceEdit">保存</button>
+      </template>
+    </BaseModal>
 
     <!-- 资源库资源查看弹窗 -->
-    <Teleport to="body">
-      <div v-if="resourceViewer.open" class="modal-overlay" @click="closeResourceViewer()">
-      <div class="modal-content modal-large" @click.stop>
-        <div class="modal-header">
-          <h3>{{ resourceViewer.libName }} · 资源列表</h3>
-          <button class="close-btn" @click="closeResourceViewer()">×</button>
+    <BaseModal
+      class="modal-large"
+      :visible="!!resourceViewer.open"
+      :title="(resourceViewer.libName || '') + ' · 资源列表'"
+      max-width="760px"
+      @close="closeResourceViewer()"
+    >
+      <div class="modal-body">
+        <div class="resource-viewer-tabs">
+          <button
+            v-for="t in resourceViewer.types"
+            :key="t.key"
+            :class="['rv-tab', { active: resourceViewer.activeType === t.key }]"
+            @click="resourceViewer.activeType = t.key; loadLibraryResources()"
+          >
+            {{ t.label }} ({{ t.count }})
+          </button>
         </div>
-        <div class="modal-body">
-          <div class="resource-viewer-tabs">
-            <button
-              v-for="t in resourceViewer.types"
-              :key="t.key"
-              :class="['rv-tab', { active: resourceViewer.activeType === t.key }]"
-              @click="resourceViewer.activeType = t.key; loadLibraryResources()"
-            >
-              {{ t.label }} ({{ t.count }})
-            </button>
-          </div>
-          <div v-if="resourceViewer.loading" class="empty-tip">加载中…</div>
-          <div v-else-if="resourceViewer.items.length === 0" class="empty-tip">该分类下暂无资源</div>
-          <ul v-else class="resource-viewer-list">
-            <li v-for="item in resourceViewer.items" :key="item.type + '-' + item.id" class="rv-item">
-              <span class="rv-type" :class="'rv-type-' + item.type">{{ typeLabel(item.type) }}</span>
-              <span class="rv-title" :title="item.title">{{ item.title || '未命名' }}</span>
-              <button class="action-btn small" @click="editResourceFromViewer(item)">编辑</button>
-            </li>
-          </ul>
-        </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="closeResourceViewer()">关闭</button>
-        </div>
+        <div v-if="resourceViewer.loading" class="empty-tip">加载中…</div>
+        <div v-else-if="resourceViewer.items.length === 0" class="empty-tip">该分类下暂无资源</div>
+        <ul v-else class="resource-viewer-list">
+          <li v-for="item in resourceViewer.items" :key="item.type + '-' + item.id" class="rv-item">
+            <span class="rv-type" :class="'rv-type-' + item.type">{{ typeLabel(item.type) }}</span>
+            <span class="rv-title" :title="item.title">{{ item.title || '未命名' }}</span>
+            <button class="action-btn small" @click="editResourceFromViewer(item)">编辑</button>
+          </li>
+        </ul>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="closeResourceViewer()">关闭</button>
+      </template>
+    </BaseModal>
 
     <!-- 资源库编辑弹窗 -->
-    <Teleport to="body">
-      <div v-if="showLibraryModal" class="modal-overlay" @click="showLibraryModal = false">
-      <div class="modal-content library-modal" @click.stop>
-        <div class="modal-header">
-          <h3>{{ editingLibrary ? '✏️ 编辑资源库' : '📁 新建资源库' }}</h3>
-          <button class="close-btn" @click="showLibraryModal = false">×</button>
+    <BaseModal
+      class="library-modal"
+      v-model:visible="showLibraryModal"
+      :title="editingLibrary ? '✏️ 编辑资源库' : '📁 新建资源库'"
+      max-width="520px"
+    >
+      <div class="modal-body">
+        <div class="form-group">
+          <label>资源库名称 <span class="required">*</span></label>
+          <input
+            v-if="editingLibrary"
+            v-model="editingLibrary.name"
+            type="text"
+            placeholder="请输入资源库名称"
+          />
+          <input
+            v-else
+            v-model="libraryForm.name"
+            type="text"
+            placeholder="例如：经典电影库、4K高清专区"
+            autofocus
+          />
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>资源库名称 <span class="required">*</span></label>
-            <input 
-              v-if="editingLibrary" 
-              v-model="editingLibrary.name" 
-              type="text" 
-              placeholder="请输入资源库名称"
-            />
-            <input 
-              v-else 
-              v-model="libraryForm.name" 
-              type="text" 
-              placeholder="例如：经典电影库、4K高清专区"
-              autofocus
-            />
-          </div>
-          <div class="form-group">
-            <label>描述</label>
-            <textarea 
-              v-if="editingLibrary" 
-              v-model="editingLibrary.description" 
-              rows="4"
-              placeholder="请输入资源库描述（可选）"
-            ></textarea>
-            <textarea 
-              v-else 
-              v-model="libraryForm.description" 
-              rows="4"
-              placeholder="例如：收录经典老电影、动作片专区等"
-            ></textarea>
-          </div>
-          <div class="form-tip" v-if="!editingLibrary">
-            <span class="tip-icon">💡</span>
-            <span>数据库文件将自动创建，无需手动指定</span>
-          </div>
+        <div class="form-group">
+          <label>描述</label>
+          <textarea
+            v-if="editingLibrary"
+            v-model="editingLibrary.description"
+            rows="4"
+            placeholder="请输入资源库描述（可选）"
+          ></textarea>
+          <textarea
+            v-else
+            v-model="libraryForm.description"
+            rows="4"
+            placeholder="例如：收录经典老电影、动作片专区等"
+          ></textarea>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="showLibraryModal = false">取消</button>
-          <button 
-            class="btn btn-primary" 
-            @click="editingLibrary ? updateLibrary() : createLibrary()"
-            :disabled="creatingLibrary || (!editingLibrary && !libraryForm.name.trim())"
-          >
-            <span v-if="creatingLibrary">创建中...</span>
-            <span v-else>{{ editingLibrary ? '保存修改' : '创建资源库' }}</span>
-          </button>
+        <div class="form-tip" v-if="!editingLibrary">
+          <span class="tip-icon">💡</span>
+          <span>数据库文件将自动创建，无需手动指定</span>
         </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="btn btn-secondary" @click="showLibraryModal = false">取消</button>
+        <button
+          class="btn btn-primary"
+          @click="editingLibrary ? updateLibrary() : createLibrary()"
+          :disabled="creatingLibrary || (!editingLibrary && !libraryForm.name.trim())"
+        >
+          <span v-if="creatingLibrary">创建中...</span>
+          <span v-else>{{ editingLibrary ? '保存修改' : '创建资源库' }}</span>
+        </button>
+      </template>
+    </BaseModal>
 
     <!-- 权限配置弹窗 -->
-    <Teleport to="body">
-      <div v-if="showPermissionModal" class="modal-overlay" @click="showPermissionModal = false">
-      <div class="modal-content modal-large" @click.stop>
-        <div class="modal-header">
-          <h3>权限配置</h3>
-          <button class="close-btn" @click="showPermissionModal = false">×</button>
-        </div>
-        <div class="modal-body">
-          <!-- 添加权限表单 -->
-          <div class="permission-form">
-            <h4>添加权限</h4>
-            <div class="form-row">
-              <div class="form-group">
-                <label>用户ID</label>
-                <input v-model.number="permissionForm.user_id" type="number" placeholder="用户ID" />
-              </div>
-              <div class="form-group">
-                <label>或用户组</label>
-                <select v-model.number="permissionForm.group_id">
-                  <option :value="null">-- 选择用户组 --</option>
-                  <option v-for="g in userGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
-                </select>
-              </div>
+    <BaseModal
+      class="modal-large"
+      v-model:visible="showPermissionModal"
+      title="权限配置"
+      max-width="720px"
+    >
+      <div class="modal-body">
+        <!-- 添加权限表单 -->
+        <div class="permission-form">
+          <h4>添加权限</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>用户ID</label>
+              <input v-model.number="permissionForm.user_id" type="number" placeholder="用户ID" />
             </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>角色</label>
-                <select v-model="permissionForm.role">
-                  <option value="user">普通用户</option>
-                  <option value="admin">库管理员</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>访问级别</label>
-                <select v-model="permissionForm.access_level">
-                  <option v-for="opt in accessLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                </select>
-              </div>
+            <div class="form-group">
+              <label>或用户组</label>
+              <select v-model.number="permissionForm.group_id">
+                <option :value="null">-- 选择用户组 --</option>
+                <option v-for="g in userGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+              </select>
             </div>
-            <button class="action-btn primary" @click="addPermission">添加权限</button>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>角色</label>
+              <select v-model="permissionForm.role">
+                <option value="user">普通用户</option>
+                <option value="admin">库管理员</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>访问级别</label>
+              <select v-model="permissionForm.access_level">
+                <option v-for="opt in accessLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
+          </div>
+          <button class="action-btn primary" @click="addPermission">添加权限</button>
+        </div>
 
-          <!-- 权限列表 -->
-          <div class="permission-list">
-            <h4>现有权限</h4>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>类型</th>
-                  <th>用户/用户组</th>
-                  <th>角色</th>
-                  <th>访问级别</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="perm in libraryPermissions" :key="perm.id">
-                  <td>{{ perm.user_id ? '用户' : '用户组' }}</td>
-                  <td>{{ perm.user?.username || perm.group?.name || perm.user_id || perm.group_id }}</td>
-                  <td>{{ perm.role === 'admin' ? '管理员' : '用户' }}</td>
-                  <td>{{ accessLevelOptions.find(o => o.value === perm.access_level)?.label || perm.access_level }}</td>
-                  <td>
-                    <button class="action-btn danger" @click="deletePermission(perm.id)">删除</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="libraryPermissions.length === 0" class="empty-state">
-              <p>暂无权限配置</p>
-            </div>
+        <!-- 权限列表 -->
+        <div class="permission-list">
+          <h4>现有权限</h4>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>用户/用户组</th>
+                <th>角色</th>
+                <th>访问级别</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="perm in libraryPermissions" :key="perm.id">
+                <td>{{ perm.user_id ? '用户' : '用户组' }}</td>
+                <td>{{ perm.user?.username || perm.group?.name || perm.user_id || perm.group_id }}</td>
+                <td>{{ perm.role === 'admin' ? '管理员' : '用户' }}</td>
+                <td>{{ accessLevelOptions.find(o => o.value === perm.access_level)?.label || perm.access_level }}</td>
+                <td>
+                  <button class="action-btn danger" @click="deletePermission(perm.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="libraryPermissions.length === 0" class="empty-state">
+            <p>暂无权限配置</p>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showPermissionModal = false">关闭</button>
-        </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showPermissionModal = false">关闭</button>
+      </template>
+    </BaseModal>
 
     <!-- 文件夹管理弹窗 -->
-    <Teleport to="body">
-      <div v-if="showFolderModal" class="modal-overlay" @click="showFolderModal = false">
-      <div class="modal-content modal-large" @click.stop>
-        <div class="modal-header">
-          <h3>📁 文件夹管理</h3>
-          <button class="close-btn" @click="showFolderModal = false">×</button>
-        </div>
-        <div class="modal-body">
-          <!-- 添加文件夹表单 -->
-          <div class="folder-form card">
-            <h4>添加扫描路径</h4>
-            <div class="form-group">
-              <label>路径 <span class="required">*</span></label>
-              <div class="input-with-button">
-                <input v-model="folderForm.path" type="text" placeholder="点击浏览选择文件或文件夹" readonly />
-                <button class="action-btn" @click="openFolderBrowserForAdd">📂 浏览...</button>
-              </div>
-              <small v-if="folderForm.path" class="form-hint">
-                {{ folderForm.path_type === 'file' ? '📄 文件' : '📁 文件夹' }}
-              </small>
+    <BaseModal
+      class="modal-large"
+      v-model:visible="showFolderModal"
+      title="📁 文件夹管理"
+      max-width="720px"
+    >
+      <div class="modal-body">
+        <!-- 添加文件夹表单 -->
+        <div class="folder-form card">
+          <h4>添加扫描路径</h4>
+          <div class="form-group">
+            <label>路径 <span class="required">*</span></label>
+            <div class="input-with-button">
+              <input v-model="folderForm.path" type="text" placeholder="点击浏览选择文件或文件夹" readonly />
+              <button class="action-btn" @click="openFolderBrowserForAdd">📂 浏览...</button>
             </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input v-model="folderForm.is_default" type="checkbox" />
-                设为默认上传路径
-              </label>
-            </div>
-            <div class="form-actions">
-              <button class="action-btn primary" @click="addLibraryFolder" :disabled="!folderForm.path">添加</button>
-            </div>
+            <small v-if="folderForm.path" class="form-hint">
+              {{ folderForm.path_type === 'file' ? '📄 文件' : '📁 文件夹' }}
+            </small>
           </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input v-model="folderForm.is_default" type="checkbox" />
+              设为默认上传路径
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="action-btn primary" @click="addLibraryFolder" :disabled="!folderForm.path">添加</button>
+          </div>
+        </div>
 
-          <!-- 文件夹列表 -->
-          <div class="folder-list-section">
-            <h4>已配置的文件夹</h4>
-            <div v-if="libraryFolders.length === 0" class="empty-state">
-              <p>暂无文件夹，请添加扫描路径</p>
-            </div>
-            <div v-else class="folder-items">
-              <div v-for="folder in libraryFolders" :key="folder.id" class="folder-item card">
-                <div class="folder-info">
-                  <div class="folder-name">
-                    <span v-if="folder.is_default" class="default-badge">默认</span>
-                    <span class="folder-type-icon">{{ folder.path_type === 'file' ? '📄' : '📁' }}</span>
-                    {{ folder.path }}
-                  </div>
-                  <div class="folder-meta">
-                    <span>扫描: {{ folder.item_count || 0 }} 个</span>
-                    <span v-if="folder.last_scan_at">最后: {{ folder.last_scan_at }}</span>
-                  </div>
+        <!-- 文件夹列表 -->
+        <div class="folder-list-section">
+          <h4>已配置的文件夹</h4>
+          <div v-if="libraryFolders.length === 0" class="empty-state">
+            <p>暂无文件夹，请添加扫描路径</p>
+          </div>
+          <div v-else class="folder-items">
+            <div v-for="folder in libraryFolders" :key="folder.id" class="folder-item card">
+              <div class="folder-info">
+                <div class="folder-name">
+                  <span v-if="folder.is_default" class="default-badge">默认</span>
+                  <span class="folder-type-icon">{{ folder.path_type === 'file' ? '📄' : '📁' }}</span>
+                  {{ folder.path }}
                 </div>
-                <div class="folder-actions">
-                  <button
-                    v-if="!folder.is_default"
-                    class="action-btn"
-                    @click="setAsDefaultFolder(folder.id)"
-                    title="设为默认上传路径"
-                  >
-                    ⭐设为默认
-                  </button>
-                  <button
-                    class="action-btn danger"
-                    @click="deleteLibraryFolder(folder.id)"
-                  >
-                    🗑️删除
-                  </button>
+                <div class="folder-meta">
+                  <span>扫描: {{ folder.item_count || 0 }} 个</span>
+                  <span v-if="folder.last_scan_at">最后: {{ folder.last_scan_at }}</span>
                 </div>
+              </div>
+              <div class="folder-actions">
+                <button
+                  v-if="!folder.is_default"
+                  class="action-btn"
+                  @click="setAsDefaultFolder(folder.id)"
+                  title="设为默认上传路径"
+                >
+                  ⭐设为默认
+                </button>
+                <button
+                  class="action-btn danger"
+                  @click="deleteLibraryFolder(folder.id)"
+                >
+                  🗑️删除
+                </button>
               </div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showFolderModal = false">关闭</button>
-        </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showFolderModal = false">关闭</button>
+      </template>
+    </BaseModal>
 
     <!-- 文件夹浏览器弹窗 -->
-    <Teleport to="body">
-      <div v-if="showFolderBrowser" class="modal-overlay" @click="showFolderBrowser = false">
-      <div class="modal-content folder-browser-modal" @click.stop>
-        <div class="modal-header">
-          <h3>📂 选择文件夹</h3>
-          <button class="close-btn" @click="showFolderBrowser = false">×</button>
+    <BaseModal
+      class="folder-browser-modal"
+      v-model:visible="showFolderBrowser"
+      title="📂 选择文件夹"
+      max-width="640px"
+    >
+      <div class="modal-body">
+        <!-- 当前路径 -->
+        <div class="current-path-display">
+          <span class="path-label">当前路径：</span>
+          <span class="path-value">{{ browserPath || '根目录' }}</span>
         </div>
-        <div class="modal-body">
-          <!-- 当前路径 -->
-          <div class="current-path-display">
-            <span class="path-label">当前路径：</span>
-            <span class="path-value">{{ browserPath || '根目录' }}</span>
+
+        <!-- 导航栏 -->
+        <div class="browser-nav">
+          <button
+            class="nav-btn"
+            @click="goBack"
+            :disabled="browserHistory.length === 0"
+            :title="返回上级"
+          >
+            ⬅️ 返回上级
+          </button>
+          <button
+            class="nav-btn"
+            @click="loadFolderList('')"
+            title="回到根目录"
+          >
+            🏠 根目录
+          </button>
+        </div>
+
+        <!-- 新建文件夹 -->
+        <div class="new-folder-row">
+          <input
+            v-model="newFolderName"
+            class="new-folder-input"
+            placeholder="输入新文件夹名称后点击新建"
+            @keyup.enter="createFolderInBrowser"
+          />
+          <button class="action-btn" @click="createFolderInBrowser">新建文件夹</button>
+        </div>
+
+        <!-- 文件夹列表 -->
+        <div class="folder-list-container">
+          <div v-if="browserLoading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <p>加载中...</p>
           </div>
 
-          <!-- 导航栏 -->
-          <div class="browser-nav">
-            <button 
-              class="nav-btn" 
-              @click="goBack"
-              :disabled="browserHistory.length === 0"
-              title="返回上级"
+          <div v-else-if="browserFolders.length === 0" class="empty-state">
+            <p>此文件夹为空或无法访问</p>
+          </div>
+
+          <div v-else class="folder-list">
+            <div
+              v-for="item in browserFolders"
+              :key="item.path"
+              :class="['folder-item', { 'folder-item-file': item.type === 'file' }]"
+              @click="item.type === 'file' ? selectFileFromBrowser(item) : enterFolder(item)"
             >
-              ⬅️ 返回上级
-            </button>
-            <button 
-              class="nav-btn" 
-              @click="loadFolderList('')"
-              title="回到根目录"
-            >
-              🏠 根目录
-            </button>
-          </div>
-
-          <!-- 新建文件夹 -->
-          <div class="new-folder-row">
-            <input
-              v-model="newFolderName"
-              class="new-folder-input"
-              placeholder="输入新文件夹名称后点击新建"
-              @keyup.enter="createFolderInBrowser"
-            />
-            <button class="action-btn" @click="createFolderInBrowser">新建文件夹</button>
-          </div>
-
-          <!-- 文件夹列表 -->
-          <div class="folder-list-container">
-            <div v-if="browserLoading" class="loading-state">
-              <div class="loading-spinner"></div>
-              <p>加载中...</p>
-            </div>
-
-            <div v-else-if="browserFolders.length === 0" class="empty-state">
-              <p>此文件夹为空或无法访问</p>
-            </div>
-
-            <div v-else class="folder-list">
-              <div
-                v-for="item in browserFolders"
-                :key="item.path"
-                :class="['folder-item', { 'folder-item-file': item.type === 'file' }]"
-                @click="item.type === 'file' ? selectFileFromBrowser(item) : enterFolder(item)"
-              >
-                <div class="folder-icon">
-                  {{ item.type === 'drive' ? '💿' : item.type === 'file' ? '📄' : '📁' }}
-                </div>
-                <div class="folder-info">
-                  <div class="folder-name">{{ item.display || item.name }}</div>
-                  <div class="folder-type">
-                    {{ item.type === 'drive' ? '驱动器' : item.type === 'file' ? '文件' : '文件夹' }}
-                  </div>
-                </div>
-                <div class="folder-arrow">{{ item.type === 'file' ? '' : '▶' }}</div>
+              <div class="folder-icon">
+                {{ item.type === 'drive' ? '💿' : item.type === 'file' ? '📄' : '📁' }}
               </div>
+              <div class="folder-info">
+                <div class="folder-name">{{ item.display || item.name }}</div>
+                <div class="folder-type">
+                  {{ item.type === 'drive' ? '驱动器' : item.type === 'file' ? '文件' : '文件夹' }}
+                </div>
+              </div>
+              <div class="folder-arrow">{{ item.type === 'file' ? '' : '▶' }}</div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="action-btn" @click="showFolderBrowser = false">取消</button>
-          <button
-            v-if="browserMode === 'folder'"
-            class="action-btn primary"
-            @click="browserPurpose === 'addFolder' ? selectPathFromBrowser() : selectCurrentFolder()"
-            :disabled="!browserPath"
-          >
-            选择此文件夹
-          </button>
-          <button
-            v-else
-            class="action-btn primary"
-            @click="selectPathFromBrowser"
-            :disabled="!browserPath"
-          >
-            选择此路径
-          </button>
-        </div>
       </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button class="action-btn" @click="showFolderBrowser = false">取消</button>
+        <button
+          v-if="browserMode === 'folder'"
+          class="action-btn primary"
+          @click="browserPurpose === 'addFolder' ? selectPathFromBrowser() : selectCurrentFolder()"
+          :disabled="!browserPath"
+        >
+          选择此文件夹
+        </button>
+        <button
+          v-else
+          class="action-btn primary"
+          @click="selectPathFromBrowser"
+          :disabled="!browserPath"
+        >
+          选择此路径
+        </button>
+      </template>
+    </BaseModal>
 
-    <!-- 用户创建/编辑弹窗 -->
+
     <!-- 删除单个视频确认对话框 -->
-    <Teleport to="body">
-      <div v-if="showDeleteConfirm" class="dialog-overlay" @click.self="showDeleteConfirm = false">
-        <div class="dialog">
-          <h3>确认删除</h3>
-          <p>确定要删除视频「<strong>{{ deletingVideoTitle }}</strong>」吗？</p>
-          <div class="dialog-checkbox">
-            <label>
-              <input type="checkbox" v-model="deleteFileOption" />
-              同时删除视频文件（不可恢复）
-            </label>
-          </div>
-          <div class="dialog-buttons">
-            <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
-            <button class="btn-danger" @click="deleteVideo">删除</button>
-          </div>
+    <BaseModal v-model:visible="showDeleteConfirm" title="确认删除" max-width="440px">
+        <p>确定要删除视频「<strong>{{ deletingVideoTitle }}</strong>」吗？</p>
+        <div class="dialog-checkbox">
+          <label>
+            <input type="checkbox" v-model="deleteFileOption" />
+            同时删除视频文件（不可恢复）
+          </label>
         </div>
-      </div>
-    </Teleport>
+        <template #footer>
+          <button class="btn-secondary" @click="showDeleteConfirm = false">取消</button>
+          <button class="btn-danger" @click="deleteVideo">删除</button>
+        </template>
+      </BaseModal>
 
     <!-- 停止/重启服务二次确认对话框 -->
-    <Teleport to="body">
-      <div v-if="showServiceConfirm" class="dialog-overlay" @click.self="showServiceConfirm = false">
-        <div class="dialog">
-          <h3>确认操作</h3>
-          <p>
-            确定要对服务「<strong>{{ serviceConfirmName }}</strong>」执行
-            <strong>{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</strong>
-            操作吗？
-          </p>
-          <p class="dialog-tip">{{ serviceConfirmAction === 'stop' ? '停止后该服务将不再运行，可能影响相关功能。' : '重启会先停止再启动该服务，期间服务会短暂不可用。' }}</p>
-          <div class="dialog-buttons">
-            <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
-            <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <BaseModal v-model:visible="showServiceConfirm" title="确认操作" max-width="440px">
+      <p>
+        确定要对服务「<strong>{{ serviceConfirmName }}</strong>」执行
+        <strong>{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</strong>
+        操作吗？
+      </p>
+      <p class="dialog-tip">{{ serviceConfirmAction === 'stop' ? '停止后该服务将不再运行，可能影响相关功能。' : '重启会先停止再启动该服务，期间服务会短暂不可用。' }}</p>
+      <template #footer>
+        <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
+        <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
+      </template>
+    </BaseModal>
 
     <!-- 批量删除确认对话框 -->
-    <Teleport to="body">
-      <div v-if="showBatchDeleteConfirm" class="dialog-overlay" @click.self="showBatchDeleteConfirm = false">
-        <div class="dialog">
-          <h3>确认批量删除</h3>
-          <p>确定要删除选中的 <strong>{{ selectedVideos.length }}</strong> 个视频吗？</p>
-          <div class="dialog-checkbox">
-            <label>
-              <input type="checkbox" v-model="batchDeleteFileOption" />
-              同时删除视频文件（不可恢复）
-            </label>
-          </div>
-          <div class="dialog-buttons">
-            <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
-            <button class="btn-danger" @click="batchDeleteVideos">删除</button>
-          </div>
-        </div>
+    <BaseModal v-model:visible="showBatchDeleteConfirm" title="确认批量删除" max-width="440px">
+      <p>确定要删除选中的 <strong>{{ selectedVideos.length }}</strong> 个视频吗？</p>
+      <div class="dialog-checkbox">
+        <label>
+          <input type="checkbox" v-model="batchDeleteFileOption" />
+          同时删除视频文件（不可恢复）
+        </label>
       </div>
-    </Teleport>
+      <template #footer>
+        <button class="btn-secondary" @click="showBatchDeleteConfirm = false">取消</button>
+        <button class="btn-danger" @click="batchDeleteVideos">删除</button>
+      </template>
+    </BaseModal>
 
     <!-- Toast 提示 -->
     <div v-if="showToastFlag" class="toast">{{ toastMessage }}</div>
@@ -3592,20 +3528,6 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* 删除确认对话框 */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
 .dialog {
   background: var(--bg-surface);
   border-radius: 12px;
@@ -5064,61 +4986,7 @@ input:checked + .slider:before {
   border-top: 1px solid var(--border-default);
 }
 
-/* 弹窗：强制固定在视口中央 */
-.modal-overlay {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  z-index: 10000;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 24px 16px;
-}
-
-.modal-content {
-  background: var(--bg-surface);
-  border-radius: 12px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: modalIn 0.3s ease;
-}
-
-@keyframes modalIn {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: var(--text-tertiary);
-}
-
+/* 弹窗内容（由 BaseModal 统一承载布局） */
 .modal-body {
   padding: 20px;
   max-height: 60vh;

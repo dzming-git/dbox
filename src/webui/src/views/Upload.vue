@@ -5,6 +5,7 @@ import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
 import { api } from '../api'
 import { useToast } from '../composables/useToast'
+import BaseModal from '../components/BaseModal.vue'
 
 const router = useRouter()
 const videoStore = useVideoStore()
@@ -566,25 +567,23 @@ const clearError = () => {
       </div>
 
       <!-- 上传失败弹窗 -->
-      <Teleport to="body">
-        <div v-if="showErrorModal" class="error-modal-overlay" @click.self="closeErrorModal">
-          <div class="error-modal">
-            <div class="error-modal-header">
-              <div class="error-modal-icon">✕</div>
-              <h3>{{ errorModalTitle }}</h3>
-            </div>
-            <div class="error-modal-body">
-              <p v-for="(line, i) in errorModalMessage.split('\n')" :key="i" :class="{ 'error-line': line.startsWith('•'), 'empty-line': line === '' }">
-                {{ line || '\u00A0' }}
-              </p>
-            </div>
-            <div class="error-modal-footer">
-              <button class="error-modal-retry" @click="clearError()">重新上传</button>
-              <button class="error-modal-close" @click="closeErrorModal">关闭</button>
-            </div>
-          </div>
+      <BaseModal
+        v-model:visible="showErrorModal"
+        :title="errorModalTitle"
+        max-width="520px"
+        :show-close="false"
+        :close-on-mask="false"
+      >
+        <div class="error-modal-body">
+          <p v-for="(line, i) in errorModalMessage.split('\n')" :key="i" :class="{ 'error-line': line.startsWith('•'), 'empty-line': line === '' }">
+            {{ line || '\u00A0' }}
+          </p>
         </div>
-      </Teleport>
+        <template #footer>
+          <button class="error-modal-retry" @click="clearError()">重新上传</button>
+          <button class="error-modal-close" @click="closeErrorModal">关闭</button>
+        </template>
+      </BaseModal>
       
       <!-- 视频信息表单 -->
       <div v-if="!isUploading && !uploadedVideo && selectedFiles.length > 0" class="video-form">
@@ -1206,72 +1205,9 @@ const clearError = () => {
   100% { background-position: -100% 0; }
 }
 
-/* 错误弹窗遮罩 */
-.error-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  animation: overlayFadeIn 0.2s ease;
-  padding: 20px;
-}
-
-@keyframes overlayFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* 错误弹窗主体 */
-.error-modal {
-  background: var(--bg-surface);
-  border: 1px solid var(--bg-surface-2);
-  border-radius: 20px;
-  width: 100%;
-  max-width: 480px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-  animation: modalSlideIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-  overflow: hidden;
-}
-
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: scale(0.9) translateY(20px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.error-modal-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 36px 32px 20px;
-  gap: 16px;
-}
-
-.error-modal-icon {
-  width: 64px;
-  height: 64px;
-  background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-on-accent);
-  font-size: 28px;
-  font-weight: bold;
-  box-shadow: 0 8px 24px rgba(255, 77, 79, 0.35);
-}
-
-.error-modal-header h3 {
-  color: var(--text-primary);
-  font-size: 20px;
-  margin: 0;
-  font-weight: 600;
-}
-
+/* 错误弹窗内容 */
 .error-modal-body {
-  padding: 0 32px 24px;
+  padding: 0;
   max-height: 280px;
   overflow-y: auto;
 }
@@ -1295,12 +1231,6 @@ const clearError = () => {
 
 .error-modal-body p.empty-line {
   height: 8px;
-}
-
-.error-modal-footer {
-  display: flex;
-  gap: 12px;
-  padding: 0 32px 28px;
 }
 
 .error-modal-retry {
