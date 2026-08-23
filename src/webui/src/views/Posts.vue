@@ -177,6 +177,48 @@ function orphanRefs(post: any) {
   return (post.refs || []).filter((r: any) => !ids.has(r.resource_index_id))
 }
 
+// 合并帖子所有媒体资源（内嵌 + 孤立），统一为朋友圈式媒体流
+function flatMediaList(d: Post): { type: 'gallery' | 'video'; item: any; images?: string[]; note?: string }[] {
+  const result: ReturnType<typeof flatMediaList> = []
+  const seen = new Set<number>()
+
+  // 1. 正文内嵌引用（embed 模式的资源）
+  if (d.content && d.refs?.length) {
+    const byId = new Map((d.refs || []).map((r: any) => [r.resource_index_id, r]))
+    POST_TOKEN_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = POST_TOKEN_RE.exec(d.content))) {
+      const rid = parseInt(m[2], 10)
+      const ref = byId.get(rid)
+      if (ref && m[3] === 'embed' && !seen.has(rid)) {
+        seen.add(rid)
+        const mi = toMediaItem(ref)
+        if (!mi) continue
+        if ((mi as any).images?.length <= 9) {
+          result.push({ type: 'gallery', item: mi, images: (mi as any).images })
+        } else {
+          result.push({ type: (mi as any).type === 'video' ? 'video' : 'gallery', item: mi })
+        }
+      }
+    }
+  }
+
+  // 2. 孤立引用（未在正文中出现的资源）
+  for (const ref of orphanRefs(d)) {
+    if (seen.has(ref.resource_index_id)) continue
+    seen.add(ref.resource_index_id)
+    const mi = toMediaItem(ref)
+    if (!mi) continue
+    if ((mi as any).images?.length <= 9) {
+      result.push({ type: 'gallery', item: mi, images: (mi as any).images, note: ref.note || undefined })
+    } else {
+      result.push({ type: (mi as any).type === 'video' ? 'video' : 'gallery', item: mi, note: ref.note || undefined })
+    }
+  }
+
+  return result
+}
+
 function labelForRef(r: any) {
   return r.presentation?.title || r.video?.title || r.gallery?.title || r.text?.title || r.location || ('资源 ' + r.resource_index_id)
 }
@@ -312,34 +354,27 @@ const formatDate = (s?: string) => {
           </div>
         </div>
 
-        <div v-if="d.content" class="post-content">
+        <!-- 正文文本（纯文字，不含内嵌媒体） -->
+        <div v-if="d.content" class="post-content-text">
           <template v-for="(seg, i) in renderSegments(d.content, d.refs)" :key="i">
             <template v-if="seg.type === 'text'">{{ seg.text }}</template>
-            <span v-else class="inline-ref">
-              <a class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
-              <template v-if="seg.ref && seg.mode === 'embed' && mediaTypeOf(seg.ref) === 'gallery_folder' && (toMediaItem(seg.ref) as any).images?.length <= 9">
-                <div class="inline-gallery">
-                  <img v-for="(src, gi) in (toMediaItem(seg.ref) as any).images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(seg.ref) as any).images, gi)" />
-                </div>
-                <span v-if="(toMediaItem(seg.ref) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(seg.ref) as any).images.length }} 张图片 · 点击放大</span>
-              </template>
-              <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" :hide-filename="true" />
-            </span>
+            <a v-else class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
           </template>
         </div>
 
-        <div v-if="orphanRefs(d).length" class="post-refs">
-          <div v-for="(refItem, i) in orphanRefs(d)" :key="refItem.ref_id || i" class="ref-block">
-            <div v-if="refItem.note" class="ref-note">{{ refItem.note }}</div>
-            <!-- 图集 ≤9 张：内联展示全部图片；>9 张或视频：用 MediaCard（隐藏文件名） -->
-            <template v-if="(toMediaItem(refItem) as any)?.images?.length <= 9">
-              <div class="inline-gallery">
-                <img v-for="(src, gi) in (toMediaItem(refItem) as any).images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(refItem) as any).images, gi)" />
+        <!-- 统一媒体流（朋友圈式：图片网格 + 视频，无"引用/孤立"区分） -->
+        <div v-if="flatMediaList(d).length" class="post-media">
+          <template v-for="(mi, miIdx) in flatMediaList(d)" :key="miIdx">
+            <!-- 图集 ≤9：直接展示全部缩略图 -->
+            <template v-if="mi.type === 'gallery' && mi.images?.length">
+              <div class="inline-gallery" :class="`g-${Math.min(mi.images.length, 9)}`">
+                <img v-for="(src, gi) in mi.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(mi.images!, gi)" />
               </div>
-              <span v-if="(toMediaItem(refItem) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(refItem) as any).images.length }} 张图片 · 点击放大</span>
+              <span v-if="mi.images!.length > 1" class="gallery-count">{{ mi.images!.length }} 张图片</span>
             </template>
-            <MediaCard v-else :item="toMediaItem(refItem)" :hide-filename="true" />
-          </div>
+            <!-- 视频 / 大图集 (>9)：用 MediaCard（隐藏文件名） -->
+            <MediaCard v-else :item="mi.item" :hide-filename="true" />
+          </template>
         </div>
         <p v-if="!d.content && (!d.refs || !d.refs.length)" class="no-refs">（暂无内容）</p>
         <div class="post-card-foot">
@@ -463,14 +498,38 @@ const formatDate = (s?: string) => {
 .op-btn { padding: 5px 12px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 6px; font-size: 13px; cursor: pointer; }
 .op-btn:hover { color: var(--accent); }
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
-.post-content { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin: 12px 0; white-space: pre-wrap; }
+/* 正文纯文字 */
+.post-content-text { color: var(--text-secondary); font-size: 14px; line-height: 1.65; margin: 10px 0 8px; white-space: pre-wrap; word-break: break-word; }
+.ref-link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.ref-link:hover { text-decoration: underline; }
 
-.post-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
-.ref-block { display: flex; flex-direction: column; gap: 6px; }
-.inline-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-radius: 10px; overflow: hidden; }
-.inline-gallery-img { width: 100%; aspect-ratio: 1/1; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: transform 0.15s, border-color 0.15s; border: 1px solid transparent; }
-.inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
-.gallery-count { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; text-align: center; }
+/* 统一媒体流（朋友圈式） */
+.post-media { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+
+/* 图片网格 —— 仿朋友圈布局 */
+.inline-gallery { display: grid; gap: 5px; border-radius: 10px; overflow: hidden; width: fit-content; max-width: 420px; }
+.inline-gallery-img { width: 120px; height: 120px; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
+.inline-gallery-img:hover { opacity: 0.85; }
+
+/* 1 张：大图 */
+.inline-gallery.g-1 { grid-template-columns: 1fr; }
+.inline-gallery.g-1 .inline-gallery-img { width: 280px; height: auto; aspect-ratio: 16/10; border-radius: 10px; }
+/* 2 张：并排 */
+.inline-gallery.g-2 { grid-template-columns: repeat(2, 1fr); }
+.inline-gallery.g-2 .inline-gallery-img { width: 180px; height: 180px; }
+/* 3 张：三列 */
+.inline-gallery.g-3 { grid-template-columns: repeat(3, 1fr); }
+/* 4 张：2×2 方阵 */
+.inline-gallery.g-4 { grid-template-columns: repeat(2, 1fr); }
+.inline-gallery.g-4 .inline-gallery-img { width: 160px; height: 160px; }
+/* 5~9 张：三列，最后一张可能跨行 */
+.inline-gallery.g-5,
+.inline-gallery.g-6,
+.inline-gallery.g-7,
+.inline-gallery.g-8,
+.inline-gallery.g-9 { grid-template-columns: repeat(3, 1fr); }
+
+.gallery-count { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
 /* 灯箱 */
 .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
@@ -497,13 +556,7 @@ const formatDate = (s?: string) => {
 .insert-res-btn:hover { background: rgba(33,150,243,0.24); color: #90caf9; }
 .content-tip { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 
-/* 正文内联引用 */
-.inline-ref { display: inline; }
-.ref-link {
-  color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
-}
-.ref-link:hover { color: #90caf9; }
-.inline-ref :deep(.media-card) { margin: 10px 0; max-width: 320px; }
+/* ref-link 已合并到 post-content-text 区域 */
 
 .ref-empty { color: var(--text-tertiary); font-size: 13px; }
 
