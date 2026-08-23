@@ -5,6 +5,7 @@ import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { useUserStore } from '../stores/userStore'
 import MediaCard from '../components/MediaCard.vue'
+import { UserRole } from '../types'
 
 const route = useRoute()
 const router = useRouter()
