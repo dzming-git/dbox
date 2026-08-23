@@ -26,13 +26,14 @@ const KIND_LABEL: Record<string, string> = {
 const toMediaItem = (refItem: PostRef) => {
   // 优先使用后端给出的引用级封面（兼容“帖子专属、无 Gallery/Video 实体”的情况）
   const cover = (refItem as any).cover_url || ''
+  const images = (refItem as any).images || null  // 图集内联图片 URL 列表（已带 ?post=1）
   if (refItem.video) {
     const v = refItem.video
     return { type: 'video', hash: v.hash, title: v.title, cover: cover || v.thumbnail || '', duration: v.duration || 0, date: v.created_at } as any
   }
   if (refItem.gallery) {
     const c = refItem.gallery
-    return { type: 'gallery', hash: c.hash, title: c.title, cover: cover || (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at } as any
+    return { type: 'gallery', hash: c.hash, title: c.title, cover: cover || (c as any).cover_url || '', pageCount: c.page_count || 0, date: c.created_at, images } as any
   }
   if (refItem.text) {
     return { type: 'gallery', hash: String(refItem.text.resource_index_id), title: refItem.text.presentation?.title || '文本', cover: cover || refItem.text.presentation?.thumbnail || '', pageCount: 0 } as any
@@ -47,9 +48,30 @@ const toMediaItem = (refItem: PostRef) => {
       cover: cover || p.thumbnail || '',
       duration: isVideo ? (p.duration || 0) : 0,
       pageCount: isVideo ? 0 : (p.page_count || 0),
+      images: isVideo ? null : images,
     } as any
   }
   return null
+}
+
+// 缩略图/图片 URL 附加 token（认证）
+const withToken = (url: string): string => {
+  if (!url) return ''
+  const token = userStore.token
+  if (!token) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}token=${token}`
+}
+
+// 轻量灯箱：帖子流内联图片点击放大
+const lightboxVisible = ref(false)
+const lightboxImages = ref<string[]>([])
+const lightboxIndex = ref(0)
+function openLightbox(images: string[], index: number) {
+  if (!images || !images.length) return
+  lightboxImages.value = images.map(withToken)
+  lightboxIndex.value = index
+  lightboxVisible.value = true
 }
 
 const fetchPosts = async () => {
@@ -295,7 +317,13 @@ const formatDate = (s?: string) => {
             <template v-if="seg.type === 'text'">{{ seg.text }}</template>
             <span v-else class="inline-ref">
               <a class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
-              <MediaCard v-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" />
+              <template v-if="seg.ref && seg.mode === 'embed' && mediaTypeOf(seg.ref) === 'gallery_folder' && (toMediaItem(seg.ref) as any).images?.length <= 9">
+                <div class="inline-gallery">
+                  <img v-for="(src, gi) in (toMediaItem(seg.ref) as any).images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(seg.ref) as any).images, gi)" />
+                </div>
+                <span v-if="(toMediaItem(seg.ref) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(seg.ref) as any).images.length }} 张图片 · 点击放大</span>
+              </template>
+              <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" :hide-filename="true" />
             </span>
           </template>
         </div>
@@ -303,7 +331,14 @@ const formatDate = (s?: string) => {
         <div v-if="orphanRefs(d).length" class="post-refs">
           <div v-for="(refItem, i) in orphanRefs(d)" :key="refItem.ref_id || i" class="ref-block">
             <div v-if="refItem.note" class="ref-note">{{ refItem.note }}</div>
-            <MediaCard :item="toMediaItem(refItem)" />
+            <!-- 图集 ≤9 张：内联展示全部图片；>9 张或视频：用 MediaCard（隐藏文件名） -->
+            <template v-if="(toMediaItem(refItem) as any)?.images?.length <= 9">
+              <div class="inline-gallery">
+                <img v-for="(src, gi) in (toMediaItem(refItem) as any).images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(refItem) as any).images, gi)" />
+              </div>
+              <span v-if="(toMediaItem(refItem) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(refItem) as any).images.length }} 张图片 · 点击放大</span>
+            </template>
+            <MediaCard v-else :item="toMediaItem(refItem)" :hide-filename="true" />
           </div>
         </div>
         <p v-if="!d.content && (!d.refs || !d.refs.length)" class="no-refs">（暂无内容）</p>
@@ -378,6 +413,19 @@ const formatDate = (s?: string) => {
         <button class="save-btn" :disabled="!selectedCandidate" @click="insertResource">插入</button>
       </template>
     </BaseModal>
+
+    <!-- 内联图片灯箱 -->
+    <Teleport to="body">
+      <div v-if="lightboxVisible" class="lightbox-overlay" @click="lightboxVisible = false">
+        <button class="lightbox-close" @click.stop="lightboxVisible = false">×</button>
+        <img v-if="lightboxImages[lightboxIndex]" :src="lightboxImages[lightboxIndex]" class="lightbox-img" @click.stop />
+        <div v-if="lightboxImages.length > 1" class="lightbox-nav">
+          <button :disabled="lightboxIndex === 0" @click.stop="lightboxIndex = Math.max(0, lightboxIndex - 1)">‹</button>
+          <span>{{ lightboxIndex + 1 }} / {{ lightboxImages.length }}</span>
+          <button :disabled="lightboxIndex === lightboxImages.length - 1" @click.stop="lightboxIndex = Math.min(lightboxImages.length - 1, lightboxIndex + 1)">›</button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -419,6 +467,18 @@ const formatDate = (s?: string) => {
 
 .post-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
 .ref-block { display: flex; flex-direction: column; gap: 6px; }
+.inline-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-radius: 10px; overflow: hidden; }
+.inline-gallery-img { width: 100%; aspect-ratio: 1/1; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: transform 0.15s, border-color 0.15s; border: 1px solid transparent; }
+.inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
+.gallery-count { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; text-align: center; }
+/* 灯箱 */
+.lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
+.lightbox-close { position: absolute; top: 18px; right: 22px; width: 40px; height: 40px; border: none; border-radius: 50%; background: rgba(255,255,255,0.12); color: #fff; font-size: 22px; cursor: pointer; }
+.lightbox-close:hover { background: rgba(255,255,255,0.25); }
+.lightbox-nav { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; color: #fff; font-size: 14px; background: rgba(0,0,0,0.4); padding: 8px 16px; border-radius: 20px; }
+.lightbox-nav button { width: 34px; height: 34px; border: none; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; font-size: 18px; cursor: pointer; }
+.lightbox-nav button:disabled { opacity: 0.3; cursor: default; }
 .ref-note { font-size: 12px; color: var(--text-secondary); background: var(--info-soft); border-radius: 6px; padding: 4px 8px; align-self: flex-start; }
 .no-refs { color: var(--text-tertiary); font-size: 13px; }
 

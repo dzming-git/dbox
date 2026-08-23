@@ -1697,8 +1697,9 @@ class Post(db.Model):
                         if c:
                             entry['gallery'] = c.to_dict()
                             # 附带图集页面图片 URL 列表，供前端内联渲染多张图
+                            # 帖子内嵌引用场景：hidden 资源在帖子中可预览，URL 附加 ?post=1
                             entry['images'] = [
-                                f'/gallery-page/{urllib.parse.quote(p.file_path)}'
+                                f'/gallery-page/{urllib.parse.quote(p.file_path)}?post=1'
                                 for p in c.pages
                             ]
                         else:
@@ -1706,7 +1707,7 @@ class Post(db.Model):
                             # 直接按资源索引目录提供图片，列表与详情页可内联渲染
                             entry['presentation'] = ri.presentation()
                             entry['images'] = [
-                                f'/resource-file/{ri.id}/{i}'
+                                f'/resource-file/{ri.id}/{i}?post=1'
                                 for i in range(len(_gallery_folder_image_list(ri)))
                             ]
                     elif ri.kind == 'text':
