@@ -261,6 +261,8 @@ const slotPlayers = ref<(HTMLVideoElement | null)[]>([null, null, null])
 const slotTimes = ref<{ current: number; duration: number }[]>([{ current: 0, duration: 0 }, { current: 0, duration: 0 }, { current: 0, duration: 0 }])
 const portraitPlaying = ref(true)
 let portraitBodyScrollY = 0
+// 单视频竖屏流：初始不展示，需用户上滑手势才揭示（下滑收起）
+const portraitRevealed = ref(false)
 
 // 三格：[prev, current, next]
 const portraitSlots = computed(() => {
@@ -273,7 +275,7 @@ const portraitSlots = computed(() => {
 function setSlotPlayer(i: number, el: any) {
   if (el) slotPlayers.value[i] = el as HTMLVideoElement
 }
-const portraitTrackY = computed(() => -portraitViewportH.value + portraitDragY.value)
+const portraitTrackY = computed(() => (portraitRevealed.value ? -portraitViewportH.value : 0) + portraitDragY.value)
 
 let portraitTouchStartY = 0
 const PORTRAIT_SWIPE_THRESHOLD = 60
@@ -303,6 +305,26 @@ function onPortraitTouchEnd() {
   if (!portraitDragging.value) return
   portraitDragging.value = false
   const dy = portraitDragY.value
+  const isSingle = props.playlist.length <= 1
+  // 单视频流：未揭示时上滑揭示，已揭示时下滑收起（无需切下一个/上一个）
+  if (isSingle) {
+    if (!portraitRevealed.value && dy < -PORTRAIT_SWIPE_THRESHOLD) {
+      portraitRevealed.value = true
+      portraitTransition.value = true
+      portraitDragY.value = 0
+      nextTick(() => { slotPlayers.value[PORTRAIT_CUR]?.play().catch(() => {}) })
+    } else if (portraitRevealed.value && dy > PORTRAIT_SWIPE_THRESHOLD) {
+      portraitRevealed.value = false
+      portraitTransition.value = true
+      portraitDragY.value = 0
+      slotPlayers.value[PORTRAIT_CUR]?.pause()
+    } else {
+      portraitDragY.value = 0
+      portraitTransition.value = true
+      setTimeout(() => { portraitTransition.value = false }, 250)
+    }
+    return
+  }
   if (Math.abs(dy) < PORTRAIT_SWIPE_THRESHOLD) {
     // 回弹
     portraitTransition.value = true
@@ -356,6 +378,8 @@ function enterPortraitMode() {
   mode.value = 'portrait'
   portraitDragY.value = 0
   portraitViewportH.value = window.innerHeight
+  // 单视频流初始不展示，需上滑揭示；多视频流首条直接展示
+  portraitRevealed.value = props.playlist.length > 1
   portraitBodyScrollY = window.scrollY
   document.body.style.position = 'fixed'
   document.body.style.top = `-${portraitBodyScrollY}px`
@@ -366,7 +390,7 @@ function enterPortraitMode() {
   document.body.classList.add('portrait-mode-active')
   nextTick(() => {
     const cur = slotPlayers.value[PORTRAIT_CUR]
-    if (cur) cur.play().catch(() => {})
+    if (portraitRevealed.value && cur) cur.play().catch(() => {})
   })
 }
 function exitPortraitMode() {
@@ -528,8 +552,14 @@ document.addEventListener('fullscreenchange', onFsChange)
           </div>
         </div>
         <button class="portrait-exit" @click.stop="exitPortraitMode">退出</button>
-        <div v-if="portraitSlots[PORTRAIT_CUR + 1] === null || portraitSlots[PORTRAIT_CUR - 1] === null" class="portrait-edge-hint">
+        <!-- 多视频流：到达边界时短暂提示（单视频流不显示，改用语义化的"上滑查看"提示） -->
+        <div v-if="props.playlist.length > 1 && (portraitSlots[PORTRAIT_CUR + 1] === null || portraitSlots[PORTRAIT_CUR - 1] === null)" class="portrait-edge-hint">
           {{ curIndex === 0 ? '已经是第一个' : '已经是最后一个' }}
+        </div>
+        <!-- 单视频未揭示：提示上滑查看（初始不自动展示视频） -->
+        <div v-if="props.playlist.length <= 1 && !portraitRevealed && !portraitDragging" class="portrait-reveal-hint">
+          <div class="prh-arrow">︿</div>
+          <div class="prh-text">上滑查看视频</div>
         </div>
       </div>
     </Teleport>
@@ -709,5 +739,31 @@ document.addEventListener('fullscreenchange', onFsChange)
   font-size: 14px;
   z-index: 9;
   pointer-events: none;
+}
+/* 单视频未揭示提示 */
+.portrait-reveal-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  pointer-events: none;
+  animation: prh-bob 1.8s ease-in-out infinite;
+}
+.prh-arrow {
+  font-size: 34px;
+  line-height: 1;
+}
+.prh-text {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+@keyframes prh-bob {
+  0%, 100% { transform: translateY(0); opacity: 0.85; }
+  50% { transform: translateY(-8px); opacity: 1; }
 }
 </style>
