@@ -238,11 +238,23 @@ const detailMedia = computed<DetailMedia[]>(() => {
 })
 
 // 详情页内嵌视频播放
-const playingVideo = ref<{ playUrl: string; poster: string } | null>(null)
+const playingVideo = ref<{ playUrl: string; poster: string; index: number } | null>(null)
 function openVideoPlayer(dm: DetailMedia) {
-  if (dm.kind === 'video' && dm.playUrl) playingVideo.value = { playUrl: dm.playUrl, poster: dm.src }
+  const idx = videoPlaylist.value.findIndex((v) => v.playUrl === dm.playUrl)
+  if (dm.kind === 'video' && dm.playUrl) playingVideo.value = { playUrl: dm.playUrl, poster: dm.src, index: idx >= 0 ? idx : 0 }
 }
 function closeVideoPlayer() { playingVideo.value = null }
+
+// 帖子内所有视频组成播放列表（供 VideoPlayer 组件竖屏滑动切换）
+const videoPlaylist = computed(() => {
+  const list: { src: string; poster?: string; title?: string; playUrl: string }[] = []
+  for (const dm of detailMedia.value) {
+    if (dm.kind === 'video' && dm.playUrl) {
+      list.push({ src: dm.playUrl, poster: dm.src, title: '帖子视频', playUrl: dm.playUrl })
+    }
+  }
+  return list
+})
 
 const isWatchLater = computed(() => !!post.value && watchLaterStore.has('post', String(post.value.id)))
 const toggleWatchLater = () => {
@@ -376,7 +388,11 @@ const removePost = async () => {
         <div v-else class="detail-reader">
           <template v-for="(dm, di) in detailMedia" :key="di">
             <div v-if="dm.kind === 'video'" class="reader-video">
-              <VideoPlayer :src="dm.playUrl" :poster="dm.src" />
+              <VideoPlayer
+                :playlist="videoPlaylist"
+                :initial-index="videoPlaylist.findIndex(v => v.playUrl === dm.playUrl)"
+                :autoplay="false"
+              />
             </div>
             <img v-else :src="dm.src" class="reader-img" loading="lazy"
               @click="openLightbox(detailMedia.filter(m => m.kind === 'image').map(m => m.src), detailMedia.slice(0, di).filter(m => m.kind === 'image').length)" />
@@ -432,10 +448,14 @@ const removePost = async () => {
       <button class="lightbox-close" @click="closeLightbox">×</button>
     </div>
 
-    <!-- 详情页内嵌视频播放器（网格模式点击触发） -->
+    <!-- 详情页内嵌视频播放器（网格模式点击触发，支持竖屏滑动切换该帖子其他视频） -->
     <div v-if="playingVideo" class="video-modal" @click.self="closeVideoPlayer">
       <button class="video-close" @click="closeVideoPlayer">×</button>
-      <VideoPlayer :src="playingVideo.playUrl" :poster="playingVideo.poster" :autoplay="true" />
+      <VideoPlayer
+        :playlist="videoPlaylist"
+        :initial-index="playingVideo.index"
+        :autoplay="true"
+      />
     </div>
   </div>
 </template>
