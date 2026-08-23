@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { useUserStore } from '../stores/userStore'
-import MediaCard from '../components/MediaCard.vue'
 import { UserRole } from '../types'
 
 const route = useRoute()
@@ -95,11 +94,6 @@ function toMediaItem(refItem: any) {
   return null
 }
 
-function mediaTypeOf(refItem: any) {
-  const it = toMediaItem(refItem)
-  return it ? it.type : ''
-}
-
 function openRefLink(r: any) {
   if (!r) return
   if (r.video) { router.push(`/video/${r.video.hash}?post=1`); return }
@@ -170,6 +164,70 @@ const renderedOrphans = computed(() => {
   if (!post.value) return []
   return orphanRefs(post.value).map((refItem: any) => ({ refItem, item: toMediaItem(refItem) }))
 })
+
+// 详情页统一媒体流：视频 + 图集图片，按出现顺序合并
+// 视频为独立项（放大展示/内嵌播放）；图集展开为独立图片项（可网格/大图切换）
+interface DetailMedia {
+  kind: 'video' | 'image'
+  src: string                 // 图片 URL 或视频封面（已带 token）
+  videoHash?: string
+  playUrl?: string            // 视频播放地址
+}
+const viewMode = ref<'grid' | 'reader'>('grid')
+const detailMedia = computed<DetailMedia[]>(() => {
+  if (!post.value) return []
+  const out: DetailMedia[] = []
+  const seen = new Set<number>()
+
+  const pushRef = (refItem: any) => {
+    if (!refItem || seen.has(refItem.resource_index_id)) return
+    seen.add(refItem.resource_index_id)
+    const item = toMediaItem(refItem)
+    if (!item) return
+
+    // 视频：独立项
+    if ((item as any).type === 'video' && refItem.video) {
+      out.push({
+        kind: 'video',
+        src: withToken((item as any).cover || ''),
+        videoHash: refItem.video.hash,
+        playUrl: `/video/${refItem.video.hash}/play?post=1`,
+      })
+      return
+    }
+
+    // 图集：展开图片
+    const imgs = (item as any).images as string[] | undefined
+    if (imgs && imgs.length) {
+      for (const s of imgs) out.push({ kind: 'image', src: withToken(s) })
+      return
+    }
+    if ((item as any).type === 'gallery' && (item as any).cover) {
+      out.push({ kind: 'image', src: withToken((item as any).cover) })
+    }
+  }
+
+  // 1. 正文内嵌 embed
+  if (post.value.content && post.value.refs?.length) {
+    const byId = new Map((post.value.refs || []).map((r: any) => [r.resource_index_id, r]))
+    POST_TOKEN_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = POST_TOKEN_RE.exec(post.value.content))) {
+      if (m[3] === 'embed') pushRef(byId.get(parseInt(m[2], 10)))
+    }
+  }
+  // 2. 孤立引用
+  for (const r of orphanRefs(post.value)) pushRef(r)
+
+  return out
+})
+
+// 详情页内嵌视频播放
+const playingVideo = ref<{ playUrl: string; poster: string } | null>(null)
+function openVideoPlayer(dm: DetailMedia) {
+  if (dm.kind === 'video' && dm.playUrl) playingVideo.value = { playUrl: withToken(dm.playUrl), poster: dm.src }
+}
+function closeVideoPlayer() { playingVideo.value = null }
 
 const isWatchLater = computed(() => !!post.value && watchLaterStore.has('post', String(post.value.id)))
 const toggleWatchLater = () => {
@@ -273,44 +331,41 @@ const removePost = async () => {
       <div v-if="post.content" class="detail-content">
         <template v-for="(seg, i) in renderSegments(post.content, post.refs)" :key="i">
           <template v-if="seg.type === 'text'">{{ seg.text }}</template>
-          <span v-else class="inline-ref">
-            <a class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
-            <template v-if="mediaTypeOf(seg.ref) === 'gallery_folder'">
-              <div class="inline-gallery">
-                <img v-for="(src, gi) in (toMediaItem(seg.ref) as any).images" :key="gi" :src="src" class="inline-gallery-img" loading="lazy" @click="openLightbox((toMediaItem(seg.ref) as any).images, gi)" />
-              </div>
-              <span v-if="(toMediaItem(seg.ref) as any)?.images?.length > 1" class="gallery-count">{{ (toMediaItem(seg.ref) as any).images.length }} 张图片 · 点击放大</span>
-            </template>
-            <a v-else-if="mediaTypeOf(seg.ref) === 'document'" class="doc-card" :href="(toMediaItem(seg.ref) as any).docUrl" target="_blank" download>
-              <span class="doc-icon">📄</span>
-              <span class="doc-name">{{ (toMediaItem(seg.ref) as any).title }}</span>
-              <span class="doc-dl">下载</span>
-            </a>
-            <MediaCard v-else-if="seg.ref && seg.mode === 'embed'" :item="toMediaItem(seg.ref)" :hide-filename="true" @click="openRefLink(seg.ref)" />
-          </span>
+          <a v-else class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
         </template>
       </div>
 
-      <div v-if="renderedOrphans.length" class="detail-refs">
-        <div v-for="(ro, i) in renderedOrphans" :key="ro.refItem.ref_id || i" class="ref-block">
-          <div v-if="ro.refItem.note" class="ref-note">{{ ro.refItem.note }}</div>
-          <!-- 图集（含 gallery_folder / gallery 实体）：≤9 张时内联展示全部图片，>9 张用 MediaCard -->
-          <template v-if="ro.item && (ro.item.type === 'gallery_folder' || (ro.item.type === 'gallery' && ro.item.images && ro.item.images.length))">
-            <template v-if="ro.item.images.length <= 9">
-              <div class="inline-gallery">
-                <img v-for="(src, gi) in ro.item.images" :key="gi" :src="withToken(src)" class="inline-gallery-img" loading="lazy" @click="openLightbox(ro.item.images.map(withToken), gi)" />
-              </div>
-              <span v-if="ro.item.images.length > 1" class="gallery-count">{{ ro.item.images.length }} 张图片 · 点击放大</span>
-            </template>
-            <MediaCard v-else :item="ro.item" :hide-filename="true" @click="openRefLink(ro.refItem)" />
+      <!-- 统一媒体区：视频放大 + 图片，可切换网格/大图 -->
+      <div v-if="detailMedia.length" class="detail-media">
+        <div class="media-toolbar">
+          <span class="media-count">{{ detailMedia.length }} 项媒体 · 视频 {{ detailMedia.filter(m => m.kind === 'video').length }}</span>
+          <div class="view-toggle">
+            <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">网格</button>
+            <button :class="{ active: viewMode === 'reader' }" @click="viewMode = 'reader'">大图</button>
+          </div>
+        </div>
+
+        <!-- 网格模式：放大版朋友圈网格 -->
+        <div v-if="viewMode === 'grid'" class="detail-grid" :class="`g-${Math.min(detailMedia.length, 9) || 1}`">
+          <template v-for="(dm, di) in detailMedia" :key="di">
+            <a v-if="dm.kind === 'video'" class="grid-cell video-cell" @click="openVideoPlayer(dm)">
+              <img :src="dm.src" class="grid-img" loading="lazy" />
+              <span class="grid-play">▶</span>
+            </a>
+            <img v-else :src="dm.src" class="grid-img" loading="lazy"
+              @click="openLightbox(detailMedia.filter(m => m.kind === 'image').map(m => m.src), detailMedia.slice(0, di).filter(m => m.kind === 'image').length)" />
           </template>
-          <a v-else-if="ro.item && ro.item.type === 'document'" class="doc-card" :href="ro.item.docUrl" target="_blank" download>
-            <span class="doc-icon">📄</span>
-            <span class="doc-name">{{ ro.item.title }}</span>
-            <span class="doc-dl">下载</span>
-          </a>
-          <!-- 视频 / 其他：隐藏文件名 -->
-          <MediaCard v-else-if="ro.item" :item="ro.item" :hide-filename="true" @click="openRefLink(ro.refItem)" />
+        </div>
+
+        <!-- 大图模式：纵向满宽流式阅读 -->
+        <div v-else class="detail-reader">
+          <template v-for="(dm, di) in detailMedia" :key="di">
+            <div v-if="dm.kind === 'video'" class="reader-video">
+              <video :src="withToken(dm.playUrl!)" :poster="dm.src" controls preload="none" class="reader-video-el"></video>
+            </div>
+            <img v-else :src="dm.src" class="reader-img" loading="lazy"
+              @click="openLightbox(detailMedia.filter(m => m.kind === 'image').map(m => m.src), detailMedia.slice(0, di).filter(m => m.kind === 'image').length)" />
+          </template>
         </div>
       </div>
       <p v-if="!post.content && (!post.refs || !post.refs.length)" class="no-refs">（暂无内容）</p>
@@ -361,6 +416,12 @@ const removePost = async () => {
       <span class="lightbox-count">{{ lightbox.index + 1 }} / {{ lightbox.images.length }}</span>
       <button class="lightbox-close" @click="closeLightbox">×</button>
     </div>
+
+    <!-- 详情页内嵌视频播放器（网格模式点击触发） -->
+    <div v-if="playingVideo" class="video-modal" @click.self="closeVideoPlayer">
+      <button class="video-close" @click="closeVideoPlayer">×</button>
+      <video class="video-modal-el" :src="playingVideo.playUrl" :poster="playingVideo.poster" controls autoplay></video>
+    </div>
   </div>
 </template>
 
@@ -388,19 +449,44 @@ const removePost = async () => {
 .src-sep { color: var(--border-strong); }
 .src-link { color: var(--accent); text-decoration: none; }
 .src-link:hover { color: #90caf9; text-decoration: underline; }
-.detail-content { color: var(--text-secondary); font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
-.detail-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 16px; }
-.ref-block { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
-.ref-note { font-size: 12px; color: var(--text-secondary); background: var(--info-soft); border-radius: 6px; padding: 4px 8px; align-self: flex-start; }
+.detail-content { color: var(--text-secondary); font-size: 15px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 4px; }
 .no-refs { color: var(--text-tertiary); font-size: 13px; }
-.inline-ref { display: inline; }
-.ref-link { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.ref-link:hover { color: #90caf9; }
-.inline-ref :deep(.media-card) { margin: 10px 0; max-width: 320px; }
-.inline-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; max-width: 640px; }
-.inline-gallery-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer; background: #000; border: 1px solid var(--border-default); transition: transform .15s; }
-.inline-gallery-img:hover { transform: scale(1.02); border-color: var(--accent); }
-.gallery-count { display: block; font-size: 12px; color: var(--text-tertiary); margin-top: 4px; text-align: center; }
+
+/* 统一媒体区 */
+.detail-media { margin-top: 16px; }
+.media-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.media-count { font-size: 12px; color: var(--text-tertiary); }
+.view-toggle { display: inline-flex; background: var(--bg-surface-hover); border-radius: 8px; padding: 2px; gap: 2px; }
+.view-toggle button { border: none; background: transparent; color: var(--text-secondary); padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.view-toggle button.active { background: var(--accent); color: #fff; }
+
+/* 网格模式（放大版朋友圈网格） */
+.detail-grid { display: grid; gap: 8px; border-radius: 12px; overflow: hidden; width: fit-content; max-width: 760px; }
+.grid-cell { position: relative; display: block; cursor: pointer; border-radius: 8px; overflow: hidden; }
+.grid-img { display: block; object-fit: cover; background: var(--bg-surface-hover); border-radius: 8px; transition: opacity .15s; }
+.grid-img:hover { opacity: .9; }
+.detail-grid.g-1 { grid-template-columns: 1fr; }
+.detail-grid.g-1 .grid-img { width: 420px; height: auto; aspect-ratio: 16/10; border-radius: 12px; }
+.detail-grid.g-2 { grid-template-columns: repeat(2, 1fr); }
+.detail-grid.g-2 .grid-img { width: 280px; height: 280px; }
+.detail-grid.g-3 { grid-template-columns: repeat(3, 1fr); }
+.detail-grid.g-3 .grid-img { width: 200px; height: 200px; }
+.detail-grid.g-4 { grid-template-columns: repeat(2, 1fr); }
+.detail-grid.g-4 .grid-img { width: 280px; height: 280px; }
+.detail-grid.g-5, .detail-grid.g-6, .detail-grid.g-7, .detail-grid.g-8, .detail-grid.g-9 { grid-template-columns: repeat(3, 1fr); }
+.detail-grid[class*="g-5"] .grid-img,
+.detail-grid[class*="g-6"] .grid-img,
+.detail-grid[class*="g-7"] .grid-img,
+.detail-grid[class*="g-8"] .grid-img,
+.detail-grid[class*="g-9"] .grid-img { width: 200px; height: 200px; }
+.grid-play { position: absolute; inset: 0; margin: auto; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.video-cell .grid-img { border: 2px solid rgba(255,255,255,.08); }
+
+/* 大图模式（纵向流式阅读） */
+.detail-reader { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.reader-img { width: 100%; max-width: 760px; border-radius: 8px; cursor: zoom-in; background: var(--bg-surface-hover); }
+.reader-video { width: 100%; max-width: 760px; }
+.reader-video-el { width: 100%; border-radius: 10px; background: #000; max-height: 80vh; }
 .doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid var(--bg-surface-2); border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
 .doc-card:hover { border-color: var(--accent); color: var(--accent); }
 .doc-icon { font-size: 22px; }
@@ -413,6 +499,10 @@ const removePost = async () => {
 .lightbox-next { right: 20px; }
 .lightbox-close { position: absolute; top: 20px; right: 24px; background: none; border: none; color: var(--text-on-accent); font-size: 36px; cursor: pointer; }
 .lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: var(--text-secondary); font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
+.video-modal { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: flex; align-items: center; justify-content: center; z-index: 1200; }
+.video-modal-el { max-width: 92vw; max-height: 88vh; border-radius: 10px; background: #000; }
+.video-close { position: absolute; top: 20px; right: 24px; width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; font-size: 26px; cursor: pointer; }
+.video-close:hover { background: rgba(255,255,255,.25); }
 .del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
 .del-card { width: 100%; max-width: 440px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 16px; padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .del-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
