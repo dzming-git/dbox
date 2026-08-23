@@ -5,6 +5,7 @@ import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { useUserStore } from '../stores/userStore'
 import { UserRole } from '../types'
+import VideoPlayer from '../components/VideoPlayer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -375,7 +376,7 @@ const removePost = async () => {
         <div v-else class="detail-reader">
           <template v-for="(dm, di) in detailMedia" :key="di">
             <div v-if="dm.kind === 'video'" class="reader-video">
-              <video :src="dm.playUrl" :poster="dm.src" controls preload="none" class="reader-video-el"></video>
+              <VideoPlayer :src="dm.playUrl" :poster="dm.src" />
             </div>
             <img v-else :src="dm.src" class="reader-img" loading="lazy"
               @click="openLightbox(detailMedia.filter(m => m.kind === 'image').map(m => m.src), detailMedia.slice(0, di).filter(m => m.kind === 'image').length)" />
@@ -434,7 +435,7 @@ const removePost = async () => {
     <!-- 详情页内嵌视频播放器（网格模式点击触发） -->
     <div v-if="playingVideo" class="video-modal" @click.self="closeVideoPlayer">
       <button class="video-close" @click="closeVideoPlayer">×</button>
-      <video class="video-modal-el" :src="playingVideo.playUrl" :poster="playingVideo.poster" controls autoplay></video>
+      <VideoPlayer :src="playingVideo.playUrl" :poster="playingVideo.poster" :autoplay="true" />
     </div>
   </div>
 </template>
@@ -500,7 +501,6 @@ const removePost = async () => {
 .detail-reader { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
 .reader-img { width: 100%; max-width: 760px; border-radius: 8px; cursor: zoom-in; background: var(--bg-surface-hover); }
 .reader-video { width: 100%; max-width: 760px; }
-.reader-video-el { width: 100%; border-radius: 10px; background: #000; max-height: 80vh; }
 .doc-card { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--info-soft); border: 1px solid var(--bg-surface-2); border-radius: 10px; color: var(--text-secondary); text-decoration: none; cursor: pointer; max-width: 100%; }
 .doc-card:hover { border-color: var(--accent); color: var(--accent); }
 .doc-icon { font-size: 22px; }
@@ -513,8 +513,8 @@ const removePost = async () => {
 .lightbox-next { right: 20px; }
 .lightbox-close { position: absolute; top: 20px; right: 24px; background: none; border: none; color: var(--text-on-accent); font-size: 36px; cursor: pointer; }
 .lightbox-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: var(--text-secondary); font-size: 14px; background: rgba(0,0,0,.5); padding: 4px 12px; border-radius: 12px; }
-.video-modal { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: flex; align-items: center; justify-content: center; z-index: 1200; }
-.video-modal-el { max-width: 92vw; max-height: 88vh; border-radius: 10px; background: #000; }
+.video-modal { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: flex; align-items: center; justify-content: center; z-index: 1200; padding: 24px; }
+.video-modal .video-player { max-width: 92vw; max-height: 88vh; border-radius: 10px; }
 .video-close { position: absolute; top: 20px; right: 24px; width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; font-size: 26px; cursor: pointer; }
 .video-close:hover { background: rgba(255,255,255,.25); }
 .del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
