@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { postApi } from '../api'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { useUserStore } from '../stores/userStore'
+import { useVideoStore } from '../stores/videoStore'
 import { UserRole } from '../types'
 import VideoPlayer from '../components/VideoPlayer.vue'
 
@@ -11,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 const watchLaterStore = useWatchLaterStore()
 const userStore = useUserStore()
+const videoStore = useVideoStore()
 
 function withToken(url: string): string {
   if (!url) return url
@@ -247,14 +249,49 @@ function closeVideoPlayer() { playingVideo.value = null }
 
 // 帖子内所有视频组成播放列表（供 VideoPlayer 组件竖屏滑动切换）
 const videoPlaylist = computed(() => {
-  const list: { src: string; poster?: string; title?: string; playUrl: string }[] = []
+  const list: { src: string; poster?: string; title?: string; playUrl: string; hash?: string; like_count?: number; favorite_count?: number; is_liked?: boolean; is_favorited?: boolean; is_disliked?: boolean }[] = []
   for (const dm of detailMedia.value) {
     if (dm.kind === 'video' && dm.playUrl) {
-      list.push({ src: dm.playUrl, poster: dm.src, title: '帖子视频', playUrl: dm.playUrl })
+      list.push({ src: dm.playUrl, poster: dm.src, title: '帖子视频', playUrl: dm.playUrl, hash: dm.videoHash })
     }
   }
   return list
 })
+
+// 帖子竖屏视频互动：按 video hash 调后端，更新对应 playlist 项状态
+function updatePlaylistItem(hash?: string, patch: Record<string, any> = {}) {
+  if (!hash) return
+  const item = videoPlaylist.value.find((v) => v.hash === hash)
+  if (item) Object.assign(item, patch)
+}
+const handlePortraitLike = async (item: any) => {
+  const h = item?.hash
+  if (!h) return
+  const response = await (videoStore.likeVideo(h) as any)
+  if (response && response.like_count !== undefined) {
+    updatePlaylistItem(h, { is_liked: response.liked, like_count: response.like_count })
+  }
+}
+const handlePortraitFavorite = async (item: any) => {
+  const h = item?.hash
+  if (!h) return
+  const response = await (videoStore.favoriteVideo(h) as any)
+  if (response && response.favorite_count !== undefined) {
+    updatePlaylistItem(h, { is_favorited: response.favorited, favorite_count: response.favorite_count })
+  }
+}
+const handlePortraitDislike = async (item: any) => {
+  const h = item?.hash
+  if (!h) return
+  const response = await (videoStore.dislikeVideo(h) as any)
+  if (response && response.success) {
+    updatePlaylistItem(h, { is_disliked: response.disliked })
+  }
+}
+const handlePortraitOpenDetail = (item: any) => {
+  const h = item?.hash
+  if (h) router.push(`/video/${h}?post=1`)
+}
 
 const isWatchLater = computed(() => !!post.value && watchLaterStore.has('post', String(post.value.id)))
 const toggleWatchLater = () => {
@@ -455,6 +492,10 @@ const removePost = async () => {
         :playlist="videoPlaylist"
         :initial-index="playingVideo.index"
         :autoplay="true"
+        @like="handlePortraitLike"
+        @favorite="handlePortraitFavorite"
+        @dislike="handlePortraitDislike"
+        @open-detail="handlePortraitOpenDetail"
       />
     </div>
   </div>
