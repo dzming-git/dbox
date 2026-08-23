@@ -194,11 +194,18 @@ const detailMedia = computed<DetailMedia[]>(() => {
 
     // 视频：独立项
     if ((item as any).type === 'video' && refItem.video) {
+      // 播放地址使用后端返回的 video.url（/api/videos/{id}/play），
+      // 与 Video.vue 保持一致：拼 token + post=1
+      const base = refItem.video.url || ''
+      const token = userStore.token
+      const playUrl = token
+        ? `${base}?token=${token}&post=1`
+        : `${base}${base.includes('?') ? '&' : '?'}post=1`
       out.push({
         kind: 'video',
         src: withToken((item as any).cover || ''),
         videoHash: refItem.video.hash,
-        playUrl: `/video/${refItem.video.hash}/play?post=1`,
+        playUrl,
       })
       return
     }
@@ -232,7 +239,7 @@ const detailMedia = computed<DetailMedia[]>(() => {
 // 详情页内嵌视频播放
 const playingVideo = ref<{ playUrl: string; poster: string } | null>(null)
 function openVideoPlayer(dm: DetailMedia) {
-  if (dm.kind === 'video' && dm.playUrl) playingVideo.value = { playUrl: withToken(dm.playUrl), poster: dm.src }
+  if (dm.kind === 'video' && dm.playUrl) playingVideo.value = { playUrl: dm.playUrl, poster: dm.src }
 }
 function closeVideoPlayer() { playingVideo.value = null }
 
@@ -368,7 +375,7 @@ const removePost = async () => {
         <div v-else class="detail-reader">
           <template v-for="(dm, di) in detailMedia" :key="di">
             <div v-if="dm.kind === 'video'" class="reader-video">
-              <video :src="withToken(dm.playUrl!)" :poster="dm.src" controls preload="none" class="reader-video-el"></video>
+              <video :src="dm.playUrl" :poster="dm.src" controls preload="none" class="reader-video-el"></video>
             </div>
             <img v-else :src="dm.src" class="reader-img" loading="lazy"
               @click="openLightbox(detailMedia.filter(m => m.kind === 'image').map(m => m.src), detailMedia.slice(0, di).filter(m => m.kind === 'image').length)" />
