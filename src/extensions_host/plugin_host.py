@@ -104,9 +104,10 @@ class _TasksProxy:
 class _HttpProxy:
     """外部 HTTP 客户端（带鉴权）。后续可接入 framework token 注入。"""
 
-    def get(self, url, **kw):
+    def get(self, url, headers=None, **kw):
         import urllib.request
-        return urllib.request.urlopen(url, timeout=kw.get('timeout', 10)).read()
+        req = urllib.request.Request(url, headers=headers or {})
+        return urllib.request.urlopen(req, timeout=kw.get('timeout', 10)).read()
 
     def post(self, url, **kw):
         import urllib.request
