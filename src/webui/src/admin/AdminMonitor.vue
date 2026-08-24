@@ -11,7 +11,7 @@ let monitorPollingTimer: number | null = null
 const fetchMonitorMetrics = async () => {
   monitorLoading.value = true
   try {
-    const res = await api.get('/api/system/metrics') as any
+    const res = await api.get('/api/ext/system-monitor/metrics') as any
     if (res.success) {
       monitorMetrics.value = res.data
       if (res.data && monitorHistory.value.length < 60) {

@@ -13,7 +13,6 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.api.shared_watch_api import shared_watch_bp
     from backend.gallery.gallery_api import gallery_bp
     from backend.api.markers_api import markers_bp
-    from backend.api.system_info_api import system_info_bp
     from backend.api.suggestion_api import suggestion_bp
 
     # 初始化反馈独立数据库（建表 + 从旧 issues.json 幂等迁移）
@@ -29,7 +28,6 @@ def register_core_blueprints(app: Flask) -> None:
     app.register_blueprint(shared_watch_bp)
     app.register_blueprint(gallery_bp)
     app.register_blueprint(markers_bp)
-    app.register_blueprint(system_info_bp)
     app.register_blueprint(suggestion_bp)
 
 

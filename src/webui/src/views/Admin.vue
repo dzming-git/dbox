@@ -1150,7 +1150,7 @@ const selectFileFromBrowser = (item: any) => {
 const fetchSystemInfo = async () => {
   loading.value.info = true
   try {
-    const res = await api.get('/api/system/info') as any
+    const res = await api.get('/api/ext/system-monitor/info') as any
     if (res.success) {
       systemInfo.value = res.info
     }
@@ -1194,7 +1194,7 @@ const fetchSystemStats = async () => {
 const fetchSystemPaths = async () => {
   loading.value.paths = true
   try {
-    const res = await api.get('/api/system/paths') as any
+    const res = await api.get('/api/ext/system-monitor/paths') as any
     if (res.success) {
       systemPaths.value = res.paths
     }
