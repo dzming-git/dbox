@@ -255,4 +255,20 @@ onMounted(load)
   font-family: inherit;
 }
 .form-field textarea { resize: vertical; min-height: 60px; }
+
+/* 移动端：窄屏下卡片由横向一行改为纵向堆叠，避免元素重叠 */
+@media (max-width: 640px) {
+  .vault-page { padding: 16px 12px; }
+  .page-head { flex-wrap: wrap; gap: 10px; }
+  .profile-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .profile-main { flex-wrap: wrap; }
+  .profile-name, .profile-domain { white-space: normal; word-break: break-all; }
+  .profile-meta { flex-wrap: wrap; }
+  .profile-meta .note { max-width: none; white-space: normal; word-break: break-word; }
+  .profile-actions { justify-content: flex-end; }
+}
 </style>

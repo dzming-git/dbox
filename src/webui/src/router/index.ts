@@ -206,7 +206,10 @@ export { routes }
 // 框架不硬编码任何插件路径——启动后拉取 ui-extensions，凡声明了 standalone_route 且
 // 已启用的插件，都在其路径上挂载 ExtensionStandalone 全屏页（按插件 id 注入）。
 // 若某插件目录被删除，这里自然不会注册其路由，实现「删掉即无、框架零入侵」。
-export async function registerExtensionRoutes() {
+// 可重入：注册成功后置位，避免重复拉取/注册
+let extRoutesReady = false
+export async function ensureExtensionRoutes() {
+  if (extRoutesReady) return
   try {
     const res: any = await (await import('../api/script')).scriptApi.listExtensions()
     if (!res?.success) return
@@ -224,10 +227,15 @@ export async function registerExtensionRoutes() {
         meta: { title: ext.ui?.title || ext.name || ext.id, requiresAuth: true, requiresAdmin: true }
       })
     }
+    extRoutesReady = true
   } catch (e) {
     // 扩展宿主暂不可用时静默忽略：核心功能不受影响，悬浮面板入口仍由 ExtensionHost 提供
+    console.warn('[router] 首次注册扩展独立路由失败（将在导航守卫中重试）:', e)
   }
 }
+
+// 兼容旧名
+export const registerExtensionRoutes = ensureExtensionRoutes
 
 // 路由守卫 - 全局认证拦截
 router.beforeEach(async (to, from, next) => {
@@ -273,7 +281,20 @@ router.beforeEach(async (to, from, next) => {
     next({ name: 'Home' })
     return
   }
-  
+
+  // 4. 兜底：目标未匹配到任何路由（将落到 404 catch-all）时，尝试注册扩展独立路由后重放一次。
+  // 解决「直接刷新 /xxx-standalone 这类扩展独立页时，因异步注册尚未完成而 404」的框架 bug。
+  // （main.ts 已把 ensureExtensionRoutes 移到 app.use(router) 之前，此兜底为双保险）
+  const resolved = router.resolve(to.fullPath)
+  if (resolved.matched.length === 0 || resolved.name === 'NotFound') {
+    await ensureExtensionRoutes()
+    const re = router.resolve(to.fullPath)
+    if (re.matched.length > 0 && re.name !== 'NotFound') {
+      next(re.fullPath)
+      return
+    }
+  }
+
   next()
 })
 

@@ -178,6 +178,15 @@ function closePanel() {
   openId.value = null
 }
 
+// 框架层统一提供的「全屏」入口：任何声明了 standalone_route 的扩展自动获得。
+// 直接路由跳转并收起浮层面板；预览上下文由各扩展在自己的 panel.html 中经
+// localStorage 持久化，全屏页（ExtensionStandalone）加载后自动恢复。
+function openStandalone(ext: Extension) {
+  if (!ext.ui.standalone_route) return
+  openId.value = null
+  router.push(ext.ui.standalone_route)
+}
+
 onMounted(async () => {
   await loadToken()
   await loadExtensions()
@@ -277,7 +286,15 @@ watch(() => route.path, (p) => {
       >
         <div class="ext-panel-header">
           <span>{{ ext.ui.title }}</span>
-          <button class="ext-close" @click="openId = null">×</button>
+          <div class="ext-panel-actions">
+            <button
+              v-if="ext.ui.standalone_route"
+              class="ext-fs"
+              title="在独立页面全屏打开"
+              @click="openStandalone(ext)"
+            >⛶ 全屏</button>
+            <button class="ext-close" @click="openId = null">×</button>
+          </div>
         </div>
         <iframe
           :id="`ext-frame-${ext.id}`"
@@ -294,7 +311,15 @@ watch(() => route.path, (p) => {
       >
         <div class="ext-side-header">
           <span>{{ ext.ui.title }}</span>
-          <button class="ext-close" @click="openId = null">×</button>
+          <div class="ext-panel-actions">
+            <button
+              v-if="ext.ui.standalone_route"
+              class="ext-fs"
+              title="在独立页面全屏打开"
+              @click="openStandalone(ext)"
+            >⛶ 全屏</button>
+            <button class="ext-close" @click="openId = null">×</button>
+          </div>
         </div>
         <iframe
           :id="`ext-frame-${ext.id}`"
@@ -496,6 +521,24 @@ watch(() => route.path, (p) => {
   font-size: 20px;
   cursor: pointer;
   line-height: 1;
+}
+.ext-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ext-fs {
+  background: var(--accent, #4f8cff);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.ext-fs:hover {
+  filter: brightness(1.08);
 }
 .ext-panel {
   position: fixed;

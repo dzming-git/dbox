@@ -57,7 +57,10 @@ def _load_plugins(app):
             factory = getattr(mod, be.get('factory', 'create_blueprint'))
             host = build_host(sc, app)
             bp = factory(host)
-            app.register_blueprint(bp)
+            # 必须显式传入 host.url_prefix（来自 manifest.backend.url_prefix 或 /api/ext/<id>），
+            # 否则蓝图自身若未声明 url_prefix，路由会被注册到根路径（如 /preview 而非 /api/ext/<id>/preview），
+            # 导致前端 404。x_downloader/ai_assistant 在自己蓝图里也写了 url_prefix，这里再传一次会覆盖（值相同，无副作用）。
+            app.register_blueprint(bp, url_prefix=host.url_prefix)
             app.logger.info('插件已加载: %s (prefix=%s)', sc['id'], host.url_prefix)
         except Exception as e:
             app.logger.error('插件 %s 加载失败: %s', sc.get('id'), e)

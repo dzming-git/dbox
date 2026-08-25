@@ -531,9 +531,9 @@ const formatDate = (s?: string) => {
 .post-media { margin-top: 10px; }
 
 /* 朋友圈图片网格 —— 所有媒体（图片/视频封面/图集封面）统一混排 */
-.moments-grid { display: grid; gap: 4px; border-radius: 10px; overflow: hidden; width: fit-content; max-width: 480px; }
+.moments-grid { display: grid; gap: 4px; border-radius: 10px; overflow: hidden; width: 100%; max-width: 480px; }
 .grid-img-wrap { position: relative; display: block; cursor: pointer; border-radius: 6px; overflow: hidden; }
-.grid-img { display: block; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
+.grid-img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: var(--bg-surface-hover); border-radius: 6px; cursor: pointer; transition: opacity 0.15s; }
 .grid-img:hover { opacity: 0.88; }
 
 /* 视频播放角标 */
@@ -545,25 +545,17 @@ const formatDate = (s?: string) => {
   pointer-events: none;
 }
 
-/* 网格布局 —— 仿微信朋友圈 */
+/* 网格布局 —— 仿微信朋友圈（列数固定，图片随列自适应铺满，避免窄屏溢出） */
 .moments-grid.g-1 { grid-template-columns: 1fr; }
-.moments-grid.g-1 .grid-img { width: 280px; height: auto; aspect-ratio: 16/10; border-radius: 10px; }
+.moments-grid.g-1 .grid-img { aspect-ratio: 16 / 10; border-radius: 10px; }
 .moments-grid.g-2 { grid-template-columns: repeat(2, 1fr); }
-.moments-grid.g-2 .grid-img { width: 180px; height: 180px; }
 .moments-grid.g-3 { grid-template-columns: repeat(3, 1fr); }
-.moments-grid.g-3 .grid-img { width: 120px; height: 120px; }
 .moments-grid.g-4 { grid-template-columns: repeat(2, 1fr); }
-.moments-grid.g-4 .grid-img { width: 160px; height: 160px; }
 .moments-grid.g-5,
 .moments-grid.g-6,
 .moments-grid.g-7,
 .moments-grid.g-8,
 .moments-grid.g-9 { grid-template-columns: repeat(3, 1fr); }
-.moments-grid[class*="g-5"] .grid-img,
-.moments-grid[class*="g-6"] .grid-img,
-.moments-grid[class*="g-7"] .grid-img,
-.moments-grid[class*="g-8"] .grid-img,
-.moments-grid[class*="g-9"] .grid-img { width: 120px; height: 120px; }
 /* 灯箱 */
 .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
