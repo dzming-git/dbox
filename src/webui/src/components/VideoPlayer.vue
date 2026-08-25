@@ -357,10 +357,6 @@ async function onPortraitTouchEnd() {
 async function goPortraitNext() {
   portraitSwitching.value = true
   portraitDragY.value = -portraitViewportH.value
-  // 在用户手势内立即尝试播放“下一个”槽（slot 2，已预载 src），避免延迟到 280ms 后才 play
-  // 失去移动端（尤其 iOS Safari）的临时用户激活，导致切换后视频无法播放、只显示预览图
-  const nextEl = slotPlayers.value[2]
-  if (nextEl) { nextEl.muted = false; nextEl.play().catch(() => {}) }
   await new Promise((r) => setTimeout(r, 280))
   let ok = curIndex.value + 1 < props.playlist.length
   if (!ok && typeof props.loadMore === 'function') {
@@ -389,9 +385,6 @@ function goPortraitPrev() {
   }
   portraitSwitching.value = true
   portraitDragY.value = portraitViewportH.value
-  // 在用户手势内立即尝试播放“上一个”槽（slot 0）
-  const prevEl = slotPlayers.value[0]
-  if (prevEl) { prevEl.muted = false; prevEl.play().catch(() => {}) }
   setTimeout(() => {
     curIndex.value -= 1
     emit('update:index', curIndex.value)
@@ -401,7 +394,7 @@ function goPortraitPrev() {
     afterPortraitSwitch()
   }, 280)
 }
-// 预加载下一个视频到 playlist，使 slot 2 提前持有 src，便于滑动切换时在用户手势内立即播放
+// 预加载下一个视频到 playlist，使 slot 2 提前持有 src，滑动切换时无缝衔接
 async function prefetchNext() {
   if (curIndex.value + 1 < props.playlist.length) return
   if (typeof props.loadMore !== 'function') return
@@ -415,7 +408,19 @@ function afterPortraitSwitch() {
   prefetchNext()
   nextTick(() => {
     const cur = slotPlayers.value[PORTRAIT_CUR]
-    if (cur) { cur.muted = false; cur.play().catch(() => {}) }
+    if (cur) {
+      // 切换 / 自动连播时 play() 多在用户手势之外触发；未静音的自动播放会被移动端浏览器
+      // （iOS Safari 等）的自动播放策略拦截，于是新视频停在预览图不动。
+      // 先以静音播放（静音自动播放始终被允许），待播放真正开始后取消静音，
+      // 既保证一定能播，又保留有声观感，且不依赖手势时机。
+      cur.muted = true
+      const p = cur.play()
+      if (p && typeof p.then === 'function') {
+        p.then(() => { cur.muted = false }).catch(() => { cur.muted = false })
+      } else {
+        cur.muted = false
+      }
+    }
     slotPlayers.value[2]?.pause()
     slotPlayers.value[0]?.pause()
   })
