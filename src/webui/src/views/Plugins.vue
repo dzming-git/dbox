@@ -17,7 +17,15 @@ const router = useRouter()
 const loading = ref(false)
 const plugins = ref<PluginInfo[]>([])
 const toggling = ref<string | null>(null)
+const reloading = ref<string | null>(null)
 const errMsg = ref('')
+const toastMsg = ref('')
+let toastTimer: any = null
+function toast(msg: string) {
+  toastMsg.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toastMsg.value = ''), 2500)
+}
 
 async function load() {
   loading.value = true
@@ -65,8 +73,23 @@ async function toggle(p: PluginInfo) {
 async function reloadAll() {
   try {
     await scriptApi.reload()
-  } catch (e) {}
+    toast('已重新扫描并热重载全部插件')
+  } catch (e) {
+    toast('重载失败：' + ((e as any)?.response?.data?.message || (e as any)?.message || '未知错误'))
+  }
   await load()
+}
+
+async function reloadOne(p: PluginInfo) {
+  reloading.value = p.id
+  try {
+    await scriptApi.reload()
+    toast(`插件「${p.name}」已热重载`)
+  } catch (e) {
+    toast('重载失败：' + ((e as any)?.response?.data?.message || (e as any)?.message || '未知错误'))
+  } finally {
+    reloading.value = null
+  }
 }
 
 function openSettings(p: PluginInfo) {
@@ -127,9 +150,21 @@ onMounted(load)
           >
             设置
           </button>
+          <button
+            class="action-btn"
+            :disabled="reloading === p.id"
+            title="重新加载该插件代码（无需重启服务）"
+            @click="reloadOne(p)"
+          >
+            {{ reloading === p.id ? '重载中…' : '重载' }}
+          </button>
         </div>
       </div>
     </div>
+
+    <transition name="fade">
+      <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
+    </transition>
   </div>
 </template>
 
@@ -287,4 +322,20 @@ onMounted(load)
   opacity: .45;
   cursor: not-allowed;
 }
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  z-index: 100;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity .2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

@@ -25,45 +25,7 @@ if _SERVICES_DIR not in sys.path:
     sys.path.insert(0, _SERVICES_DIR)
 
 from routes import script_bp, init_script_engine
-from manifest import load_all, scripts_base_dir
-from plugin_host import build_host
-
-
-def _load_plugins(app):
-    """动态加载「纯插件」：扫描 manifest 声明了 backend 段的插件，
-    构造 host 宿主对象并注册其 Blueprint。删除插件文件夹即自动跳过，框架零入侵。"""
-    try:
-        base = scripts_base_dir()
-        scripts = load_all(base)
-    except Exception as e:
-        app.logger.error('插件扫描失败: %s', e)
-        return
-    # 将项目根（dbox/）加入 sys.path，使 importlib 能按 'extensions.<id>.backend.server'
-    # 解析插件模块（扁平化布局：extensions/<id>/backend/server.py）。
-    # 否则直接 `python src/extensions_host/app.py` 运行时（如 NSSM 启动）会因
-    # sys.path 不含项目根而报 No module named 'extensions'。
-    _proj_root = os.path.dirname(base)          # dbox/（base 已是 dbox/extensions）
-    if _proj_root not in sys.path:
-        sys.path.insert(0, _proj_root)
-    for sc in scripts.values():
-        be = sc.get('backend')
-        if not be:
-            continue
-        mod_path = be.get('module') or 'backend.server'
-        try:
-            import importlib
-            mod = importlib.import_module(
-                'extensions.%s.%s' % (sc['id'], mod_path))
-            factory = getattr(mod, be.get('factory', 'create_blueprint'))
-            host = build_host(sc, app)
-            bp = factory(host)
-            # 必须显式传入 host.url_prefix（来自 manifest.backend.url_prefix 或 /api/ext/<id>），
-            # 否则蓝图自身若未声明 url_prefix，路由会被注册到根路径（如 /preview 而非 /api/ext/<id>/preview），
-            # 导致前端 404。x_downloader/ai_assistant 在自己蓝图里也写了 url_prefix，这里再传一次会覆盖（值相同，无副作用）。
-            app.register_blueprint(bp, url_prefix=host.url_prefix)
-            app.logger.info('插件已加载: %s (prefix=%s)', sc['id'], host.url_prefix)
-        except Exception as e:
-            app.logger.error('插件 %s 加载失败: %s', sc.get('id'), e)
+from plugin_loader import load_all_plugins
 
 
 def create_app():
@@ -87,7 +49,19 @@ def create_app():
 
     app.register_blueprint(script_bp)
     init_script_engine(app)
-    _load_plugins(app)
+    load_all_plugins(app)
+    # 启动插件文件变动热重载监控：改 backend/*.py 或 manifest.json 后自动 reload，
+    # 受插件 __ext_busy__ 钩子保护（有活跃任务时延迟重载，避免打断正在跑的任务）。
+    print('[hotreload] create_app 末尾，准备启动热重载监控', flush=True)
+    try:
+        from hotreload import start_hotreload
+        from manager import mgr
+        start_hotreload(app, lambda: mgr.scripts)
+        print('[hotreload] start_hotreload 调用完成', flush=True)
+    except Exception:
+        logger.exception('热重载监控启动失败（不影响主流程）')
+        import traceback
+        traceback.print_exc()
     return app
 
 

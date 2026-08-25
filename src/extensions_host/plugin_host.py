@@ -25,6 +25,13 @@ from shared.unified_tasks import (
     init_task_manager as _ut_init,
     create_task, update_task, delete_task, get_task, get_tasks,
 )
+from registry import (
+    register_extension as _reg_register_extension,
+    db_path as _reg_db_path,
+    cache_path as _reg_cache_path,
+    register_url as _reg_register_url,
+    resolve as _reg_resolve,
+)
 
 
 class _VaultProxy:
@@ -119,27 +126,36 @@ class _HttpProxy:
 
 
 class Host:
-    """注入插件的宿主对象。字段均为稳定契约，内部实现可自由演进。"""
+    """注入插件的宿主对象。字段均为稳定契约，内部实现可自由演进。
+
+    标识约定：key == 文件夹名（filesystem 唯一），作为数据库目录 / 缓存目录 /
+    URL 前缀的命名空间。plugin_id 保留为兼容别名（恒等于 key）。
+    """
 
     def __init__(self, manifest, app):
-        self.plugin_id = manifest.get('id')
+        # key 强制为文件夹名；manifest.id 已被 loader 强制为文件夹名，这里再显式取
+        # 文件夹字段，确保即使 manifest 异常也不会偏离 filesystem 唯一标识。
+        self.key = manifest.get('_folder') or manifest.get('id')
+        self.plugin_id = self.key  # 向后兼容：旧插件仍可用 host.plugin_id
         self.manifest = manifest
         self.config = manifest.get('backend', {}) or {}
-        self.url_prefix = self.config.get('url_prefix') or ('/api/ext/' + self.plugin_id)
-        # 插件私有数据目录：<data_dir>/plugins/<plugin_id>
+        self.url_prefix = self.config.get('url_prefix') or ('/api/ext/' + self.key)
+        # 插件私有数据目录：<data_dir>/plugins/<key>
         root = os.environ.get('DBOX_DATA_DIR')
         if not root:
             pkg_dir = os.path.dirname(os.path.abspath(__file__))
             root = os.path.join(os.path.dirname(os.path.dirname(pkg_dir)), 'data')
-        self.data_dir = os.path.join(root, 'plugins', self.plugin_id)
+        self.data_dir = os.path.join(root, 'plugins', self.key)
         os.makedirs(self.data_dir, exist_ok=True)
         # 插件进程级状态容器（框架不干预内容）
         self.app_state = {}
-        self.logger = logging.getLogger('plugin.' + self.plugin_id)
+        self.logger = logging.getLogger('plugin.' + self.key)
         self.vault = _VaultProxy()
-        self.tasks = _TasksProxy(self.plugin_id)
+        self.tasks = _TasksProxy(self.key)
         self.http = _HttpProxy()
         self._app = app
+        # 集中登记到资源注册表，供框架统一翻译真实地址（db / cache / url）。
+        _reg_register_extension(self.key, self.key, self.data_dir)
 
     # ---- 鉴权装饰器（框架处理 JWT，插件不碰 token）----
     def login_required(self, f):
@@ -193,6 +209,52 @@ class Host:
                 return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
             return f(*args, **kwargs)
         return decorated
+
+    # ---- 资源命名空间（数据库 / 缓存 / URL，均由框架统一翻译真实地址）----
+    def db(self, name='main'):
+        """返回该拓展下名为 name 的数据库文件真实路径（按需建目录）。
+
+        允许多数据库：同一 key 下用不同 name 区分（如 host.db('chat') /
+        host.db('stats')）。返回的是路径，插件自行打开 sqlite 等。
+        """
+        return _reg_db_path(self.key, name)
+
+    def cache(self, name='main'):
+        """返回该拓展下名为 name 的缓存目录真实路径（按需建目录）。
+
+        允许多缓存：host.cache('thumb') / host.cache('tmp') 互不干扰。
+        """
+        return _reg_cache_path(self.key, name)
+
+    def resolve(self, kind, name='main'):
+        """真实地址翻译：kind ∈ {db, cache, url}。
+
+        - db   -> 数据库文件路径
+        - cache-> 缓存目录路径
+        - url  -> 该 key 已注册的 URL 前缀（name 为索引或 'main'）
+        集中走 registry，便于治理与排查。
+        """
+        return _reg_resolve(self.key, kind, name)
+
+    def register_url(self, prefix):
+        """登记一个额外的 URL 前缀（多 URL 能力）。
+
+        插件可在 create_blueprint 中通过 host.register_blueprint(bp) 挂载
+        多个 blueprint，每个使用不同前缀（均建议位于 /api/ext/<key>/ 下，
+        以便主服务网关统一代理），并调用本方法登记以便框架感知。
+        """
+        _reg_register_url(self.key, prefix)
+
+    def register_blueprint(self, bp):
+        """由插件动态挂载额外的 Flask blueprint（支持多 URL）。
+
+        传入的 blueprint 应自带 url_prefix（如 /api/ext/<key>/extra）；
+        挂载后框架自动登记该前缀。返回 bp 以便链式调用。
+        """
+        if bp is not None and getattr(bp, 'url_prefix', None):
+            self.register_url(bp.url_prefix)
+        self._app.register_blueprint(bp)
+        return bp
 
     # ---- 资源入库（把插件下载的文件纳入资源/图集库）----
     def ingest(self, library_id, path, kind=None, modes=('video', 'image'),

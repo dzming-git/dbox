@@ -47,7 +47,12 @@ def _load_one(ms_dir):
                 return {'_dir': ms_dir, 'id': os.path.basename(ms_dir),
                         '_error': 'manifest 根节点必须是对象'}
             data['_dir'] = ms_dir
-            data.setdefault('id', os.path.basename(ms_dir))
+            # key 强制等于文件夹名（filesystem 唯一），作为数据库目录 / 缓存目录 /
+            # URL 前缀的命名空间。manifest 里的 id 仅作显示名，不再用于路由或注册。
+            folder = os.path.basename(ms_dir)
+            data['_folder'] = folder
+            data['id'] = folder
+            data.setdefault('name', folder)
             data.setdefault('enabled', False)
             data.setdefault('interface', 1)
             data.setdefault('runtime', 'executable')

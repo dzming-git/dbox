@@ -608,4 +608,10 @@ body.ext-no-scroll {
 body.portrait-mode-active .ext-launcher-fab {
   display: none !important;
 }
+/* 扩展独立全屏页（ExtensionStandalone）下隐藏 apps 启动器，
+   避免右下角浮球遮挡面板内 composer 的「发送」按钮 */
+body.ext-standalone .ext-launcher-fab,
+body.ext-standalone .ext-launcher {
+  display: none !important;
+}
 </style>

@@ -12,7 +12,7 @@ platform_client 以 HTTP 调用主服务暴露的内部契约接口完成业务�
 - notify / input 由脚本进程回调，使用任务作用域一次性令牌鉴权，不要求用户会话。
 """
 from functools import wraps
-from flask import Blueprint, request, jsonify, g, Response, stream_with_context
+from flask import Blueprint, request, jsonify, g, Response, stream_with_context, current_app
 
 from authlib.jose import jwt
 
@@ -232,8 +232,15 @@ def update_script_settings(script_id):
 @script_bp.route('/api/admin/scripts/reload', methods=['POST'])
 @admin_required
 def reload_scripts():
-    count = mgr.reload()
-    return jsonify({'success': True, 'count': count})
+    """重新扫描并真正重载插件 Blueprint（不仅刷新 manifest 字典）。
+
+    改动插件 .py / manifest / ui 后调用此接口即可生效，无需重启 8093 进程。
+    """
+    mgr.reload()  # 刷新 manifest 字典（id / 启用状态 / url_prefix 等）
+    # 真正注销旧 Blueprint + 重新 import 模块 + 重新注册
+    from plugin_loader import reload_all_plugins
+    ok = reload_all_plugins(current_app._get_current_object())
+    return jsonify({'success': True, 'reloaded': ok})
 
 
 # ---------- 扩展 UI 注入 ----------
@@ -295,6 +302,15 @@ def get_panel(script_id):
         return jsonify({'success': False, 'message': 'UI 入口文件不存在'}), 404
     with open(target, 'r', encoding='utf-8') as f:
         content = f.read()
+    # 框架提供的「真实地址翻译」：把与 key 相关的占位符替换为运行期真实值，
+    # 使面板不再写死插件 id / 前缀（零入侵、可复用于任意拓展）。
+    #   __EXT_KEY__          -> 拓展 key（=文件夹名）
+    #   __EXT_API_PREFIX__   -> 后端 API 前缀（/api/ext/<key>/，含结尾斜杠）
+    api_prefix = (sc.get('backend') or {}).get('url_prefix') or ('/api/ext/%s' % script_id)
+    if not api_prefix.endswith('/'):
+        api_prefix += '/'
+    content = content.replace('__EXT_KEY__', script_id).replace(
+        '__EXT_API_PREFIX__', api_prefix)
     # 面板由悬浮窗 iframe 加载、不走 vite HMR，浏览器可能缓存旧版本导致新功能不生效，
     # 故强制不缓存，保证每次打开都拉取最新 panel.html。
     return Response(content, mimetype='text/html; charset=utf-8',
@@ -382,7 +398,7 @@ def vault_create():
         value = _parse_cookie_value(raw)
         if not value:
             return jsonify({'success': False, 'message': 'cookie 凭证需提供有效的 cookies 文本'}), 400
-    pid = vault.add(kind, name or f'{kind}:{domain}', domain, value,
+    pid = vault.add(kind, name, domain, value,
                     note=data.get('note') or '', fmt=data.get('format') or 'netscape')
     return jsonify({'success': True, 'id': pid})
 
@@ -442,7 +458,7 @@ def vault_update(cid):
                 return jsonify({'success': False, 'message': 'cookie 凭证需提供有效的 cookies 文本'}), 400
     # 覆盖写入：先删后加（add 的 pid 由 kind|domain|name 哈希决定，同 key 会得到同 pid）
     vault.delete(cid)
-    new_pid = vault.add(kind, name or f'{kind}:{domain}', domain, value, note=note, fmt=fmt)
+    new_pid = vault.add(kind, name, domain, value, note=note, fmt=fmt)
     return jsonify({'success': True, 'id': new_pid})
 
 
