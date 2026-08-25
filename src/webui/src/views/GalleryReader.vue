@@ -23,7 +23,6 @@ const error = ref('')
 
 const mode = ref<'scroll' | 'page'>((localStorage.getItem('dbox_gallery_mode') as any) || 'scroll')
 const fit = ref<'width' | 'height' | 'original'>((localStorage.getItem('dbox_gallery_fit') as any) || 'width')
-const toolsOpen = ref(false) // 工具浮层（非核心操作）显隐，默认收起以省空间
 const currentPage = ref(1)
 const showThumbs = ref(false)
 const isInContinue = ref(false)   // 是否已在「继续阅读」列表（用户主动加入）
@@ -337,42 +336,6 @@ const toggleControls = () => {
   else uiHidden.value = false
 }
 
-// ============ 大图(page)模式：手势滑动切图 ============
-// 仅在 page 模式下给阅读区挂触摸手势：横向位移 > 阈值则切图，纵向位移忽略（避免误触）。
-// 不为 scroll 模式挂手势（它本就是纵向滚动，由原生滚动处理）。
-let touchStartX = 0
-let touchStartY = 0
-let touchActive = false
-const SWIPE_THRESHOLD = 50
-const onTouchStart = (e: TouchEvent) => {
-  if (mode.value !== 'page') return
-  const t = e.touches[0]
-  touchStartX = t.clientX
-  touchStartY = t.clientY
-  touchActive = true
-}
-const onTouchEnd = (e: TouchEvent) => {
-  if (mode.value !== 'page' || !touchActive) return
-  touchActive = false
-  const t = e.changedTouches[0]
-  const dx = t.clientX - touchStartX
-  const dy = t.clientY - touchStartY
-  // 横向位移显著且大于纵向（排除竖向滑动），才切图
-  if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-    if (dx < 0) next()
-    else prev()
-  }
-}
-
-// 移动端(粗指针/触摸)首次进入自动沉浸，最大化可视面积
-const autoImmersiveOnMobile = () => {
-  try {
-    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-      setImmersive(true)
-    }
-  } catch { /* 忽略不支持 */ }
-}
-
 const interact = async (type: 'like' | 'favorite' | 'dislike') => {
   if (!gallery.value) return
   const res: any = await galleryStore.interact(gallery.value.hash, type)
@@ -610,7 +573,6 @@ const loadGallery = async (hash: string) => {
 onMounted(async () => {
   await loadGallery(route.params.hash as string)
   await loadCollectionContext()
-  autoImmersiveOnMobile()
   window.visualViewport?.addEventListener('resize', updateViewportInsets)
   window.visualViewport?.addEventListener('scroll', updateViewportInsets)
   window.addEventListener('resize', updateViewportInsets)
@@ -670,7 +632,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
       title="展开菜单"
     >☰</button>
 
-    <!-- 顶部工具栏：主行（始终一行，省空间）+ 工具浮层（其余操作，点 ☰ 展开） -->
+    <!-- 顶部工具栏 -->
     <div class="reader-bar" :class="{ 'ui-hidden': uiHidden }">
       <button class="bar-btn" @click="back" title="返回">‹ 返回</button>
       <div class="bar-title" :title="gallery.title">{{ gallery.title }}</div>
@@ -685,10 +647,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <span class="page-total">/ {{ total }}</span>
         <button class="bar-btn" @click="next" :disabled="currentPage>=total">›</button>
       </div>
-      <!-- 工具浮层触发按钮：其余操作收进浮层，默认收起省空间 -->
-      <button class="bar-btn tools-toggle" :class="{active: toolsOpen}" @click="toolsOpen = !toolsOpen" title="更多操作">☰</button>
-      <button class="bar-btn" :class="{active: immersive}" @click="toggleImmersive" :title="immersive ? '退出全屏 (F)' : '全屏沉浸阅读 (F)'">{{ immersive ? '退出全屏' : '全屏' }}</button>
-      <div class="bar-tools" v-if="toolsOpen">
+      <div class="bar-tools">
         <!-- 点赞 -->
         <button class="bar-action" :class="{active: gallery.is_liked}" @click="interact('like')" title="点赞">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
@@ -756,6 +715,8 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         <button class="bar-btn" :class="{active: fit==='original'}" @click="setFit('original')" title="原始大小">原</button>
         <span class="divider"></span>
         <button class="bar-btn" :class="{active: showThumbs}" @click="showThumbs = !showThumbs" title="目录/缩略图">目录</button>
+        <span class="divider"></span>
+        <button class="bar-btn" :class="{active: immersive}" @click="toggleImmersive" :title="immersive ? '退出全屏 (F)' : '全屏沉浸阅读 (F)'">{{ immersive ? '退出全屏' : '全屏' }}</button>
       </div>
     </div>
 
@@ -778,7 +739,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
     </div>
 
     <!-- 阅读区 -->
-    <div class="reader-body" :class="mode" @click="toggleControls" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+    <div class="reader-body" :class="mode" @click="toggleControls">
       <!-- 翻页模式：单页 -->
       <div v-if="mode==='page'" class="page-mode">
         <img
@@ -875,9 +836,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   text-align: center;
 }
 .reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-surface); }
-.reader-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-surface); border-bottom: 1px solid #2a2a2a; flex-wrap: nowrap; overflow-x: auto; max-height: 52px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
-.reader-bar::-webkit-scrollbar { display: none; }
-.tools-toggle { font-size: 16px; line-height: 1; }
+.reader-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--bg-surface); border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; overflow: visible; max-height: 400px; transition: transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, padding 0.25s ease, border-width 0.25s ease; }
 .reader-bar.ui-hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; }
 .bar-btn { background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
 .bar-btn:hover:not(:disabled) { background: #333; color: var(--text-on-accent); }
@@ -917,10 +876,10 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
   margin: 4px 0;
 }
 .thumb-item img.img-error { object-fit: contain; opacity: 0.3; }
-.page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 88px; background: rgba(0,0,0,0.28); color: var(--text-on-accent); display: flex; align-items: center; justify-content: center; font-size: 32px; cursor: pointer; border-radius: 8px; user-select: none; opacity: 0.35; transition: opacity 0.2s; }
-.page-nav:hover, .page-nav:active { opacity: 0.8; }
-.page-nav.prev { left: 8px; }
-.page-nav.next { right: 8px; }
+.page-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 96px; background: rgba(0,0,0,0.4); color: var(--text-on-accent); display: flex; align-items: center; justify-content: center; font-size: 36px; cursor: pointer; border-radius: 8px; user-select: none; }
+.page-nav:hover { background: rgba(0,0,0,0.65); }
+.page-nav.prev { left: 12px; }
+.page-nav.next { right: 12px; }
 .reader-loading, .reader-error { height: 100vh; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--text-secondary); }
 .spinner { width: 48px; height: 48px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
