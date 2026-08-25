@@ -78,6 +78,7 @@ DEFAULT_MONITORED = [
     {'win': 'dbox-web',        'bus': None,               'display': 'Web API'},
     {'win': 'dbox-webui',      'bus': None,               'display': 'WebUI'},
     {'win': 'dbox-downloader', 'bus': None,               'display': '下载器'},
+    {'win': 'dbox-extensions', 'bus': None,               'display': '扩展宿主'},
     {'win': 'dbox-scheduler',   'bus': None,               'display': '脚本调度器'},
 ]
 
@@ -92,6 +93,10 @@ AUTO_RESTART_EXCLUDED = {'dbox-bus', 'dbox-servicemgr', 'dbox-watchdog'}
 #  - dbox-downloader 复用 extensions_host 引擎，暴露 /api/health 端点做探活。
 _KNOWN_HEALTH_URLS = {
     'dbox-downloader': 'http://127.0.0.1:8092/api/health',
+    # extensions_host 没有无认证的健康端点：/api/ui-extensions 会返回 401（进程活着即视为可达）
+    'dbox-extensions': 'http://127.0.0.1:8093/api/ui-extensions',
+    # dbox-web 内部契约 HTTP 端口（127.0.0.1:8080）：进程在但端口未监听时探活失败
+    'dbox-web': 'http://127.0.0.1:8080/api/health',
 }
 
 
@@ -423,11 +428,19 @@ class WatchdogService(BaseDBusService):
 
     @staticmethod
     def _http_health(url: str) -> str:
-        """对已知 health url 发起 HTTP 探活，返回 health_status 字符串。"""
+        """对已知 health url 发起 HTTP 探活，返回 health_status 字符串。
+
+        对受保护服务（无公开健康端点）：
+          - 401/403（认证拦截）：说明进程在正常响应请求，视为可达；
+          - 404：进程在、只是该路径无路由，同样视为可达（服务活着）；
+          - 仅连接失败/超时才判为不可达，避免「进程在但端口没监听」被误判为健康。
+        """
         import requests
         try:
             resp = requests.get(url, timeout=1.5)
-            return 'healthy' if resp.status_code == 200 else 'unhealthy'
+            if resp.status_code in (200, 401, 403, 404):
+                return 'healthy'
+            return 'unhealthy'
         except requests.exceptions.Timeout:
             return 'timeout'
         except Exception:
