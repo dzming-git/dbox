@@ -12,13 +12,5 @@ export const serviceManageApi = {
 
 export const systemApi = {
   // 看门狗汇总的整体健康状态（服务运维面板插件）
-  getHealth: () => api.get('/api/ext/service-ops/health'),
-  // 关机（系统电源控制插件）：按 action 分发到对应端点
-  shutdown: (action: 'immediate' | 'scheduled' | 'after_tasks', minutes?: number) => {
-    if (action === 'immediate') return api.post('/api/ext/system-power/shutdown', { immediate: true })
-    if (action === 'scheduled') return api.post('/api/ext/system-power/shutdown/scheduled', { minutes })
-    return api.post('/api/ext/system-power/shutdown/after-tasks', { enable: true })
-  },
-  cancelShutdown: () =>
-    api.post('/api/ext/system-power/shutdown/cancel')
+  getHealth: () => api.get('/api/ext/service-ops/health')
 }

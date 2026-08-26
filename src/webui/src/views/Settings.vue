@@ -21,7 +21,6 @@ import {
 } from '../utils/settings'
 import { applyThemeById, getThemeOptions, DEFAULT_THEME_ID } from '../utils/theme'
 import { interactionApi } from '../api'
-import { systemApi } from '../api/index'
 
 const videoStore = useVideoStore()
 const userStore = useUserStore()
@@ -270,46 +269,6 @@ async function clearAllData() {
   }
 }
 
-// ============ 系统控制：电脑关机（仅管理员） ============
-const shutdownMinutes = ref(0)
-const shutdownLoading = ref(false)
-
-async function doShutdown(action: 'immediate' | 'scheduled' | 'after_tasks') {
-  const label: Record<string, string> = {
-    immediate: '立即关机',
-    scheduled: '定时关机',
-    after_tasks: '任务结束后关机',
-  }
-  if (action === 'scheduled') {
-    if (!shutdownMinutes.value || shutdownMinutes.value <= 0) {
-      showToast('请先输入有效的分钟数')
-      return
-    }
-    if (!confirm(`确定要在 ${shutdownMinutes.value} 分钟后关机吗？`)) return
-  } else if (!confirm(`确定要${label[action]}吗？`)) {
-    return
-  }
-  shutdownLoading.value = true
-  try {
-    await systemApi.shutdown(action, action === 'scheduled' ? shutdownMinutes.value : undefined)
-    showToast(action === 'after_tasks' ? '已安排：任务结束(空闲)后自动关机' : `${label[action]}指令已发送`)
-  } catch (e: any) {
-    showToast('操作失败：' + (e?.response?.data?.message || e?.message || e))
-  } finally {
-    shutdownLoading.value = false
-  }
-}
-
-async function doCancelShutdown() {
-  if (!confirm('确定要取消已安排的关机计划吗？')) return
-  try {
-    await systemApi.cancelShutdown()
-    showToast('已取消关机计划')
-  } catch (e: any) {
-    showToast('取消失败：' + (e?.response?.data?.message || e?.message || e))
-  }
-}
-
 const toastMessage = ref('')
 const showToastFlag = ref(false)
 function showToast(message: string) {
@@ -501,42 +460,6 @@ watch(
           <button class="danger-btn" @click="clearAllData" data-testid="clear-all-data-button">
             清除数据
           </button>
-        </div>
-      </section>
-
-      <!-- 系统控制（仅管理员）：电脑关机 -->
-      <section class="settings-section" id="group-system" v-if="isAdmin">
-        <h2 class="section-title">系统控制 · 电脑关机</h2>
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">立即关机</label>
-            <p class="setting-desc">马上关闭这台电脑（不可恢复，请谨慎）</p>
-          </div>
-          <button class="danger-btn" :disabled="shutdownLoading" @click="doShutdown('immediate')">立即关机</button>
-        </div>
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">定时关机</label>
-            <p class="setting-desc">在指定分钟数后自动关闭电脑</p>
-          </div>
-          <div class="shutdown-controls">
-            <input type="number" min="1" class="setting-select" v-model.number="shutdownMinutes" placeholder="分钟" />
-            <button class="danger-btn" :disabled="shutdownLoading" @click="doShutdown('scheduled')">定时关机</button>
-          </div>
-        </div>
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">任务结束后关机</label>
-            <p class="setting-desc">等待转码 / 下载等任务全部结束（空闲）后自动关机</p>
-          </div>
-          <button class="danger-btn" :disabled="shutdownLoading" @click="doShutdown('after_tasks')">任务结束后关机</button>
-        </div>
-        <div class="setting-item">
-          <div class="setting-info">
-            <label class="setting-label">取消关机</label>
-            <p class="setting-desc">取消已安排的关机计划</p>
-          </div>
-          <button class="reset-btn" :disabled="shutdownLoading" @click="doCancelShutdown">取消关机</button>
         </div>
       </section>
 
@@ -870,17 +793,6 @@ input:disabled + .toggle-slider {
 .setting-select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.shutdown-controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.shutdown-controls input.setting-select {
-  width: 110px;
-  cursor: text;
 }
 
 /* Radio Group */
