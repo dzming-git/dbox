@@ -234,13 +234,28 @@ def update_script_settings(script_id):
 def reload_scripts():
     """重新扫描并真正重载插件 Blueprint（不仅刷新 manifest 字典）。
 
-    改动插件 .py / manifest / ui 后调用此接口即可生效，无需重启 8093 进程。
+    采用「整进程重启」方式：经 nssm restart 整个 extensions 宿主进程，走经过验证的
+    初始 load_all 路径，保证重载后蓝图状态干净（规避进程内手工 unregister 在
+    Flask/Werkzeug 下残留路由索引的 KeyError 500，以及单插件错误污染全局 url_map）。
+    单插件错误由启动期的 load_all_plugins 隔离（每个插件独立 try/except），不影响其他。
     """
-    mgr.reload()  # 刷新 manifest 字典（id / 启用状态 / url_prefix 等）
-    # 真正注销旧 Blueprint + 重新 import 模块 + 重新注册
-    from plugin_loader import reload_all_plugins
-    ok = reload_all_plugins(current_app._get_current_object())
-    return jsonify({'success': True, 'reloaded': ok})
+    import subprocess, shutil, os as _os, sys as _sys
+    try:
+        svc = _os.environ.get('EXTENSIONS_HOST_SERVICE', 'dbox-extensions')
+        nssm_bin = r'C:\Tools\nssm.exe'
+        if not _os.path.isfile(nssm_bin):
+            nssm_bin = shutil.which('nssm') or 'nssm'
+        cmd = '"%s" restart %s' % (nssm_bin, svc)
+        subprocess.Popen(cmd, shell=True,
+                         creationflags=0x00000200,  # DETACHED_PROCESS
+                         close_fds=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return jsonify({'success': True, 'reloaded': 'restarting',
+                        'message': '已请求重启 extensions 进程以加载新代码'})
+    except Exception as e:
+        _sys.stderr.write('[RELOAD] 重启请求失败: %s\n' % e)
+        _sys.stderr.flush()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ---------- 扩展 UI 注入 ----------

@@ -125,15 +125,19 @@ def _do_reload(app, scripts):
         print('[hotreload] 插件 %s 忙碌，延迟重载' % busy_key, flush=True)
         return False
     try:
-        import subprocess
+        import subprocess, shutil
         svc = os.environ.get('EXTENSIONS_HOST_SERVICE', 'dbox-extensions')
+        # nssm 通常不在服务进程的环境 PATH 中，优先用绝对路径，其次 which 查找
+        nssm_bin = r'C:\Tools\nssm.exe'
+        if not os.path.isfile(nssm_bin):
+            nssm_bin = shutil.which('nssm') or 'nssm'
         # 独立进程组异步执行，避免被父进程退出牵连
-        cmd = 'cmd /c start /min "" nssm restart %s' % svc
+        cmd = '"%s" restart %s' % (nssm_bin, svc)
         subprocess.Popen(cmd, shell=True,
                          creationflags=0x00000200,  # DETACHED_PROCESS
                          close_fds=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        logger.info('热重载：已异步请求 nssm restart %s', svc)
+        logger.info('热重载：已异步请求 nssm restart %s (bin=%s)', svc, nssm_bin)
         print('[hotreload] 已请求重启 extensions 进程以加载新代码', flush=True)
         return True
     except Exception:

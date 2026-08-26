@@ -62,19 +62,26 @@ def unregister_blueprint(app: Flask, bp_name: str):
     """
     if bp_name in app.blueprints:
         del app.blueprints[bp_name]
-    for rule in list(app.url_map.iter_rules()):
-        if rule.endpoint == bp_name or rule.endpoint.startswith(bp_name + '.'):
-            try:
-                app.url_map._rules.remove(rule)
-            except ValueError:
-                pass
-            app.url_map._rules_by_endpoint.pop(rule.endpoint, None)
-            app.view_functions.pop(rule.endpoint, None)
+    # 先收集本蓝图的全部 rule（避免在 iter_rules() 迭代中直接修改 _rules 导致漏删/乱序），
+    # 再统一从 url_map 移除。不在迭代中删 _rules，否则会跳过相邻 rule 造成残留或误删。
+    to_remove = [
+        rule for rule in app.url_map.iter_rules()
+        if rule.endpoint == bp_name or rule.endpoint.startswith(bp_name + '.')
+    ]
+    for rule in to_remove:
+        try:
+            app.url_map._rules.remove(rule)
+        except ValueError:
+            pass
+        app.url_map._rules_by_endpoint.pop(rule.endpoint, None)
+        app.view_functions.pop(rule.endpoint, None)
     # 彻底重建内部索引，避免残留 endpoint 指向已删除的 rule
     # （werkzeug 的 get_default_redirect 会查 _rules_by_endpoint[endpoint]，
     #  若只 pop 了一半残留引用，请求该路径时会 KeyError 导致 500）
+    # 注意：必须用 iter_rules() 而非直接遍历 app.url_map._rules —— 后者在遍历时会
+    # 触发 werkzeug 内部副作用清空 _rules 列表，导致所有规则丢失、整个服务 500。
     app.url_map._rules_by_endpoint = {}
-    for r in app.url_map._rules:
+    for r in app.url_map.iter_rules():
         app.url_map._rules_by_endpoint.setdefault(r.endpoint, []).append(r)
     app.url_map._remap = True
 
@@ -121,7 +128,12 @@ def load_all_plugins(app: Flask, logger=None):
 
 
 def reload_plugin(app: Flask, script_id: str, logger=None):
-    """注销某插件的旧 Blueprint，重新 import 模块并注册。返回是否成功。"""
+    """注销某插件的旧 Blueprint，重新 import 模块并注册。返回是否成功。
+
+    注意：本函数做进程内 unregister/register，在 Flask/Werkzeug 下存在 url_map
+    索引残留风险（已在 unregister_blueprint 内尽力规避）。生产重载走 reload_scripts
+    接口的「整进程重启」路径更安全。本函数保留供测试/特殊场景使用。
+    """
     log = logger or logging.getLogger('plugin_loader')
     try:
         base = scripts_base_dir()
@@ -134,17 +146,17 @@ def reload_plugin(app: Flask, script_id: str, logger=None):
         log.warning('插件 %s 不存在或未声明 backend，跳过重载', script_id)
         return False
 
-    # 1) 注销当前已注册、url_prefix 属于该插件的 Blueprint
+    # 1) 从 sys.modules 剔除旧插件包，强制下一次 import 拿到新代码
+    safe = re.sub(r'[^0-9A-Za-z_]', '_', script_id)
+    sys.modules.pop('ext_%s' % safe, None)
+
+    # 2) 注销旧 Blueprint（url_prefix 属于该插件）
     want_prefix = sc.get('backend', {}).get('url_prefix') or ('/api/ext/%s' % script_id)
     for bp_name in list(app.blueprints.keys()):
         bp = app.blueprints[bp_name]
         bp_prefix = getattr(bp, 'url_prefix', None) or ''
-        if bp_prefix == want_prefix or bp_prefix.startswith(want_prefix + '/'):
+        if bp_prefix and (bp_prefix == want_prefix or bp_prefix.startswith(want_prefix + '/')):
             unregister_blueprint(app, bp_name)
-
-    # 2) 从 sys.modules 剔除旧插件包，强制下一次 import 拿到新代码
-    safe = re.sub(r'[^0-9A-Za-z_]', '_', script_id)
-    sys.modules.pop('ext_%s' % safe, None)
 
     # 3) 重新 import + 注册
     mod_path = sc['backend'].get('module') or 'backend.server'
@@ -159,7 +171,11 @@ def reload_plugin(app: Flask, script_id: str, logger=None):
 
 
 def reload_all_plugins(app: Flask, logger=None):
-    """逐个重载全部有 backend 的插件。返回成功数量。"""
+    """逐个重载全部有 backend 的插件。返回成功数量。
+
+    隔离性：每个插件独立 try/except，单个插件重载失败（代码错误、url_map 损坏等）
+    不会影响其他插件，也不会让整个拓管理面板崩溃。
+    """
     log = logger or logging.getLogger('plugin_loader')
     try:
         base = scripts_base_dir()
@@ -171,6 +187,11 @@ def reload_all_plugins(app: Flask, logger=None):
     for sc in scripts.values():
         if not sc.get('backend'):
             continue
-        if reload_plugin(app, sc['id'], logger=log):
-            ok += 1
+        try:
+            if reload_plugin(app, sc['id'], logger=log):
+                ok += 1
+            else:
+                log.warning('插件 %s 重载未成功（详见上方日志），已跳过，不影响其他插件', sc['id'])
+        except Exception as e:
+            log.error('插件 %s 重载异常，已隔离：%s', sc.get('id'), e)
     return ok
