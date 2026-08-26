@@ -28,26 +28,15 @@ export default defineConfig({
     strictPort: true,
     https,
     proxy: {
-      // 插件扩展接口（/api/ext/*）直接代理到拓展管理宿主（8093），绕过主服务（443）
-      // 的 Python 反代：主服务用 Python http.client 转发 SSE 时，因 Python311 与 Flask
-      // 开发服务器的分块传输编码交互问题会阻塞在读取响应头阶段，导致 AI 助手流式回复
-      // 每次都“连接中断，请重试”。由 Vite（Node http-proxy）直接转发 SSE 可正常工作。
+      // 插件扩展接口（/api/ext/*）直接代理到拓展管理宿主（8093）。
+      // 主服务（443）用 Python requests 反代 SSE 时，即使扩展宿主已立即发送响应头，
+      // requests 在读取 Flask 开发服务器的分块 SSE 响应头阶段仍会阻塞（库层面的兼容问题），
+      // 导致 AI 助手流式回复每次都“连接中断，请重试”。由 Vite（Node http-proxy）直接转发
+      // SSE 可正常工作（扩展宿主侧已通过先 yield 注释块确保响应头即时发出）。
       '/api/ext': {
         target: 'http://127.0.0.1:8093',
         changeOrigin: true,
-        secure: false,
-        // SSE 流式响应需关闭缓冲、逐块转发
-        configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes, req, res) => {
-            const ct = (proxyRes.headers['content-type'] || '').toLowerCase()
-            if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson')) {
-              proxyRes.headers['cache-control'] = 'no-cache, no-transform'
-              proxyRes.headers['x-accel-buffering'] = 'no'
-              if (!res.headersSent) res.writeHead(proxyRes.statusCode, proxyRes.headers)
-              return proxyRes.pipe(res)
-            }
-          })
-        }
+        secure: false
       },
       // 代理统一打到主服务的 HTTPS 端口（443）；secure:false 以接受自签名证书。
       // 脚本/下载器接口仍由主服务网关转发到独立下载器（8092）。
@@ -57,28 +46,6 @@ export default defineConfig({
         secure: false,
         headers: {
           'Connection': 'keep-alive'
-        },
-        // SSE 流式响应（如 AI 对话 thinking 事件）需要关闭 Vite/Node.js 代理层的缓冲。
-        // http-proxy 默认对响应体做 pipe 转发（理论上流式），但 Vite dev server 的中间件链
-        // 可能在更高层引入缓冲（尤其对无 Content-Length 的长连接 SSE 响应），
-        // 导致所有事件积攒到连接关闭才一次性转发到前端——用户在运行中看不到思考过程。
-        //
-        // 修复策略：
-        //   1) selfHandleResponse=true 禁止 http-proxy 自动 pipe 响应体；
-        //   2) 在 proxyRes 回调里手动把 res pipe 到前端（保持流式）；
-        //   3) 同时设置 no-cache / X-Accel-Buffering:no 防止任何中间层二次缓冲。
-        configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes, req, res) => {
-            const ct = (proxyRes.headers['content-type'] || '').toLowerCase()
-            if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson')) {
-              // 标记为 SSE 流式：禁止任何层缓冲
-              proxyRes.headers['cache-control'] = 'no-cache, no-transform'
-              proxyRes.headers['x-accel-buffering'] = 'no'
-              // 手动 pipe 保持逐 chunk 流式（替代 http-proxy 默认的自动 pipe）
-              if (!res.headersSent) res.writeHead(proxyRes.statusCode, proxyRes.headers)
-              return proxyRes.pipe(res)
-            }
-          })
         }
       },
       '/thumbnail': {
