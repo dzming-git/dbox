@@ -28,6 +28,27 @@ export default defineConfig({
     strictPort: true,
     https,
     proxy: {
+      // 插件扩展接口（/api/ext/*）直接代理到拓展管理宿主（8093），绕过主服务（443）
+      // 的 Python 反代：主服务用 Python http.client 转发 SSE 时，因 Python311 与 Flask
+      // 开发服务器的分块传输编码交互问题会阻塞在读取响应头阶段，导致 AI 助手流式回复
+      // 每次都“连接中断，请重试”。由 Vite（Node http-proxy）直接转发 SSE 可正常工作。
+      '/api/ext': {
+        target: 'http://127.0.0.1:8093',
+        changeOrigin: true,
+        secure: false,
+        // SSE 流式响应需关闭缓冲、逐块转发
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            const ct = (proxyRes.headers['content-type'] || '').toLowerCase()
+            if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson')) {
+              proxyRes.headers['cache-control'] = 'no-cache, no-transform'
+              proxyRes.headers['x-accel-buffering'] = 'no'
+              if (!res.headersSent) res.writeHead(proxyRes.statusCode, proxyRes.headers)
+              return proxyRes.pipe(res)
+            }
+          })
+        }
+      },
       // 代理统一打到主服务的 HTTPS 端口（443）；secure:false 以接受自签名证书。
       // 脚本/下载器接口仍由主服务网关转发到独立下载器（8092）。
       '/api': {
