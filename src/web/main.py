@@ -183,10 +183,50 @@ def _proxy_to_extensions_host(path):
     target = _EXTENSIONS_HOST_URL + path
     _hop = {'host', 'content-length', 'connection', 'transfer-encoding'}
     fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _hop}
+    # 探测是否为 SSE 流式请求（路径含 stream 或前端 Accept 为 event-stream）
+    is_stream = ('/stream' in path or
+                 'text/event-stream' in request.headers.get('Accept', ''))
+    if is_stream:
+        # SSE 必须用底层 http.client 直接流式转发：requests 库在读取 Flask 开发服务器
+        # 的 SSE 生成器响应时会阻塞在读取响应头阶段（读不到完整响应），导致前端
+        # EventSource 连接被中断、AI 回复每次都“连接中断，请重试”。改用 http.client
+        # 逐块读取并 yield，与直连 extensions_host 行为一致（已验证可用）。
+        from flask import Response as _FlaskResponse
+        import http.client as _http
+        from urllib.parse import urlencode as _urlencode
+        _qs = request.query_string.decode('utf-8', 'ignore')
+        _url = path + ('?' + _qs if _qs else '')
+        # 把鉴权 token 从 query 透传（EventSource 唯一能带凭证的方式）
+        _conn = _http.HTTPConnection('127.0.0.1', 8093, timeout=130)
+        try:
+            _conn.request(request.method, _url, body=request.get_data(cache=True), headers=fwd_headers)
+            _resp = _conn.getresponse()
+        except Exception:
+            return jsonify({
+                'success': False,
+                'message': '拓展管理宿主不可用，请检查 extensions_host 进程是否运行',
+                'code': 503,
+            }), 503
+        _excluded = {'content-length', 'transfer-encoding', 'connection', 'content-encoding'}
+        _resp_headers = {k: v for k, v in _resp.getheaders() if k.lower() not in _excluded}
+
+        def generate():
+            try:
+                while True:
+                    _chunk = _resp.read(1024)
+                    if not _chunk:
+                        break
+                    yield _chunk
+            finally:
+                _conn.close()
+
+        return _FlaskResponse(
+            generate(),
+            status=_resp.status,
+            headers=dict(_resp_headers, **{'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'}),
+            mimetype='text/event-stream',
+        )
     try:
-        # 先探测是否为 SSE 流式请求（路径含 stream 或前端 Accept 为 event-stream）
-        is_stream = ('/stream' in path or
-                     'text/event-stream' in request.headers.get('Accept', ''))
         resp = _requests.request(
             method=request.method,
             url=target,
@@ -195,8 +235,7 @@ def _proxy_to_extensions_host(path):
             data=request.get_data(cache=True),
             cookies=request.cookies,
             allow_redirects=False,
-            timeout=30 if not is_stream else (10, 120),  # connect=10s, read=120s for streaming
-            stream=is_stream,
+            timeout=30,
         )
     except _requests.exceptions.RequestException:
         return jsonify({
@@ -206,24 +245,6 @@ def _proxy_to_extensions_host(path):
         }), 503
     _excluded = {'content-length', 'transfer-encoding', 'connection', 'content-encoding'}
     resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _excluded}
-    # 流式响应：生成器逐块 yield，保持 SSE 实时性
-    if is_stream:
-        from flask import Response as _FlaskResponse
-
-        def generate():
-            try:
-                for chunk in resp.iter_content(chunk_size=1024):
-                    if chunk:
-                        yield chunk
-            finally:
-                resp.close()
-
-        return _FlaskResponse(
-            generate(),
-            status=resp.status_code,
-            headers=dict(resp_headers, **{'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'}),
-            mimetype='text/event-stream',
-        )
     return resp.content, resp.status_code, resp_headers
 
 
