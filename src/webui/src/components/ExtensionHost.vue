@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { useUserStore } from '../stores/userStore'
+import { withExtRuntime } from '../utils/extRuntime'
 
 const router = useRouter()
 const route = useRoute()
@@ -117,7 +118,8 @@ async function openPanel(id: string) {
   // 残留（导致新功能不生效）。重新获取成本极低，优先保证 UI 最新。
   try {
     const res: any = await scriptApi.getPanel(id)
-    panelHtml.value[id] = res
+    // 前置共享运行时：与全屏页共用同一份数据缓存，形态切换不再重复加载
+    panelHtml.value[id] = withExtRuntime(res, id)
   } catch (e) {
     panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }

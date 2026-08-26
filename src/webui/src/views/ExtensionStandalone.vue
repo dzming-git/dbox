@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
+import { withExtRuntime } from '../utils/extRuntime'
 
 // 拓展插件式全屏页：按扩展 id 复用其 panel.html（与悬浮面板同一份 UI 资源），
 // 仅在「独享一个界面」的全屏 iframe 中渲染。任意声明了 ui.entry 的扩展都可用此页，
@@ -28,8 +29,8 @@ async function load() {
       const ext = (exts.extensions || []).find((e: any) => e.id === extId)
       if (ext?.ui?.title) title.value = ext.ui.title
     } catch (e) { /* 标题仅是展示，忽略 */ }
-    // getPanel 经响应拦截器已剥为 HTML 文本
-    html.value = (await scriptApi.getPanel(extId)) as unknown as string
+    // getPanel 经响应拦截器已剥为 HTML 文本；前置共享运行时，与小窗共用同一份数据缓存
+    html.value = withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId)
   } catch (e: any) {
     error.value = '面板加载失败：' + (e?.message || e)
   } finally {
