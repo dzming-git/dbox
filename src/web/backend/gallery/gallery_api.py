@@ -634,6 +634,8 @@ def serve_resource_file(rid, idx):
     except HTTPException:
         raise
     except Exception:
+        import traceback as _tb
+        _tb.print_exc()
         abort(500)
 
 

@@ -406,6 +406,9 @@ def resource_index_visible(ri, allowed_ids=None):
     """
     if ri is None:
         return False
+    # library_id 为 NULL 的历史数据（资源库概念引入前导入的资源）视为可见
+    if ri.library_id is None:
+        return True
     if allowed_ids is None:
         allowed_ids = get_allowed_library_ids()
     return ri.library_id in set(allowed_ids)
