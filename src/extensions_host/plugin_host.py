@@ -158,30 +158,47 @@ class Host:
         _reg_register_extension(self.key, self.key, self.data_dir)
 
     # ---- 鉴权装饰器（框架处理 JWT，插件不碰 token）----
+    def _decode_token(self, token):
+        """验证 JWT 返回 payload；失败返回 None。供 login_required / SSE 鉴权复用。"""
+        if not token:
+            return None
+        payload = None
+        for secret in _JWT_SECRETS:
+            try:
+                payload = jwt.decode(token, secret)
+                break
+            except Exception:
+                continue
+        if payload is None:
+            return None
+        if payload.get('type') != 'access':
+            return None
+        return payload
+
     def login_required(self, f):
         @wraps(f)
         def decorated(*args, **kwargs):
             _auth = request.headers.get('Authorization', '')
             token = _auth[7:] if _auth.startswith('Bearer ') else _auth
-            if not token:
-                return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
-            payload = None
-            last_err = None
-            for secret in _JWT_SECRETS:
-                try:
-                    payload = jwt.decode(token, secret)
-                    break
-                except Exception as e:
-                    last_err = e
+            payload = self._decode_token(token)
             if payload is None:
-                return jsonify({'success': False, 'message': f'无效的 token: {last_err}', 'code': 401}), 401
-            if payload.get('type') != 'access':
-                return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
+                return jsonify({'success': False, 'message': '未授权', 'code': 401}), 401
             g.user_id = payload.get('user_id')
             g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
             g.username = payload.get('username')
             return f(*args, **kwargs)
         return decorated
+
+    def auth_user(self, token):
+        """校验 JWT，返回 (user_id, role, username)；失败返回 None。
+
+        供插件在无法携带 Authorization header 的场景下（如 EventSource
+        只能把 token 放在 query 参数里）做等价鉴权。插件不直接接触 jwt 密钥。
+        """
+        payload = self._decode_token(token)
+        if payload is None:
+            return None
+        return (payload.get('user_id'), payload.get('role', 3), payload.get('username'))
 
     def admin_required(self, f):
         @wraps(f)
