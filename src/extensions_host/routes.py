@@ -278,6 +278,12 @@ def list_extensions():
         ui = sc.get('ui')
         if not ui or not isinstance(ui, dict):
             continue
+        # 全屏独立 URL：若插件在 manifest 显式声明了 standalone_route 则原样透传；
+        # 否则只要有 ui.entry（即存在可独立渲染的面板），框架自动推导一个默认路由
+        # /ext/<id>，使「全屏独立页」成为所有插件的默认能力，无需逐插件 opt-in。
+        standalone_route = ui.get('standalone_route')
+        if not standalone_route and ui.get('entry'):
+            standalone_route = '/ext/%s' % sc.get('id')
         out.append({
             'id': sc.get('id'),
             'name': sc.get('name'),
@@ -289,7 +295,7 @@ def list_extensions():
                 'needs_credential': bool(ui.get('needs_credential', False)),
                 'sandbox': ui.get('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups'),
                 # 透传插件声明的自定义能力字段（框架不感知其含义，纯数据下发）
-                'standalone_route': ui.get('standalone_route'),
+                'standalone_route': standalone_route,
                 'busy_poll': ui.get('busy_poll'),
             },
         })
