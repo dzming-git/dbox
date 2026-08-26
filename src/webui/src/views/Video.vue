@@ -311,10 +311,13 @@ watch(video, () => {
   }
 })
 
-// 拼接视频播放 URL（带鉴权 token）
+// 拼接视频播放 URL（带鉴权 token）—— 必须与 videoUrl 保持一致，否则竖屏后续视频
+// 因缺少 token 被后端拒绝（返回 401 非视频流），浏览器报 MEDIA_ERR_SRC_NOT_SUPPORTED 无法播放
 const buildPortraitUrl = (raw: string) => {
   if (!raw) return ''
   const u = new URL(raw, window.location.origin)
+  const token = localStorage.getItem('token')
+  if (token && !u.searchParams.has('token')) u.searchParams.set('token', token)
   if (route.query.post === '1' && !u.searchParams.has('post')) u.searchParams.set('post', '1')
   return u.toString()
 }
