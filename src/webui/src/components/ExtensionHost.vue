@@ -49,8 +49,15 @@ function isViewing(id: string): boolean {
 }
 
 // ---- apps 启动器状态 ----
-// 右下角统一 apps 启动器：点击弹出 apps 列表（所有扩展的图标入口）。
+// 统一 apps 启动器入口：以「应用」按钮的形式注入全局导航栏（见 App.vue 的 #ext-launcher-slot），
+// 点击在导航栏下方展开 apps 列表。刻意不用右下角常驻悬浮球——浮层无论怎么调位置都会遮挡
+// 页面内容或扩展自身的操作区（曾靠「全屏时隐藏」规避），放进导航栏后从结构上不存在遮挡。
 const launcherOpen = ref(false)
+// 导航栏挂载点是否已存在（登录页无导航栏，此时不渲染入口，避免 Teleport 找不到目标）
+const navSlotReady = ref(false)
+function checkNavSlot() {
+  navSlotReady.value = !!document.getElementById('ext-launcher-slot')
+}
 // 聚合所有扩展的未读总数（app 启动器右上角角标）
 const totalUnread = computed(() =>
   Object.values(unreadMap.value).reduce((a, b) => a + b, 0),
@@ -135,9 +142,10 @@ async function openApp(id: string) {
   await openPanel(id)
 }
 
-// apps 启动器点击：切换抽屉
+// apps 启动器点击：切换抽屉。若已打开某 app 面板，则先收起该面板，再展开 app 列表
 function toggleLauncher() {
   launcherOpen.value = !launcherOpen.value
+  if (launcherOpen.value) openId.value = null
 }
 
 function pushToken(id: string) {
@@ -175,9 +183,10 @@ function onMessage(e: MessageEvent) {
   }
 }
 
-// 点击面板以外（遮罩层）时自动收起
+// 点击面板以外（遮罩层）时自动收起：同时关闭已打开的 app 面板与 app 列表抽屉
 function closePanel() {
   openId.value = null
+  launcherOpen.value = false
 }
 
 // 框架层统一提供的「全屏」入口：任何声明了 standalone_route 的扩展自动获得。
@@ -189,29 +198,49 @@ function openStandalone(ext: Extension) {
   router.push(ext.ui.standalone_route)
 }
 
+// 列表是导航栏下拉菜单，用「点击外部收起」而非全屏遮罩，避免遮罩压住导航栏入口本身
+function onDocClick(e: MouseEvent) {
+  if (!launcherOpen.value) return
+  const t = e.target as HTMLElement | null
+  if (t?.closest('.ext-launcher') || t?.closest('.ext-nav-trigger')) return
+  launcherOpen.value = false
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (launcherOpen.value) launcherOpen.value = false
+  else if (openId.value) openId.value = null
+}
+
 onMounted(async () => {
   await loadToken()
   await loadExtensions()
   window.addEventListener('message', onMessage)
-  syncScrollLock()
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onKeydown)
+  await nextTick()
+  checkNavSlot()
+  syncOverlayFlags()
   pollBusy()
   busyTimer = setInterval(pollBusy, 2000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('message', onMessage)
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onKeydown)
   if (busyTimer) clearInterval(busyTimer)
   document.body.classList.remove('ext-no-scroll')
+  document.body.classList.remove('ext-panel-open')
 })
 
-// 呼出悬浮面板（带遮罩）时锁定背景滚动
-function syncScrollLock() {
+// 呼出悬浮面板（带遮罩）时：锁定背景滚动，并把导航栏抬到遮罩之上，
+// 保证「应用」入口在面板打开时依然可点（可一次点击就切回应用列表）。
+function syncOverlayFlags() {
   const ext = openId.value ? extensions.value.find((e) => e.id === openId.value) : null
-  if (openId.value && ext?.ui?.mount === 'floating') {
-    document.body.classList.add('ext-no-scroll')
-  } else {
-    document.body.classList.remove('ext-no-scroll')
-  }
+  const floating = !!(openId.value && ext?.ui?.mount === 'floating')
+  document.body.classList.toggle('ext-no-scroll', floating)
+  document.body.classList.toggle('ext-panel-open', floating)
 }
 
 watch(openId, (id) => {
@@ -219,42 +248,55 @@ watch(openId, (id) => {
     pushToken(id)
     if (unreadMap.value[id]) unreadMap.value = { ...unreadMap.value, [id]: 0 }
   }
-  syncScrollLock()
+  syncOverlayFlags()
 })
 
-// 路由变化时：若进入某扩展独立全屏页，视为已查看，清空未读角标
-watch(() => route.path, (p) => {
+// 路由变化时：收起应用列表（导航栏菜单跳转后应关闭）；若进入某扩展独立全屏页，
+// 视为已查看，清空未读角标。面板本身不强制收起，保留 DBOX_NAVIGATE 的 keepPanel 语义。
+watch(() => route.path, async (p) => {
+  launcherOpen.value = false
   for (const ext of extensions.value) {
     const rp = ext.ui?.standalone_route
     if (rp && p === rp && unreadMap.value[ext.id]) {
       unreadMap.value = { ...unreadMap.value, [ext.id]: 0 }
     }
   }
+  // 登录页无导航栏，进出登录页时重新确认挂载点是否存在
+  await nextTick()
+  checkNavSlot()
 })
 </script>
 
 <template>
   <div class="ext-host">
-    <!-- 展开面板时的遮罩：拦截页面点击，点击遮罩收起 -->
-    <div v-if="openId || launcherOpen" class="ext-mask" @click="closePanel"></div>
+    <!-- 展开面板时的遮罩：拦截页面点击，点击遮罩收起。
+         应用列表是导航栏下拉菜单，不再使用遮罩（改为点击外部收起），避免压住导航栏入口。 -->
+    <div v-if="openId" class="ext-mask" @click="closePanel"></div>
 
-    <!-- 统一的 apps 启动器（右下角单个悬浮球） -->
-    <div
-      class="ext-launcher-fab"
-      :class="{ 'is-open': launcherOpen, 'is-busy': anyBusy }"
-      title="应用"
-      @click.stop="toggleLauncher"
-    >
-      <svg class="launcher-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-      </svg>
-      <span v-if="totalUnread" class="ext-fab-badge">{{ totalUnread > 99 ? '99+' : totalUnread }}</span>
-    </div>
+    <!-- 统一的 apps 启动器入口：注入全局导航栏（与「任务」「稍后再看」等图标同排） -->
+    <Teleport v-if="navSlotReady && extensions.length" to="#ext-launcher-slot">
+      <button
+        type="button"
+        class="nav-link nav-icon-link ext-nav-trigger"
+        :class="{ 'is-open': launcherOpen, 'is-busy': anyBusy }"
+        title="应用"
+        @click="toggleLauncher"
+      >
+        <span class="ext-nav-ico-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+            <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          </svg>
+          <span v-if="totalUnread" class="ext-nav-badge">{{ totalUnread > 99 ? '99+' : totalUnread }}</span>
+          <span v-else-if="anyBusy" class="ext-nav-dot"></span>
+        </span>
+        <span>应用</span>
+      </button>
+    </Teleport>
 
-    <!-- apps 列表抽屉 -->
+    <!-- apps 列表（导航栏下方的下拉面板） -->
     <transition name="launcher">
       <div v-if="launcherOpen" class="ext-launcher" @click.stop>
         <div class="ext-launcher-header">
@@ -342,97 +384,89 @@ watch(() => route.path, (p) => {
   z-index: 8999;
 }
 
-/* ---- apps 启动器球 ---- */
-.ext-launcher-fab {
-  position: fixed;
-  right: 16px;
-  bottom: 18px;
-  height: 48px;
-  width: 48px;
-  padding: 0;
+/* ---- apps 启动器入口（导航栏图标按钮，样式继承 App.vue 的 .nav-icon-link） ---- */
+.ext-nav-trigger {
+  background: transparent;
   border: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text-secondary, #bbb);
+}
+.ext-nav-trigger:hover {
+  color: var(--text-primary, #eee);
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.06));
+}
+.ext-nav-trigger.is-open {
+  color: var(--text-primary, #eee);
+  background: var(--accent-soft, rgba(79, 140, 255, 0.16));
+}
+.ext-nav-trigger.is-busy {
+  color: var(--accent, #4f8cff);
+}
+.ext-nav-ico-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.ext-nav-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger, #f5455c);
+  color: var(--text-on-accent, #fff);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 600;
+  pointer-events: none;
+}
+/* 后台有任务在跑时的轻量提示（不抢眼、不遮挡，取代原悬浮球的呼吸/转圈动画） */
+.ext-nav-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent, #4f8cff);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-  z-index: 9000;
-  opacity: 0.9;
-  overflow: visible;
-  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
-}
-.ext-launcher-fab:hover,
-.ext-launcher-fab.is-open {
-  opacity: 1;
-  transform: scale(1.08);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-}
-.launcher-icon {
-  display: block;
-}
-.ext-fab-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: #f5455c;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  border: 2px solid var(--bg-elevated, #1e1e22);
-  box-sizing: content-box;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  animation: ext-dot-pulse 1.4s ease-in-out infinite;
   pointer-events: none;
 }
-.ext-launcher-fab.is-busy {
-  animation: fab-breathe 1.8s ease-in-out infinite;
-}
-.ext-launcher-fab.is-busy::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, rgba(79, 140, 255, 0) 0deg, rgba(79, 140, 255, 0) 220deg, var(--accent, #4f8cff) 360deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
-          mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
-  animation: fab-spin 1.1s linear infinite;
-  pointer-events: none;
-}
-@keyframes fab-spin { to { transform: rotate(360deg); } }
-@keyframes fab-breathe {
-  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
-  50% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0.16), 0 6px 18px rgba(79, 140, 255, 0.5); }
+@keyframes ext-dot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ext-launcher-fab.is-busy,
-  .ext-launcher-fab.is-busy::after { animation: none; }
-  .ext-launcher-fab.is-busy::after { opacity: 0.6; }
+  .ext-nav-dot { animation: none; opacity: 0.8; }
 }
 
-/* ---- apps 列表抽屉 ---- */
+/* ---- apps 列表（挂在导航栏下方的下拉面板） ---- */
 .ext-launcher {
   position: fixed;
-  right: 20px;
-  bottom: 84px;
+  top: calc(var(--nav-height, 60px) + 6px);
+  right: 12px;
   width: 320px;
-  max-width: 92vw;
-  max-height: 70vh;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - var(--nav-height, 60px) - 24px);
+  max-height: calc(100dvh - var(--nav-height, 60px) - 24px);
   background: var(--bg-elevated, #1e1e22);
   border: 1px solid var(--border-default, #333);
   border-radius: 14px;
-  z-index: 9001;
+  z-index: 9004;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+@media (max-width: 600px) {
+  .ext-launcher {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
 }
 .ext-launcher-header {
   display: flex;
@@ -512,7 +546,7 @@ watch(() => route.path, (p) => {
 .launcher-enter-from,
 .launcher-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
 }
 
 /* ---- 面板 ---- */
@@ -542,14 +576,17 @@ watch(() => route.path, (p) => {
 .ext-fs:hover {
   filter: brightness(1.08);
 }
+/* 浮动面板同样从导航栏入口下方展开（与入口位置呼应），不再占用右下角，
+   避免压住页面底部内容与扩展面板自身的底部操作区（如输入框「发送」按钮）。 */
 .ext-panel {
   position: fixed;
-  right: 20px;
-  bottom: 84px;
-  width: 360px;
-  height: 480px;
-  max-width: 92vw;
-  max-height: 80vh;
+  top: calc(var(--nav-height, 60px) + 6px);
+  right: 12px;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  height: 520px;
+  max-height: calc(100vh - var(--nav-height, 60px) - 24px);
+  max-height: calc(100dvh - var(--nav-height, 60px) - 24px);
   background: var(--bg-elevated, #1e1e22);
   border: 1px solid var(--border-default, #333);
   border-radius: 12px;
@@ -558,6 +595,16 @@ watch(() => route.path, (p) => {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+/* 手机端：铺满导航栏以下的可视区域，输入区不再被任何浮层压住 */
+@media (max-width: 600px) {
+  .ext-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    height: calc(100vh - var(--nav-height, 60px) - 16px);
+    height: calc(100dvh - var(--nav-height, 60px) - 16px);
+  }
 }
 .ext-panel-header {
   display: flex;
@@ -606,14 +653,13 @@ watch(() => route.path, (p) => {
 body.ext-no-scroll {
   overflow: hidden;
 }
-/* 竖屏沉浸模式下隐藏 apps 启动器，避免遮挡视频内容 */
-body.portrait-mode-active .ext-launcher-fab {
-  display: none !important;
+/* 浮动面板呼出时把导航栏抬到遮罩（z-index 8999）之上：
+   保证导航栏里的「应用」入口在面板打开时仍可点击，一次点击即可切回应用列表。
+   竖屏沉浸播放器是 z-index 2000 的全屏浮层，此时不抬高，避免导航栏钻到视频上方。 */
+body.ext-panel-open:not(.portrait-mode-active) .nav {
+  z-index: 9003;
 }
-/* 扩展独立全屏页（ExtensionStandalone）下隐藏 apps 启动器，
-   避免右下角浮球遮挡面板内 composer 的「发送」按钮 */
-body.ext-standalone .ext-launcher-fab,
-body.ext-standalone .ext-launcher {
-  display: none !important;
-}
+/* 说明：入口已内嵌到全局导航栏，凡是隐藏导航栏的场景（扩展独立全屏页 ext-standalone、
+   图集阅读器 reader-active、竖屏沉浸播放器全屏覆盖）入口都会随之消失，
+   无需再为「浮球遮挡内容」单独写隐藏规则。 */
 </style>

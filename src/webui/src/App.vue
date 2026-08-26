@@ -202,6 +202,10 @@ const closeUserDropdown = (event: MouseEvent) => {
             <span>任务</span>
           </RouterLink>
 
+          <!-- 扩展应用入口挂载点：ExtensionHost 通过 Teleport 把「应用」按钮注入这里。
+               入口放在导航栏而非右下角悬浮球，从根上避免遮挡页面内容/扩展自身的操作区。 -->
+          <div id="ext-launcher-slot" class="ext-launcher-slot"></div>
+
           <!-- 用户头像下拉菜单 -->
           <div class="user-avatar-wrapper">
             <div class="user-avatar-trigger" @click.stop="showUserDropdown = !showUserDropdown">
@@ -490,6 +494,14 @@ body {
   position: relative;
   display: inline-flex;
 }
+/* 扩展应用入口的挂载点：无扩展可用时不占位（也不产生 flex gap） */
+.ext-launcher-slot {
+  display: flex;
+  align-items: center;
+}
+.ext-launcher-slot:empty {
+  display: none;
+}
 .task-badge {
   position: absolute;
   top: -6px;
@@ -570,7 +582,8 @@ body {
     display: none;
   }
   .watchlater-ico-wrap,
-  .task-ico-wrap {
+  .task-ico-wrap,
+  .ext-nav-ico-wrap {
     display: inline-flex !important;
   }
   .nav-left {
@@ -834,7 +847,8 @@ body.ext-standalone .main-content {
   }
   /* 稍后再看 / 任务图标包裹是直接子 span，需要保留可见（否则图标也一起消失） */
   .watchlater-ico-wrap,
-  .task-ico-wrap {
+  .task-ico-wrap,
+  .ext-nav-ico-wrap {
     display: inline-flex !important;
   }
 
