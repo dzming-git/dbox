@@ -49,7 +49,13 @@ function notifyIframe() {
   const w = iframeRef.value?.contentWindow
   if (!w) return
   w.postMessage({ type: 'DBOX_MODE', fullscreen: true }, '*')
-  if (token) w.postMessage({ type: 'DBOX_TOKEN', token }, '*')
+  // 实时读取最新 token：主站 axios 401 静默刷新后写回 localStorage，
+  // 避免用挂载时缓存给 iframe 过期 token。
+  const fresh = localStorage.getItem('token')
+    || localStorage.getItem('access_token')
+    || sessionStorage.getItem('token')
+    || token
+  if (fresh) w.postMessage({ type: 'DBOX_TOKEN', token: fresh }, '*')
 }
 
 function onMessage(e: MessageEvent) {

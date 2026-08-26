@@ -151,7 +151,13 @@ function toggleLauncher() {
 function pushToken(id: string) {
   const iframe = document.getElementById(`ext-frame-${id}`) as HTMLIFrameElement | null
   if (iframe?.contentWindow) {
-    iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: token.value }, '*')
+    // 推送前实时读取最新 token：主站 axios 会在 401 时静默刷新并写回 localStorage，
+    // 若仍用组件挂载时缓存的 token.value 会给 iframe 过期 token，导致插件接口 401。
+    const fresh = localStorage.getItem('token')
+      || localStorage.getItem('access_token')
+      || sessionStorage.getItem('token')
+      || token.value
+    iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: fresh }, '*')
     iframe.contentWindow.postMessage({ type: 'DBOX_DRAFT', text: drafts.value[id] || '' }, '*')
     const ext = extensions.value.find((e) => e.id === id)
     if (ext?.ui?.standalone_route) {
