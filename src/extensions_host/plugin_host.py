@@ -9,6 +9,7 @@
 - 契约通信：插件依赖 host 的稳定接口，而非框架内部实现。
 """
 import os
+import uuid
 import logging
 
 from functools import wraps
@@ -88,12 +89,17 @@ class _TasksProxy:
         except Exception:
             pass
 
-    def create(self, title, owner_id, status='pending',
-               created_at=None, updated_at=None):
-        return create_task('ext:' + self._kind + ':' + str(id(title)),
-                           self._kind, title, owner_id=owner_id,
-                           status=status, created_at=created_at,
-                           updated_at=updated_at)
+    def create(self, title, owner_id, status='pending', progress=0,
+               stage=None, detail=None, library_id=None, params=None):
+        """登记任务。task_id 由框架统一生成；kind 固定为本插件 id。
+
+        字段对齐底层 create_task 的真实签名（progress/stage/detail/library_id/params
+        均可透传），避免插件调用时因签名不匹配而静默失败。
+        """
+        task_id = 'ext:' + self._kind + ':' + uuid.uuid4().hex
+        return create_task(task_id, self._kind, title, owner_id=owner_id,
+                           library_id=library_id, status=status, progress=progress,
+                           stage=stage, detail=detail, params=params)
 
     def update(self, task_id, **kwargs):
         return update_task(task_id, **kwargs)
