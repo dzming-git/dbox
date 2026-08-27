@@ -127,30 +127,41 @@ def delete_post(did):
 
     deleted_resources = []
     if delete_resources:
-        for rid in ri_ids:
-            # 用户指定了资源子集时，仅处理被勾选的资源
-            if selected_ids is not None and rid not in selected_ids:
-                continue
-            ri = ResourceIndex.query.get(rid)
-            if not ri:
-                continue
-            # 仍被其它「未删除」帖子引用 -> 不删（共享资源）
-            other = (PostRef.query
-                     .filter(PostRef.resource_index_id == rid)
-                     .join(Post)
-                     .filter(Post.id != d.id, Post.in_trash == False)
-                     .first())
-            if other:
-                continue
-            # 该资源仍有视频 / 图集实体（在库中可用）-> 不删，避免误删其它库数据
-            if Video.query.filter_by(resource_index_id=rid).first():
-                continue
-            if Gallery.query.filter_by(resource_index_id=rid).first():
-                continue
-            # 删除孤立资源索引（其 URL/路径仍保留在磁盘，仅移除索引记录）
-            db.session.delete(ri)
-            deleted_resources.append(rid)
-        db.session.commit()
+        try:
+            for rid in ri_ids:
+                # 用户指定了资源子集时，仅处理被勾选的资源
+                if selected_ids is not None and rid not in selected_ids:
+                    continue
+                ri = ResourceIndex.query.get(rid)
+                if not ri:
+                    continue
+                # 仍被其它「未删除」帖子引用 -> 不删（共享资源）
+                other = (PostRef.query
+                         .filter(PostRef.resource_index_id == rid)
+                         .join(Post)
+                         .filter(Post.id != d.id, Post.in_trash == False)
+                         .first())
+                if other:
+                    continue
+                # 该资源仍有视频 / 图集实体（在库中可用）-> 不删，避免误删其它库数据
+                if Video.query.filter_by(resource_index_id=rid).first():
+                    continue
+                if Gallery.query.filter_by(resource_index_id=rid).first():
+                    continue
+                # 删除孤立资源索引（其 URL/路径仍保留在磁盘，仅移除索引记录）
+                # 同时清理本帖自身指向该 ri 的 PostRef，避免留下孤儿引用
+                for pr in list(d.refs):
+                    if pr.resource_index_id == rid:
+                        db.session.delete(pr)
+                db.session.delete(ri)
+                deleted_resources.append(rid)
+            db.session.commit()
+        except Exception:
+            # 帖子软删除（主操作）已在上面 commit 成功；
+            # 资源索引清理为次要操作，失败不应让整个删除返回 500
+            import traceback as _tb
+            _tb.print_exc()
+            db.session.rollback()
 
     return jsonify({'success': True, 'deleted_resources': deleted_resources})
 
