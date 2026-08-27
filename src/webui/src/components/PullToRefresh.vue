@@ -24,11 +24,20 @@ const arrowStyle = computed(() => ({
 }))
 
 // 内容容器随下拉平移，露出顶部指示器（iOS 风格）
+// 注意：transform / will-change 会创建 containing block，导致内部所有
+// position: fixed 弹层（删除确认、lightbox、视频模态等）不再相对视口定位，
+// 而是相对本容器——表现为「弹窗出现在帖子中央、需滚动才能看到」。
+// 因此仅在「下拉中 / 刷新中」施加 transform，idle 常态下完全清除，
+// 让 fixed 弹层恢复相对视口定位。
 const contentStyle = computed(() => {
-  if (state.phase === 'idle' || state.phase === 'refreshing') {
-    return { transform: 'translateY(0)', transition: 'transform 0.3s ease' }
+  if (state.phase === 'pull') {
+    return { transform: `translateY(${state.distance}px)`, transition: 'none', willChange: 'transform' }
   }
-  return { transform: `translateY(${state.distance}px)`, transition: 'none' }
+  if (state.phase === 'refreshing') {
+    return { transform: 'translateY(44px)', transition: 'transform 0.3s ease', willChange: 'transform' }
+  }
+  // idle：不施加任何 transform / will-change，避免捕获内部 fixed 弹层
+  return { transform: 'none' }
 })
 
 function onTouchStart(e: TouchEvent) {
@@ -181,6 +190,7 @@ onUnmounted(() => {
 }
 
 .ptr-content {
-  will-change: transform;
+  /* 不在此常驻 will-change: transform——它会创建 containing block，
+     捕获内部 position: fixed 弹层。transform 仅在下拉/刷新时由 inline style 临时施加。 */
 }
 </style>

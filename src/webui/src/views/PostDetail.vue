@@ -439,7 +439,9 @@ const removePost = async () => {
       <p v-if="!post.content && (!post.refs || !post.refs.length)" class="no-refs">（暂无内容）</p>
     </div>
 
-    <!-- 删除确认弹卡 -->
+    <!-- 删除确认弹卡（Teleport 到 body，绕开 PullToRefresh 等祖先的 stacking context，
+         避免 position: fixed 被捕获导致弹窗偏移或被导航栏遮挡） -->
+    <Teleport to="body">
     <div v-if="showDeleteCard" class="del-mask" @click.self="closeDeleteCard">
       <div class="del-card">
         <div class="del-card-head">
@@ -476,6 +478,7 @@ const removePost = async () => {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <div v-if="lightbox" class="lightbox" @click.self="closeLightbox">
       <button class="lightbox-nav lightbox-prev" @click="lightboxPrev">‹</button>
@@ -578,7 +581,7 @@ const removePost = async () => {
 .video-modal .video-player { max-width: 92vw; max-height: 88vh; border-radius: 10px; }
 .video-close { position: absolute; top: 20px; right: 24px; width: 44px; height: 44px; border: none; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; font-size: 26px; cursor: pointer; }
 .video-close:hover { background: rgba(255,255,255,.25); }
-.del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 16px; }
+.del-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
 .del-card { width: 100%; max-width: 440px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 16px; padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .del-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .del-card-head h3 { margin: 0; font-size: 18px; color: var(--text-primary); }

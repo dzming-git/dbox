@@ -56,6 +56,11 @@ function notifyIframe() {
     || sessionStorage.getItem('token')
     || token
   if (fresh) w.postMessage({ type: 'DBOX_TOKEN', token: fresh }, '*')
+  // 把当前路由的 query 传给面板（如 ?view=artworks&id=xxx），
+  // 让面板刷新/分享直达时知道该展示哪个子视图。
+  if (route.query && Object.keys(route.query).length) {
+    w.postMessage({ type: 'DBOX_ROUTE', query: { ...route.query } }, '*')
+  }
 }
 
 function onMessage(e: MessageEvent) {
@@ -66,9 +71,15 @@ function onMessage(e: MessageEvent) {
     return
   }
   // 面板内跳转（如点击资源引用卡片）：全屏页本身即「界面」，无需收起面板，
-  // 直接路由跳转即可；'__back__' 语义交给「返回」按钮处理，这里不处理。
-  if (e.data.type === 'DBOX_NAVIGATE' && e.data.path && e.data.path !== '__back__') {
-    router.push(e.data.path)
+  // 直接路由跳转即可。'__back__' 为面板「返回」按钮语义：回到 pixiv 根视图
+  //（地址栏去掉子视图 query，停留在本扩展，不退出全屏、不重载面板 iframe）。
+  if (e.data.type === 'DBOX_NAVIGATE' && e.data.path) {
+    if (e.data.path === '__back__') {
+      // 顺滑返回：地址栏回到 /pixiv（feed），面板自身已本地渲染，不重载。
+      if (route.fullPath !== '/pixiv') router.push('/pixiv')
+    } else {
+      router.push(e.data.path)
+    }
   }
 }
 
