@@ -13,6 +13,7 @@ library_watcher / backend.gallery.scanner 等业务模块。独立运行的拓�
 以 HTTP 调用本能力，从而实现拓展管理与主模块的彻底解耦。
 """
 import os
+import re
 import shutil
 from urllib.parse import quote
 
@@ -39,12 +40,25 @@ def _resolve_storage_dir(library_id, app):
     return storage
 
 
-def _persist_file(path, library_id, app):
+def _safe_group(group):
+    """把 group_key 转成安全子目录名（去掉路径分隔符等）。"""
+    if not group:
+        return ''
+    return re.sub(r'[\\/:*?"<>|]', '_', str(group)).strip().strip('.') or ''
+
+
+def _persist_file(path, library_id, app, group=None):
     """把来自任务临时目录的文件/目录落地到库的持久存储目录，返回落地后的路径。
 
     任务结束后临时目录会被清理，若不落地，ResourceIndex.location 将指向已删除的文件。
+
+    按 group_key 建立子目录（如 lib_7/pixiv-123456/01.jpg），避免不同来源（帖子/推文）
+    用相同序号文件名（01.jpg、02.jpg…）互相覆盖——否则后下载的会抹掉先下载的内容。
     """
     storage = _resolve_storage_dir(library_id, app)
+    sub = _safe_group(group)
+    if sub:
+        storage = os.path.join(storage, sub)
     try:
         os.makedirs(storage, exist_ok=True)
     except Exception:
@@ -98,7 +112,8 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
         return {'success': False, 'message': f'文件不存在: {path}'}
 
     # 把任务临时目录里的文件落地到库的持久存储目录，避免任务结束后文件被清理
-    path = _persist_file(path, library_id, app)
+    group = (meta or {}).get('group') if isinstance(meta, dict) else None
+    path = _persist_file(path, library_id, app, group=group)
     if not (os.path.isfile(path) or os.path.isdir(path)):
         return {'success': False, 'message': f'文件落地失败: {path}'}
 
