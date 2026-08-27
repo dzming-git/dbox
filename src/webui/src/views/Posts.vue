@@ -406,16 +406,17 @@ const formatDate = (s?: string) => {
         <div v-if="postGrid(d).imgs.length" class="post-media">
           <div class="moments-grid" :class="`g-${Math.min(postGrid(d).imgs.length, 9)}`">
             <template v-for="(img, gi) in postGrid(d).imgs" :key="gi">
-              <!-- 视频/图集封面：点击跳转详情 -->
-              <a v-if="img.link" :href="img.link" class="grid-img-wrap">
-                <img :src="img.src" class="grid-img" loading="lazy" />
+              <div class="grid-img-wrap">
+                <!-- 视频/图集封面：点击跳转详情 -->
+                <a v-if="img.link" :href="img.link" class="grid-img-link">
+                  <img :src="img.src" class="grid-img" loading="lazy" />
+                </a>
+                <!-- 普通图片：点击灯箱放大 -->
+                <img v-else :src="img.src" class="grid-img" loading="lazy"
+                  @click="openLightbox(postGrid(d).imgs.filter(i => i.type === 'image').map(i => i.src), gi)" />
                 <span v-if="img.type === 'video'" class="grid-badge video">▶</span>
                 <span v-if="postGrid(d).hasMore && gi === 8" class="grid-more">+{{ postGrid(d).total - MAX_CARD_IMAGES }}</span>
-              </a>
-              <!-- 普通图片：点击灯箱放大 -->
-              <img v-else :src="img.src" class="grid-img" loading="lazy"
-                @click="openLightbox(postGrid(d).imgs.filter(i => i.type === 'image').map(i => i.src), gi)" />
-              <span v-if="!img.link && postGrid(d).hasMore && gi === 8" class="grid-more grid-more--img">+{{ postGrid(d).total - MAX_CARD_IMAGES }}</span>
+              </div>
             </template>
           </div>
         </div>
@@ -582,8 +583,6 @@ const formatDate = (s?: string) => {
   background: rgba(0,0,0,0.5); color: #fff; font-size: 22px; font-weight: 600;
   border-radius: 8px; pointer-events: none;
 }
-.grid-img-wrap { position: relative; display: block; }
-.grid-more--img { position: absolute; }
 /* 灯箱 */
 .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
