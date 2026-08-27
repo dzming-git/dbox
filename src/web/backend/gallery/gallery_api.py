@@ -603,8 +603,12 @@ def serve_resource_file(rid, idx):
     try:
         ri = ResourceIndex.query.get_or_404(rid)
         guard_resource_index(ri)
-        if ri.kind != 'gallery_folder' or not ri.location or not os.path.isdir(ri.location):
+        if ri.kind != 'gallery_folder' or not ri.location:
             abort(404)
+        # location 可能是「目录」（多页图集）也可能是「单个文件」（如 pixiv 单图作品：
+        # 子进程把每张图作为独立文件入库，ResourceIndex.location 即该图片路径）。
+        # 目录按既有逻辑取 GalleryPage；单文件则视为单页图集，idx 须为 0。
+        is_dir = os.path.isdir(ri.location)
         if idx < 0:
             abort(404)
         # 已建图集实体时，以入库的页面记录为准取文件：
@@ -612,20 +616,29 @@ def serve_resource_file(rid, idx):
         # 若改用「重新列目录 + 下标」定位，目录内容一旦与入库时不同（增删图片、排序规则不一致），
         # 尾部下标就会越界 404，阅读器上表现为「明明没有这张图，却多出一页且加载失败」。
         g = Gallery.query.filter_by(resource_index_id=ri.id).first()
-        if g is not None:
+        if not is_dir:
+            # 单文件型 gallery_folder（location 即图片本身）：视作单页图集
+            if idx != 0:
+                abort(404)
+            if not os.path.isfile(ri.location):
+                abort(404)
+            fp = os.path.normpath(ri.location)
+            root = fp
+        elif g is not None:
             p = GalleryPage.query.filter_by(gallery_id=g.id, page_index=idx).first()
             # 该页无记录或记录指向的文件已不在磁盘上：这一页确实不存在，直接 404，
             # 不能回退成按下标取相邻文件，否则会串页。
             if not p or not p.file_path or not os.path.isfile(p.file_path):
                 abort(404)
             fp = os.path.normpath(p.file_path)
+            root = os.path.normpath(ri.location)
         else:
             # 帖子专属 gallery_folder（未建 Gallery 实体、无页面记录）仍按目录下标定位
             files = _gallery_folder_images(ri)
             if idx >= len(files):
                 abort(404)
             fp = os.path.normpath(os.path.join(ri.location, files[idx]))
-        root = os.path.normpath(ri.location)
+            root = os.path.normpath(ri.location)
         if not (fp == root or fp.startswith(root + os.sep)):
             abort(403)
         if not os.path.isfile(fp):
