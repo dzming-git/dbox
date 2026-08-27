@@ -197,7 +197,17 @@ const interactionText = ref('')
 const submitting = ref(false)
 
 function kindLabel(k: string) {
-  return ({ script: '脚本', upload: '上传', thumbnail: '缩略图' } as any)[k] || k
+  const map: Record<string, string> = {
+    script: '脚本',
+    upload: '上传',
+    thumbnail: '缩略图',
+    pixiv: 'Pixiv 下载',
+    ehentai: 'EH 下载',
+    'x-downloader': 'X 下载',
+  }
+  if (map[k]) return map[k]
+  if (k && k.startsWith('ext:')) return k.slice(4) + ' 下载'
+  return k
 }
 function statusLabel(s: string) {
   return (
