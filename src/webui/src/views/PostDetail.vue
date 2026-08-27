@@ -341,6 +341,13 @@ function toggleResource(id: number) {
   if (i >= 0) deleteResourceIds.value.splice(i, 1)
   else deleteResourceIds.value.push(id)
 }
+function selectAllResources() {
+  if (deleteResourceIds.value.length === associatedResources.value.length) {
+    deleteResourceIds.value = [] // 取消全选
+  } else {
+    deleteResourceIds.value = associatedResources.value.map((r: any) => r.resource_index_id) // 全选
+  }
+}
 
 const removePost = async () => {
   if (!post.value) return
@@ -356,7 +363,8 @@ const removePost = async () => {
     if (n > 0) alert(`帖子已删除，并移除了 ${n} 个关联资源`)
     router.push('/?mode=mixed')
   } catch (e: any) {
-    alert(e?.message || '删除失败')
+    const detail = e?.response?.data?.error || e?.message || '未知错误'
+    alert('删除失败: ' + detail)
   } finally {
     deleting.value = false
   }
@@ -459,6 +467,12 @@ const removePost = async () => {
         </label>
 
         <div v-if="deleteResources && associatedResources.length" class="del-res-list">
+          <div class="del-select-all">
+            <button class="del-select-btn" @click="selectAllResources">
+              {{ deleteResourceIds.length === associatedResources.length ? '取消全选' : '全选' }}
+            </button>
+            <span class="del-select-hint">已选 {{ deleteResourceIds.length }} / {{ associatedResources.length }}</span>
+          </div>
           <div v-for="r in associatedResources" :key="r.resource_index_id" class="del-res-item" @click="toggleResource(r.resource_index_id)">
             <input type="checkbox" :checked="deleteResourceIds.includes(r.resource_index_id)" @click.stop.prevent="toggleResource(r.resource_index_id)" />
             <img v-if="r.cover_url" :src="withToken(r.cover_url)" class="del-res-cover" />
@@ -594,6 +608,10 @@ const removePost = async () => {
 .del-check-text strong { color: var(--text-primary); font-size: 14px; }
 .del-check-text small { color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
 .del-res-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+.del-select-all { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 6px; }
+.del-select-btn { font-size: 12px; color: var(--text-secondary); background: none; border: 1px solid var(--border-default); padding: 4px 10px; border-radius: 6px; cursor: pointer; transition: all .15s; }
+.del-select-btn:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.del-select-hint { font-size: 11px; color: var(--text-tertiary); }
 .del-res-item { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border-default); border-radius: 10px; cursor: pointer; background: var(--bg-surface); transition: border-color .15s; }
 .del-res-item:hover { border-color: var(--border-default); }
 .del-res-item input { width: 16px; height: 16px; accent-color: #ffb300; }
