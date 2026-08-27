@@ -84,8 +84,8 @@ function onMessage(e: MessageEvent) {
 }
 
 function goBack() {
-  if (window.history.length > 1) router.back()
-  else router.push('/')
+  // 全屏扩展页左上角按钮：返回 dbox 首页（框架级行为，而非返回上一级）
+  router.push('/')
 }
 
 // iframe 加载完成后通知面板：当前处于全屏独立模式，便于其隐藏「全屏对话」按钮。
@@ -109,7 +109,7 @@ onUnmounted(() => {
 <template>
   <div class="ext-standalone-page">
     <div class="ext-std-header">
-      <button class="ext-std-back" @click="goBack">← 返回</button>
+      <button class="ext-std-back" @click="goBack">← 首页</button>
       <span class="ext-std-title">{{ title }}</span>
     </div>
     <div class="ext-std-body">
