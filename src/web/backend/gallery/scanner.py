@@ -147,8 +147,17 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, 
     # 用于 X 等脚本把「一个 URL 的图片」放进同一目录、需聚合成一本图集的场景；
     # 此时资源库未必配置了磁盘监控根，且单图目录也应能成集。
     if specific_paths:
-        targets = [os.path.abspath(sp) for sp in specific_paths
-                   if os.path.isdir(os.path.abspath(sp))]
+        # 允许传入「单文件」：取其所在目录作为图集目录（如 pixiv 把多张图下载到同一目录，
+        # 但逐张以单文件路径调用 ingest/scan 的场景）。这样仍能聚合成一本图集。
+        targets = []
+        for sp in specific_paths:
+            ap = os.path.abspath(sp)
+            if os.path.isdir(ap):
+                targets.append(ap)
+            elif os.path.isfile(ap):
+                d = os.path.dirname(ap)
+                if d and d not in targets:
+                    targets.append(d)
         if not targets:
             return {'success': False, 'message': '指定的图集目录不存在或不是文件夹'}
         added = updated = 0
