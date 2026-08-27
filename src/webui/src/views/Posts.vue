@@ -242,6 +242,23 @@ function flatMediaGrid(d: Post): GridImage[] {
   return images
 }
 
+// 帖子卡片最多展示 3×3（9 张）图片，超出折叠，点开详情看全部
+const MAX_CARD_IMAGES = 9
+const _gridCache = new WeakMap<Post, { imgs: GridImage[]; total: number; hasMore: boolean }>()
+function postGrid(d: Post) {
+  const cached = _gridCache.get(d)
+  if (cached) return cached
+  const all = flatMediaGrid(d)
+  const hasMore = all.length > MAX_CARD_IMAGES
+  const r = {
+    imgs: hasMore ? all.slice(0, MAX_CARD_IMAGES) : all,
+    total: all.length,
+    hasMore,
+  }
+  _gridCache.set(d, r)
+  return r
+}
+
 function labelForRef(r: any) {
   return r.presentation?.title || r.video?.title || r.gallery?.title || r.text?.title || r.location || ('资源 ' + r.resource_index_id)
 }
@@ -385,18 +402,20 @@ const formatDate = (s?: string) => {
           </template>
         </div>
 
-        <!-- 统一媒体流（朋友圈式：所有媒体混排为图片网格） -->
-        <div v-if="flatMediaGrid(d).length" class="post-media">
-          <div class="moments-grid" :class="`g-${Math.min(flatMediaGrid(d).length, 9)}`">
-            <template v-for="(img, gi) in flatMediaGrid(d)" :key="gi">
+        <!-- 统一媒体流（朋友圈式：所有媒体混排为图片网格，最多 3×3） -->
+        <div v-if="postGrid(d).imgs.length" class="post-media">
+          <div class="moments-grid" :class="`g-${Math.min(postGrid(d).imgs.length, 9)}`">
+            <template v-for="(img, gi) in postGrid(d).imgs" :key="gi">
               <!-- 视频/图集封面：点击跳转详情 -->
               <a v-if="img.link" :href="img.link" class="grid-img-wrap">
                 <img :src="img.src" class="grid-img" loading="lazy" />
                 <span v-if="img.type === 'video'" class="grid-badge video">▶</span>
+                <span v-if="postGrid(d).hasMore && gi === 8" class="grid-more">+{{ postGrid(d).total - MAX_CARD_IMAGES }}</span>
               </a>
               <!-- 普通图片：点击灯箱放大 -->
               <img v-else :src="img.src" class="grid-img" loading="lazy"
-                @click="openLightbox(flatMediaGrid(d).filter(i => i.type === 'image').map(i => i.src), gi)" />
+                @click="openLightbox(postGrid(d).imgs.filter(i => i.type === 'image').map(i => i.src), gi)" />
+              <span v-if="!img.link && postGrid(d).hasMore && gi === 8" class="grid-more grid-more--img">+{{ postGrid(d).total - MAX_CARD_IMAGES }}</span>
             </template>
           </div>
         </div>
@@ -556,6 +575,15 @@ const formatDate = (s?: string) => {
 .moments-grid.g-7,
 .moments-grid.g-8,
 .moments-grid.g-9 { grid-template-columns: repeat(3, 1fr); }
+/* 超出 9 张的「更多」角标，盖在第 9 张图上 */
+.grid-more {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.5); color: #fff; font-size: 22px; font-weight: 600;
+  border-radius: 8px; pointer-events: none;
+}
+.grid-img-wrap { position: relative; display: block; }
+.grid-more--img { position: absolute; }
 /* 灯箱 */
 .lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox-img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); cursor: default; }
