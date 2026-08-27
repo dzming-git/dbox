@@ -172,12 +172,12 @@ const routes: RouteRecordRaw[] = [
   },
   {
     // 已知核心扩展的全屏兜底路由：静态预注册，避免扩展宿主接口在刷新竞态中
-    // 暂不可用时 /x-downloader 未动态注入而 404。其它扩展仍走 registerExtensionRoutes 动态注册。
-    // 注意：插件 id 是文件夹名（含连字符，如 x-downloader），不是 manifest 里的下划线版本。
-    path: '/x-downloader',
-    name: 'ext-x-downloader',
+    // 暂不可用时 /x 未动态注入而 404。其它扩展仍走 registerExtensionRoutes 动态注册。
+    // 注意：插件 id 是文件夹名（如 x），不是 manifest 里的下划线版本。
+    path: '/x',
+    name: 'ext-x',
     component: () => import('../views/ExtensionStandalone.vue'),
-    props: { id: 'x-downloader' },
+    props: { id: 'x' },
     meta: { title: 'X 下载', requiresAuth: true, requiresAdmin: true }
   },
   {

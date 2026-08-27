@@ -203,7 +203,7 @@ function kindLabel(k: string) {
     thumbnail: '缩略图',
     pixiv: 'Pixiv 下载',
     ehentai: 'EH 下载',
-    'x-downloader': 'X 下载',
+    'x': 'X 下载',
   }
   if (map[k]) return map[k]
   if (k && k.startsWith('ext:')) return k.slice(4) + ' 下载'
