@@ -1698,8 +1698,10 @@ class Post(db.Model):
                             entry['gallery'] = c.to_dict()
                             # 附带图集页面图片 URL 列表，供前端内联渲染多张图
                             # 帖子内嵌引用场景：hidden 资源在帖子中可预览，URL 附加 ?post=1
+                            # 统一使用 /resource-file/<rid>/<idx> 格式（与 gallery API 一致），
+                            # 避免 /gallery-page/<file_path> 因文件名含方括号/Unicode 等特殊字符导致 404。
                             entry['images'] = [
-                                f'/gallery-page/{urllib.parse.quote(p.file_path)}?post=1'
+                                f'/resource-file/{ri.id}/{p.page_index}?post=1'
                                 for p in c.pages
                             ]
                         else:
