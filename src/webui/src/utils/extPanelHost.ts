@@ -84,10 +84,11 @@ function injectStylesOnce() {
   const s = document.createElement('style')
   s.id = 'dbox-ext-panel-style'
   s.textContent = `
-/* z-index 必须高于 ExtensionHost 的遮罩（.ext-mask = 8999），否则面板会被遮罩
-   盖住：点击面板内的输入框实际命中遮罩，触发「点击外部收起」，表现为
-   「一点击面板就自动收起、无法输入」。原悬浮面板即 9001，这里保持一致。 */
-#${ROOT_ID} { position: fixed; inset: 0; pointer-events: none; z-index: 9001; }
+/* z-index 需同时高于：遮罩（.ext-mask = 8999）、面板打开时被抬起的导航栏
+   （body.ext-panel-open .nav = 9003）与应用启动器（.ext-launcher = 9004）。
+   低于遮罩会导致「点击面板内输入框即收起」；低于导航栏/启动器则面板标题栏
+   （含全屏、收起按钮）被压在后面点不到。 */
+#${ROOT_ID} { position: fixed; inset: 0; pointer-events: none; z-index: 9100; }
 #${ROOT_ID} .dbox-ext-panel {
   position: absolute;
   display: flex;
@@ -102,14 +103,23 @@ function injectStylesOnce() {
 #${ROOT_ID} .dbox-ext-panel[data-mode="hidden"] {
   display: none;
 }
-/* 小窗：右下角浮动面板 */
+/* 小窗：贴导航栏下方展开（与导航栏入口位置呼应），高度由 top/bottom 自适应。
+   刻意不与导航栏区域重叠：既避免遮挡导航，也避免标题栏按钮被导航压住。 */
 #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
-  right: 24px;
-  bottom: 24px;
+  right: 16px;
+  top: calc(var(--nav-height, 60px) + 8px);
+  bottom: 16px;
   width: 420px;
-  height: 620px;
+  height: auto;
   max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 100px);
+}
+/* 窄屏：左右留边铺开，输入框等底部操作区不被浮层压住 */
+@media (max-width: 600px) {
+  #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
 }
 /* 全屏：铺满视口，层级高于导航与浮层 */
 #${ROOT_ID} .dbox-ext-panel[data-mode="fullscreen"] {
