@@ -88,15 +88,18 @@ function handleMsg(data: any, id: string) {
 
 function goBack() {
   // 全屏页左上角：回到进入全屏页之前的页面（优先 history back，无历史则回首页）。
-  // 面板实例保留（切为隐藏），下次再打开仍是离开前的现场。
+  // 面板实例保留，状态移交给 onUnmounted 决定收起还是切回小窗。
   if (window.history.length > 1) router.back()
   else router.push('/')
 }
 
-// 面板标题栏「收起」按钮（extPanelHost 内建）在全屏态触发：离开全屏路由页回到上一页
+// 面板标题栏「收起」或「小窗」按钮（extPanelHost 内建）在全屏态触发：
+// 离开全屏路由页回到上一页；mode=floating 表示切回小窗，否则收起（隐藏）。
+let pendingExitMode: 'hidden' | 'floating' = 'hidden'
 function onExitFullscreen(e: Event) {
   const d = (e as CustomEvent).detail || {}
   if (d.extId && d.extId !== extId) return
+  pendingExitMode = d.mode === 'floating' ? 'floating' : 'hidden'
   goBack()
 }
 
@@ -109,8 +112,8 @@ onMounted(async () => {
 onUnmounted(() => {
   if (offMsg) { offMsg(); offMsg = null }
   window.removeEventListener('dbox-ext-exit-fullscreen', onExitFullscreen as EventListener)
-  // 离开全屏页：把面板收起（隐藏而非销毁），保留其全部状态
-  if (extId && getPanelIframe(extId)) setPanelMode(extId, 'hidden')
+  // 离开全屏页：按 pendingExitMode 收起或切回小窗（均保留全部状态）
+  if (extId && getPanelIframe(extId)) setPanelMode(extId, pendingExitMode)
 })
 </script>
 

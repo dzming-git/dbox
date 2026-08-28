@@ -188,6 +188,17 @@ body.${BODY_FULLSCREEN_CLASS} .side-nav { display: none !important; }
 function applyMode(entry: PanelEntry, mode: PanelMode) {
   entry.mode = mode
   entry.wrap.dataset.mode = mode
+  // 全屏按钮文案随形态切换：全屏态显示「小窗」（点击切回），其余显示「全屏」
+  const fsBtn = entry.wrap.querySelector('.dbox-ext-panel-fsbtn') as HTMLButtonElement | null
+  if (fsBtn) {
+    if (mode === 'fullscreen') {
+      fsBtn.textContent = '▢ 小窗'
+      fsBtn.title = '切换为小窗'
+    } else {
+      fsBtn.textContent = '⛶ 全屏'
+      fsBtn.title = '在独立页面全屏打开'
+    }
+  }
   // 全屏态由 body class 表达，供全局导航隐藏等样式使用
   const anyFullscreen = Array.from(panels.values()).some(p => p.mode === 'fullscreen')
   document.body.classList.toggle(BODY_FULLSCREEN_CLASS, anyFullscreen)
@@ -228,12 +239,19 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
   titleEl.textContent = opts.title || extId
 
   const fsBtn = document.createElement('button')
-  fsBtn.className = 'dbox-ext-panel-btn'
+  fsBtn.className = 'dbox-ext-panel-btn dbox-ext-panel-fsbtn'
   fsBtn.textContent = '⛶ 全屏'
   fsBtn.title = '在独立页面全屏打开'
   fsBtn.style.display = opts.standaloneRoute ? '' : 'none'
   fsBtn.addEventListener('click', () => {
-    if (opts.standaloneRoute) {
+    if (!opts.standaloneRoute) return
+    const cur = panels.get(extId)
+    if (cur && cur.mode === 'fullscreen') {
+      // 全屏态：按钮已变为「小窗」，点击切回小窗并离开全屏路由页
+      window.dispatchEvent(new CustomEvent('dbox-ext-exit-fullscreen', {
+        detail: { extId, mode: 'floating' },
+      }))
+    } else {
       // 只切路由；iframe 不动，由全屏路由页把形态切成 fullscreen
       window.dispatchEvent(new CustomEvent('dbox-ext-request-fullscreen', {
         detail: { extId, route: opts.standaloneRoute },
@@ -288,7 +306,7 @@ export function ensurePanel(extId: string, opts: PanelOptions): void {
   if (exist) {
     exist.opts = { ...exist.opts, ...opts }
     if (opts.title) exist.titleEl.textContent = opts.title
-    const fsBtn = exist.wrap.querySelector('.dbox-ext-panel-btn') as HTMLButtonElement | null
+    const fsBtn = exist.wrap.querySelector('.dbox-ext-panel-fsbtn') as HTMLButtonElement | null
     if (fsBtn) fsBtn.style.display = exist.opts.standaloneRoute ? '' : 'none'
     return
   }
