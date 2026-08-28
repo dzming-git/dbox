@@ -25,9 +25,13 @@ interface Extension {
   ui: ExtensionUI
 }
 
-// 扩展图标若为 http(s) 图片地址，则以 <img> 渲染；否则当文本（emoji）显示
-function isHttpIcon(s: unknown): boolean {
-  return typeof s === 'string' && /^https?:\/\//i.test(s)
+// 扩展图标：内联 SVG（<svg...）用 v-html 渲染以继承 currentColor 自适应明暗主题；
+// http(s) 图片地址或 data: URI 用 <img> 渲染；其余当文本（emoji）显示。
+function isSvgIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^\s*<svg[\s>]/i.test(s)
+}
+function isImageIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^(https?:\/\/|data:image\/)/i.test(s)
 }
 const extensions = ref<Extension[]>([])
 const panelHtml = ref<Record<string, string>>({})
@@ -320,7 +324,8 @@ watch(() => route.path, async (p) => {
             class="ext-app"
             @click="openApp(ext.id)"
           >
-            <img v-if="isHttpIcon(ext.ui.icon)" class="ext-app-icon-img" :src="ext.ui.icon" alt="" />
+            <span v-if="isSvgIcon(ext.ui.icon)" class="ext-app-icon" v-html="ext.ui.icon"></span>
+            <img v-else-if="isImageIcon(ext.ui.icon)" class="ext-app-icon-img" :src="ext.ui.icon" alt="" />
             <span v-else class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
             <span class="ext-app-name">{{ ext.ui.title || ext.name }}</span>
             <span v-if="fabUnread(ext.id)" class="ext-app-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
@@ -530,6 +535,14 @@ watch(() => route.path, async (p) => {
   height: 28px;
   object-fit: contain;
   border-radius: 6px;
+}
+/* 内联 SVG 图标：约束尺寸并继承文字色（fill=currentColor 时自适应明暗主题） */
+.ext-app-icon svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+  fill: currentColor;
+  color: inherit;
 }
 .ext-app-name {
   font-size: 12px;

@@ -15,9 +15,13 @@ interface PluginInfo {
 
 const router = useRouter()
 const loading = ref(false)
-// 扩展图标若为 http(s) 图片地址，则以 <img> 渲染；否则当文本（emoji）显示
-function isHttpIcon(s: unknown): boolean {
-  return typeof s === 'string' && /^https?:\/\//i.test(s)
+// 扩展图标：内联 SVG（<svg...）用 v-html 渲染以继承 currentColor 自适应明暗主题；
+// http(s) 图片地址或 data: URI 用 <img> 渲染；其余当文本（emoji）显示。
+function isSvgIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^\s*<svg[\s>]/i.test(s)
+}
+function isImageIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^(https?:\/\/|data:image\/)/i.test(s)
 }
 const plugins = ref<PluginInfo[]>([])
 const toggling = ref<string | null>(null)
@@ -125,7 +129,8 @@ onMounted(load)
 
     <div v-else class="plugin-list">
       <div v-for="p in plugins" :key="p.id" class="plugin-card" :class="{ disabled: !p.enabled }">
-        <img v-if="p.ui && isHttpIcon(p.ui.icon)" class="plugin-icon-img" :src="p.ui.icon" alt="" />
+        <div v-if="p.ui && isSvgIcon(p.ui.icon)" class="plugin-icon" v-html="p.ui.icon"></div>
+        <img v-else-if="p.ui && isImageIcon(p.ui.icon)" class="plugin-icon-img" :src="p.ui.icon" alt="" />
         <div class="plugin-icon" v-else-if="p.ui && p.ui.icon">{{ p.ui.icon }}</div>
         <div class="plugin-main">
           <div class="plugin-name">
@@ -254,6 +259,14 @@ onMounted(load)
   object-fit: contain;
   border-radius: 10px;
   background: var(--bg-surface-2);
+}
+/* 内联 SVG 图标：约束尺寸并继承文字色（fill=currentColor 时自适应明暗主题） */
+.plugin-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  fill: currentColor;
+  color: inherit;
 }
 .plugin-main { flex: 1; min-width: 0; }
 .plugin-name {
