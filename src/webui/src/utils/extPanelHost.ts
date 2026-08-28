@@ -50,6 +50,7 @@ const BODY_FULLSCREEN_CLASS = 'ext-panel-fullscreen'
 interface PanelEntry {
   extId: string
   wrap: HTMLDivElement
+  mask: HTMLDivElement
   iframe: HTMLIFrameElement
   titleEl: HTMLSpanElement
   mode: PanelMode
@@ -109,6 +110,17 @@ function injectStylesOnce() {
   box-shadow: 0 12px 32px rgba(15,20,25,.18);
   pointer-events: auto;
 }
+/* 小窗外的透明遮罩：捕获窗外的点击并收起面板，避免穿透点到小窗背后的内容（误触）。
+   仅在 floating 形态显示；全屏/隐藏时隐藏，且默认 display:none 不拦截任何事件。 */
+#${ROOT_ID} .dbox-ext-panel-mask {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: auto;
+  display: none;
+  z-index: 0;
+}
+#${ROOT_ID} .dbox-ext-panel-mask[data-show="1"] { display: block; }
 #${ROOT_ID} .dbox-ext-panel[data-mode="hidden"] {
   display: none;
 }
@@ -188,6 +200,8 @@ body.${BODY_FULLSCREEN_CLASS} .side-nav { display: none !important; }
 function applyMode(entry: PanelEntry, mode: PanelMode) {
   entry.mode = mode
   entry.wrap.dataset.mode = mode
+  // 仅小窗形态显示遮罩（捕获窗外点击 → 收起）；全屏/隐藏时隐藏，避免拦截交互
+  if (entry.mask) entry.mask.dataset.show = mode === 'floating' ? '1' : '0'
   // 全屏按钮文案随形态切换：全屏态显示「小窗」（点击切回），其余显示「全屏」
   const fsBtn = entry.wrap.querySelector('.dbox-ext-panel-fsbtn') as HTMLButtonElement | null
   if (fsBtn) {
@@ -290,10 +304,19 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
 
   wrap.appendChild(head)
   wrap.appendChild(iframe)
+
+  // 小窗遮罩：先于面板插入，使其绘制在面板之下；点击遮罩即收起面板
+  const mask = document.createElement('div')
+  mask.className = 'dbox-ext-panel-mask'
+  mask.addEventListener('click', () => {
+    const cur = panels.get(extId)
+    if (cur && cur.mode === 'floating') setPanelMode(extId, 'hidden')
+  })
+  root.appendChild(mask)
   root.appendChild(wrap)
 
   const entry: PanelEntry = {
-    extId, wrap, iframe, titleEl, mode: 'hidden',
+    extId, wrap, mask, iframe, titleEl, mode: 'hidden',
     ready: false, pending: [], opts,
   }
   panels.set(extId, entry)
