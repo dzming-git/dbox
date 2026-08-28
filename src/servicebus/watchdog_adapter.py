@@ -34,6 +34,7 @@ WatchdogService - 服务看门狗（健康巡检 + 自愈 + 告警）
 
 import os
 import sys
+import json
 import time
 import threading
 import logging
@@ -84,6 +85,32 @@ DEFAULT_MONITORED = [
 
 # 看门狗自身依赖的基础设施，禁止自动重启（只告警）
 AUTO_RESTART_EXCLUDED = {'dbox-bus', 'dbox-servicemgr', 'dbox-watchdog'}
+
+
+# ---- 人工停止抑制（与 service-ops 插件的跨进程约定）----
+# 用户在服务管理里主动「停止」某服务做维护时，插件会写这个抑制文件；
+# 看门狗自动重启前先查它，命中则跳过，避免把用户刚停掉的服务又拉起来。
+# 路径与格式必须和 extensions/service-ops/backend/server.py 保持一致。
+def _suppress_file_path():
+    root = os.environ.get('DBOX_DATA_DIR') or os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(root, 'data', 'service_suppress.json')
+
+
+def _is_suppressed(win_name):
+    """该服务是否处于「人工停止」的抑制窗口内。"""
+    p = _suppress_file_path()
+    if not os.path.exists(p):
+        return False
+    try:
+        with open(p, 'r', encoding='utf-8') as f:
+            data = json.load(f) or {}
+        exp = data.get(win_name)
+        if not isinstance(exp, (int, float)):
+            return False
+        return exp > time.time()
+    except Exception:
+        return False
 
 # 健康 url（用于 Windows 服务层 HTTP 探活，可选）
 # 注意：
@@ -253,7 +280,13 @@ class WatchdogService(BaseDBusService):
                     st['last_error'] = reason
 
                     if st['consecutive_failures'] >= self._fail_threshold:
-                        if st['restart_count'] < self._max_restarts and \
+                        if _is_suppressed(win_name):
+                            # 用户手动停止过：尊重人工操作，不自动拉起
+                            st['consecutive_failures'] = 0
+                            st['status'] = 'stopped'
+                            _log.info('服务 %s 处于人工停止抑制窗口内，看门狗跳过自动重启',
+                                      win_name)
+                        elif st['restart_count'] < self._max_restarts and \
                                 win_name not in AUTO_RESTART_EXCLUDED:
                             # 触发自动重启
                             ok, msg = self._restart_windows_service(win_name)

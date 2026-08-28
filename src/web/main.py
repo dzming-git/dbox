@@ -271,13 +271,10 @@ log.maintenance('INFO', 'Service bus clients initialized for APIs')
 from backend.access import (auth_required, admin_required, library_admin_required, resource_manager_required)
 # 辅助函数已下沉到 backend.*_helpers，运行时从对应模块导入并回绑到本命名空间。
 # 运行时单例（db/app/app_config/buses）统一注入 backend.runtime，彻底消除对 main 的依赖。
-from backend.system_helpers import (
-    _count_active_tasks, _do_windows_shutdown, parse_log_line,
-    SETTINGS_DEFAULTS, load_config, save_config,
-    _scan_services, _get_service_status, _check_service_health, _open_scm,
-    _SERVICE_META, _WIN32_SVC_STATUS, _svc_control_locks,
-    _SHUTDOWN_CANCEL, _SHUTDOWN_LOCK, _shutdown_threading, _apply_setting,
-)
+
+# _scan_services / _SERVICE_META / _SHUTDOWN_* 等）已随对应能力迁移到
+# system-power / service-ops 扩展插件而移除，此处只保留仍在使用的 load_config。
+from backend.system_helpers import load_config
 from backend.helpers import (
     _resolve_dbox_library_id_by_folder, _resolve_resource_library_id,
     _build_tag_tree, _ensure_interaction, record_interaction,
@@ -303,13 +300,6 @@ app_config['thumbnails'] = _load_thumb_config()
 _runtime.init(db=db, app=app, app_config=app_config)
 # 总线客户端创建并注入 runtime（收敛至 backend.service_buses）
 init_service_buses(_SRC_DIR)
-
-
-
-# ============ 电脑关机控制（系统级，仅管理员） ============
-
-
-
 
 
 

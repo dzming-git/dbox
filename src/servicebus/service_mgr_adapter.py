@@ -486,7 +486,17 @@ class BusServiceMgrAdapter(BaseDBusService):
                     elif action == 'restart':
                         if current_state != win32service.SERVICE_STOPPED:
                             win32service.ControlService(svc, win32service.SERVICE_CONTROL_STOP)
-                            time.sleep(0.5)
+                            # 等真正进入 STOPPED 再启动：固定 sleep 对停止较慢的
+                            # 服务（如 downloader/extensions）会导致 START 失败。
+                            deadline = time.time() + 15
+                            while time.time() < deadline:
+                                try:
+                                    st = win32service.QueryServiceStatus(svc)
+                                except Exception:
+                                    break
+                                if st[1] == win32service.SERVICE_STOPPED:
+                                    break
+                                time.sleep(0.3)
                         win32service.StartService(svc, None)
                         return {'success': True, 'message': '重启命令已发送'}
 

@@ -19,9 +19,10 @@ dbox/
 │   └── utils/               # 工具函数
 ├── msa-thumb/              # 缩略图服务代码
 ├── services/                # 服务配置
-│   ├── service_manager.py   # 服务管理器
 │   ├── dbox-web.json     # Web服务NSSM配置
 │   └── dbox-thumbnail.json # 缩略图服务NSSM配置
+│   # 注：原 service_manager.py 已移除（无引用且已失效）；
+│   # 服务启停请用 scripts/service_manager.py CLI 或 service-ops 扩展插件。
 ├── static/
 │   └── thumbnails/          # 缩略图存储
 ├── web.py                   # Web服务入口
