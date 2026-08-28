@@ -15,6 +15,10 @@ interface PluginInfo {
 
 const router = useRouter()
 const loading = ref(false)
+// 扩展图标若为 http(s) 图片地址，则以 <img> 渲染；否则当文本（emoji）显示
+function isHttpIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^https?:\/\//i.test(s)
+}
 const plugins = ref<PluginInfo[]>([])
 const toggling = ref<string | null>(null)
 const reloading = ref<string | null>(null)
@@ -121,7 +125,8 @@ onMounted(load)
 
     <div v-else class="plugin-list">
       <div v-for="p in plugins" :key="p.id" class="plugin-card" :class="{ disabled: !p.enabled }">
-        <div class="plugin-icon" v-if="p.ui && p.ui.icon">{{ p.ui.icon }}</div>
+        <img v-if="p.ui && isHttpIcon(p.ui.icon)" class="plugin-icon-img" :src="p.ui.icon" alt="" />
+        <div class="plugin-icon" v-else-if="p.ui && p.ui.icon">{{ p.ui.icon }}</div>
         <div class="plugin-main">
           <div class="plugin-name">
             {{ p.name }}
@@ -241,6 +246,14 @@ onMounted(load)
   font-size: 22px;
   background: var(--bg-surface-2);
   border-radius: 10px;
+}
+.plugin-icon-img {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: var(--bg-surface-2);
 }
 .plugin-main { flex: 1; min-width: 0; }
 .plugin-name {

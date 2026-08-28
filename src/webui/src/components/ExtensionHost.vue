@@ -25,6 +25,10 @@ interface Extension {
   ui: ExtensionUI
 }
 
+// 扩展图标若为 http(s) 图片地址，则以 <img> 渲染；否则当文本（emoji）显示
+function isHttpIcon(s: unknown): boolean {
+  return typeof s === 'string' && /^https?:\/\//i.test(s)
+}
 const extensions = ref<Extension[]>([])
 const panelHtml = ref<Record<string, string>>({})
 const openId = ref<string | null>(null)
@@ -316,7 +320,8 @@ watch(() => route.path, async (p) => {
             class="ext-app"
             @click="openApp(ext.id)"
           >
-            <span class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
+            <img v-if="isHttpIcon(ext.ui.icon)" class="ext-app-icon-img" :src="ext.ui.icon" alt="" />
+            <span v-else class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
             <span class="ext-app-name">{{ ext.ui.title || ext.name }}</span>
             <span v-if="fabUnread(ext.id)" class="ext-app-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
           </button>
@@ -519,6 +524,12 @@ watch(() => route.path, async (p) => {
 .ext-app-icon {
   font-size: 28px;
   line-height: 1;
+}
+.ext-app-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
 }
 .ext-app-name {
   font-size: 12px;
