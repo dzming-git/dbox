@@ -4,6 +4,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { useUserStore } from '../stores/userStore'
 import { withExtRuntime } from '../utils/extRuntime'
+import {
+  ensurePanel, setPanelMode, postToPanel, getPanelIframe,
+  onPanelMessage, isPanelVisible,
+} from '../utils/extPanelHost'
 
 const router = useRouter()
 const route = useRoute()
@@ -51,6 +55,9 @@ function fabUnread(id: string) { return unreadMap.value[id] || 0 }
 // 用户「正在查看某扩展」的两种情形：面板展开 / 处于该扩展的独立全屏路由。
 function isViewing(id: string): boolean {
   if (openId.value === id) return true
+  // 全屏页由 extPanelHost 把形态切成 fullscreen，据此判断「正在查看」，
+  // 与路由解耦（面板实例是常驻的，路由只是触发形态切换）。
+  if (isPanelVisible(id)) return true
   const ext = extensions.value.find((e) => e.id === id)
   const routePath = ext?.ui?.standalone_route
   return !!(routePath && route.path === routePath)
@@ -129,8 +136,8 @@ async function openPanel(id: string) {
   if (!ext?.ui.entry) return
   // 每次打开都刷新 token（用户可能刚登录/刷新过 token），确保推给 iframe 的是最新值
   await loadToken()
-  // 每次打开都重新拉取最新 panel.html：后端已设 no-store，但 Vue 变量缓存会让旧版本
-  // 残留（导致新功能不生效）。重新获取成本极低，优先保证 UI 最新。
+  // 取最新 panel.html（后端 no-store）：仅在该扩展**首次**打开时写入 iframe srcdoc。
+  // 之后再打开只切换形态（纯 CSS），绝不重建文档——否则滚动位置/输入内容/播放进度会丢。
   try {
     const res: any = await scriptApi.getPanel(id)
     // 前置共享运行时：与全屏页共用同一份数据缓存，形态切换不再重复加载
@@ -138,7 +145,18 @@ async function openPanel(id: string) {
   } catch (e) {
     panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }
-  await nextTick()
+  const already = !!getPanelIframe(id)
+  ensurePanel(id, {
+    html: panelHtml.value[id] || '',
+    sandbox: ext?.ui?.sandbox,
+    title: ext?.ui?.title || id,
+    standaloneRoute: ext?.ui?.standalone_route,
+  })
+  if (!already) {
+    await nextTick()
+  }
+  // 切到小窗形态：DOM 与 iframe 文档不动，面板内现场原样保留
+  setPanelMode(id, 'floating')
   pushToken(id)
 }
 
@@ -157,43 +175,36 @@ function toggleLauncher() {
 }
 
 function pushToken(id: string) {
-  const iframe = document.getElementById(`ext-frame-${id}`) as HTMLIFrameElement | null
-  if (iframe?.contentWindow) {
-    // 推送前实时读取最新 token：主站 axios 会在 401 时静默刷新并写回 localStorage，
-    // 若仍用组件挂载时缓存的 token.value 会给 iframe 过期 token，导致插件接口 401。
-    const fresh = localStorage.getItem('token')
-      || localStorage.getItem('access_token')
-      || sessionStorage.getItem('token')
-      || token.value
-    iframe.contentWindow.postMessage({ type: 'DBOX_TOKEN', token: fresh }, '*')
-    iframe.contentWindow.postMessage({ type: 'DBOX_DRAFT', text: drafts.value[id] || '' }, '*')
-    const ext = extensions.value.find((e) => e.id === id)
-    if (ext?.ui?.standalone_route) {
-      iframe.contentWindow.postMessage(
-        { type: 'DBOX_EXT_INFO', standalone_route: ext.ui.standalone_route }, '*')
-    }
+  if (!getPanelIframe(id)) return
+  // 推送前实时读取最新 token：主站 axios 会在 401 时静默刷新并写回 localStorage，
+  // 若仍用组件挂载时缓存的 token.value 会给 iframe 过期 token，导致插件接口 401。
+  const fresh = localStorage.getItem('token')
+    || localStorage.getItem('access_token')
+    || sessionStorage.getItem('token')
+    || token.value
+  postToPanel(id, { type: 'DBOX_TOKEN', token: fresh })
+  postToPanel(id, { type: 'DBOX_DRAFT', text: drafts.value[id] || '' })
+  const ext = extensions.value.find((e) => e.id === id)
+  if (ext?.ui?.standalone_route) {
+    postToPanel(id, { type: 'DBOX_EXT_INFO', standalone_route: ext.ui.standalone_route })
   }
 }
 
-function onMessage(e: MessageEvent) {
-  // iframe 反向请求 token（例如刚挂载时）
-  if (e.data?.type === 'DBOX_REQUEST_TOKEN') {
-    const id = e.data.extId
-    if (id) pushToken(id)
+// 处理面板（iframe）发来的消息。由 extPanelHost 统一接收并带 extId 分发。
+function handlePanelMessage(data: any, id: string) {
+  if (!data || !id) return
+  // 面板反向请求 token（例如刚挂载时）
+  if (data.type === 'DBOX_REQUEST_TOKEN') pushToken(id)
+  // 面板同步未发送的输入内容，供收起后再展开时恢复
+  if (data.type === 'DBOX_DRAFT_SAVE') {
+    drafts.value[id] = typeof data.text === 'string' ? data.text : ''
   }
-  // iframe 同步未发送的输入内容，供收起后再展开时恢复
-  if (e.data?.type === 'DBOX_DRAFT_SAVE') {
-    const id = e.data.extId
-    if (id) drafts.value[id] = typeof e.data.text === 'string' ? e.data.text : ''
-  }
-  // iframe 请求父页面跳转（如面板中点击反馈单引用，跳转到反馈中心详情）。
-  if (e.data?.type === 'DBOX_NAVIGATE' && e.data.path) {
-    if (e.data.path === '__back__') router.back()
-    else router.push(e.data.path)
+  // 面板请求父页面跳转（如面板中点击资源引用，跳转到对应详情页）。
+  if (data.type === 'DBOX_NAVIGATE' && data.path) {
+    if (data.path === '__back__') router.back()
+    else router.push(data.path)
     // 除非显式声明 keepPanel，否则跳转后收起面板
-    if (e.data.keepPanel !== true) {
-      openId.value = null
-    }
+    if (data.keepPanel !== true) openId.value = null
   }
 }
 
@@ -203,14 +214,9 @@ function closePanel() {
   launcherOpen.value = false
 }
 
-// 框架层统一提供的「全屏」入口：任何声明了 standalone_route 的扩展自动获得。
-// 直接路由跳转并收起浮层面板；预览上下文由各扩展在自己的 panel.html 中经
-// localStorage 持久化，全屏页（ExtensionStandalone）加载后自动恢复。
-function openStandalone(ext: Extension) {
-  if (!ext.ui.standalone_route) return
-  openId.value = null
-  router.push(ext.ui.standalone_route)
-}
+// 注：「全屏」入口已由框架层 extPanelHost 内建在面板标题栏上（任何声明了
+// standalone_route 的扩展自动获得）。点击后派发 dbox-ext-request-fullscreen，
+// 由上面的 onRequestFullscreen 只做路由跳转，不重建 iframe。
 
 // 列表是导航栏下拉菜单，用「点击外部收起」而非全屏遮罩，避免遮罩压住导航栏入口本身
 function onDocClick(e: MouseEvent) {
@@ -226,10 +232,23 @@ function onKeydown(e: KeyboardEvent) {
   else if (openId.value) openId.value = null
 }
 
+// 面板标题栏「全屏」按钮（由 extPanelHost 内建）触发：只切路由，不动 iframe
+function onRequestFullscreen(e: Event) {
+  const d = (e as CustomEvent).detail || {}
+  if (d.route) {
+    openId.value = null
+    router.push(d.route)
+  }
+}
+
+let offPanelMsg: (() => void) | null = null
+
 onMounted(async () => {
   await loadToken()
   await loadExtensions()
-  window.addEventListener('message', onMessage)
+  // 统一走 extPanelHost 的消息通道（面板实例常驻，不再各自监听 window）
+  offPanelMsg = onPanelMessage((msg, extId) => handlePanelMessage(msg, extId))
+  window.addEventListener('dbox-ext-request-fullscreen', onRequestFullscreen as EventListener)
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKeydown)
   await nextTick()
@@ -240,7 +259,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  window.removeEventListener('message', onMessage)
+  if (offPanelMsg) { offPanelMsg(); offPanelMsg = null }
+  window.removeEventListener('dbox-ext-request-fullscreen', onRequestFullscreen as EventListener)
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKeydown)
   if (busyTimer) clearInterval(busyTimer)
@@ -251,16 +271,20 @@ onUnmounted(() => {
 // 呼出悬浮面板（带遮罩）时：锁定背景滚动，并把导航栏抬到遮罩之上，
 // 保证「应用」入口在面板打开时依然可点（可一次点击就切回应用列表）。
 function syncOverlayFlags() {
-  const ext = openId.value ? extensions.value.find((e) => e.id === openId.value) : null
-  const floating = !!(openId.value && ext?.ui?.mount === 'floating')
+  const floating = !!openId.value
   document.body.classList.toggle('ext-no-scroll', floating)
   document.body.classList.toggle('ext-panel-open', floating)
 }
 
-watch(openId, (id) => {
+watch(openId, (id, prev) => {
   if (id) {
     pushToken(id)
     if (unreadMap.value[id]) unreadMap.value = { ...unreadMap.value, [id]: 0 }
+  }
+  // 收起（openId 置空）时把上一个面板切到 hidden：仅隐藏，iframe 文档保留，
+  // 下次打开仍是收起前的现场（滚动位置、输入内容、播放进度都在）。
+  if (!id && prev && getPanelIframe(prev)) {
+    setPanelMode(prev, 'hidden')
   }
   syncOverlayFlags()
 })
@@ -337,58 +361,13 @@ watch(() => route.path, async (p) => {
       </div>
     </transition>
 
-    <!-- 各扩展的面板（用 v-show 而非 v-if，切换 app 时保留 iframe 状态避免中断） -->
-    <template v-for="ext in extensions" :key="ext.id">
-      <!-- 浮动面板 -->
-      <div
-        v-show="ext.ui.mount === 'floating' && openId === ext.id"
-        class="ext-panel"
-      >
-        <div class="ext-panel-header">
-          <span>{{ ext.ui.title }}</span>
-          <div class="ext-panel-actions">
-            <button
-              v-if="ext.ui.standalone_route"
-              class="ext-fs"
-              title="在独立页面全屏打开"
-              @click="openStandalone(ext)"
-            >⛶ 全屏</button>
-            <button class="ext-close" @click="openId = null">×</button>
-          </div>
-        </div>
-        <iframe
-          :id="`ext-frame-${ext.id}`"
-          class="ext-frame"
-          :sandbox="ext.ui.sandbox"
-          :srcdoc="panelHtml[ext.id] || ''"
-        ></iframe>
-      </div>
-
-      <!-- 固定侧边面板 -->
-      <div
-        v-show="ext.ui.mount === 'panel' && openId === ext.id"
-        class="ext-side-panel"
-      >
-        <div class="ext-side-header">
-          <span>{{ ext.ui.title }}</span>
-          <div class="ext-panel-actions">
-            <button
-              v-if="ext.ui.standalone_route"
-              class="ext-fs"
-              title="在独立页面全屏打开"
-              @click="openStandalone(ext)"
-            >⛶ 全屏</button>
-            <button class="ext-close" @click="openId = null">×</button>
-          </div>
-        </div>
-        <iframe
-          :id="`ext-frame-${ext.id}`"
-          class="ext-frame"
-          :sandbox="ext.ui.sandbox"
-          :srcdoc="panelHtml[ext.id] || ''"
-        ></iframe>
-      </div>
-    </template>
+    <!--
+      各扩展的面板 iframe 已由框架层 extPanelHost 统一管理：
+      常驻在 body 下的单一容器里，形态（小窗/全屏/收起）只切 CSS，
+      DOM 与 iframe 文档从不移动或重建，因此面板内的滚动位置、输入内容、
+      播放进度在切换形态与收起后重新打开时都原样保留。
+      这里不再渲染 iframe，仅保留遮罩层（点击遮罩收起面板）。
+    -->
   </div>
 </template>
 
@@ -588,93 +567,13 @@ watch(() => route.path, async (p) => {
   cursor: pointer;
   line-height: 1;
 }
+/* 注：面板容器（小窗/全屏/收起）与 iframe 的样式已统一由框架层 extPanelHost
+   内联提供，本组件不再持有 .ext-panel / .ext-side-panel / .ext-frame 等样式——
+   面板实例是常驻在 body 下的单一节点，形态只由 extPanelHost 的 CSS 表达。 */
 .ext-panel-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.ext-fs {
-  background: var(--accent, #4f8cff);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-  line-height: 1.4;
-}
-.ext-fs:hover {
-  filter: brightness(1.08);
-}
-/* 浮动面板同样从导航栏入口下方展开（与入口位置呼应），不再占用右下角，
-   避免压住页面底部内容与扩展面板自身的底部操作区（如输入框「发送」按钮）。 */
-.ext-panel {
-  position: fixed;
-  top: calc(var(--nav-height, 60px) + 6px);
-  right: 12px;
-  width: 380px;
-  max-width: calc(100vw - 24px);
-  height: 520px;
-  max-height: calc(100vh - var(--nav-height, 60px) - 24px);
-  max-height: calc(100dvh - var(--nav-height, 60px) - 24px);
-  background: var(--bg-elevated, #1e1e22);
-  border: 1px solid var(--border-default, #333);
-  border-radius: 12px;
-  z-index: 9001;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-/* 手机端：铺满导航栏以下的可视区域，输入区不再被任何浮层压住 */
-@media (max-width: 600px) {
-  .ext-panel {
-    left: 8px;
-    right: 8px;
-    width: auto;
-    height: calc(100vh - var(--nav-height, 60px) - 16px);
-    height: calc(100dvh - var(--nav-height, 60px) - 16px);
-  }
-}
-.ext-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--bg-surface-2, #2a2a30);
-  color: var(--text-primary, #eee);
-  font-size: 14px;
-  font-weight: 600;
-}
-.ext-frame {
-  flex: 1;
-  width: 100%;
-  border: none;
-  background: #fff;
-}
-.ext-side-panel {
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 380px;
-  max-width: 92vw;
-  background: var(--bg-elevated, #1e1e22);
-  z-index: 9002;
-  display: flex;
-  flex-direction: column;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
-}
-.ext-side-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-surface-2, #2a2a30);
-  color: var(--text-primary, #eee);
-  font-size: 14px;
-  font-weight: 600;
-  flex-shrink: 0;
 }
 </style>
 

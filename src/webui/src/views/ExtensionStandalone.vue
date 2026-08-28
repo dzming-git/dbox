@@ -3,34 +3,51 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { withExtRuntime } from '../utils/extRuntime'
+import {
+  ensurePanel, setPanelMode, postToPanel, getPanelIframe,
+  onPanelMessage, setPanelTitle,
+} from '../utils/extPanelHost'
 
-// 拓展插件式全屏页：按扩展 id 复用其 panel.html（与悬浮面板同一份 UI 资源），
-// 仅在「独享一个界面」的全屏 iframe 中渲染。任意声明了 ui.entry 的扩展都可用此页，
-// 其 id 由路由（registerExtensionRoutes 动态注入的 props.id）或路由参数提供。
+/**
+ * 扩展全屏页：与小窗（悬浮面板）是**同一个 iframe 实例**的两种显示形态。
+ *
+ * 以前本页会新建一个 srcdoc iframe —— 那等于重建文档，面板脚本从零启动，
+ * 小窗里看到的浏览位置、正在输入的文字、视频播放进度全部丢失。
+ * 现在改为复用框架层 extPanelHost 的常驻面板实例，仅把形态切成 fullscreen
+ * （纯 CSS，DOM 与文档都不动），因此：
+ *   · 小窗 → 全屏：现场一模一样（滚动/输入/播放进度原样保留）
+ *   · 全屏 → 小窗：同样原样保留
+ * 本页自身不再持有 iframe，只负责路由语义、标题与形态切换。
+ */
 const props = defineProps<{ id?: string }>()
 const route = useRoute()
 const router = useRouter()
 
 const extId = props.id || (route.params.id as string) || ''
-const title = ref('')
-const html = ref('')
 const loading = ref(true)
 const error = ref('')
-const iframeRef = ref<HTMLIFrameElement | null>(null)
-let token = ''
+
+let offMsg: (() => void) | null = null
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    // 扩展元信息取标题（与悬浮面板同一来源）；失败不影响面板加载
-    try {
-      const exts: any = await scriptApi.listExtensions()
-      const ext = (exts.extensions || []).find((e: any) => e.id === extId)
-      if (ext?.ui?.title) title.value = ext.ui.title
-    } catch (e) { /* 标题仅是展示，忽略 */ }
-    // getPanel 经响应拦截器已剥为 HTML 文本；前置共享运行时，与小窗共用同一份数据缓存
-    html.value = withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId)
+    const exts: any = await scriptApi.listExtensions()
+    const ext = (exts.extensions || []).find((e: any) => e.id === extId)
+    const html = withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId)
+    const title = ext?.ui?.title || extId
+    // 已存在实例则只更新（不重建文档）；不存在则创建并立即切到 fullscreen
+    const existed = !!getPanelIframe(extId)
+    ensurePanel(extId, {
+      html,
+      sandbox: ext?.ui?.sandbox,
+      title,
+      standaloneRoute: ext?.ui?.standalone_route,
+    })
+    if (!existed) setPanelTitle(extId, title)
+    setPanelMode(extId, 'fullscreen')
+    pushRuntime()
   } catch (e: any) {
     error.value = '面板加载失败：' + (e?.message || e)
   } finally {
@@ -38,107 +55,85 @@ async function load() {
   }
 }
 
-function loadToken() {
-  // 与悬浮面板宿主（ExtensionHost）同一来源：注入给 iframe，供其调用后端 / ui-proxy。
-  // 即便面板自身已可直读 localStorage，这里仍补齐，避免任何路径下 token 缺失触发 401。
-  token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token') || ''
-}
-
-// 通知面板：进入全屏独立模式（隐藏「全屏对话」按钮），并补注入 token。
-function notifyIframe() {
-  const w = iframeRef.value?.contentWindow
-  if (!w) return
-  w.postMessage({ type: 'DBOX_MODE', fullscreen: true }, '*')
-  // 实时读取最新 token：主站 axios 401 静默刷新后写回 localStorage，
-  // 避免用挂载时缓存给 iframe 过期 token。
-  const fresh = localStorage.getItem('token')
+function readToken(): string {
+  return localStorage.getItem('token')
     || localStorage.getItem('access_token')
     || sessionStorage.getItem('token')
-    || token
-  if (fresh) w.postMessage({ type: 'DBOX_TOKEN', token: fresh }, '*')
-  // 把当前路由的 query 传给面板（如 ?view=artworks&id=xxx），
-  // 让面板刷新/分享直达时知道该展示哪个子视图。
+    || ''
+}
+
+/** 向面板补注入 token/模式/路由 query（每次都读最新 token，避免 401） */
+function pushRuntime() {
+  if (!getPanelIframe(extId)) return
+  const fresh = readToken()
+  if (fresh) postToPanel(extId, { type: 'DBOX_TOKEN', token: fresh })
+  postToPanel(extId, { type: 'DBOX_MODE', fullscreen: true })
   if (route.query && Object.keys(route.query).length) {
-    w.postMessage({ type: 'DBOX_ROUTE', query: { ...route.query } }, '*')
+    postToPanel(extId, { type: 'DBOX_ROUTE', query: { ...route.query } })
   }
 }
 
-function onMessage(e: MessageEvent) {
-  if (!e.data) return
-  // 面板挂载后向父页请求 token：补注入（面板自身也能直读 localStorage，双保险）。
-  if (e.data.type === 'DBOX_REQUEST_TOKEN') {
-    notifyIframe()
-    return
-  }
-  // 面板内跳转（如点击资源引用卡片）：全屏页本身即「界面」，无需收起面板，
-  // 直接路由跳转即可。'__back__' 为面板「返回」按钮语义：回到 pixiv 根视图
-  //（地址栏去掉子视图 query，停留在本扩展，不退出全屏、不重载面板 iframe）。
-  if (e.data.type === 'DBOX_NAVIGATE' && e.data.path) {
-    if (e.data.path === '__back__') {
-      // 顺滑返回：地址栏回到 /pixiv（feed），面板自身已本地渲染，不重载。
-      if (route.fullPath !== '/pixiv') router.push('/pixiv')
+function handleMsg(data: any, id: string) {
+  if (!data || id !== extId) return
+  if (data.type === 'DBOX_REQUEST_TOKEN') pushRuntime()
+  // 面板内跳转：全屏页本身就是「界面」，直接路由跳转即可（面板实例不动）。
+  if (data.type === 'DBOX_NAVIGATE' && data.path) {
+    if (data.path === '__back__') {
+      if (route.fullPath !== '/' + extId) router.push('/' + extId)
     } else {
-      router.push(e.data.path)
+      router.push(data.path)
     }
   }
 }
 
 function goBack() {
-  // 全屏扩展页左上角按钮：返回 dbox 首页（框架级行为，而非返回上一级）
+  // 全屏页左上角：回到 dbox 首页（框架级行为）。面板实例保留（切为隐藏），
+  // 下次再打开仍是离开前的现场。
   router.push('/')
 }
 
-// iframe 加载完成后通知面板：当前处于全屏独立模式，便于其隐藏「全屏对话」按钮。
-function onIframeLoad() {
-  notifyIframe()
-}
-
-onMounted(() => {
-  loadToken()
-  // 真全屏：隐藏全局导航，让扩展界面独享整个视口（组件卸载时移除）
-  document.body.classList.add('ext-standalone')
-  window.addEventListener('message', onMessage)
-  load()
+onMounted(async () => {
+  offMsg = onPanelMessage(handleMsg)
+  await load()
 })
+
 onUnmounted(() => {
-  window.removeEventListener('message', onMessage)
-  document.body.classList.remove('ext-standalone')
+  if (offMsg) { offMsg(); offMsg = null }
+  // 离开全屏页：把面板收起（隐藏而非销毁），保留其全部状态
+  if (extId && getPanelIframe(extId)) setPanelMode(extId, 'hidden')
 })
 </script>
 
 <template>
+  <!--
+    面板 iframe 由 extPanelHost 常驻在 body 下并以 CSS 铺满视口（fullscreen 形态），
+    因此本页不需要也不能再渲染一个 iframe，否则就是重建文档、丢失状态。
+    这里只保留一个轻量的返回条与加载/错误提示。
+  -->
   <div class="ext-standalone-page">
     <div class="ext-std-header">
       <button class="ext-std-back" @click="goBack">← 首页</button>
-      <span class="ext-std-title">{{ title }}</span>
+      <span class="ext-std-title">{{ extId }}</span>
     </div>
-    <div class="ext-std-body">
-      <div v-if="loading" class="ext-std-tip">加载中…</div>
-      <div v-else-if="error" class="ext-std-tip ext-std-err">{{ error }}</div>
-      <iframe
-        v-else
-        ref="iframeRef"
-        class="ext-std-frame"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        :srcdoc="html"
-        @load="onIframeLoad"
-      ></iframe>
-    </div>
+    <div v-if="loading" class="ext-std-tip">加载中…</div>
+    <div v-else-if="error" class="ext-std-tip ext-std-err">{{ error }}</div>
   </div>
 </template>
 
 <style scoped>
 .ext-standalone-page {
+  position: fixed;
+  inset: 0;
+  z-index: 2900;
   display: flex;
   flex-direction: column;
-  height: 100vh;
   background: #f7f8fa;
 }
 .ext-std-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 48px;
+  height: 44px;
   padding: 0 12px;
   background: #fff;
   border-bottom: 1px solid #e3e6eb;
@@ -162,20 +157,8 @@ onUnmounted(() => {
   font-size: 15px;
   color: #1f2329;
 }
-.ext-std-body {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-}
-.ext-std-frame {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background: #f7f8fa;
-}
 .ext-std-tip {
-  position: absolute;
-  inset: 0;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
