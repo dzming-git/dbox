@@ -245,7 +245,17 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
   minBtn.className = 'dbox-ext-panel-btn'
   minBtn.textContent = '— 收起'
   minBtn.title = '收起面板（保留当前状态）'
-  minBtn.addEventListener('click', () => setPanelMode(extId, 'hidden'))
+  minBtn.addEventListener('click', () => {
+    const cur = panels.get(extId)
+    if (cur && cur.mode === 'fullscreen') {
+      // 全屏态的「收起」需离开独立全屏路由页，回到进入前的页面；
+      // 若只隐藏面板，全屏路由页（ExtensionStandalone）本身近乎空白，
+      // 会留下「白屏」且无法返回上一页。由该路由页监听后执行 router.back。
+      window.dispatchEvent(new CustomEvent('dbox-ext-exit-fullscreen', { detail: { extId } }))
+    } else {
+      setPanelMode(extId, 'hidden')
+    }
+  })
 
   head.appendChild(titleEl)
   head.appendChild(fsBtn)

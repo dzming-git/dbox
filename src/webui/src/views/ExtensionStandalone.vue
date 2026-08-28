@@ -87,18 +87,28 @@ function handleMsg(data: any, id: string) {
 }
 
 function goBack() {
-  // 全屏页左上角：回到 dbox 首页（框架级行为）。面板实例保留（切为隐藏），
-  // 下次再打开仍是离开前的现场。
-  router.push('/')
+  // 全屏页左上角：回到进入全屏页之前的页面（优先 history back，无历史则回首页）。
+  // 面板实例保留（切为隐藏），下次再打开仍是离开前的现场。
+  if (window.history.length > 1) router.back()
+  else router.push('/')
+}
+
+// 面板标题栏「收起」按钮（extPanelHost 内建）在全屏态触发：离开全屏路由页回到上一页
+function onExitFullscreen(e: Event) {
+  const d = (e as CustomEvent).detail || {}
+  if (d.extId && d.extId !== extId) return
+  goBack()
 }
 
 onMounted(async () => {
   offMsg = onPanelMessage(handleMsg)
+  window.addEventListener('dbox-ext-exit-fullscreen', onExitFullscreen as EventListener)
   await load()
 })
 
 onUnmounted(() => {
   if (offMsg) { offMsg(); offMsg = null }
+  window.removeEventListener('dbox-ext-exit-fullscreen', onExitFullscreen as EventListener)
   // 离开全屏页：把面板收起（隐藏而非销毁），保留其全部状态
   if (extId && getPanelIframe(extId)) setPanelMode(extId, 'hidden')
 })
