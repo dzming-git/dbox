@@ -178,7 +178,7 @@ const routes: RouteRecordRaw[] = [
     name: 'ext-x',
     component: () => import('../views/ExtensionStandalone.vue'),
     props: { id: 'x' },
-    meta: { title: 'X 下载', requiresAuth: true, requiresAdmin: true }
+    meta: { title: 'X', requiresAuth: true, requiresAdmin: true }
   },
   {
     // 兜底 404：各插件声明的独立全屏路由（如 AI 助手的 /ai-assistant）在应用启动时
