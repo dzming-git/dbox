@@ -1387,6 +1387,67 @@ const fetchServices = async () => {
   }
 }
 
+// ============ 全部重启 ============
+const restartAllLoading = ref(false)
+const showRestartAllConfirm = ref(false)
+const restartAllResult = ref<string>('')
+
+const openRestartAllConfirm = () => {
+  restartAllResult.value = ''
+  showRestartAllConfirm.value = true
+}
+
+const confirmRestartAll = async () => {
+  showRestartAllConfirm.value = false
+  restartAllLoading.value = true
+  showToast('正在重启所有服务，请稍候…')
+  try {
+    const res = await serviceManageApi.restartAll() as any
+    if (res && res.success) {
+      const restarted = (res.restarted || []).length
+      const failed = (res.failed || []).length
+      restartAllResult.value = `已重启 ${restarted} 个服务` + (failed ? `，${failed} 个失败` : '')
+      showToast(restartAllResult.value)
+      startServicePolling(true)
+      let count = 0
+      const checkInterval = setInterval(async () => {
+        count++
+        try {
+          const statusRes = await serviceManageApi.getServices() as any
+          if (statusRes.success) {
+            services.value = statusRes.services
+            const allRunning = statusRes.services.every(
+              (s: any) => (s.system_status ?? s.status) === 'RUNNING' || s.status === 'RUNNING'
+            )
+            if (count >= 15 || allRunning) {
+              clearInterval(checkInterval)
+              stopServicePolling()
+              startServicePolling()
+            }
+          }
+        } catch (_) { /* 忽略单次轮询错误 */ }
+      }, 2000)
+    } else {
+      restartAllResult.value = res?.message || '重启失败'
+      showToast(restartAllResult.value)
+    }
+  } catch (error: any) {
+    const status = error?.response?.status || error?.status
+    if (status === 403) {
+      restartAllResult.value = '无权限执行重启'
+    } else if (error?.code === 'ECONNABORTED' || status === 408 || status === 504) {
+      restartAllResult.value = '重启请求超时，服务可能仍在重启，请稍后刷新查看状态'
+      // 超时后也尝试拉取一次最新状态
+      startServicePolling(true)
+    } else {
+      restartAllResult.value = '重启失败：' + (error?.message || '网络错误')
+    }
+    showToast(restartAllResult.value)
+  } finally {
+    restartAllLoading.value = false
+  }
+}
+
 // 启动/停止/重启轮询
 const startServicePolling = (fast = false) => {
   stopServicePolling()
@@ -2660,6 +2721,9 @@ onUnmounted(() => {
           <h3>服务管理</h3>
           <div class="section-actions">
             <span class="auto-refresh-hint">自动刷新中</span>
+            <button class="action-btn danger" @click="openRestartAllConfirm" :disabled="restartAllLoading">
+              {{ restartAllLoading ? '重启中...' : '↻ 全部重启' }}
+            </button>
             <button class="action-btn" @click="fetchServices()" :disabled="servicesLoading">
               {{ servicesLoading ? '刷新中...' : '手动刷新' }}
             </button>
@@ -3487,6 +3551,15 @@ onUnmounted(() => {
       <template #footer>
         <button class="btn-secondary" @click="showServiceConfirm = false">取消</button>
         <button class="btn-danger" @click="confirmServiceControl">{{ serviceConfirmAction === 'stop' ? '停止' : '重启' }}</button>
+      </template>
+    </BaseModal>
+
+    <!-- 全部重启确认对话框 -->
+    <BaseModal v-model:visible="showRestartAllConfirm" title="全部重启" max-width="380px">
+      <p>重启所有 dbox 服务？期间功能短暂不可用。</p>
+      <template #footer>
+        <button class="btn-secondary" @click="showRestartAllConfirm = false">取消</button>
+        <button class="btn-danger" @click="confirmRestartAll">确认重启</button>
       </template>
     </BaseModal>
 
