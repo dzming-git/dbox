@@ -214,6 +214,13 @@ function closePanel() {
   launcherOpen.value = false
 }
 
+// 面板自身「收起」按钮或窗外遮罩点击触发（由框架层 extPanelHost 派发）。
+// 必须清掉 openId：否则 body 的 ext-no-scroll（overflow:hidden）残留，
+// 导致小窗收起后首页无法上下滑动（仅下拉刷新因监听自身 touch 而仍可用）。
+function onCollapse(_e: Event) {
+  openId.value = null
+}
+
 // 注：「全屏」入口已由框架层 extPanelHost 内建在面板标题栏上（任何声明了
 // standalone_route 的扩展自动获得）。点击后派发 dbox-ext-request-fullscreen，
 // 由上面的 onRequestFullscreen 只做路由跳转，不重建 iframe。
@@ -249,6 +256,7 @@ onMounted(async () => {
   // 统一走 extPanelHost 的消息通道（面板实例常驻，不再各自监听 window）
   offPanelMsg = onPanelMessage((msg, extId) => handlePanelMessage(msg, extId))
   window.addEventListener('dbox-ext-request-fullscreen', onRequestFullscreen as EventListener)
+  window.addEventListener('dbox-ext-collapse', onCollapse as EventListener)
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKeydown)
   await nextTick()
@@ -261,6 +269,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (offPanelMsg) { offPanelMsg(); offPanelMsg = null }
   window.removeEventListener('dbox-ext-request-fullscreen', onRequestFullscreen as EventListener)
+  window.removeEventListener('dbox-ext-collapse', onCollapse as EventListener)
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKeydown)
   if (busyTimer) clearInterval(busyTimer)

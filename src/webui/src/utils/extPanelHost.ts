@@ -285,7 +285,10 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
       // 会留下「白屏」且无法返回上一页。由该路由页监听后执行 router.back。
       window.dispatchEvent(new CustomEvent('dbox-ext-exit-fullscreen', { detail: { extId } }))
     } else {
+      // 收起小窗：先立即隐藏（即时反馈），再通知宿主清理 openId，
+      // 否则 body 的 ext-no-scroll（overflow:hidden）会残留，导致首页无法上下滑动。
       setPanelMode(extId, 'hidden')
+      window.dispatchEvent(new CustomEvent('dbox-ext-collapse', { detail: { extId } }))
     }
   })
 
@@ -310,7 +313,11 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
   mask.className = 'dbox-ext-panel-mask'
   mask.addEventListener('click', () => {
     const cur = panels.get(extId)
-    if (cur && cur.mode === 'floating') setPanelMode(extId, 'hidden')
+    if (cur && cur.mode === 'floating') {
+      // 点遮罩收起：同上，必须通知宿主清理 openId 以解除背景滚动锁定
+      setPanelMode(extId, 'hidden')
+      window.dispatchEvent(new CustomEvent('dbox-ext-collapse', { detail: { extId } }))
+    }
   })
   root.appendChild(mask)
   root.appendChild(wrap)
