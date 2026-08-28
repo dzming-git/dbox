@@ -65,6 +65,13 @@ const handlers = new Set<MessageHandler>()
 let rootEl: HTMLDivElement | null = null
 let listening = false
 
+/** 从全局同步导航栏高度到面板根元素（面板在 body 下，与 .app-container 同级，无法继承其 CSS 变量） */
+function syncNavHeight() {
+  const root = ensureRoot()
+  const h = getComputedStyle(document.documentElement).getPropertyValue('--nav-height').trim()
+  if (h) root.style.setProperty('--nav-height', h)
+}
+
 function ensureRoot(): HTMLDivElement {
   if (rootEl && document.body.contains(rootEl)) return rootEl
   const exist = document.getElementById(ROOT_ID) as HTMLDivElement | null
@@ -76,6 +83,8 @@ function ensureRoot(): HTMLDivElement {
   el.id = ROOT_ID
   document.body.appendChild(el)
   rootEl = el
+  // 首次创建时同步；后续窗口 resize 由外部按需调用
+  syncNavHeight()
   return rootEl
 }
 
@@ -185,7 +194,7 @@ function applyMode(entry: PanelEntry, mode: PanelMode) {
   // 全屏时容器整体抬到导航（9003）/启动器（9004）之上，避免被压在下面。
   // 容器会创建层叠上下文，因此必须抬容器本身而非子元素。
   const root = ensureRoot()
-  root.style.zIndex = anyFullscreen ? '9500' : '9001'
+  root.style.zIndex = anyFullscreen ? '9500' : '9100'
 }
 
 function post(entry: PanelEntry, msg: any) {
@@ -284,8 +293,13 @@ export function setPanelMode(extId: string, mode: PanelMode): void {
   let entry = panels.get(extId)
   if (!entry) entry = buildPanel(extId, { html: '' })
   applyMode(entry, mode)
+  // 切到小窗时同步导航高度（窗口 resize 后 nav-height 可能已变）
+  if (mode === 'floating') syncNavHeight()
   if (mode !== 'hidden') post(entry, { type: 'DBOX_MODE', fullscreen: mode === 'fullscreen' })
 }
+
+/** 外部可在 window resize 时调用，同步最新导航栏高度 */
+export { syncNavHeight }
 
 export function getPanelMode(extId: string): PanelMode | null {
   return panels.get(extId)?.mode ?? null
