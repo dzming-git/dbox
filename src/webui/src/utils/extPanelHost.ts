@@ -84,7 +84,10 @@ function injectStylesOnce() {
   const s = document.createElement('style')
   s.id = 'dbox-ext-panel-style'
   s.textContent = `
-#${ROOT_ID} { position: fixed; inset: 0; pointer-events: none; z-index: 1200; }
+/* z-index 必须高于 ExtensionHost 的遮罩（.ext-mask = 8999），否则面板会被遮罩
+   盖住：点击面板内的输入框实际命中遮罩，触发「点击外部收起」，表现为
+   「一点击面板就自动收起、无法输入」。原悬浮面板即 9001，这里保持一致。 */
+#${ROOT_ID} { position: fixed; inset: 0; pointer-events: none; z-index: 9001; }
 #${ROOT_ID} .dbox-ext-panel {
   position: absolute;
   display: flex;
@@ -169,6 +172,10 @@ function applyMode(entry: PanelEntry, mode: PanelMode) {
   // 全屏态由 body class 表达，供全局导航隐藏等样式使用
   const anyFullscreen = Array.from(panels.values()).some(p => p.mode === 'fullscreen')
   document.body.classList.toggle(BODY_FULLSCREEN_CLASS, anyFullscreen)
+  // 全屏时容器整体抬到导航（9003）/启动器（9004）之上，避免被压在下面。
+  // 容器会创建层叠上下文，因此必须抬容器本身而非子元素。
+  const root = ensureRoot()
+  root.style.zIndex = anyFullscreen ? '9500' : '9001'
 }
 
 function post(entry: PanelEntry, msg: any) {
