@@ -30,6 +30,11 @@ def register_core_blueprints(app: Flask) -> None:
     app.register_blueprint(markers_bp)
     app.register_blueprint(suggestion_bp)
 
+    # 服务运维面板（本地版）：运行于主 Web 服务进程，独立于 dbox-extensions，
+    # 避免「停掉 dbox-extensions 后管理页失效且无法自愈」的鸡生蛋问题。
+    from backend.service_ops_local import bp as service_ops_local_bp
+    app.register_blueprint(service_ops_local_bp)
+
 
 def register_domain_blueprints(app: Flask) -> None:
     """注册领域蓝图（延迟导入，避免与核心蓝图循环依赖）。"""

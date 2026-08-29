@@ -252,6 +252,11 @@ def _proxy_to_extensions_host(path):
 def _gateway_extensions_routes():
     """拓展管理相关接口统一经主服务网关转发到独立的 extensions_host 进程。"""
     path = request.path
+    # 服务运维面板（service-ops）由主 Web 服务本地提供（见 backend.service_ops_local），
+    # 不依赖 dbox-extensions：停掉它后管理页仍可读取服务列表并把它重新拉起。
+    # 因此从代理中排除，改由本地蓝图处理。
+    if path == '/api/ext/service-ops' or path.startswith('/api/ext/service-ops/'):
+        return None
     for _p in _SCRIPT_PREFIXES:
         if path == _p or path.startswith(_p + '/'):
             return _proxy_to_extensions_host(path)
