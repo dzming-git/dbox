@@ -74,7 +74,7 @@ export const libraryApi = {
 }
 
 export const logApi = {
-  // 获取系统日志（服务运维面板插件）
+  // 获取系统日志（核心服务管理）
   getLogs: (params: { type?: string; page?: number; limit?: number }) =>
-    api.get('/api/ext/service-ops/logs', { params })
+    api.get('/api/admin/logs', { params })
 }
