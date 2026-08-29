@@ -793,7 +793,8 @@ body.reader-active .main-content {
   padding-top: 0 !important;
 }
 
-/* 拓展插件全屏独立页（插件在 manifest 的 ui.standalone_route 声明独立路由，如 /codebuddy）：
+/* 拓展插件全屏独立页（插件在 manifest 的 ui.standalone_route 声明自己那一段路径，
+   如 /codebuddy，由框架统一加 /ext 命名空间后成为 /ext/codebuddy）：
    隐藏全局导航，让扩展界面独享整个视口。页面自身提供「返回」入口，无需全局导航。
    仅由 ExtensionStandalone.vue 在挂载时短暂加在 body 上。 */
 body.ext-standalone .nav {

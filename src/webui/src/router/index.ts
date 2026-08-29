@@ -171,14 +171,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '凭证保险库', requiresAuth: true, requiresAdmin: true }
   },
   {
-    // 已知核心扩展的全屏兜底路由：静态预注册，避免扩展宿主接口在刷新竞态中
-    // 暂不可用时 /x 未动态注入而 404。其它扩展仍走 registerExtensionRoutes 动态注册。
-    // 注意：插件 id 是文件夹名（如 x），不是 manifest 里的下划线版本。
-    path: '/x',
-    name: 'ext-x',
+    // /ext 命名空间下的全屏兜底路由：静态预注册，避免刷新时扩展宿主接口尚未返回、
+    // 动态路由还没注入就落到 404（动态 addRoute 不会重放已完成的初始导航）。
+    // 框架不硬编码任何插件 id——插件 id 直接从路径参数取，因此新增插件无需改框架。
+    // 各插件仍由 ensureExtensionRoutes() 动态注册其精确路径（带各自标题），
+    // 静态段优先于动态段匹配，故精确路由存在时以它为准，本条仅作竞态兜底。
+    path: '/ext/:extId',
+    name: 'ext-standalone',
     component: () => import('../views/ExtensionStandalone.vue'),
-    props: { id: 'x' },
-    meta: { title: 'X', requiresAuth: true, requiresAdmin: true }
+    props: (route: any) => ({ id: route.params.extId }),
+    meta: { title: '扩展', requiresAuth: true, requiresAdmin: true }
   },
   {
     // 兜底 404：各插件声明的独立全屏路由（如 CodeBuddy的 /codebuddy）在应用启动时
@@ -206,17 +208,21 @@ export { routes }
 // 插件独立全屏路由：由各插件在 manifest 的 ui.standalone_route 声明（如 "/codebuddy"）。
 // 框架不硬编码任何插件路径——启动后拉取 ui-extensions，凡声明了 standalone_route 且
 // 已启用的插件，都在其路径上挂载 ExtensionStandalone 全屏页（按插件 id 注入）。
+// 实际 URL 由框架统一加上 /ext 命名空间（见 api/script.ts 的 normalizeStandaloneRoute），
+// 插件只声明自己的一段路径，无法占用根路径与核心路由冲突。
 // 若某插件目录被删除，这里自然不会注册其路由，实现「删掉即无、框架零入侵」。
 // 可重入：注册成功后置位，避免重复拉取/注册
 let extRoutesReady = false
 export async function ensureExtensionRoutes() {
   if (extRoutesReady) return
   try {
-    const res: any = await (await import('../api/script')).scriptApi.listExtensions()
+    const mod: any = await import('../api/script')
+    const res: any = await mod.scriptApi.listExtensions()
     if (!res?.success) return
     for (const ext of res.extensions || []) {
-      const route = ext?.ui?.standalone_route
-      if (!route || typeof route !== 'string') continue
+      // 再次规范化（幂等）：即使将来有调用方绕过 listExtensions 也能保证带上 /ext 命名空间
+      const route = mod.normalizeStandaloneRoute(ext?.ui?.standalone_route)
+      if (!route) continue
       const name = 'ext-' + ext.id
       // 避免重复注册
       if (router.hasRoute(name)) continue

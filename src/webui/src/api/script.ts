@@ -95,6 +95,24 @@ export interface ScriptJob {
   logs: JobLog[]
 }
 
+/**
+ * 插件独立全屏路由的命名空间（由框架强制）。
+ *
+ * 插件只在 manifest 的 ui.standalone_route 里声明自己的一段路径（如 "/codebuddy"），
+ * 框架统一加上 /ext 前缀后才是最终 URL（/ext/codebuddy）。这样插件无法直接
+ * 占用根路径，也就不会与核心路由（/admin、/video 等）或将来的新页面冲突。
+ */
+export const EXT_ROUTE_NS = '/ext'
+
+/** 规范化独立路由：补前导斜杠并加上 /ext 命名空间（幂等，重复调用无副作用）。 */
+export function normalizeStandaloneRoute(path?: string): string {
+  let s = String(path || '').trim()
+  if (!s) return ''
+  if (!s.startsWith('/')) s = '/' + s
+  if (s === EXT_ROUTE_NS || s.startsWith(EXT_ROUTE_NS + '/')) return s
+  return EXT_ROUTE_NS + s
+}
+
 export const scriptApi = {
   // 脚本管理（管理员）
   listScripts: (all = true) =>
@@ -121,7 +139,24 @@ export const scriptApi = {
   saveSettings: (id: string, values: Record<string, any>) =>
     api.put(`/api/admin/scripts/${id}/settings`, { values }),
 
-  // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本
-  listExtensions: () => api.get('/api/ui-extensions'),
+  // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本。
+  // 在此统一给 standalone_route 加上 /ext 命名空间——这是前端获取扩展列表的
+  // 唯一出口，路由注册、悬浮面板、全屏页、面板内跳转都经由此处，
+  // 因此一处收敛即可保证各方拿到一致且不与根路由冲突的路径。
+  listExtensions: async () => {
+    const res: any = await api.get('/api/ui-extensions')
+    if (res && Array.isArray(res.extensions)) {
+      res.extensions = res.extensions.map((ext: any) => {
+        if (ext && ext.ui && typeof ext.ui.standalone_route === 'string') {
+          return {
+            ...ext,
+            ui: { ...ext.ui, standalone_route: normalizeStandaloneRoute(ext.ui.standalone_route) }
+          }
+        }
+        return ext
+      })
+    }
+    return res
+  },
   getPanel: (id: string) => api.get(`/api/ui-panel/${id}`),
 }
