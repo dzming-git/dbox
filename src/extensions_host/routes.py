@@ -262,6 +262,25 @@ def reload_scripts():
 # 仅当脚本被管理员启用且 manifest 声明了 ui 段时，前端才会挂载其界面元素。
 # 因此扩展 UI 天然只对管理员可见（与「只有管理员有权限」的要求一致）。
 # 路由使用独立命名空间 /api/ui-*，避免与 /api/scripts/<script_id>/* 动态路由冲突。
+# 扩展独立全屏路由的命名空间（由框架统一强制）。
+# 插件只在 manifest 的 ui.standalone_route 里声明自己那一段（如 "/codebuddy"），
+# 框架统一加上 /ext 前缀后才是最终 URL（/ext/codebuddy），使插件无法占用根路径、
+# 不会与核心路由（/admin、/video 等）或将来新增页面冲突。
+EXT_ROUTE_NS = '/ext'
+
+
+def _normalize_standalone_route(path):
+    """规范化独立全屏路由：补前导斜杠并加上 /ext 命名空间（幂等）。"""
+    s = str(path or '').strip()
+    if not s:
+        return ''
+    if not s.startswith('/'):
+        s = '/' + s
+    if s == EXT_ROUTE_NS or s.startswith(EXT_ROUTE_NS + '/'):
+        return s
+    return EXT_ROUTE_NS + s
+
+
 @script_bp.route('/api/ui-extensions', methods=['GET'])
 @login_required
 def list_extensions():
@@ -278,12 +297,13 @@ def list_extensions():
         ui = sc.get('ui')
         if not ui or not isinstance(ui, dict):
             continue
-        # 全屏独立 URL：若插件在 manifest 显式声明了 standalone_route 则原样透传；
-        # 否则只要有 ui.entry（即存在可独立渲染的面板），框架自动推导一个默认路由
+        # 全屏独立 URL：插件显式声明 standalone_route 时按 /ext 命名空间规范化；
+        # 未声明但只要有 ui.entry（存在可独立渲染的面板），框架自动推导默认路由
         # /ext/<id>，使「全屏独立页」成为所有插件的默认能力，无需逐插件 opt-in。
-        standalone_route = ui.get('standalone_route')
+        # 命名空间在此统一强制，任何客户端拿到的都已是带 /ext 的路径。
+        standalone_route = _normalize_standalone_route(ui.get('standalone_route'))
         if not standalone_route and ui.get('entry'):
-            standalone_route = '/ext/%s' % sc.get('id')
+            standalone_route = '%s/%s' % (EXT_ROUTE_NS, sc.get('id'))
         out.append({
             'id': sc.get('id'),
             'name': sc.get('name'),
