@@ -338,6 +338,60 @@ def get_panel(script_id):
                     headers={'Cache-Control': 'no-store'})
 
 
+# ---------- 框架下发给插件面板的公共前端资产 ----------
+_EXT_SDK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+
+@script_bp.route('/api/ext-sdk/<filename>', methods=['GET'])
+def get_ext_sdk(filename):
+    """框架提供的公共前端资产（如统一状态 SDK：/api/ext-sdk/state.js）。
+
+    面板内一行 <script src="/api/ext-sdk/state.js"></script> 即可接入，
+    避免每个插件各实现一套跨设备状态逻辑。
+    """
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+\.js', filename or ''):
+        return jsonify({'success': False, 'message': '非法文件名'}), 400
+    target = os.path.normpath(os.path.join(_EXT_SDK_DIR, filename))
+    if not target.startswith(_EXT_SDK_DIR + os.sep):
+        return jsonify({'success': False, 'message': '非法路径'}), 400
+    if not os.path.isfile(target):
+        return jsonify({'success': False, 'message': 'SDK 文件不存在'}), 404
+    with open(target, 'r', encoding='utf-8') as f:
+        return Response(f.read(), mimetype='application/javascript; charset=utf-8',
+                        headers={'Cache-Control': 'no-store'})
+
+
+# ---------- 统一用户状态：面板侧转发到核心 ----------
+# 面板的同源是本进程（8093），直连核心 8080 会跨域。由框架统一转发，
+# 与「插件后端代理核心路由」的既有范式一致，面板无需知道核心地址。
+@script_bp.route('/api/user-state/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_user_state(subpath):
+    import urllib.request
+    import urllib.error
+
+    core = (os.environ.get('DBOX_WEB_BASE') or 'http://127.0.0.1:8080').rstrip('/')
+    url = '%s/api/user-state/%s' % (core, subpath)
+    if request.query_string:
+        url += '?' + request.query_string.decode('utf-8')
+    headers = {'Content-Type': 'application/json'}
+    auth = request.headers.get('Authorization')
+    if auth:
+        headers['Authorization'] = auth
+    dev = request.headers.get('X-Dbox-Device-Id')
+    if dev:
+        headers['X-Dbox-Device-Id'] = dev
+    data = request.get_data() or None
+    req = urllib.request.Request(url, data=data, headers=headers, method=request.method)
+    try:
+        raw = urllib.request.urlopen(req, timeout=15).read()
+        status = 200
+    except urllib.error.HTTPError as e:
+        raw, status = e.read(), e.code
+    except Exception as e:
+        return jsonify({'success': False, 'message': '状态服务不可达: %s' % e}), 502
+    return Response(raw, status=status, mimetype='application/json; charset=utf-8')
+
+
 # ---------- 管理员：凭证保险库（cookie / token / password / apikey 统一管理）----------
 # 独立于脚本引擎的通用能力：任何子系统（插件、下载器、CLI 免登录调用等）都通过
 # 同一份加密落盘的凭证库读写凭证。仅管理员可读写；列表只回传元信息，不回传明文密文。
