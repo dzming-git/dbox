@@ -206,14 +206,15 @@ function injectStylesOnce() {
   height: auto;
   max-width: calc(100vw - 32px);
 }
-/* 窄屏：右对齐并收窄，给左侧留出充足的可点区域（单手即可点窗外收起），
-   不再满屏铺开导致「窗外几乎没地方可点」 */
+/* 窄屏：仍右对齐（与桌面形态一致），但收窄幅度收敛——
+   左侧留出约一指宽的可点区域（单手点窗外收起），
+   不再满屏铺开（窗外几乎没处可点），也不至于留出过大空白 */
 @media (max-width: 600px) {
   #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
-    right: 12px;
+    right: 16px;
     left: auto;
-    width: min(420px, calc(100vw - 104px));
-    max-width: calc(100vw - 104px);
+    width: min(440px, calc(100vw - 64px));
+    max-width: calc(100vw - 64px);
   }
 }
 /* 全屏：铺满视口，层级高于导航与浮层 */
