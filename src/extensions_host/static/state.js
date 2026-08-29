@@ -183,13 +183,27 @@
 
   function _applyServerData(data) {
     if (!data) return;
-    for (var k in data) {
-      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
-      var it = data[k] || {};
-      // 若本地有未推送的改动，不覆盖（用户刚改的优先）
-      if (SDK._pending[k]) continue;
-      SDK._cache[k] = { value: it.value, rev: it.rev || 0, v: it.v || 1 };
+    var keys = [];
+    for (var k0 in data) {
+      if (Object.prototype.hasOwnProperty.call(data, k0)) keys.push(k0);
     }
+    if (!keys.length) return;   // 服务端快照为空（首台设备）时保留本地，避免误清空
+
+    // 以服务端快照为准整体替换：服务端不返回某个键，意味着它对当前身份
+    // 不可见（如 device 作用域属于别的设备）或已在别处被删除。若只是"有则更新"，
+    // 本地会永久残留脏值，表现为设备间串台、已删状态复活。
+    var next = {};
+    keys.forEach(function (k) {
+      var it = data[k] || {};
+      next[k] = { value: it.value, rev: it.rev || 0, v: it.v || 1 };
+    });
+    // 本地尚未推送的改动优先保留（用户刚改的不能丢）
+    for (var p in SDK._pending) {
+      if (!Object.prototype.hasOwnProperty.call(SDK._pending, p)) continue;
+      if (SDK._pending[p] && SDK._pending[p].__delete) { delete next[p]; continue; }
+      if (SDK._cache[p] !== undefined) next[p] = SDK._cache[p];
+    }
+    SDK._cache = next;
     _persist();
   }
 
