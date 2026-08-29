@@ -239,13 +239,22 @@ function onKeydown(e: KeyboardEvent) {
   else if (openId.value) openId.value = null
 }
 
-// 面板标题栏「全屏」按钮（由 extPanelHost 内建）触发：只切路由，不动 iframe
+// 面板标题栏「全屏」按钮（由 extPanelHost 内建）触发：只切路由，不动 iframe。
+//
+// 顺序很重要：必须**先跳转、后收起小窗**。
+// 收起小窗会走 setPanelMode('hidden') → clearSentinel()，而后者在「哨兵位于栈顶」时
+// 会调用 window.history.back() 弹出哨兵——这是异步的。若先收起再跳转，这个延迟执行的
+// back() 会把刚 push 的全屏路由一并弹掉，表现为「点了全屏没反应、仍停在原页面」。
+// 先跳转则哨兵不再位于栈顶，clearSentinel 判定不成立、不会 back()，跳转得以保留。
 function onRequestFullscreen(e: Event) {
   const d = (e as CustomEvent).detail || {}
-  if (d.route) {
+  if (!d.route) return
+  router.push(d.route).then(() => {
     openId.value = null
-    router.push(d.route)
-  }
+  }).catch(() => {
+    // 跳转失败（如路由未注册）时也要收起小窗，避免卡在浮动态
+    openId.value = null
+  })
 }
 
 let offPanelMsg: (() => void) | null = null
