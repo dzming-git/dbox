@@ -253,14 +253,14 @@ def resource_index_pool():
 @bp.route('/api/resource-index/<int:rid>/modes', methods=['POST'])
 def set_resource_modes(rid):
     """设置资源的模式归属（手动管理界面调用）。"""
-    user = resolve_user()
-    if not user:
+    user_id, _role = resolve_identity()
+    if not user_id:
         return jsonify({'error': '未登录'}), 401
     ri = ResourceIndex.query.get_or_404(rid)
     data = request.get_json(force=True, silent=True) or {}
     apply_resource_modes(ri, data.get('modes') or [],
                           collection_id=data.get('collection_id'),
-                          user_id=user.id if user else None)
+                          user_id=user_id)
     return jsonify(ri.to_dict())
 
 @bp.route('/api/mode-collections', methods=['GET', 'POST'])
@@ -271,8 +271,8 @@ def collections_api():
         if mode:
             q = q.filter_by(mode=mode)
         return jsonify({'collections': [c.to_dict() for c in q.all()]})
-    user = resolve_user()
-    if not user:
+    user_id, _role = resolve_identity()
+    if not user_id:
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
     name = data.get('name')
@@ -280,7 +280,7 @@ def collections_api():
     if not name or not ResourceMode.is_valid(mode):
         return jsonify({'error': 'name/mode 无效'}), 400
     c = Collection(name=name, mode=mode, library_id=data.get('library_id'),
-                   created_by=user.id)
+                   created_by=user_id)
     db.session.add(c)
     db.session.commit()
     return jsonify(c.to_dict()), 201
@@ -306,8 +306,8 @@ def texts_api():
                      if search.lower() in (t.summary or '').lower()
                      or search.lower() in (t.resource_index.get_meta().get('title') if t.resource_index else '').lower()]
         return jsonify({'texts': [t.to_dict() for t in items], 'total': len(items)})
-    user = resolve_user()
-    if not user:
+    user_id, _role = resolve_identity()
+    if not user_id:
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
     title = data.get('title') or '未命名文本'
@@ -325,7 +325,7 @@ def texts_api():
     db.session.flush()
     t = Text(resource_index_id=ri.id, body=data.get('body', ''), summary=data.get('summary', ''))
     db.session.add(t)
-    db.session.add(ResourceModeMembership(resource_index_id=ri.id, mode=ResourceMode.TEXT, created_by=user.id))
+    db.session.add(ResourceModeMembership(resource_index_id=ri.id, mode=ResourceMode.TEXT, created_by=user_id))
     db.session.commit()
     return jsonify(t.to_dict()), 201
 
@@ -337,8 +337,8 @@ def text_item_api(tid):
         return jsonify({'error': '资源不存在', 'code': 404}), 404
     if request.method == 'GET':
         return jsonify(t.to_dict())
-    user = resolve_user()
-    if not user:
+    user_id, _role = resolve_identity()
+    if not user_id:
         return jsonify({'error': '未登录'}), 401
     if request.method == 'PUT':
         data = request.get_json(force=True, silent=True) or {}
