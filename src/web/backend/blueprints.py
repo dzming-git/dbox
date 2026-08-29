@@ -35,6 +35,11 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.service_ops_local import bp as service_ops_local_bp
     app.register_blueprint(service_ops_local_bp)
 
+    # 统一用户状态服务：为 core 与所有插件提供跨设备状态原语
+    # （分层 global<user<device + 按键粒度 + 可声明合并语义）。
+    from backend.user_state_api import bp as user_state_bp
+    app.register_blueprint(user_state_bp)
+
     # 系统电源控制 / 系统资源监控（本地版）：同为平台系统功能，并入核心，
     # 不依赖被管理的 dbox-extensions 进程。
     from backend.system_power_local import create_blueprint as _system_power_create

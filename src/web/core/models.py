@@ -1045,6 +1045,61 @@ class AppSetting(db.Model):
         }
 
 
+class UserState(db.Model):
+    """统一用户状态存储：分层作用域 + 按键粒度 + 可声明合并语义。
+
+    这是全平台（core 与所有插件）共用的跨设备状态原语，取代「每个插件各建
+    一张同步表」「整块 JSON blob 互相覆盖」的做法。
+
+    分层作用域（读取时按优先级低->高合并）：
+      global  全实例共享（owner=''）
+      user    同一账号跨设备共享（owner=user_id）
+      device  同一账号但按设备隔离（owner=user_id + device_id）
+              —— 滚动位置、面板尺寸这类「不该串台」的状态归此层。
+
+    按键粒度：每个 key 独立存储与合并，避免整块 blob 的覆盖式丢失。
+
+    合并策略（写入时声明）：
+      lww         后写覆盖（默认）——当前标签页、游标
+      max         单调取大——已读边界、进度等只应前进不应回退的量
+      union_by_id 列表按 id 去重合并并封顶——缓存、历史、最近使用
+    """
+    __tablename__ = 'user_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    ns = db.Column(db.String(64), nullable=False, default='core')       # 命名空间：'core' 或插件 id
+    scope = db.Column(db.String(16), nullable=False, default='user')    # global / user / device
+    owner = db.Column(db.String(64), nullable=False, default='')        # user_id 字符串；global 为 ''
+    device_id = db.Column(db.String(64), nullable=False, default='')    # 仅 device 作用域使用
+    key = db.Column(db.String(128), nullable=False)
+    value = db.Column(db.Text, nullable=False, default='null')          # JSON 文本
+    strategy = db.Column(db.String(24), nullable=False, default='lww')
+    v = db.Column(db.Integer, nullable=False, default=1)                # 值的 schema 版本
+    rev = db.Column(db.Integer, nullable=False, default=0)              # 行版本号（乐观并发 / 增量拉取）
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('ns', 'scope', 'owner', 'device_id', 'key', name='uq_user_state'),
+    )
+
+    def get_value(self):
+        try:
+            return json.loads(self.value) if self.value is not None else None
+        except Exception:
+            return None
+
+    def to_dict(self):
+        return {
+            'key': self.key,
+            'value': self.get_value(),
+            'scope': self.scope,
+            'strategy': self.strategy,
+            'rev': self.rev,
+            'v': self.v,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class Playlist(db.Model):
     """播放列表模型"""
     __tablename__ = 'playlists'
