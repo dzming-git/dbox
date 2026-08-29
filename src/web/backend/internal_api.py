@@ -247,7 +247,7 @@ def library_targets():
 
 @internal_bp.route('/internal/feedback', methods=['POST'])
 def feedback():
-    """AI 助手判定为「新反馈」时，由拓展宿主转发到此建单（身份：自动助手）。"""
+    """CodeBuddy判定为「新反馈」时，由拓展宿主转发到此建单（身份：自动助手）。"""
     from backend.feedback_db import db_create_issue, init_feedback_db
     init_feedback_db()
     data = request.get_json(force=True, silent=True) or {}

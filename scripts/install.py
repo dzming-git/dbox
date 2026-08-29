@@ -52,7 +52,7 @@ NSSM_SERVICES = {
     'extensions': {
         'service_name': 'dbox-extensions',
         'display_name': 'Dbox 拓展管理宿主',
-        'description': 'Dbox 拓展管理宿主 - 外部脚本执行引擎/脚本管理/UI扩展/AI助手/凭证保险库（与主服务完全解耦，8093）',
+        'description': 'Dbox 拓展管理宿主 - 外部脚本执行引擎/脚本管理/UI扩展/CodeBuddy/凭证保险库（与主服务完全解耦，8093）',
         'entry': 'src/extensions_host/app.py',
         'port': 8093,
         'log_prefix': 'extensions',

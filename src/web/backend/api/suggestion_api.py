@@ -204,7 +204,7 @@ def create_issue():
         author_role = int(UserRole.GUEST)
         author_id = None
 
-    # 建单逻辑统一走 feedback_db.db_create_issue（AI 助手提单亦复用同一函数）
+    # 建单逻辑统一走 feedback_db.db_create_issue（CodeBuddy提单亦复用同一函数）
     new_id = db_create_issue(
         title=title, content=content, category=ftype,
         submitter=author, source='web', auto_classified=False,

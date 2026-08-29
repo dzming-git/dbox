@@ -156,7 +156,7 @@ def _serve_spa(path):
         return _send_file(index_file)
     abort(404)
 
-# 注：「拓展管理」（外部脚本执行引擎、脚本管理、UI 扩展面板、AI 助手、凭证保险库）
+# 注：「拓展管理」（外部脚本执行引擎、脚本管理、UI 扩展面板、CodeBuddy、凭证保险库）
 #     已完全独立为 extensions_host 进程（src/extensions_host，端口 8093）。
 #     主 Web 服务不再注册任何 script_engine 蓝图，仅作为网关把相关接口反向代理过去
 #     （见下方 _gateway_extensions_routes），彻底实现拓展管理与主模块的解耦：

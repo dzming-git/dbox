@@ -85,7 +85,7 @@ const lastTopById = ref<Record<string, string | null>>({})
 const seededById = ref<Record<string, boolean>>({})
 let busyTimer: any = null
 async function pollBusy() {
-  // 仅轮询声明了 ui.busy_poll 的扩展（如 AI 助手）。
+  // 仅轮询声明了 ui.busy_poll 的扩展（如 CodeBuddy）。
   const targets = extensions.value.filter((e) => e.ui?.busy_poll)
   if (!targets.length) { busyMap.value = {}; unreadMap.value = {}; return }
   const headers: Record<string, string> = {}

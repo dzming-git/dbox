@@ -386,7 +386,7 @@ def db_update_extra(issue_id: str, patch: dict) -> bool:
         return True
 
 
-# ============ 建单辅助（供 AI 助手 / 后端 / 自动处理共用） ============
+# ============ 建单辅助（供 CodeBuddy / 后端 / 自动处理共用） ============
 def generate_issue_id(date=None):
     """生成 yyyymmdd + 4 位流水号，按当天最大序号 +1。"""
     date = date or datetime.now()
@@ -412,11 +412,11 @@ def db_create_issue(title: str, content: str, category: str = 'suggestion',
                     comment: str = None, comments: list = None) -> str:
     """创建一条反馈，返回新单号（yyyymmdd+4 位）。
 
-    线程安全（独立 session）。供 AI 助手与 suggestion_api 复用，避免重复建单逻辑。
-    AI 助手提单时使用 submitter='自动助手'、source='assistant'、auto_classified=True，
+    线程安全（独立 session）。供 CodeBuddy与 suggestion_api 复用，避免重复建单逻辑。
+    CodeBuddy提单时使用 submitter='自动助手'、source='assistant'、auto_classified=True，
     与项目「反馈中心交互使用自动助手身份」的准则一致。
 
-    status / extra 为可选扩展：AI 助手处理完成后的「跟踪单」可传入
+    status / extra 为可选扩展：CodeBuddy处理完成后的「跟踪单」可传入
     status='pending_verification' 与 extra={'git_commit': ..., 'task_id': ...} 等，
     便于反馈中心展示「待验证」状态并关联处理动作。
 

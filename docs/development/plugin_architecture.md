@@ -91,7 +91,7 @@ extensions/                        ← 所有插件的根（框架仅扫描此�
 | `version` / `api_version` | ✅ | 插件契约版本，框架据此做兼容校验 |
 | `ui.mount` | ❌ | 前端挂载形态；`none` 时不加载 UI |
 | `ui.entry` | ❌ | UI 入口文件，**相对 `ui/` 目录**（框架拼接 `ui/`），如 `panel.html` |
-| `ui.standalone_route` | ❌ | 独立全屏路由路径（如 `/ai-assistant`）；声明后框架 `addRoute` 注册，不声明则无独立页 |
+| `ui.standalone_route` | ❌ | 独立全屏路由路径（如 `/codebuddy`）；声明后框架 `addRoute` 注册，不声明则无独立页 |
 | `ui.busy_poll` | ❌ | 忙碌态轮询接口（相对路径）；声明且 `mount=floating` 时，宿主周期轮询驱动气泡动画/未读角标 |
 | `ui.needs_credential` | ❌ | 凭据声明，框架据此在 UI 提示用户配置 |
 | `backend.module` | ❌ | 有后端逻辑时必填 |

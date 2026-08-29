@@ -31,7 +31,7 @@ export default defineConfig({
       // 插件扩展接口（/api/ext/*）直接代理到拓展管理宿主（8093）。
       // 主服务（443）用 Python requests 反代 SSE 时，即使扩展宿主已立即发送响应头，
       // requests 在读取 Flask 开发服务器的分块 SSE 响应头阶段仍会阻塞（库层面的兼容问题），
-      // 导致 AI 助手流式回复每次都“连接中断，请重试”。由 Vite（Node http-proxy）直接转发
+      // 导致 CodeBuddy流式回复每次都“连接中断，请重试”。由 Vite（Node http-proxy）直接转发
       // SSE 可正常工作（扩展宿主侧已通过先 yield 注释块确保响应头即时发出）。
       '/api/ext': {
         target: 'http://127.0.0.1:8093',

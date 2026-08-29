@@ -253,7 +253,7 @@ def file_feedback(ftype: str, title: str, content: str, extra: dict = None,
                   status: str = 'open', comment: str = None, comments: list = None):
     """在反馈中心建一条反馈单，返回新单号；失败返回 None。
 
-    extra / status 用于 AI 助手处理完成后的「跟踪单」：传入提交哈希与
+    extra / status 用于 CodeBuddy处理完成后的「跟踪单」：传入提交哈希与
     pending_verification 状态，便于反馈中心展示「待验证」并关联处理动作。
     comment 为可选首条留言（AI 的分析/处理说明）；comments 为可选的后续
     「自动助手」身份留言列表（如解决说明），随建单一并写入 feedback_comments。
