@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>系统电源控制</title>
+<style>
+  :root { --bg:#15151f; --surface:#1e1e2e; --surface2:#2a2a3c; --text:#e8e8f0;
+    --muted:#9a9ab0; --accent:#5b5bd6; --danger:#e5484d; --ok:#46a758; --warn:#e8b341; --radius:12px; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px; }
+  .wrap { max-width:920px; margin:0 auto; padding:18px; }
+  h1 { font-size:18px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .badge { background:var(--accent); color:#fff; width:26px; height:26px; border-radius:6px;
+    display:inline-flex; align-items:center; justify-content:center; font-size:16px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .card { background:var(--surface); border-radius:var(--radius); padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:14px; margin:0 0 12px; color:var(--text); }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  input[type=number] { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--surface2);
+    background:var(--bg); color:var(--text); font-size:14px; outline:none; }
+  input:focus { border-color:var(--accent); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:160px; }
+  button { background:var(--accent); color:#fff; border:none; padding:11px 18px; border-radius:8px;
+    font-size:14px; cursor:pointer; font-weight:600; }
+  button:hover { filter:brightness(1.08); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.danger { background:var(--danger); }
+  button.ghost { background:var(--surface2); }
+  .actions { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .actions .spacer { flex:1; }
+  .hint { color:var(--muted); font-size:12px; margin-top:10px; line-height:1.6; }
+  .state { font-size:13px; margin-top:6px; }
+  .state .ok { color:var(--ok); } .state .warn { color:var(--warn); }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--surface2);
+    color:var(--text); padding:10px 18px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .25s;
+    pointer-events:none; max-width:90%; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="badge">⏻</span> 系统电源控制</h1>
+  <div class="sub">平台系统电源管控（运行于主服务，独立于 dbox-extensions）</div>
+
+  <div class="card">
+    <h2>立即关机</h2>
+    <div class="hint">立即强制关闭本机，操作不可撤销。请确认已保存工作。</div>
+    <div class="actions">
+      <button class="danger" id="nowBtn">立即关机</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>定时关机</h2>
+    <div class="row">
+      <div>
+        <label>分钟数</label>
+        <input type="number" id="minutes" min="1" value="30" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="schedBtn">安排定时关机</button>
+      <button class="ghost" id="cancelBtn">取消</button>
+      <span class="spacer"></span>
+      <span class="state" id="schedState"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>任务结束后关机</h2>
+    <div class="hint">开启后，当所有活跃业务任务完成（数量为 0）时自动关机。可在任意时刻取消。</div>
+    <div class="actions">
+      <button id="afterOnBtn">开启</button>
+      <button class="ghost" id="afterOffBtn">关闭</button>
+      <span class="spacer"></span>
+      <span class="state" id="afterState"></span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const PREFIX = '/api/admin/system-power';
+function authHeaders() {
+  const t = (window.parent && window.parent.__dbox_token)
+    || localStorage.getItem('token')
+    || localStorage.getItem('dbox_token');
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (t || '') };
+}
+function toast(msg, ok) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+async function api(path, method, body) {
+  const r = await fetch(PREFIX + path, { method, headers: authHeaders(),
+    body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.success === false) throw new Error(j.message || ('HTTP ' + r.status));
+  return j;
+}
+async function refresh() {
+  try {
+    const s = await api('/shutdown/status', 'GET');
+    const ss = document.getElementById('schedState');
+    if (s.scheduled_at) {
+      const d = new Date(s.scheduled_at * 1000);
+      ss.innerHTML = '<span class="warn">已安排 ' + d.toLocaleString() + ' 关机</span>';
+    } else { ss.textContent = '无定时关机'; }
+    const as = document.getElementById('afterState');
+    as.innerHTML = s.shutdown_after_tasks
+      ? '<span class="ok">任务完成后关机：已开启</span>'
+      : '任务完成后关机：未开启';
+  } catch (e) { toast('状态读取失败：' + e.message, false); }
+}
+document.getElementById('nowBtn').onclick = async () => {
+  if (!confirm('确认立即关机？')) return;
+  try { await api('/shutdown', 'POST', { immediate: true }); toast('已发起关机', true); }
+  catch (e) { toast('失败：' + e.message, false); }
+};
+document.getElementById('schedBtn').onclick = async () => {
+  const m = parseInt(document.getElementById('minutes').value, 10) || 0;
+  try { const j = await api('/shutdown/scheduled', 'POST', { minutes: m });
+    toast(j.message, true); refresh(); }
+  catch (e) { toast('失败：' + e.message, false); }
+};
+document.getElementById('cancelBtn').onclick = async () => {
+  try { await api('/shutdown/cancel', 'POST'); toast('已取消', true); refresh(); }
+  catch (e) { toast('失败：' + e.message, false); }
+};
+document.getElementById('afterOnBtn').onclick = async () => {
+  try { await api('/shutdown/after-tasks', 'POST', { enable: true }); toast('已开启', true); refresh(); }
+  catch (e) { toast('失败：' + e.message, false); }
+};
+document.getElementById('afterOffBtn').onclick = async () => {
+  try { await api('/shutdown/after-tasks', 'POST', { enable: false }); toast('已关闭', true); refresh(); }
+  catch (e) { toast('失败：' + e.message, false); }
+};
+refresh();
+</script>
+</body>
+</html>

@@ -35,6 +35,14 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.service_ops_local import bp as service_ops_local_bp
     app.register_blueprint(service_ops_local_bp)
 
+    # 系统电源控制 / 系统资源监控（本地版）：同为平台系统功能，并入核心，
+    # 不依赖被管理的 dbox-extensions 进程。
+    from backend.system_power_local import create_blueprint as _system_power_create
+    from backend.system_monitor_local import create_blueprint as _system_monitor_create
+    from backend.access import admin_required
+    app.register_blueprint(_system_power_create(admin_required))
+    app.register_blueprint(_system_monitor_create(admin_required))
+
 
 def register_domain_blueprints(app: Flask) -> None:
     """注册领域蓝图（延迟导入，避免与核心蓝图循环依赖）。"""

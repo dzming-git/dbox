@@ -29,7 +29,7 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
-const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'users', 'config']
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'users', 'config', 'power', 'monitor']
 const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
 const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
@@ -1148,7 +1148,7 @@ const selectFileFromBrowser = (item: any) => {
 const fetchSystemInfo = async () => {
   loading.value.info = true
   try {
-    const res = await api.get('/api/ext/system-monitor/info') as any
+    const res = await api.get('/api/admin/system-monitor/info') as any
     if (res.success) {
       systemInfo.value = res.info
     }
@@ -1192,7 +1192,7 @@ const fetchSystemStats = async () => {
 const fetchSystemPaths = async () => {
   loading.value.paths = true
   try {
-    const res = await api.get('/api/ext/system-monitor/paths') as any
+    const res = await api.get('/api/admin/system-monitor/paths') as any
     if (res.success) {
       systemPaths.value = res.paths
     }
@@ -1888,7 +1888,7 @@ onMounted(() => {
   // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=services）
   // 注意：外部脚本入口已移至用户头像下拉菜单，不再作为后台标签页
   const routeTab = router.currentRoute.value.query?.tab as string
-  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'users', 'config']
+  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'users', 'config', 'monitor', 'power']
   if (routeTab && validTabs.includes(routeTab)) activeTab.value = routeTab
 
   fetchSystemInfo()
@@ -1989,6 +1989,18 @@ onUnmounted(() => {
           @click="switchTab('services')"
           v-if="userStore.isAdmin"
         >🔧 服务管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'monitor' }"
+          @click="switchTab('monitor')"
+          v-if="userStore.isAdmin"
+        >📊 系统监控</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'power' }"
+          @click="switchTab('power')"
+          v-if="userStore.isAdmin"
+        >⏻ 电源控制</button>
       </div>
 
       <div class="tab-group">
@@ -2713,6 +2725,18 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 系统监控标签页（核心面板，运行于主服务，独立于 dbox-extensions） -->
+      <div v-if="activeTab === 'monitor'" class="tab-content">
+        <div class="section-header"><h3>系统监控</h3></div>
+        <iframe src="/core-panels/system-monitor.html" class="core-panel-frame"></iframe>
+      </div>
+
+      <!-- 电源控制标签页（核心面板，运行于主服务，独立于 dbox-extensions） -->
+      <div v-if="activeTab === 'power'" class="tab-content">
+        <div class="section-header"><h3>电源控制</h3></div>
+        <iframe src="/core-panels/system-power.html" class="core-panel-frame"></iframe>
       </div>
 
       <!-- 服务管理标签页 -->
@@ -4234,6 +4258,15 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 180px);
+}
+
+.core-panel-frame {
+  width: 100%;
+  flex: 1;
+  min-height: 78vh;
+  border: none;
+  border-radius: 12px;
+  background: var(--bg);
 }
 
 @keyframes fadeIn {

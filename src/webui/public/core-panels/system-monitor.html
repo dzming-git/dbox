@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>系统资源监控</title>
+<style>
+  :root {
+    --bg:#15151f; --surface:#1e1e2e; --surface2:#262638; --surface3:#2f2f44;
+    --text:#e8e8f0; --muted:#9a9ab0; --faint:#6c6c84;
+    --accent:#7c7cf0; --accent-soft:rgba(124,124,240,.14);
+    --ok:#46a758; --warn:#e8b341; --danger:#e5484d; --radius:14px;
+    --line:rgba(255,255,255,.06);
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body {
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1040px; margin:0 auto; padding:20px 18px 28px; }
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .top .logo {
+    width:34px; height:34px; border-radius:9px; flex:none;
+    background:linear-gradient(135deg,var(--accent),#a06bf0);
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+  }
+  .top h1 { font-size:18px; margin:0; line-height:1.2; }
+  .top .sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  .top .live {
+    margin-left:auto; display:flex; align-items:center; gap:7px;
+    font-size:12px; color:var(--muted);
+    background:var(--surface); border:1px solid var(--line);
+    padding:6px 11px; border-radius:999px; white-space:nowrap;
+  }
+  .live .pulse {
+    width:8px; height:8px; border-radius:50%; background:var(--ok);
+    box-shadow:0 0 0 0 rgba(70,167,88,.6); animation:pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow:0 0 0 0 rgba(70,167,88,.55); }
+    70% { box-shadow:0 0 0 7px rgba(70,167,88,0); }
+    100% { box-shadow:0 0 0 0 rgba(70,167,88,0); }
+  }
+  .kpis {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:14px; margin-bottom:18px;
+  }
+  .kpi {
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:15px 16px; position:relative; overflow:hidden;
+  }
+  .kpi .k { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; }
+  .kpi .v { font-size:30px; font-weight:700; line-height:1.1; margin-top:8px; letter-spacing:-.5px; }
+  .kpi .v small { font-size:14px; font-weight:500; color:var(--muted); margin-left:2px; }
+  .kpi .meta { color:var(--faint); font-size:12px; margin-top:3px; }
+  .kpi .gauge { height:7px; background:var(--surface3); border-radius:6px; overflow:hidden; margin-top:12px; }
+  .kpi .gauge > i { display:block; height:100%; border-radius:6px; transition:width .5s ease, background .5s; }
+  .kpi .spark { position:absolute; right:14px; bottom:12px; width:96px; height:30px; opacity:.85; }
+  .kpi.lvl-warn .v { color:var(--warn); }
+  .kpi.lvl-danger .v { color:var(--danger); }
+  .net { display:flex; gap:18px; align-items:flex-end; }
+  .net .col .lab { color:var(--faint); font-size:11px; }
+  .net .col .num { font-size:18px; font-weight:700; }
+  .net .up { color:var(--ok); } .net .down { color:var(--accent); }
+  .section { margin-bottom:20px; }
+  .section-head {
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:10px; flex-wrap:wrap; margin-bottom:12px;
+  }
+  .section-head h2 { font-size:15px; margin:0; display:flex; align-items:center; gap:8px; }
+  .section-head .hint { color:var(--muted); font-size:12px; }
+  .card {
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:16px;
+  }
+  .disksum { color:var(--muted); font-size:12px; margin:-2px 0 12px; }
+  .disklist { display:flex; flex-direction:column; gap:11px; }
+  .diskrow {
+    display:flex; gap:13px; background:var(--bg); border:1px solid var(--line);
+    border-radius:11px; padding:13px;
+  }
+  .diskrow .health { width:3px; border-radius:3px; flex:none; align-self:stretch; background:var(--ok); }
+  .diskrow .health.warn { background:var(--warn); }
+  .diskrow .health.danger { background:var(--danger); }
+  .dmain { flex:1; min-width:0; }
+  .dhead { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .dmp { font-weight:700; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dfs { color:var(--muted); font-size:11px; }
+  .dsys { color:var(--accent); font-size:11px; background:var(--accent-soft); padding:1px 7px; border-radius:999px; }
+  .dmeta { color:var(--muted); font-size:12px; margin:5px 0 9px; }
+  .dmeta b { color:var(--text); font-weight:600; }
+  .dbar { height:10px; background:var(--surface3); border-radius:6px; overflow:hidden; }
+  .dbar > i { display:block; height:100%; border-radius:6px; transition:width .4s, background .4s; }
+  .dpct { font-size:21px; font-weight:700; min-width:66px; text-align:right; align-self:center; }
+  .dpct.warn { color:var(--warn); } .dpct.danger { color:var(--danger); }
+  .info-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px 22px; }
+  .info-grid .row { display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .info-grid .row .k { color:var(--muted); font-size:12px; }
+  .info-grid .row .v { font-size:13px; font-weight:600; text-align:right; }
+  .err { color:var(--danger); font-size:13px; padding:10px 0; }
+  @media (max-width:560px) {
+    .top { flex-wrap:wrap; }
+    .top .live { margin-left:0; }
+    .kpis { grid-template-columns:1fr 1fr; }
+    .kpi .spark { display:none; }
+    .dpct { font-size:18px; min-width:56px; }
+    .diskrow { gap:10px; padding:11px; }
+  }
+  @media (max-width:380px) { .kpis { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">📊</div>
+    <div>
+      <h1>系统资源监控</h1>
+      <div class="sub">实时资源视图 · 每 2 秒刷新（运行于主服务，独立于 dbox-extensions）</div>
+    </div>
+    <div class="live"><span class="pulse"></span><span id="liveTxt">连接中…</span></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi" id="kCpu">
+      <div class="k">💻 CPU 占用</div>
+      <div class="v" id="cpuV">–<small>%</small></div>
+      <div class="meta" id="cpuMeta">–</div>
+      <div class="gauge"><i id="cpuBar"></i></div>
+      <svg class="spark" id="cpuSpark" viewBox="0 0 96 30" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="kpi" id="kMem">
+      <div class="k">🧠 内存占用</div>
+      <div class="v" id="memV">–<small>%</small></div>
+      <div class="meta" id="memMeta">–</div>
+      <div class="gauge"><i id="memBar"></i></div>
+      <svg class="spark" id="memSpark" viewBox="0 0 96 30" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="kpi">
+      <div class="k">🌐 网络</div>
+      <div class="net">
+        <div class="col"><div class="lab">↑ 上行</div><div class="num up" id="netUp">–</div></div>
+        <div class="col"><div class="lab">↓ 下行</div><div class="num down" id="netDown">–</div></div>
+      </div>
+      <div class="meta" style="margin-top:12px">每秒流量</div>
+      <svg class="spark" id="netSpark" viewBox="0 0 96 30" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="kpi">
+      <div class="k">⚙️ 进程 / 运行</div>
+      <div class="v" id="procV" style="font-size:26px">–</div>
+      <div class="meta" id="uptimeV">–</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>💽 磁盘空间</h2>
+      <span class="hint">按使用率排序</span>
+    </div>
+    <div class="card">
+      <div id="disk"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>🧩 系统信息</h2></div>
+    <div class="card"><div class="info-grid" id="info"></div></div>
+  </div>
+</div>
+
+<script>
+const PREFIX = '/api/admin/system-monitor';
+function authHeaders() {
+  const t = (window.parent && window.parent.__dbox_token)
+    || localStorage.getItem('token')
+    || localStorage.getItem('dbox_token');
+  return { 'Authorization': 'Bearer ' + (t || '') };
+}
+function fmtBytes(n) {
+  if (!n && n !== 0) return '–';
+  const u = ['B','KB','MB','GB','TB','PB']; const i = Math.floor(Math.log(n)/Math.log(1024));
+  return (n/Math.pow(1024,i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+function fmtUptime(s) {
+  if (!s) return '–';
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return (d ? d + ' 天 ' : '') + h + ' 小时 ' + m + ' 分';
+}
+function lvl(p) { return p > 90 ? 'danger' : p > 70 ? 'warn' : ''; }
+function colorOf(p) { return p > 90 ? 'var(--danger)' : p > 70 ? 'var(--warn)' : 'var(--ok)'; }
+function spark(svg, arr, color, max) {
+  svg.innerHTML = '';
+  if (!arr || arr.length < 2) return;
+  const W = 96, H = 30, n = arr.length;
+  const top = max || Math.max(...arr, 1) * 1.15;
+  const pts = arr.map((v, i) => {
+    const x = (i/(n-1))*W;
+    const y = H - (v/top)*H;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  const pl = document.createElementNS('http://www.w3.org/2000/svg','polyline');
+  pl.setAttribute('points', pts);
+  pl.setAttribute('fill','none'); pl.setAttribute('stroke', color);
+  pl.setAttribute('stroke-width','1.6'); pl.setAttribute('stroke-linejoin','round');
+  pl.setAttribute('stroke-linecap','round');
+  svg.appendChild(pl);
+}
+let lastTs = 0;
+async function load() {
+  try {
+    const [m, info, st, hist] = await Promise.all([
+      fetch(PREFIX + '/metrics/current', { headers: authHeaders() }).then(r=>r.json()),
+      fetch(PREFIX + '/info', { headers: authHeaders() }).then(r=>r.json()),
+      fetch(PREFIX + '/stats', { headers: authHeaders() }).then(r=>r.json()),
+      fetch(PREFIX + '/metrics/history', { headers: authHeaders() }).then(r=>r.json()),
+    ]);
+    lastTs = Date.now();
+    if (m && m.success && m.data) {
+      const d = m.data;
+      const cpu = d.cpu && typeof d.cpu.usage_percent === 'number' ? d.cpu.usage_percent : 0;
+      const mem = d.memory && typeof d.memory.usage_percent === 'number' ? d.memory.usage_percent : 0;
+      const cpuEl = document.getElementById('cpuV');
+      cpuEl.innerHTML = cpu + '<small>%</small>';
+      const cb = document.getElementById('cpuBar'); cb.style.width = cpu + '%'; cb.style.background = colorOf(cpu);
+      document.getElementById('kCpu').className = 'kpi ' + (lvl(cpu) ? 'lvl-' + lvl(cpu) : '');
+      document.getElementById('cpuMeta').textContent = (d.cpu && d.cpu.count ? d.cpu.count + ' 逻辑核' : '–');
+      const memEl = document.getElementById('memV');
+      memEl.innerHTML = mem + '<small>%</small>';
+      const mb = document.getElementById('memBar'); mb.style.width = mem + '%'; mb.style.background = colorOf(mem);
+      document.getElementById('kMem').className = 'kpi ' + (lvl(mem) ? 'lvl-' + lvl(mem) : '');
+      document.getElementById('memMeta').textContent =
+        (d.memory ? fmtBytes(d.memory.used) + ' / ' + fmtBytes(d.memory.total) : '–');
+      document.getElementById('netUp').textContent = '–';
+      document.getElementById('netDown').textContent = '–';
+      document.getElementById('procV').textContent = (st && st.success) ? (st.process_count ?? '–') : '–';
+      document.getElementById('uptimeV').textContent = (st && st.success) ? fmtUptime(st.uptime_seconds) : '–';
+      const dk = document.getElementById('disk');
+      const disks = (d.disks || []).slice().sort((a, b) => (b.usage_percent || 0) - (a.usage_percent || 0));
+      const totT = disks.reduce((s, x) => s + (x.total || 0), 0);
+      const totU = disks.reduce((s, x) => s + (x.used || 0), 0);
+      const totP = totT ? (totU / totT * 100) : 0;
+      if (!disks.length) {
+        dk.innerHTML = '<div class="disksum">暂无磁盘数据</div>';
+      } else {
+        let html = '<div class="disksum">共 ' + disks.length + ' 块 · 总容量 ' + fmtBytes(totT) +
+          ' · 已用 ' + fmtBytes(totU) + '（' + totP.toFixed(1) + '%）</div><div class="disklist">';
+        disks.forEach(x => {
+          const pct = x.usage_percent || 0, L = lvl(pct);
+          const sys = x.mount_point === '/' ? ' <span class="dsys">系统盘</span>' : '';
+          const fs = x.fs_type ? '<span class="dfs">' + x.fs_type + '</span>' : '';
+          html += '<div class="diskrow">' +
+            '<span class="health ' + L + '"></span>' +
+            '<div class="dmain">' +
+              '<div class="dhead"><span class="dmp" title="' + x.mount_point + '">' + x.mount_point + '</span>' + fs + sys + '</div>' +
+              '<div class="dmeta">已用 <b>' + fmtBytes(x.used) + '</b> · 总计 ' + fmtBytes(x.total) +
+                ' · 可用 ' + fmtBytes(x.free) + '</div>' +
+              '<div class="dbar"><i style="width:' + pct + '%;background:' + colorOf(pct) + '"></i></div>' +
+            '</div>' +
+            '<div class="dpct ' + L + '">' + pct.toFixed(1) + '%</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        dk.innerHTML = html;
+      }
+    }
+    if (info && info.success && info.info) {
+      const i = info.info;
+      const rows = [
+        ['操作系统', (i.platform || '–') + (i.platform_version ? ' ' + i.platform_version : '')],
+        ['主机名', i.hostname || '–'],
+        ['Python', i.python_version || '–'],
+        ['逻辑 CPU', i.cpu_count != null ? i.cpu_count : '–'],
+        ['总内存', fmtBytes(i.memory_total)],
+        ['版本', i.version || '–'],
+      ];
+      document.getElementById('info').innerHTML = rows.map(r =>
+        '<div class="row"><span class="k">'+r[0]+'</span><span class="v">'+r[1]+'</span></div>').join('');
+    }
+    if (hist && hist.success && hist.history) {
+      const h = hist.history;
+      spark(document.getElementById('cpuSpark'), h.cpu, 'var(--accent)', 100);
+      spark(document.getElementById('memSpark'), h.mem, 'var(--ok)', 100);
+      const net = (h.net_up || []).concat();
+      spark(document.getElementById('netSpark'), net, 'var(--accent)', Math.max(...net, 1) || 1);
+      const up = (h.net_up || []), dn = (h.net_down || []);
+      document.getElementById('netUp').textContent = up.length ? up[up.length-1] + ' KB/s' : '–';
+      document.getElementById('netDown').textContent = dn.length ? dn[dn.length-1] + ' KB/s' : '–';
+    }
+  } catch (e) {
+    console.error('[system-monitor] load failed:', e);
+  }
+}
+function tickLive() {
+  const el = document.getElementById('liveTxt');
+  if (!lastTs) { el.textContent = '连接中…'; return; }
+  const s = Math.round((Date.now() - lastTs) / 1000);
+  el.textContent = '更新于 ' + s + ' 秒前';
+}
+load(); setInterval(load, 2000); setInterval(tickLive, 1000);
+</script>
+</body>
+</html>
