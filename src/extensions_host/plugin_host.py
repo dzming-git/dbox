@@ -131,6 +131,85 @@ class _HttpProxy:
         return urllib.request.urlopen(req, timeout=kw.get('timeout', 10)).read()
 
 
+class _StateProxy:
+    """插件用户状态读写代理：转发到核心统一状态服务（UserState）。
+
+    命名空间自动按插件 key 隔离，插件无法读写其它插件或 core 的状态。
+    用户身份与设备标识从当前请求透传给核心，插件不接触 token 本身。
+
+    用法（插件后端 / 面板路由内）：
+        host.state.put('read_at', ts, strategy='max')   # 单调前进
+        host.state.put('cache', items, strategy='union_by_id', cap=400)
+        host.state.get('active_view', default='browse')
+        host.state.list()                                # 全量快照
+    """
+
+    def __init__(self, ns):
+        self._ns = ns
+
+    # ---- 内部：地址与请求头 ----
+    def _base(self):
+        return (os.environ.get('DBOX_WEB_BASE') or 'http://127.0.0.1:8080').rstrip('/')
+
+    def _url(self, suffix=''):
+        return '%s/api/user-state/%s%s' % (self._base(), self._ns, suffix)
+
+    def _headers(self):
+        h = {'Content-Type': 'application/json'}
+        try:
+            from flask import request as _req
+            auth = _req.headers.get('Authorization')
+            if auth:
+                h['Authorization'] = auth
+            dev = _req.headers.get('X-Dbox-Device-Id')
+            if dev:
+                h['X-Dbox-Device-Id'] = dev
+        except Exception:
+            pass  # 无请求上下文（如后台任务）时退化为不带身份
+        return h
+
+    def _json(self, method, url, body=None, timeout=10):
+        import json as _json
+        import urllib.request
+        data = _json.dumps(body).encode('utf-8') if body is not None else None
+        req = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
+        raw = urllib.request.urlopen(req, timeout=timeout).read()
+        try:
+            return _json.loads(raw.decode('utf-8'))
+        except Exception:
+            return {'success': False, 'raw': raw[:200].decode('utf-8', 'ignore')}
+
+    # ---- 对外契约 ----
+    def get(self, key, default=None):
+        r = self._json('GET', self._url('/%s' % key))
+        v = r.get('value') if r.get('success') else None
+        return default if v is None else v
+
+    def put(self, key, value, strategy=None, v=1, cap=None, scope='user'):
+        body = {'value': value, 'scope': scope}
+        if strategy:
+            body['strategy'] = strategy
+        if cap is not None:
+            body['cap'] = cap
+        if v is not None:
+            body['v'] = v
+        return self._json('PUT', self._url('/%s' % key), body)
+
+    def delete(self, key, scope='user'):
+        r = self._json('DELETE', self._url('/%s?scope=%s' % (key, scope)))
+        return bool(r.get('deleted'))
+
+    def list(self):
+        r = self._json('GET', self._url(''))
+        return r.get('data') or {}
+
+    def sync(self, puts=None, deletes=None):
+        """一次往返完成多键推送 + 全量拉取，减少移动端往返。"""
+        body = {'put': puts or {}, 'delete': deletes or []}
+        r = self._json('POST', self._url('/sync'), body)
+        return r.get('data') or {}
+
+
 class Host:
     """注入插件的宿主对象。字段均为稳定契约，内部实现可自由演进。
 
@@ -159,6 +238,7 @@ class Host:
         self.vault = _VaultProxy()
         self.tasks = _TasksProxy(self.key)
         self.http = _HttpProxy()
+        self.state = _StateProxy(self.key)   # 统一用户状态（跨设备，按插件隔离）
         self._app = app
         # 集中登记到资源注册表，供框架统一翻译真实地址（db / cache / url）。
         _reg_register_extension(self.key, self.key, self.data_dir)
