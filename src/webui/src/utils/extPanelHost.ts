@@ -66,6 +66,78 @@ const handlers = new Set<MessageHandler>()
 let rootEl: HTMLDivElement | null = null
 let listening = false
 
+/**
+ * 小窗（浮动面板）的「后退手势陷阱」。
+ *
+ * 打开小窗只是切 CSS 形态，dbox 自身的路由历史不变；于是用户做系统/浏览器
+ * 的后退手势时，命中的是 dbox 应用的路由历史 —— 结果整页回退，而不是收起小窗。
+ *
+ * 解决：进入浮动形态时，在当前历史栈顶压入一条「哨兵」记录（复制当前路由的
+ * history.state、URL 不变）。这样：
+ *   · 后退手势优先弹出这条哨兵 → 我们拦截并收起小窗，dbox 仍停在原页面；
+ *   · 由于 URL 未变、state 是 Vue Router 自己的形状，Vue Router 认为仍在当前
+ *     路由、不会真正导航；
+ *   · 面板内部若有可回退内容（灯箱/详情，由 iframe 自己的历史承载），会先被
+ *     iframe 历史消费，等 iframe 历史耗尽、再后退才命中哨兵 → 收起小窗。
+ * 离开浮动形态（收起/全屏）时撤掉哨兵，避免遗留陷阱误吞后续真正的页面后退。
+ */
+let sentinelExtId: string | null = null
+/** 程序化收起时主动 pop 哨兵产生的 popstate 需被忽略，防止二次收起 */
+let suppressPop = 0
+/** 哨兵记录在 history.state 上的标记键，用于精确识别「弹出的是否正是我们的哨兵」 */
+const SENTINEL_KEY = '__dboxPanelSentinel'
+
+function ensureSentinel(extId: string) {
+  if (sentinelExtId === extId) return
+  // 理论上同一时刻只有一个浮动面板；若哨兵被别的扩展持有，先清掉它
+  if (sentinelExtId) clearSentinel()
+  // 复制当前路由 state（Vue Router 的形状），URL 不变，再加标记作为哨兵
+  const base = (window.history.state && typeof window.history.state === 'object')
+    ? (window.history.state as Record<string, unknown>)
+    : null
+  if (!base) return // 无路由 state 时不埋哨兵，退回原生后退，避免破坏路由
+  try {
+    const st = { ...base, [SENTINEL_KEY]: extId }
+    window.history.pushState(st, '', window.location.href)
+    sentinelExtId = extId
+  } catch (e) { /* 极端环境不支持则放弃陷阱 */ }
+}
+
+/** 当前栈顶是否正是我们为 extId 压入的哨兵 */
+function isSentinelTop(): boolean {
+  const s = window.history.state as Record<string, unknown> | null
+  return !!(s && typeof s === 'object' && s[SENTINEL_KEY] === sentinelExtId)
+}
+
+function clearSentinel() {
+  if (sentinelExtId === null) return
+  // 仅当哨兵确实位于栈顶时才 pop 并清空（如普通收起）；
+  // 若被全屏路由 / keepPanel 跳转压在下面，保留 sentinelExtId 与记录，
+  // 待其回到栈顶后由一次后退自然消费（陷阱随之重新生效）。
+  if (isSentinelTop()) {
+    sentinelExtId = null
+    suppressPop++
+    try { window.history.back() } catch (e) { /* ignore */ }
+  }
+}
+
+function onPopState() {
+  if (suppressPop > 0) { suppressPop--; return }
+  if (!sentinelExtId) return
+  const extId = sentinelExtId
+  const entry = panels.get(extId)
+  if (!entry) { sentinelExtId = null; return }
+  // 仅拦截「浮动（小窗）」形态；全屏由路由自行处理
+  if (entry.mode !== 'floating') return
+  // 若哨兵此刻仍在栈顶，说明刚才弹出的是它「之上」的其它历史（如 keepPanel 路由跳转），
+  // 并非哨兵本身 → 不应收起小窗，留给路由自己处理。
+  if (isSentinelTop()) return
+  // 否则弹出的正是哨兵 → 小窗内已无可回退内容，后退应「收起小窗」而非整页回退
+  sentinelExtId = null
+  setPanelMode(extId, 'hidden')
+  window.dispatchEvent(new CustomEvent('dbox-ext-collapse', { detail: { extId } }))
+}
+
 /** 从全局同步导航栏高度到面板根元素（面板在 body 下，与 .app-container 同级，无法继承其 CSS 变量） */
 function syncNavHeight() {
   const root = ensureRoot()
@@ -134,12 +206,14 @@ function injectStylesOnce() {
   height: auto;
   max-width: calc(100vw - 32px);
 }
-/* 窄屏：左右留边铺开，输入框等底部操作区不被浮层压住 */
+/* 窄屏：右对齐并收窄，给左侧留出充足的可点区域（单手即可点窗外收起），
+   不再满屏铺开导致「窗外几乎没地方可点」 */
 @media (max-width: 600px) {
   #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
-    left: 8px;
-    right: 8px;
-    width: auto;
+    right: 12px;
+    left: auto;
+    width: min(420px, calc(100vw - 104px));
+    max-width: calc(100vw - 104px);
   }
 }
 /* 全屏：铺满视口，层级高于导航与浮层 */
@@ -351,6 +425,10 @@ export function setPanelMode(extId: string, mode: PanelMode): void {
   let entry = panels.get(extId)
   if (!entry) entry = buildPanel(extId, { html: '' })
   applyMode(entry, mode)
+  // 小窗（浮动）回退陷阱：进入浮动时压哨兵、离开浮动（收起/全屏）时撤哨兵。
+  // 保证「用户在小窗内无可回退内容时，系统/浏览器后退手势收起小窗而非整页回退」。
+  if (mode === 'floating') ensureSentinel(extId)
+  else clearSentinel()
   // 切到小窗时同步导航高度（窗口 resize 后 nav-height 可能已变）
   if (mode === 'floating') syncNavHeight()
   if (mode !== 'hidden') post(entry, { type: 'DBOX_MODE', fullscreen: mode === 'fullscreen' })
@@ -404,6 +482,8 @@ export function onPanelMessage(handler: MessageHandler): () => void {
 function startListening() {
   if (listening) return
   listening = true
+  // 小窗后退陷阱：仅在我们压入哨兵期间生效，拦截「整页回退」改为收起小窗
+  window.addEventListener('popstate', onPopState)
   window.addEventListener('message', (e: MessageEvent) => {
     const data = e.data
     if (!data || typeof data !== 'object') return
