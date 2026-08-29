@@ -523,10 +523,18 @@ def _user_can_read_post(post, allowed_libs):
 
 
 def resolve_user():
-    """统一解析当前用户：优先 JWT 中间件注入的 g.user_id，回退到 session 用户。
+    """解析当前用户：优先 g.user_id，回退到 session 用户。
 
-    前端经由 vite 代理 / JWT 鉴权时，请求上下文由全局 before_request 把用户写入 g.user_id；
-    直接的 session 登录则走 AuthService.get_current_user()。两者都支持，避免鉴权口径不一致。
+    ⚠️ 注意：不要依赖本函数处理 Bearer Token 鉴权！
+    本函数第一段读的 g.user_id 本应由「全局 JWT 中间件」注入，但该中间件
+    （backend/middleware/auth_middleware.py 的 setup_auth_middleware）
+    从未被任何启动代码调用，已于 2026-08-29 删除。因此：
+      - 纯 Bearer Token 请求（前端经 vite 代理的常规调用方式）下 g.user_id 恒为空，
+        且没有 session，本函数会返回 None，表现为莫名其妙的 401；
+      - 它只在「确实是 session 登录」或「调用方已自行把用户写入 g.user_id」
+        （如 admin_required 装饰器）的场景下有效。
+
+    需要拿当前登录用户，请用 resolve_identity()（自行解析 Bearer / session）。
     """
     uid = getattr(g, 'user_id', None)
     if uid:

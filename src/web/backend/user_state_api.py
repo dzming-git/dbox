@@ -27,7 +27,7 @@ def _require_user():
 
     用 resolve_identity()（解 Bearer / session 的统一入口）而非 resolve_user()：
     后者依赖全局 JWT 中间件注入 g.user_id，而该中间件（setup_auth_middleware）
-    当前并未注册，纯 resolve_user 在 Bearer 场景下会拿不到用户。
+    从未被注册调用、现已删除，纯 resolve_user 在 Bearer 场景下拿不到用户。
     """
     user_id, _role = resolve_identity()
     if not user_id:
