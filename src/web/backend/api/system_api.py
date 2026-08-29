@@ -14,8 +14,8 @@ from core.models import ResourceLibrary
 from core.models import LibraryPermission
 from core.models import LibraryUserGroupMember
 from core.models import Video
-from core.models import AppSetting
 from datetime import datetime, timedelta
+from backend.user_state_service import read_layer, write_key
 from backend.runtime import runtime
 from backend.access import get_allowed_library_ids
 from backend.access import resolve_identity
@@ -35,12 +35,13 @@ def api_get_settings():
     无需登录即可访问，以便游客也能继承管理员的全局默认。
     """
     user_id, role = resolve_identity()
-    global_setting = AppSetting.query.filter_by(scope='global', owner='').first()
-    global_data = global_setting.get_data() if global_setting else {}
+    # 分层读取：global / user 各层分别返回，由前端按 browser>user>global>defaults 合并
+    global_data, _g = read_layer('core', 'settings', scope='global') or (None, None)
+    global_data = global_data or {}
     user_data = {}
     if user_id:
-        user_setting = AppSetting.query.filter_by(scope='user', owner=str(user_id)).first()
-        user_data = user_setting.get_data() if user_setting else {}
+        uv, _u = read_layer('core', 'settings', scope='user', owner=str(user_id))
+        user_data = uv or {}
     return jsonify({
         'success': True,
         'defaults': SETTINGS_DEFAULTS,
@@ -79,21 +80,19 @@ def api_save_settings():
     else:
         return jsonify({'success': False, 'message': 'scope 必须是 user 或 global', 'code': 400}), 400
 
-    record = AppSetting.query.filter_by(scope=scope, owner=owner).first()
-    existing = record.get_data() if record else {}
+    existing, _row = read_layer('core', 'settings', scope=scope, owner=owner)
+    existing = dict(existing) if isinstance(existing, dict) else {}
     existing.update(settings)
     # 仅保留白名单内的键
     existing = {k: v for k, v in existing.items() if k in SETTINGS_DEFAULTS}
     for k in (reset_keys or []):
         existing.pop(k, None)
 
-    if record is None:
-        record = AppSetting(scope=scope, owner=owner)
-        db.session.add(record)
-    record.set_data(existing)
-    db.session.commit()
+    # 落到统一状态表（同一层内已是合并后的完整字典，故用 lww 整键写入）
+    res = write_key(ns='core', key='settings', value=existing,
+                    scope=scope, owner=owner, strategy='lww')
     log_operation('save settings', target=f'层={scope}', detail=f'键={list(settings.keys())}', success=True)
-    return jsonify({'success': True, 'scope': scope, 'data': record.get_data()})
+    return jsonify({'success': True, 'scope': scope, 'data': res.get('value')})
 
 @bp.route('/api/admin/config', methods=['GET'])
 @admin_required

@@ -47,40 +47,9 @@ SETTINGS_DEFAULTS = {
 }
 
 
-def _apply_setting(scope, key, value):
-    """将设置应用到对应范围（global/user/browser）。
-
-    - global: 写入 AppSetting（全用户共享）
-    - user:   写入当前登录用户的 UserPreference（key 前缀 'setting.'）
-    - browser: 由前端 localStorage 维护，后端仅透传默认值，此处不落库
-    """
-    from core.models import AppSetting
-    if scope == 'global':
-        rec = AppSetting.query.filter_by(key=key).first()
-        if not rec:
-            rec = AppSetting(key=key, value=json.dumps(value, ensure_ascii=False))
-            runtime.db.session.add(rec)
-        else:
-            rec.value = json.dumps(value, ensure_ascii=False)
-        runtime.db.session.commit()
-    elif scope == 'user':
-        from flask import g
-        from core.models import UserPreference
-        uid = getattr(g, 'user_id', None)
-        if not uid:
-            return False
-        pref_key = f'setting.{key}'
-        pref = UserPreference.query.filter_by(user_id=uid, pref_key=pref_key).first()
-        if not pref:
-            pref = UserPreference(user_id=uid, pref_key=pref_key,
-                                  pref_value=json.dumps(value, ensure_ascii=False))
-            runtime.db.session.add(pref)
-        else:
-            pref.pref_value = json.dumps(value, ensure_ascii=False)
-        runtime.db.session.commit()
-    # browser 范围不落库，由前端负责
-    return True
-
+# 说明：设置持久化已统一收敛到 UserState（见 backend/user_state_service），
+# 分 global / user 两层存储，由 /api/settings 读写；browser 层仍由前端
+# localStorage 维护、不入库。此处不再保留按单键落库的旧实现（已废弃且从未被调用）。
 
 # ============ 配置管理 ============
 # 默认配置（不含任何个人路径）。首次启动时由代码生成到系统数据区的用户配置文件中，

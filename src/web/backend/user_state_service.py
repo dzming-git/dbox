@@ -62,6 +62,20 @@ def merge_read(ns, owner, device_id='', only_keys=None):
     return out
 
 
+def read_layer(ns, key, scope='user', owner='', device_id=''):
+    """读取指定层的单个键值（不做层合并），返回 (value, row)。
+
+    settings 这类接口需要把 global / user 各层「分别」返回、由前端自行合并，
+    因此不能用 merge_read（它会把多层折叠成一个值）。
+    """
+    if scope == 'global':
+        owner, device_id = '', ''
+    elif scope == 'user':
+        device_id = ''
+    row = _row(ns, scope, owner, device_id, key)
+    return (row.get_value() if row else None), row
+
+
 def write_key(ns, key, value, scope='user', owner='', device_id='',
               strategy=None, v=1, cap=None, base_rev=None):
     """写入（合并）单个键。返回 {value, rev, v, strategy, changed}。

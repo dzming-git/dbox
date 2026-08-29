@@ -1009,40 +1009,9 @@ class UserPreference(db.Model):
         return f'<UserPreference {self.user_session} - {self.preference_score}>'
 
 
-class AppSetting(db.Model):
-    """通用应用设置存储（分层：global / user）。
-
-    浏览器层（device）由前端 localStorage 管理，不入库。
-    合并优先级（高->低）：browser > user > global > defaults
-    """
-    __tablename__ = 'app_settings'
-
-    id = db.Column(db.Integer, primary_key=True)
-    scope = db.Column(db.String(20), nullable=False)        # 'global' 或 'user'
-    owner = db.Column(db.String(50), nullable=False, default='')  # 用户层为 user_id 字符串，全局层为 ''
-    data = db.Column(db.Text, nullable=False, default='{}')  # JSON 字符串
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    __table_args__ = (
-        db.UniqueConstraint('scope', 'owner', name='uq_app_settings_scope_owner'),
-    )
-
-    def get_data(self):
-        try:
-            return json.loads(self.data) if self.data else {}
-        except Exception:
-            return {}
-
-    def set_data(self, value):
-        self.data = json.dumps(value or {}, ensure_ascii=False)
-
-    def to_dict(self):
-        return {
-            'scope': self.scope,
-            'owner': self.owner,
-            'data': self.get_data(),
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }
+# 说明：原 AppSetting（app_settings 表，整块 JSON blob）已下线，
+# 设置统一由 UserState 存储（分 global / user 两层），历史数据由
+# migrate_app_settings_to_user_state() 迁入，校验通过后才删除旧表。
 
 
 class UserState(db.Model):
@@ -1098,6 +1067,69 @@ class UserState(db.Model):
             'v': self.v,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+def migrate_app_settings_to_user_state():
+    """把 app_settings 的历史数据迁入统一状态表 user_state。
+
+    AppSetting 是「整块 JSON blob」的旧设置存储，现已统一收敛到 UserState
+    （分层 global<user<device + 按键粒度）。这里用裸 SQL 读取旧表，
+    因此可以在迁移的同时直接下线该模型。
+
+    安全性：只有确认每一条旧数据在 user_state 中都有对应行之后，才会 DROP
+    旧表；任何一步异常都保留旧表，绝不丢数据。
+    """
+    from sqlalchemy import text
+
+    try:
+        rows = db.session.execute(
+            text('SELECT scope, owner, data FROM app_settings')).fetchall()
+    except Exception:
+        return 0   # 旧表不存在（全新部署或已完成迁移），无需处理
+
+    rows = [(r[0], r[1], r[2]) for r in rows]
+    migrated = 0
+    for scope, owner, data in rows:
+        try:
+            value = json.loads(data) if data else {}
+        except Exception:
+            value = {}
+        sc = (scope or 'user').strip()
+        if sc not in ('global', 'user'):
+            sc = 'user'
+        own = '' if sc == 'global' else (owner or '')
+        row = UserState.query.filter_by(ns='core', scope=sc, owner=own,
+                                        device_id='', key='settings').first()
+        if row is None:
+            db.session.add(UserState(ns='core', scope=sc, owner=own, device_id='',
+                                     key='settings',
+                                     value=json.dumps(value, ensure_ascii=False),
+                                     strategy='lww', v=1, rev=1))
+            migrated += 1
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return 0
+
+    # 逐条校验：全部就位才删旧表
+    all_ok = True
+    for scope, owner, _data in rows:
+        sc = (scope or 'user').strip()
+        if sc not in ('global', 'user'):
+            sc = 'user'
+        own = '' if sc == 'global' else (owner or '')
+        if UserState.query.filter_by(ns='core', scope=sc, owner=own,
+                                     device_id='', key='settings').first() is None:
+            all_ok = False
+            break
+    if all_ok and rows:
+        try:
+            db.session.execute(text('DROP TABLE app_settings'))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return migrated
 
 
 class Playlist(db.Model):
