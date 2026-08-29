@@ -206,15 +206,22 @@ function injectStylesOnce() {
   height: auto;
   max-width: calc(100vw - 32px);
 }
-/* 窄屏：仍右对齐（与桌面形态一致），但收窄幅度收敛——
-   左侧留出约一指宽的可点区域（单手点窗外收起），
-   不再满屏铺开（窗外几乎没处可点），也不至于留出过大空白 */
+/* 窄屏：改为水平居中、左右等距的悬浮卡片（与桌面「小窗」语义一致，但更克制）。
+   - 左右边距对称（不再贴右、也不再左空一大片），视觉比例规整；
+   - 高度封顶，明显是「浮在页面上的小窗」而非贴边的细长条；
+   - 窗外整片透明遮罩可点（含顶部导航区与底部留白），单手点窗外任意处即可收起，
+     因此等距边距不会削弱单手可点性。 */
 @media (max-width: 600px) {
   #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
-    right: 16px;
-    left: auto;
-    width: min(440px, calc(100vw - 64px));
-    max-width: calc(100vw - 64px);
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    top: calc(var(--nav-height, 60px) + 16px);
+    bottom: auto;
+    width: min(440px, calc(100vw - 36px));
+    max-width: 100%;
+    height: calc(100dvh - var(--nav-height, 60px) - 80px);
+    max-height: calc(100dvh - var(--nav-height, 60px) - 80px);
   }
 }
 /* 全屏：铺满视口，层级高于导航与浮层 */
