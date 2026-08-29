@@ -20,7 +20,11 @@ export interface ScriptUI {
   entry?: string
   needs_credential?: boolean
   sandbox?: string
-  /** 独立全屏路由路径（如 "/codebuddy"），由框架动态注册；不声明则无独立页。 */
+  /**
+   * 独立全屏路由路径，形如 "/ext/<id>"。
+   * 由框架（后端 list_extensions）从插件 id（= 扩展文件夹名）推导，
+   * manifest 不声明该字段；只要声明了 ui.entry 就会自动获得全屏页。
+   */
   standalone_route?: string
   /** 忙碌态/未读轮询接口（相对路径），声明后悬浮气泡入口会周期轮询该接口。 */
   busy_poll?: string
@@ -95,25 +99,6 @@ export interface ScriptJob {
   logs: JobLog[]
 }
 
-/**
- * 插件独立全屏路由的命名空间（由后端框架强制）。
- *
- * 插件只在 manifest 的 ui.standalone_route 里声明自己的一段路径（如 "/codebuddy"），
- * 后端 list_extensions 统一加上 /ext 前缀后才是最终 URL（/ext/codebuddy）。
- * 这样插件无法直接占用根路径，也就不会与核心路由（/admin、/video 等）冲突。
- * 前端此处仅作幂等兜底，权威逻辑在后端。
- */
-export const EXT_ROUTE_NS = '/ext'
-
-/** 规范化独立路由：补前导斜杠并加上 /ext 命名空间（幂等，重复调用无副作用）。 */
-export function normalizeStandaloneRoute(path?: string): string {
-  let s = String(path || '').trim()
-  if (!s) return ''
-  if (!s.startsWith('/')) s = '/' + s
-  if (s === EXT_ROUTE_NS || s.startsWith(EXT_ROUTE_NS + '/')) return s
-  return EXT_ROUTE_NS + s
-}
-
 export const scriptApi = {
   // 脚本管理（管理员）
   listScripts: (all = true) =>
@@ -141,8 +126,8 @@ export const scriptApi = {
     api.put(`/api/admin/scripts/${id}/settings`, { values }),
 
   // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本。
-  // standalone_route 的 /ext 命名空间由后端统一强制（extensions_host 的
-  // list_extensions 负责规范化与默认推导），前端不做二次加工，避免两处逻辑漂移。
+  // standalone_route 由后端从插件 id（= 文件夹名）推导为 /ext/<id>，
+  // 前端原样使用，不做任何加工。
   listExtensions: () => api.get('/api/ui-extensions'),
   getPanel: (id: string) => api.get(`/api/ui-panel/${id}`),
 }

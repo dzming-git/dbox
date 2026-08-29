@@ -205,24 +205,23 @@ const router = createRouter({
 
 export { routes }
 
-// 插件独立全屏路由：由各插件在 manifest 的 ui.standalone_route 声明（如 "/codebuddy"）。
-// 框架不硬编码任何插件路径——启动后拉取 ui-extensions，凡声明了 standalone_route 且
-// 已启用的插件，都在其路径上挂载 ExtensionStandalone 全屏页（按插件 id 注入）。
-// 实际 URL 由框架统一加上 /ext 命名空间（见 api/script.ts 的 normalizeStandaloneRoute），
-// 插件只声明自己的一段路径，无法占用根路径与核心路由冲突。
+// 插件独立全屏路由：一律为 /ext/<id>，由后端从插件 id（= 扩展文件夹名）推导，
+// manifest 不声明任何 URL——文件夹名的唯一性即保证路由唯一，且插件无法占用
+// 根路径与核心路由冲突。启动后拉取 ui-extensions，凡返回了 standalone_route
+// 的插件，都在其路径上挂载 ExtensionStandalone 全屏页（按插件 id 注入）。
+// 框架不硬编码任何插件路径。
 // 若某插件目录被删除，这里自然不会注册其路由，实现「删掉即无、框架零入侵」。
 // 可重入：注册成功后置位，避免重复拉取/注册
 let extRoutesReady = false
 export async function ensureExtensionRoutes() {
   if (extRoutesReady) return
   try {
-    const mod: any = await import('../api/script')
-    const res: any = await mod.scriptApi.listExtensions()
+    const res: any = await (await import('../api/script')).scriptApi.listExtensions()
     if (!res?.success) return
     for (const ext of res.extensions || []) {
-      // 再次规范化（幂等）：即使将来有调用方绕过 listExtensions 也能保证带上 /ext 命名空间
-      const route = mod.normalizeStandaloneRoute(ext?.ui?.standalone_route)
-      if (!route) continue
+      // 路由由后端从插件 id（= 文件夹名）推导为 /ext/<id>，前端直接注册
+      const route = ext?.ui?.standalone_route
+      if (!route || typeof route !== 'string') continue
       const name = 'ext-' + ext.id
       // 避免重复注册
       if (router.hasRoute(name)) continue
