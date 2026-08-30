@@ -186,6 +186,11 @@ class _StateProxy:
         return default if v is None else v
 
     def put(self, key, value, strategy=None, v=1, cap=None, scope='user'):
+        """写入（合并）单个键。
+
+        union_by_id 的记录约定为 { id, order, ...载荷 }（见 state_merge），
+        字段映射由各入口边界完成，故此处只透传 value/strategy/cap 等通用参数。
+        """
         body = {'value': value, 'scope': scope}
         if strategy:
             body['strategy'] = strategy
@@ -202,6 +207,19 @@ class _StateProxy:
     def list(self):
         r = self._json('GET', self._url(''))
         return r.get('data') or {}
+
+    def pull(self):
+        """只读拉取服务端全量快照（不推送任何本地改动）。
+
+        与 sync() 的区别：sync 会把待推送的键一并提交；当后端只想「读」
+        服务端权威状态（例如把其它设备拉到的内容并入本次响应）时，用 pull
+        语义更清晰，也不会产生意外的写入。
+        """
+        r = self._json('GET', self._url(''))
+        if not r.get('success'):
+            return {}
+        data = r.get('data') or {}
+        return {k: (v or {}).get('value') for k, v in data.items()}
 
     def sync(self, puts=None, deletes=None):
         """一次往返完成多键推送 + 全量拉取，减少移动端往返。"""

@@ -13,14 +13,20 @@
 """
 from datetime import datetime
 
-# 列表合并时用于识别同一条目的候选 id 字段（按序优先命中）
-DEFAULT_ID_KEYS = ('id', 'tweet_id', 'gid', 'hash', 'url', 'path')
-DEFAULT_ORDER_KEY = 'created_at'
+# 列表合并封顶条数
 DEFAULT_CAP = 400
 
+# union_by_id 的规范记录契约：每条记录必须是 dict，且带
+#   id    : 字符串，去重主键（不同设备/来源的同一条目用同一个 id）
+#   order : 可排序值（数字或 ISO 时间串），用于「同 id 取较新一份」与整体倒序
+# 任意其它字段都是载荷，合并层不关心其含义——因此通用状态层彻底与插件
+# 的字段命名解耦（不会再有 tweet_id / illustId / create_date 这类名字
+# 泄漏进核心）。字段映射（domain -> {id, order}）由各入口边界负责。
 
-def _sortable_ts(value, order_key=DEFAULT_ORDER_KEY):
-    """把条目/标量的时间字段转成可比较数值；无法解析时返回负无穷。"""
+
+
+def _sortable_ts(value):
+    """把可排序值（数字或 ISO 时间串）转成可比较数值；无法解析时返回负无穷。"""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     if isinstance(value, str):
@@ -39,19 +45,7 @@ def _sortable_ts(value, order_key=DEFAULT_ORDER_KEY):
         except ValueError:
             return float('-inf')
         return dt.timestamp()
-    if isinstance(value, dict):
-        return _sortable_ts(value.get(order_key), order_key)
     return float('-inf')
-
-
-def _item_id(item, id_keys):
-    if not isinstance(item, dict):
-        return None
-    for k in id_keys:
-        v = item.get(k)
-        if v not in (None, ''):
-            return str(v)
-    return None
 
 
 def merge_lww(old, new, **_kw):
@@ -69,10 +63,13 @@ def merge_max(old, new, **_kw):
     return old, False
 
 
-def merge_union_by_id(old, new, cap=DEFAULT_CAP, id_keys=None,
-                      order_key=DEFAULT_ORDER_KEY, **_kw):
-    """列表并集：按 id 去重（同 id 保留较新的一份），按时间倒序后封顶。"""
-    keys = tuple(id_keys) if id_keys else DEFAULT_ID_KEYS
+def merge_union_by_id(old, new, cap=DEFAULT_CAP, **_kw):
+    """列表并集：按 id 去重（同 id 保留 order 较新的一份），按 order 倒序后封顶。
+
+    记录约定为 { id: str, order: 可排序值(数字/ISO时间), ...任意载荷 }。
+    合并层只看 id / order，不关心载荷里是什么字段——这样通用状态层与
+    各插件的字段命名完全解耦（瀑布流缓存、历史、最近使用都复用同一逻辑）。
+    """
     merged, order = {}, []
 
     for lst in (old, new):
@@ -81,21 +78,22 @@ def merge_union_by_id(old, new, cap=DEFAULT_CAP, id_keys=None,
         for item in lst:
             if not isinstance(item, dict):
                 continue
-            iid = _item_id(item, keys)
-            if iid is None:
+            iid = item.get('id')
+            if iid in (None, ''):
                 # 无 id 的条目无法去重，原样保留（放在末尾）
                 order.append((None, item))
                 continue
+            iid = str(iid)
             if iid in merged:
                 # 同 id 取较新的一份
-                if _sortable_ts(item, order_key) >= _sortable_ts(merged[iid], order_key):
+                if _sortable_ts(item.get('order')) >= _sortable_ts(merged[iid].get('order')):
                     merged[iid] = item
             else:
                 merged[iid] = item
                 order.append((iid, None))
 
     items = [anon if anon is not None else merged[iid] for iid, anon in order]
-    items.sort(key=lambda it: _sortable_ts(it, order_key), reverse=True)
+    items.sort(key=lambda it: _sortable_ts(it.get('order')), reverse=True)
     if isinstance(cap, int) and cap > 0:
         items = items[:cap]
     return items, True
