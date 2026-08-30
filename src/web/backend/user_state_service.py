@@ -77,11 +77,21 @@ def read_layer(ns, key, scope='user', owner='', device_id=''):
 
 
 def write_key(ns, key, value, scope='user', owner='', device_id='',
-              strategy=None, v=1, cap=None, base_rev=None):
-    """写入（合并）单个键。返回 {value, rev, v, strategy, changed}。
+              strategy=None, v=1, cap=None, base_rev=None,
+              lease_key=None, lease_rev=None):
+    """写入（合并）单个键。返回 {value, rev, v, strategy, changed, conflict, stale}。
 
     base_rev 提供乐观并发：传入且不等于当前 rev 时拒绝写入，避免
     客户端基于过期快照覆盖他人改动。
+
+    lease_key / lease_rev 提供**主控栅栏（fencing）**：写入前校验调用方持有的
+    租约版本号是否仍是最新。租约由 acquire（对该键的一次 lww 写入）单调递增 rev，
+    若服务端 rev 已更大（说明主控权被其它设备抢占），则拒绝本次写入并返回
+    stale=True——避免过期设备把陈旧状态回写、覆盖主控设备刚同步的较新状态。
+    未传 lease_key 时完全不校验，旧客户端与无需门控的键行为不变。
+
+    union_by_id 的记录约定为 { id, order, ...载荷 }（见 state_merge），
+    字段映射由各入口边界完成，故此处不再接收任何插件字段名。
     """
     if scope not in VALID_SCOPES:
         scope = 'user'
@@ -106,6 +116,20 @@ def write_key(ns, key, value, scope='user', owner='', device_id='',
         # 乐观并发冲突：返回当前服务端值，不写入
         return {'value': old_value, 'rev': row.rev, 'v': row.v,
                 'strategy': strat, 'changed': False, 'conflict': True}
+
+    # 主控栅栏：租约键不存在（无人持有主控权）或调用方版本落后于服务端 → 拒绝写入。
+    # 与 base_rev 的区别：base_rev 由调用方自己重读即可绕过，租约则必须由服务端
+    # 签发（acquire）才能抬高，因此能真正挡住「过期设备持续回写」。
+    if lease_key:
+        lease_row = _row(ns, 'user', owner, '', str(lease_key))
+        try:
+            got_rev = int(lease_rev)
+        except (TypeError, ValueError):
+            got_rev = -1
+        if lease_row is None or got_rev < (lease_row.rev or 0):
+            return {'value': old_value, 'rev': row.rev, 'v': row.v,
+                    'strategy': strat, 'changed': False, 'conflict': False,
+                    'stale': True}
 
     kw = {}
     if strat == 'union_by_id':

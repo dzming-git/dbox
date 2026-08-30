@@ -68,7 +68,10 @@ def put_state(ns, key):
 
     body: { value: 任意 JSON, strategy?: 'lww'|'max'|'union_by_id',
             v?: 数据 schema 版本, scope?: 'user'|'device'|'global',
-            cap?: union_by_id 封顶条数, base_rev?: 乐观并发基线 }
+            cap?: union_by_id 封顶条数, base_rev?: 乐观并发基线,
+            lease_key?: 主控租约键, lease_rev?: 调用方持有的租约版本（落后则拒绝并返回 stale） }
+    注意：union_by_id 的记录约定为 { id, order, ...载荷 }（见 state_merge），
+    字段映射由入口边界完成，body 不再接收任何插件字段名。
     """
     user_id, err = _require_user()
     if err:
@@ -94,6 +97,7 @@ def _do_put(ns, key, body, uid, dev, scope):
         strategy=(body.get('strategy') or '').strip() or None,
         v=body.get('v') if isinstance(body.get('v'), int) else 1,
         cap=body.get('cap'), base_rev=body.get('base_rev'),
+        lease_key=body.get('lease_key'), lease_rev=body.get('lease_rev'),
     )
     return jsonify({'success': True, 'key': key, **result})
 
@@ -113,7 +117,8 @@ def remove_state(ns, key):
 def sync_state(ns):
     """批量同步：一次往返完成「拉取全量 + 推送多键」，减少移动端往返开销。
 
-    body: { put?: { key: { value, strategy?, v?, cap? } }, delete?: [key] }
+    body: { put?: { key: { value, strategy?, v?, cap? } },
+            delete?: [key] }
     返回: 合并后的完整状态快照。
     """
     user_id, err = _require_user()
@@ -135,6 +140,7 @@ def sync_state(ns):
             strategy=(payload.get('strategy') or '').strip() or None,
             v=payload.get('v') if isinstance(payload.get('v'), int) else 1,
             cap=payload.get('cap'), base_rev=payload.get('base_rev'),
+            lease_key=payload.get('lease_key'), lease_rev=payload.get('lease_rev'),
         )
     for key in (body.get('delete') or []):
         delete_key(ns=ns, key=str(key), scope='user', owner=uid, device_id=dev)
