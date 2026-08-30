@@ -264,6 +264,42 @@ function injectStylesOnce() {
   white-space: nowrap;
 }
 #${ROOT_ID} .dbox-ext-panel-btn:hover { color: #4f8cff; border-color: #4f8cff; }
+/* 面板状态灯：通用原语，默认隐藏，由扩展 postMessage { type:'DBOX_LIGHT' } 驱动。
+   框架只负责渲染与点击回传，灯的含义（主控中 / 已让出 / 同步中）完全由扩展决定。 */
+#${ROOT_ID} .dbox-ext-panel-light {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #e3e6eb;
+  background: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: default;
+  color: #555;
+  white-space: nowrap;
+  flex: none;
+}
+#${ROOT_ID} .dbox-ext-panel-light::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c9ced6;
+  flex: none;
+}
+#${ROOT_ID} .dbox-ext-panel-light[data-state="ok"]::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, .18);
+}
+#${ROOT_ID} .dbox-ext-panel-light[data-state="warn"]::before {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, .18);
+}
+#${ROOT_ID} .dbox-ext-panel-light[data-state="idle"]::before { background: #c9ced6; }
+#${ROOT_ID} .dbox-ext-panel-light[data-clickable="1"] { cursor: pointer; }
+#${ROOT_ID} .dbox-ext-panel-light[data-clickable="1"]:hover { color: #4f8cff; border-color: #4f8cff; }
 #${ROOT_ID} .dbox-ext-panel-frame {
   flex: 1;
   min-height: 0;
@@ -374,7 +410,20 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
     }
   })
 
+  // 面板状态灯（通用原语）：默认隐藏，由扩展 postMessage { type:'DBOX_LIGHT' } 驱动。
+  // 框架只管渲染与点击回传，不掺任何插件语义。
+  const lightBtn = document.createElement('button')
+  lightBtn.className = 'dbox-ext-panel-light'
+  lightBtn.type = 'button'
+  lightBtn.dataset.state = 'idle'
+  lightBtn.dataset.clickable = '0'
+  lightBtn.addEventListener('click', () => {
+    if (lightBtn.dataset.clickable !== '1') return
+    post(entry, { type: 'DBOX_LIGHT_CLICK' })
+  })
+
   head.appendChild(titleEl)
+  head.appendChild(lightBtn)
   head.appendChild(fsBtn)
   head.appendChild(minBtn)
 
@@ -488,6 +537,31 @@ export function onPanelMessage(handler: MessageHandler): () => void {
   return () => handlers.delete(handler)
 }
 
+/** 面板状态灯：由扩展 postMessage { type:'DBOX_LIGHT', state, text?, title?, clickable? } 驱动。
+ *  state: 'ok' 绿 / 'warn' 橙 / 'idle' 灰 / 'off' 隐藏。clickable 时点击向面板回传 DBOX_LIGHT_CLICK。
+ *  语义完全归扩展（如「主控中 / 已让出」），框架只提供位置与交互外壳。 */
+function applyPanelLight(extId: string, data: any): void {
+  const entry = panels.get(extId)
+  if (!entry) return
+  const el = entry.wrap.querySelector('.dbox-ext-panel-light') as HTMLButtonElement | null
+  if (!el) return
+  const st = String(data.state || '')
+  if (!st || st === 'off') { el.style.display = 'none'; return }
+  el.style.display = 'flex'
+  el.dataset.state = st
+  el.textContent = data.text ? String(data.text) : ''
+  el.title = data.title ? String(data.title) : ''
+  el.dataset.clickable = data.clickable ? '1' : '0'
+}
+
+/** 供宿主侧直接设置状态灯；扩展一般用 postMessage DBOX_LIGHT 即可。 */
+export function setPanelLight(
+  extId: string,
+  light: { state: string; text?: string; title?: string; clickable?: boolean },
+): void {
+  applyPanelLight(extId, light)
+}
+
 function startListening() {
   if (listening) return
   listening = true
@@ -506,6 +580,8 @@ function startListening() {
       }
     }
     if (!extId) return
+    // 面板状态灯：框架只负责渲染与点击回传，语义由扩展决定
+    if (data.type === 'DBOX_LIGHT') applyPanelLight(extId, data)
     const hs = Array.from(handlers)
     for (let i = 0; i < hs.length; i++) {
       try { hs[i](data as PanelMessage, extId) } catch (err) { /* 单个处理失败不影响其他 */ }
