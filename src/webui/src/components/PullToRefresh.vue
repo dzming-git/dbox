@@ -6,6 +6,7 @@ const { state, trigger } = usePullToRefresh()
 
 const pulling = ref(false)
 const startY = ref(0)
+const contentEl = ref<HTMLElement>()
 
 // 顶部指示器文案与图标状态
 const indicatorClass = computed(() => ({
@@ -27,18 +28,32 @@ const arrowStyle = computed(() => ({
 // 注意：transform / will-change 会创建 containing block，导致内部所有
 // position: fixed 弹层（删除确认、lightbox、视频模态等）不再相对视口定位，
 // 而是相对本容器——表现为「弹窗出现在帖子中央、需滚动才能看到」。
-// 因此仅在「下拉中 / 刷新中」施加 transform，idle 常态下完全清除，
+// 因此仅在「下拉中 / 刷新中 / 回弹中」施加 transform，idle 稳态后完全清除，
 // 让 fixed 弹层恢复相对视口定位。
 const contentStyle = computed(() => {
   if (state.phase === 'pull') {
     return { transform: `translateY(${state.distance}px)`, transition: 'none', willChange: 'transform' }
   }
   if (state.phase === 'refreshing') {
-    return { transform: 'translateY(44px)', transition: 'transform 0.3s ease', willChange: 'transform' }
+    // 用 PTR_THRESHOLD(64) 而非硬编码 44，与 trigger() 赋值一致，
+    // 避免 pull→refreshing 时从大距离突变到 44 的突兀跳动感。
+    // ease-out 让到位后尽快稳住，减少"弹回未完就清空列表"的视觉错位。
+    return { transform: `translateY(${PTR_THRESHOLD}px)`, transition: 'transform 0.25s ease-out', willChange: 'transform' }
   }
-  // idle：不施加任何 transform / will-change，避免捕获内部 fixed 弹层
-  return { transform: 'none' }
+  // idle：用 translateY(0) + 过渡平滑回弹（而非直接 none 瞬间归位），
+  // 与指示器 fade-out(0.2s) 时间轴协同，避免内容已弹回但
+  // "释放刷新"/"刷新中…"文字仍在可见区造成重叠。
+  // 过渡结束后由 transitionend 回调将 style 重置为 none（彻底释放 containing block）。
+  return { transform: 'translateY(0)', transition: 'transform 0.2s ease-in', willChange: 'transform' }
 })
+
+// idle 回弹过渡结束后，清除 inline style 彻底释放 containing block，
+// 避免 fixed 弹层（删除确认、lightbox 等）持续被捕获在本容器内。
+function onContentTransitionEnd(e: TransitionEvent) {
+  if (e.propertyName === 'transform' && state.phase === 'idle') {
+    contentEl.value?.removeAttribute('style')
+  }
+}
 
 function onTouchStart(e: TouchEvent) {
   if (!state.enabled) return
@@ -119,7 +134,7 @@ onUnmounted(() => {
       <span class="ptr-spinner" aria-hidden="true"></span>
       <span class="ptr-text">{{ indicatorText }}</span>
     </div>
-    <div class="ptr-content" :style="contentStyle">
+    <div ref="contentEl" class="ptr-content" :style="contentStyle" @transitionend="onContentTransitionEnd">
       <slot />
     </div>
   </div>
@@ -191,6 +206,6 @@ onUnmounted(() => {
 
 .ptr-content {
   /* 不在此常驻 will-change: transform——它会创建 containing block，
-     捕获内部 position: fixed 弹层。transform 仅在下拉/刷新时由 inline style 临时施加。 */
+     捕获内部 position: fixed 弹层。transform 仅在下拉/刷新/回弹时由 inline style 临时施加。 */
 }
 </style>
