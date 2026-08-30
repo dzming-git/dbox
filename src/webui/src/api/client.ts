@@ -77,10 +77,15 @@ async function clearAuthAndRedirect() {
   } catch {
     // ignore
   }
-  const currentPath = window.location.pathname + window.location.search
-  if (currentPath !== '/login') {
-    window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+  // 关键：判断是否已在登录页要用 pathname（忽略 query）。否则登录页上的启动请求
+  // （如 login_required 的 listExtensions）也会 401，再次被重定向到
+  // /login?redirect=<当前带 query 的地址>，redirect 参数会层层嵌套增长，形成
+  // 「/ 与 /login?redirect=… 整页互刷」的闪烁死循环，未登录时完全无法使用。
+  if (window.location.pathname === '/login') {
+    return
   }
+  const dest = window.location.pathname + window.location.search
+  window.location.href = `/login?redirect=${encodeURIComponent(dest)}`
 }
 
 // 响应拦截器
