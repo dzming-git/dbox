@@ -439,7 +439,8 @@ export function setPanelMode(extId: string, mode: PanelMode): void {
   else clearSentinel()
   // 切到小窗时同步导航高度（窗口 resize 后 nav-height 可能已变）
   if (mode === 'floating') syncNavHeight()
-  if (mode !== 'hidden') post(entry, { type: 'DBOX_MODE', fullscreen: mode === 'fullscreen' })
+  // 含 hidden：面板收起/最小化时也通知插件（如暂停内联视频，display:none 不会自动停媒体）
+  post(entry, { type: 'DBOX_MODE', fullscreen: mode === 'fullscreen', hidden: mode === 'hidden' })
 }
 
 /** 外部可在 window resize 时调用，同步最新导航栏高度 */
