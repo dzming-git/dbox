@@ -217,5 +217,316 @@
     });
   };
 
+  /* ---------------- 信息流续读（feed）----------------
+   * 把「服务端唯一真相源 + 换设备接着看」沉淀为框架能力，插件不必各写一遍。
+   *
+   * 约定键位（ns 仍按插件隔离）：
+   *   feed:<name>:items    union_by_id  内容缓存，服务端权威，多设备取并集
+   *   feed:<name>:anchor   lww          视口锚点（条目 id + 卡片内偏移）
+   *   feed:<name>:read_at  max          已读边界，只前进不被旧值回退
+   *   feed:<name>:cursor   max          分页游标，只前进
+   *
+   * 为什么锚点记「条目 id」而不是 scrollTop：
+   *   不同设备屏宽不同、卡片高度不同，像素偏移跨设备没有意义。记 id，恢复时
+   *   按 id 找到元素再算位置，才能做到换设备接着看。
+   *
+   * 为什么 anchor 默认在 user 层（跨设备共享）：
+   *   需求就是「换个设备打开，直接继续」。若插件希望各设备各看各的（如信息流
+   *   各自停在不同处），传 anchorScope:'device' 即可。
+   * ------------------------------------------------------------------ */
+
+  function _esc(s) {
+    if (global.CSS && global.CSS.escape) return global.CSS.escape(String(s));
+    return String(s).replace(/["\\]/g, '\\$&');
+  }
+
+  SDK.feed = function (name, opts) {
+    opts = opts || {};
+    var K = {
+      items: 'feed:' + name + ':items',
+      anchor: 'feed:' + name + ':anchor',
+      readAt: 'feed:' + name + ':read_at',
+      cursor: 'feed:' + name + ':cursor'
+    };
+    var idAttr = opts.idAttr || 'data-id';
+    var cap = opts.cap || 400;
+    var idKeys = opts.idKeys || null;
+    var orderKey = opts.orderKey || null;
+    var anchorScope = (opts.anchorScope === 'device') ? 'device' : 'user';
+    var throttle = opts.throttle || 200;
+    var container = opts.container || null;
+    var lease = opts.lease ? SDK.lease(name) : null;
+
+    var _saveTimer = null;
+    var _restoreTimers = [];
+    var _userScrolled = false;
+    var _restoring = false;
+    var _bound = false;
+
+    function cont() {
+      return container || opts.container;
+    }
+
+    /* ---- 锚点：捕获视口顶部第一个足够可见的条目 ---- */
+    function capture() {
+      var c = cont();
+      if (!c) return null;
+      var cr = c.getBoundingClientRect();
+      var nodes = c.querySelectorAll(opts.itemSelector || '[data-id]');
+      for (var i = 0; i < nodes.length; i++) {
+        var r = nodes[i].getBoundingClientRect();
+        if (r.bottom > cr.top + 4) {
+          var id = nodes[i].getAttribute(idAttr);
+          if (!id) continue;
+          return { id: String(id), offset: Math.max(0, r.top - cr.top), at: Date.now() };
+        }
+      }
+      return null;
+    }
+
+    function timeOfId(id) {
+      var c = cont();
+      // 优先用插件给的时间回调
+      if (typeof opts.timeOf === 'function') {
+        try { return opts.timeOf(id) || null; } catch (_) { return null; }
+      }
+      // 其次从 DOM 属性取
+      if (c && opts.timeAttr) {
+        var el = c.querySelector('[' + idAttr + '="' + _esc(id) + '"]');
+        if (el) {
+          var t = el.getAttribute(opts.timeAttr);
+          if (t) return t;
+        }
+      }
+      return null;
+    }
+
+    // 取条目的排序时间戳（规范字段 order），用于 merge 同 id 取较新一份
+    function _tsOf(it) {
+      if (!it || typeof it !== 'object') return 0;
+      var v = it.order;
+      if (v == null) return 0;
+      var t = Date.parse(v);
+      return isNaN(t) ? 0 : t;
+    }
+
+    // 把插件领域对象映射成 union_by_id 的规范记录 { id, order, ...领域字段 }。
+    // 字段映射只在入口边界做一次，服务端合并层完全不关心插件字段名。
+    function _norm(it) {
+      var o = {};
+      for (var p in it) {
+        if (Object.prototype.hasOwnProperty.call(it, p)) o[p] = it[p];
+      }
+      var rawId = idKeys ? null : it.id;
+      if (idKeys) {
+        for (var k = 0; k < idKeys.length; k++) {
+          var v = it[idKeys[k]];
+          if (v !== undefined && v !== null && v !== '') { rawId = v; break; }
+        }
+      }
+      o.id = String(rawId != null ? rawId : '');
+      o.order = orderKey ? it[orderKey] : undefined;
+      return o;
+    }
+
+    function saveAnchor() {
+      var a = capture();
+      if (!a) return null;
+      // 主控门控：开启 lease 后只有主控设备才推精确锚点，非主控设备只留本地，
+      // 避免多设备同时滚动时锚点交替覆盖（抖动）。read_at 是单调 max，仍照常推进。
+      if (!lease || lease.mine()) {
+        SDK.set(K.anchor, a, { strategy: 'lww', scope: anchorScope });
+      }
+      // 已读边界用时间而非 id：max 策略只前进，另一台设备往回看也不会拉低
+      var t = timeOfId(a.id);
+      if (t) SDK.set(K.readAt, t, { strategy: 'max' });
+      if (typeof opts.onAnchor === 'function') {
+        try { opts.onAnchor(a); } catch (_) {}
+      }
+      return a;
+    }
+
+    function scheduleSave() {
+      if (_saveTimer) return;
+      _saveTimer = global.setTimeout(function () {
+        _saveTimer = null;
+        saveAnchor();
+      }, throttle);
+    }
+
+    /* ---- 锚点：恢复位置 ---- */
+    function restoreOnce(a) {
+      var c = cont();
+      if (!c || !a || !a.id) return false;
+      var el = c.querySelector('[' + idAttr + '="' + _esc(a.id) + '"]');
+      if (!el) return false;
+      var r = el.getBoundingClientRect();
+      var cr = c.getBoundingClientRect();
+      var abs = r.top - cr.top + c.scrollTop;
+      c.scrollTop = Math.max(0, abs - (a.offset || 0));
+      return true;
+    }
+
+    // 图片等异步资源加载完成后会顶开布局，首次定位常被冲掉，故做几次补偿定位；
+    // 用户一旦自己滚动就立刻让位，绝不抢用户的操作。
+    function restore(anchor) {
+      var a = anchor || SDK.get(K.anchor);
+      if (!a) return false;
+      _userScrolled = false;
+      _restoring = true;   // 抑制恢复期间（含程序化 scrollTop 触发的）scroll 事件
+      _restoreTimers.forEach(global.clearTimeout);
+      _restoreTimers = [];
+      var ok = restoreOnce(a);
+      [60, 200, 500, 1000].forEach(function (d) {
+        _restoreTimers.push(global.setTimeout(function () {
+          if (_userScrolled) return;
+          restoreOnce(a);
+        }, d));
+      });
+      // 补偿窗口结束后才重新接受滚动（用户可自由操作）
+      _restoreTimers.push(global.setTimeout(function () { _restoring = false; }, 1300));
+      return ok;
+    }
+
+    function onScroll() {
+      if (_restoring) return;   // 程序化定位引发的滚动事件不能算作「用户滚动」
+      _userScrolled = true;
+      scheduleSave();
+    }
+
+    var api = {
+      keys: K,
+
+      /* ---- 内容缓存（服务端权威） ---- */
+      items: function () {
+        var v = SDK.get(K.items);
+        return Array.isArray(v) ? v : [];
+      },
+
+      // 合并新内容：入口处把领域对象规范成 {id, order, ...载荷}（见 _norm），
+      // 本地按 id 去重、同 id 用 order 取较新一份，再写回服务端（union_by_id
+      // 在服务端再并一次）。本地语义对齐服务端，避免本地渲染与权威值分叉。
+      // 注意：规范记录直接携带领域字段，渲染时读领域字段即可，无需拆包。
+      merge: function (list, prepend) {
+        if (!Array.isArray(list) || !list.length) return this.items();
+        var cur = this.items();                 // 已是规范记录
+        var seen = {}, pos = {}, out = [];
+        var incoming = list.map(_norm);
+        var src = prepend ? incoming.concat(cur) : cur.concat(incoming);
+        for (var i = 0; i < src.length; i++) {
+          var it = src[i];
+          if (!it || !it.id) { if (it) out.push(it); continue; }
+          var id = String(it.id);
+          if (!seen[id]) {
+            seen[id] = true;
+            pos[id] = out.length;
+            out.push(it);
+          } else if (_tsOf(it) > _tsOf(out[pos[id]])) {
+            out[pos[id]] = it;   // order 较新，覆盖
+          }
+        }
+        if (out.length > cap) out = out.slice(0, cap);
+        SDK.set(K.items, out, { strategy: 'union_by_id', cap: cap });
+        return out;
+      },
+
+      /* ---- 锚点 ---- */
+      capture: capture,
+      anchor: function () { return SDK.get(K.anchor); },
+      saveAnchor: saveAnchor,
+      restore: restore,
+      clearAnchor: function () { SDK.remove(K.anchor); },
+
+      /* ---- 已读边界 ---- */
+      readAt: function () { return SDK.get(K.readAt); },
+      markRead: function (t) {
+        if (!t) return;
+        SDK.set(K.readAt, t, { strategy: 'max' });
+      },
+      isRead: function (t) {
+        var b = this.readAt();
+        if (!b || !t) return false;
+        var bt = Date.parse(b), tt = Date.parse(t);
+        if (isNaN(bt) || isNaN(tt)) return false;
+        return tt <= bt;
+      },
+
+      /* ---- 分页游标 ---- */
+      cursor: function () { return SDK.get(K.cursor); },
+      setCursor: function (c) {
+        if (!c) return;
+        SDK.set(K.cursor, c, { strategy: 'max' });
+      },
+
+      /* ---- 主控租约（opts.lease 启用时有效） ---- */
+      lease: lease,
+      isMaster: function () { return lease ? lease.mine() : true; },
+      takeOver: function () { if (lease) lease.acquire(); return api; },
+
+      /* ---- 生命周期 ---- */
+      bind: function () {
+        var c = cont();
+        if (!c || _bound) return api;
+        _bound = true;
+        c.addEventListener('scroll', onScroll, { passive: true });
+        return api;
+      },
+      destroy: function () {
+        var c = cont();
+        if (c && _bound) c.removeEventListener('scroll', onScroll);
+        _bound = false;
+        if (_saveTimer) { global.clearTimeout(_saveTimer); _saveTimer = null; }
+        _restoreTimers.forEach(global.clearTimeout);
+        _restoreTimers = [];
+        return api;
+      }
+    };
+
+    if (opts.autoBind !== false) api.bind();
+    return api;
+  };
+
+  /* ---------------- 主控租约（lease）----------------
+   * 解决多设备同时滚动导致的「位置抖动 / 陈旧写回」：
+   *   两台设备都在滚时，朴素 lww 按到达顺序决胜会让锚点来回跳；更常见的是
+   *   一台空闲设备把陈旧位置推回、覆盖掉当前正在看的那台的进度。
+   *
+   * 做法：租约是 UserState 里的一个普通键（lww），值 { deviceId, at }。
+   *   - acquire() 抢占主控权（写入并立即推送，不等防抖）；
+   *   - owner()/mine() 判断当前主控是不是本设备；
+   *   - 插件据此门控「精确位置」类写入：非主控只写本地、不推服务端。
+   *
+   * 约定（重要）：acquire 必须绑在「刻意使用」的时机——打开/刷新视图、面板重新显示、
+   * 点击接管。**绝不能绑在 scroll 上**，否则两台设备交替抢占，抖动依旧。
+   *
+   * 当前是客户端门控：服务端仍会接受过期设备的写（单人阅读场景已足够，且零风险）。
+   * 若要服务端硬栅栏，可在 user_state 写接口加 lease_rev 校验（rev 本就单调递增）。
+   * ------------------------------------------------------------------ */
+
+  SDK.lease = function (name) {
+    var K = 'feed:' + name + ':lease';
+    var api = {
+      key: K,
+      acquire: function () {
+        SDK.set(K, { deviceId: SDK.deviceId(), at: Date.now() }, { strategy: 'lww' });
+        SDK.push();   // 抢占要尽快生效，不等防抖
+        return api;
+      },
+      owner: function () {
+        var v = SDK.get(K);
+        return (v && v.deviceId) || null;
+      },
+      mine: function () {
+        var o = api.owner();
+        return !!o && o === SDK.deviceId();
+      },
+      // 与服务端对账后再判断（用于「面板重新显示 / 被别的设备接管」时刷新指示灯）
+      refresh: function () {
+        return SDK.pull().then(function () { return api.mine(); });
+      }
+    };
+    return api;
+  };
+
   global.DBoxState = SDK;
 })(window);
