@@ -104,6 +104,12 @@
     return (it && it.value !== undefined) ? it.value : def;
   };
 
+  // 取某键当前已知的服务端版本号（rev）：主控栅栏用它作为写入时携带的 lease_rev。
+  SDK.rev = function (key) {
+    var it = SDK._cache[key];
+    return it ? (it.rev || 0) : 0;
+  };
+
   SDK.all = function () {
     var out = {};
     for (var k in SDK._cache) {
@@ -111,6 +117,27 @@
     }
     return out;
   };
+
+  /* ---------------- 主控栅栏反馈 ----------------
+   * 写入若携带了租约（leaseKey/leaseRev），服务端会在「主控权已被抢占」时拒绝该次写入
+   * 并在返回里标 stale。这里把它转成回调，供上层（如刷新「已让出」指示灯）响应。
+   * ------------------------------------------------------------------ */
+  var _staleHandlers = [];
+  SDK.onStale = function (cb) {
+    if (typeof cb === 'function') _staleHandlers.push(cb);
+    return SDK;
+  };
+  function _fireStale(pushed) {
+    if (!pushed) return;
+    for (var k in pushed) {
+      if (!Object.prototype.hasOwnProperty.call(pushed, k)) continue;
+      var r = pushed[k] || {};
+      if (!r.stale) continue;
+      for (var i = 0; i < _staleHandlers.length; i++) {
+        try { _staleHandlers[i](k, r); } catch (_) {}
+      }
+    }
+  }
 
   /* ---------------- 写（本地落 + 脏键排队） ---------------- */
 
@@ -125,6 +152,11 @@
       cap: opts.cap,
       v: opts.v || 1
     };
+    // 主控栅栏：携带租约键与版本号，服务端据此拒绝「主控权已被抢占」的过期写入
+    if (opts.leaseKey) {
+      SDK._pending[key].lease_key = opts.leaseKey;
+      SDK._pending[key].lease_rev = opts.leaseRev;
+    }
     _schedule();
     return value;
   };
@@ -155,6 +187,7 @@
     if (!has) return Promise.resolve(null);
     return SDK._send('POST', '/sync', { put: put, delete: del }, false).then(function (d) {
       _applyServerData(d && d.data);
+      _fireStale(d && d.pushed);
       return d;
     }).catch(function () { return null; });   // 失败静默，退化为本地
   };
@@ -256,6 +289,12 @@
     var throttle = opts.throttle || 200;
     var container = opts.container || null;
     var lease = opts.lease ? SDK.lease(name) : null;
+    // 硬栅栏反馈：锚点写入因主控权被抢占而被服务端拒绝 → 通知调用方（如刷新指示灯）
+    if (lease && typeof opts.onStale === 'function') {
+      SDK.onStale(function (k) {
+        if (k === K.anchor) { try { opts.onStale(); } catch (_) {} }
+      });
+    }
 
     var _saveTimer = null;
     var _restoreTimers = [];
@@ -335,7 +374,13 @@
       // 主控门控：开启 lease 后只有主控设备才推精确锚点，非主控设备只留本地，
       // 避免多设备同时滚动时锚点交替覆盖（抖动）。read_at 是单调 max，仍照常推进。
       if (!lease || lease.mine()) {
-        SDK.set(K.anchor, a, { strategy: 'lww', scope: anchorScope });
+        var anchorOpts = { strategy: 'lww', scope: anchorScope };
+        if (lease) {
+          // 携带租约版本：主控权若已被其它设备抢占，服务端会拒绝这次写入（返回 stale）
+          anchorOpts.leaseKey = lease.key;
+          anchorOpts.leaseRev = SDK.rev(lease.key);
+        }
+        SDK.set(K.anchor, a, anchorOpts);
       }
       // 已读边界用时间而非 id：max 策略只前进，另一台设备往回看也不会拉低
       var t = timeOfId(a.id);
@@ -461,7 +506,11 @@
       /* ---- 主控租约（opts.lease 启用时有效） ---- */
       lease: lease,
       isMaster: function () { return lease ? lease.mine() : true; },
-      takeOver: function () { if (lease) lease.acquire(); return api; },
+      takeOver: function () {
+        // 丢弃接管前遗留的锚点脏键：它反映本设备旧位置，不该在接管瞬间回写服务端
+        if (lease) lease.acquire({ drop: [K.anchor] });
+        return api;
+      },
 
       /* ---- 生命周期 ---- */
       bind: function () {
@@ -499,6 +548,10 @@
    * 约定（重要）：acquire 必须绑在「刻意使用」的时机——打开/刷新视图、面板重新显示、
    * 点击接管。**绝不能绑在 scroll 上**，否则两台设备交替抢占，抖动依旧。
    *
+   * acquire 内含**强制对账（force sync）**：接管前必须先 pull 拉下服务端真相，再写租约推送。
+   * 否则本设备陈旧的本地快照（localStorage）会在随后 push 时把服务端较新的状态覆盖掉——
+   * 典型事故：用本设备旧浏览位置盖掉另一台设备刚同步的新位置。
+   *
    * 当前是客户端门控：服务端仍会接受过期设备的写（单人阅读场景已足够，且零风险）。
    * 若要服务端硬栅栏，可在 user_state 写接口加 lease_rev 校验（rev 本就单调递增）。
    * ------------------------------------------------------------------ */
@@ -507,10 +560,23 @@
     var K = 'feed:' + name + ':lease';
     var api = {
       key: K,
-      acquire: function () {
-        SDK.set(K, { deviceId: SDK.deviceId(), at: Date.now() }, { strategy: 'lww' });
-        SDK.push();   // 抢占要尽快生效，不等防抖
-        return api;
+      // 抢占主控权。返回 Promise<是否主控>。
+      // 关键：接管前先与服务端强制对账（pull），否则本设备陈旧的本地快照会在随后
+      // push 时覆盖服务端较新的值。顺序：乐观置位 → pull → 丢弃接管前遗留的受门控脏键
+      // （opts.drop，如锚点）→ 再写租约并立即推送。
+      acquire: function (opts) {
+        opts = opts || {};
+        var dev = SDK.deviceId();
+        // 乐观置位：主控标记立刻在本地生效，指示灯等 UI 可同步读取，不必等网络
+        SDK.set(K, { deviceId: dev, at: Date.now() }, { strategy: 'lww' });
+        return SDK.pull().then(function () {
+          // 丢弃接管前遗留的待推送脏键：它们反映本设备旧状态，不该在接管瞬间回写服务端
+          var drop = opts.drop || [];
+          for (var i = 0; i < drop.length; i++) delete SDK._pending[drop[i]];
+          SDK.set(K, { deviceId: dev, at: Date.now() }, { strategy: 'lww' });
+          return SDK.push();   // 抢占尽快生效，不等防抖
+        }).then(function () { return api.mine(); })
+          .catch(function () { return api.mine(); });   // 失败静默降级，同 SDK 一贯策略
       },
       owner: function () {
         var v = SDK.get(K);
