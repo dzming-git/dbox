@@ -87,9 +87,21 @@ function pushRuntime() {
 function syncHash(hash: string, replace: boolean) {
   const h = hash.startsWith('#') ? hash : '#' + hash
   if (route.hash === h) return
-  const target = { path: route.path, query: route.query, hash: h }
-  if (replace) router.replace(target)
-  else router.push(target)
+  // 面板给的 hash 已由面板自己 encodeURIComponent 过（中文/空格等）。
+  // 若交给 router.replace({ hash })，Vue Router 的 encodeHash 会再套一层
+  // encodeURI，把 % 变成 %25 → 双重编码；刷新后面板只解一层，拿到的就是
+  // 编码串本身，于是「拿编码后的文字再搜一次」，搜索结果随之改变。
+  // 传完整路径字符串可绕过该编码：Vue Router 解析字符串时对 # 之后直接
+  // slice、不再编码，从而保证 hash 字节级原样落到地址栏。
+  const q = route.query || {}
+  const qs = Object.keys(q).length
+    ? '?' + Object.keys(q)
+        .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String((q as any)[k]))}`)
+        .join('&')
+    : ''
+  const loc = route.path + qs + h
+  if (replace) router.replace(loc)
+  else router.push(loc)
 }
 
 function handleMsg(data: any, id: string) {
