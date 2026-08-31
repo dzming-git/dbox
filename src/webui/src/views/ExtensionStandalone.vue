@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { withExtRuntime } from '../utils/extRuntime'
@@ -68,9 +68,28 @@ function pushRuntime() {
   const fresh = readToken()
   if (fresh) postToPanel(extId, { type: 'DBOX_TOKEN', token: fresh })
   postToPanel(extId, { type: 'DBOX_MODE', fullscreen: true })
+  // 始终带上 hash 与 query：面板据此知道自己被「深链」到哪个子页面
+  // （如 /ext/x#/search?q=foo），并据此把内部路由初始化到同一位置。
+  postToPanel(extId, { type: 'DBOX_ROUTE', hash: route.hash || '' })
   if (route.query && Object.keys(route.query).length) {
     postToPanel(extId, { type: 'DBOX_ROUTE', query: { ...route.query } })
   }
+}
+
+/**
+ * 把面板的内部路由同步到宿主 URL 的 hash（如 /ext/x#/search?q=foo）。
+ *
+ * 面板是常驻 iframe（srcdoc 或 /api/ui-panel），其内部 location 不可分享、
+ * 刷新也丢失，因此「面板内的页面」必须由宿主 URL 承载，用户才能复制/收藏/刷新。
+ * 这里只改 hash：同一 path 下 Vue Router 不会重建组件，面板实例与状态都不动。
+ * replace=true 用于「同一页面的视图切换」（切 tab 等），避免历史栈被刷屏。
+ */
+function syncHash(hash: string, replace: boolean) {
+  const h = hash.startsWith('#') ? hash : '#' + hash
+  if (route.hash === h) return
+  const target = { path: route.path, query: route.query, hash: h }
+  if (replace) router.replace(target)
+  else router.push(target)
 }
 
 function handleMsg(data: any, id: string) {
@@ -84,7 +103,18 @@ function handleMsg(data: any, id: string) {
       router.push(data.path)
     }
   }
+  // 面板内部路由变化 → 同步到宿主 URL（可被复制/刷新/前进后退）
+  if (data.type === 'DBOX_URL_SYNC' && typeof data.hash === 'string') {
+    syncHash(data.hash, !!data.replace)
+  }
 }
+
+// 宿主 URL 变化（用户点浏览器前进/后退、或地址栏直接改 hash）→ 回推给面板，
+// 让面板内部路由跟着走。面板比对自身 hash 后会忽略与自己发出的重复事件。
+watch(() => route.hash, (h) => {
+  if (!getPanelIframe(extId)) return
+  postToPanel(extId, { type: 'DBOX_ROUTE', hash: h || '' })
+})
 
 function goBack() {
   // 全屏页左上角：回到进入全屏页之前的页面（优先 history back，无历史则回首页）。
