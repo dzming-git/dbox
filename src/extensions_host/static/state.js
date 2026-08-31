@@ -412,6 +412,32 @@
       return true;
     }
 
+    function _clearRestoreTimers() {
+      _restoreTimers.forEach(global.clearTimeout);
+      _restoreTimers = [];
+    }
+    // 供插件主动取消尚未执行的补偿定位（如用户在别处交互后不该再被定位）
+    function cancelRestore() {
+      _clearRestoreTimers();
+      _restoring = false;
+    }
+    // 「用户接管」通道：真实输入设备事件。
+    // 仅靠 scroll 判断「用户是否自己滚动」是不成立的——restore() 会把 _restoring
+    // 抑制窗口开到 1300ms，而 onScroll 在抑制期内直接 return，于是用户在这 1.3s
+    // 内的真实滚动完全不被记录，4 次补偿定位（60/200/500/1000ms）照常把人拽回锚点，
+    // 表现为「刷新后立刻滑动，位置被连续自动拖回去好几次」。
+    // 输入事件不受抑制窗口影响：一旦发生即让位并取消后续补偿。
+    var _INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'];
+    var _SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End',
+                        ' ', 'Spacebar'];
+    function onUserInput(e) {
+      if (!_restoring) return;
+      if (e && e.type === 'keydown' && _SCROLL_KEYS.indexOf(e.key) < 0) return;
+      _clearRestoreTimers();
+      _restoring = false;
+      _userScrolled = true;
+    }
+
     // 图片等异步资源加载完成后会顶开布局，首次定位常被冲掉，故做几次补偿定位；
     // 用户一旦自己滚动就立刻让位，绝不抢用户的操作。
     function restore(anchor) {
@@ -419,8 +445,7 @@
       if (!a) return false;
       _userScrolled = false;
       _restoring = true;   // 抑制恢复期间（含程序化 scrollTop 触发的）scroll 事件
-      _restoreTimers.forEach(global.clearTimeout);
-      _restoreTimers = [];
+      _clearRestoreTimers();
       var ok = restoreOnce(a);
       [60, 200, 500, 1000].forEach(function (d) {
         _restoreTimers.push(global.setTimeout(function () {
@@ -480,6 +505,8 @@
       anchor: function () { return SDK.get(K.anchor); },
       saveAnchor: saveAnchor,
       restore: restore,
+      // 取消尚未执行的补偿定位（用户已接管 / 插件主动放弃定位）
+      cancelRestore: cancelRestore,
       clearAnchor: function () { SDK.remove(K.anchor); },
 
       /* ---- 已读边界 ---- */
@@ -518,15 +545,25 @@
         if (!c || _bound) return api;
         _bound = true;
         c.addEventListener('scroll', onScroll, { passive: true });
+        // 真实输入通道：补偿窗口内 scroll 会被抑制（见 onScroll），需独立感知用户接管
+        _INPUT_EVENTS.forEach(function (t) {
+          c.addEventListener(t, onUserInput, { passive: true });
+        });
+        global.document.addEventListener('keydown', onUserInput, { passive: true });
         return api;
       },
       destroy: function () {
         var c = cont();
-        if (c && _bound) c.removeEventListener('scroll', onScroll);
+        if (c && _bound) {
+          c.removeEventListener('scroll', onScroll);
+          _INPUT_EVENTS.forEach(function (t) {
+            c.removeEventListener(t, onUserInput);
+          });
+        }
+        global.document.removeEventListener('keydown', onUserInput);
         _bound = false;
         if (_saveTimer) { global.clearTimeout(_saveTimer); _saveTimer = null; }
-        _restoreTimers.forEach(global.clearTimeout);
-        _restoreTimers = [];
+        _clearRestoreTimers();
         return api;
       }
     };
