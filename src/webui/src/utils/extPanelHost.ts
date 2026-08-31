@@ -243,6 +243,7 @@ function injectStylesOnce() {
   background: #fff;
   border-bottom: 1px solid #eef0f4;
   flex-shrink: 0;
+  pointer-events: auto;
 }
 #${ROOT_ID} .dbox-ext-panel-title {
   flex: 1;
@@ -262,6 +263,7 @@ function injectStylesOnce() {
   padding: 4px 10px;
   cursor: pointer;
   white-space: nowrap;
+  pointer-events: auto;
 }
 #${ROOT_ID} .dbox-ext-panel-btn:hover { color: #4f8cff; border-color: #4f8cff; }
 /* 面板状态灯：通用原语，默认隐藏，由扩展 postMessage { type:'DBOX_LIGHT' } 驱动。
@@ -383,6 +385,7 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
       window.dispatchEvent(new CustomEvent('dbox-ext-exit-fullscreen', {
         detail: { extId, mode: 'floating' },
       }))
+      forceExitFullscreen(extId)
     } else {
       // 只切路由；iframe 不动，由全屏路由页把形态切成 fullscreen
       window.dispatchEvent(new CustomEvent('dbox-ext-request-fullscreen', {
@@ -401,7 +404,9 @@ function buildPanel(extId: string, opts: PanelOptions): PanelEntry {
       // 全屏态的「收起」需离开独立全屏路由页，回到进入前的页面；
       // 若只隐藏面板，全屏路由页（ExtensionStandalone）本身近乎空白，
       // 会留下「白屏」且无法返回上一页。由该路由页监听后执行 router.back。
+      // 同时挂框架级兜底，防止路由异常时面板卡死（按钮点了无响应）。
       window.dispatchEvent(new CustomEvent('dbox-ext-exit-fullscreen', { detail: { extId } }))
+      forceExitFullscreen(extId)
     } else {
       // 收起小窗：先立即隐藏（即时反馈），再通知宿主清理 openId，
       // 否则 body 的 ext-no-scroll（overflow:hidden）会残留，导致首页无法上下滑动。
@@ -490,6 +495,23 @@ export function setPanelMode(extId: string, mode: PanelMode): void {
   if (mode === 'floating') syncNavHeight()
   // 含 hidden：面板收起/最小化时也通知插件（如暂停内联视频，display:none 不会自动停媒体）
   post(entry, { type: 'DBOX_MODE', fullscreen: mode === 'fullscreen', hidden: mode === 'hidden' })
+}
+
+/**
+ * 全屏态退出兜底：正常路径由 ExtensionStandalone 监听 dbox-ext-exit-fullscreen 后
+ * router.back() 离开全屏路由页。但若因历史/哨兵状态错乱导致 router.back 没真正导航
+ * （面板仍卡在全屏、按钮点了“无响应”），这里强制回退，保证面板一定能切出全屏。
+ */
+function forceExitFullscreen(extId: string) {
+  setTimeout(() => {
+    const e = panels.get(extId)
+    if (!e || e.mode !== 'fullscreen') return
+    try { window.history.back() } catch (_) { /* ignore */ }
+    setTimeout(() => {
+      const e2 = panels.get(extId)
+      if (e2 && e2.mode === 'fullscreen') window.location.href = '/'
+    }, 350)
+  }, 600)
 }
 
 /** 外部可在 window resize 时调用，同步最新导航栏高度 */
