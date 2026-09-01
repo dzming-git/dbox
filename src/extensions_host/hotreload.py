@@ -195,14 +195,11 @@ def start_hotreload(app, scripts_getter):
                         state['busy_until'] = 0.0
                         state['_logged'] = False
                     else:
-                        # 忙碌：设置等待超时（若未设置）
-                        if state['busy_until'] == 0.0:
-                            state['busy_until'] = time.time() + _BUSY_TIMEOUT
-                        if time.time() > state['busy_until']:
-                            logger.warning('等待插件空闲超时，放弃本次热重载')
-                            state['pending'] = 0.0
-                            state['busy_until'] = 0.0
-                        # 否则继续轮询等待，pending 保持，下个周期再试
+                        # 忙碌：持续等待，绝不强行重启——避免打断正在跑的生成任务 /
+                        # SSE 流（曾导致「任务执行到一半就断掉」）。等插件空闲后下个
+                        # 周期再触发重载即可；不设置超时放弃，防止长任务被强杀。
+                        logger.info('插件 %s 忙碌，继续等待其空闲后再热重载', busy_key)
+                        # 保持 pending，下个周期再尝试（不重置、不放弃）
             except Exception:
                 logger.exception('热重载监控线程异常')
                 time.sleep(_POLL_INTERVAL)
