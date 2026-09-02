@@ -9,7 +9,9 @@
   html, body { margin: 0; height: 100%; background: #0e1116; color: #e6e9ef;
     font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
   body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  #app { display: flex; flex-direction: column; height: 100%; }
+  #app { display: flex; flex-direction: column; height: 100%;
+    /* 键盘/候选栏避让的位移做短过渡：任何必要的微调变成平滑滑入，杜绝突跳式「二次上移」观感 */
+    transition: transform .12s ease, height .12s ease; }
 
   /* ---- 工具条 ---- */
   .bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px;
@@ -517,17 +519,38 @@
   var dbgEl = document.getElementById('dbg');
   var fullH = window.innerHeight;          // 键盘收起时全高，用于算真·键盘高（ih 与 vh 弹起后恒等，不能用 ih−vh）
   var kbLifted = false;
-  var kbLiftH = 0;                          // 锁定后的上移量，整个聚焦期间恒定；打字候候选栏引起的 visH 微缩不再触发二次上移
-  var kbLocked = false;
-  var kbAnchorT = 0;
+  // 两个跨周期记忆值（持久化到 localStorage，硬刷新/重开仍有效）：
+  //   kbK       ：键盘本体高（候选栏未现时），= 键盘周期内见到的最小遮挡（候选栏只增不减）
+  //   kbMaxEver ：键盘+候选栏的历史最大遮挡（候选栏出现时会变大）
+  // 上移量 = max(当前遮挡, kbMaxEver)；两者都还没学过时，用「键盘高 + 候选栏估计」预抬，避免首轮打字二次上移。
+  // 关键：候选栏高度无法在它出现前得知，故首轮用估计值预抬；真正出现后学会 kbMaxEver，之后每次开键盘直接预抬到含候选栏 → 打字零位移。
+  var kbK = 0, kbMaxEver = 0;
+  function loadKb() {
+    try {
+      var a = parseInt(localStorage.getItem('remote_kbK') || '0', 10); if (a > 0) kbK = a;
+      var b = parseInt(localStorage.getItem('remote_kbMaxEver') || '0', 10); if (b > 0) kbMaxEver = b;
+    } catch (e) { try {                    // 同源 iframe 下 parent.localStorage 等同，作兜底
+      var pa = parseInt(window.parent.localStorage.getItem('remote_kbK') || '0', 10); if (pa > 0) kbK = pa;
+      var pb = parseInt(window.parent.localStorage.getItem('remote_kbMaxEver') || '0', 10); if (pb > 0) kbMaxEver = pb;
+    } catch (e2) {} }
+  }
+  function saveKb() { try {
+    localStorage.setItem('remote_kbK', String(kbK));
+    localStorage.setItem('remote_kbMaxEver', String(kbMaxEver));
+  } catch (e) { try {
+    window.parent.localStorage.setItem('remote_kbK', String(kbK));
+    window.parent.localStorage.setItem('remote_kbMaxEver', String(kbMaxEver));
+  } catch (e2) {} } }
+  loadKb();
+  var kbEvt = '';
   function dbg() {
     if (!dbgEl) return;
     var vv = window.visualViewport, r = app.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
     var visH = vv ? vv.height : window.innerHeight;
-    var kbH = kbLifted ? kbLiftH : Math.max(0, fullH - visH);
+    var kbH = kbLifted ? Math.max(kbMaxEver, fullH - visH) : Math.max(0, fullH - visH);
     dbgEl.textContent =
       'ih=' + window.innerHeight + '\nvh=' + Math.round(visH) + '\nkbH=' + Math.round(kbH) +
-      '\nlifted=' + kbLifted + '\nlocked=' + kbLocked +
+      '\nkbK=' + Math.round(kbK) + '\nmaxEver=' + Math.round(kbMaxEver) + '\nlifted=' + kbLifted + '\nevt=' + kbEvt +
       '\nappH=' + Math.round(r.height) + '\nappTop=' + Math.round(r.top) + '\nappBottom=' + Math.round(r.bottom) +
       '\nviewST=' + Math.round(view.scrollTop) +
       '\ncanvasTop=' + Math.round(cr.top) + '\nfit=' + fitMode + ' focus=' + (document.activeElement === kb);
@@ -544,22 +567,22 @@
     }
     dbg();
   }
-  function applyKbDrop() { app.style.height = ''; app.style.transform = ''; kbLifted = false; kbLiftH = 0; kbLocked = false; dbg(); }
-  // 仅依据可视视口高度判定键盘弹起/收起，不依赖 blur（收起键盘时焦点常残留，会导致窗口卡在上方不复位）
+  function applyKbDrop() { app.style.height = ''; app.style.transform = ''; kbLifted = false; dbg(); }
+  // 仅依据可视视口高度判定键盘弹起/收起，不依赖 blur（收起键盘时焦点常残留，会导致窗口卡在上方不复位）。
   function syncKb() {
     var vv = window.visualViewport;
     var visH = vv ? vv.height : window.innerHeight;
     var kbH = fullH - visH;
     if (kbH > 20) {                         // 键盘弹起
-      if (!kbLifted) {                      // 首次弹起：开启 400ms 锁定窗口，期间取最大上移量（捕获候选栏早期出现）
-        kbLifted = true; kbLocked = false; kbLiftH = kbH;
-        clearTimeout(kbAnchorT);
-        kbAnchorT = setTimeout(function () { kbLocked = true; applyKbLift(kbLiftH); }, 400);
-      }
-      if (!kbLocked) kbLiftH = Math.max(kbLiftH, kbH);   // 锁定前只增不减；锁定后恒定，打字不再二次上移
-      applyKbLift(kbLiftH);
+      if (kbH > kbMaxEver) { kbMaxEver = kbH; saveKb(); }
+      if (kbK <= 0 || kbH < kbK) { kbK = kbK <= 0 ? kbH : Math.min(kbK, kbH); saveKb(); }  // 记录键盘本体高（取最小）
+      var est = Math.max(36, Math.min(120, Math.round((kbK || kbH) * 0.12)));
+      var lift = Math.max(kbH, kbMaxEver, (kbK || kbH) + est);   // 始终含「键盘高+候选栏估计」预抬量 → 单调不回落、打字零位移
+      applyKbLift(lift);
+      kbLifted = true;
+      kbEvt = 'up h=' + Math.round(kbH) + ' lift=' + Math.round(lift);
     } else {                                // 键盘收起
-      if (kbLifted) { clearTimeout(kbAnchorT); applyKbDrop(); }
+      if (kbLifted) { applyKbDrop(); kbEvt = 'drop'; }
     }
   }
   window.addEventListener('resize', function () {

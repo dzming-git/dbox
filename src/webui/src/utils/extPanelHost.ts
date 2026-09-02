@@ -170,7 +170,13 @@ function injectStylesOnce() {
    （body.ext-panel-open .nav = 9003）与应用启动器（.ext-launcher = 9004）。
    低于遮罩会导致「点击面板内输入框即收起」；低于导航栏/启动器则面板标题栏
    （含全屏、收起按钮）被压在后面点不到。 */
-#${ROOT_ID} { position: fixed; inset: 0; pointer-events: none; z-index: 9100; }
+/* 容器尺寸必须用「不随软键盘收缩」的视口单位（lvh/vh），不能用 inset:0 / dvh。
+   原因：resize 模式下软键盘会把布局视口一起收缩，若容器锚定到会收缩的视口
+   （inset:0 等价于 bottom:0 锚定收缩后的布局视口、dvh 也随键盘收缩），
+   面板浮窗会在键盘弹起、候选栏出现时两次被顶高（即「二次上移」）。
+   改用 lvh（大视口，不含键盘/地址栏）= 稳定全高，浮窗不再跳动；
+   键盘遮挡由面板内部 visualViewport 避让逻辑处理（panel.html 内 #app 位移）。 */
+#${ROOT_ID} { position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100lvh; pointer-events: none; z-index: 9100; }
 #${ROOT_ID} .dbox-ext-panel {
   position: absolute;
   display: flex;
@@ -196,14 +202,17 @@ function injectStylesOnce() {
 #${ROOT_ID} .dbox-ext-panel[data-mode="hidden"] {
   display: none;
 }
-/* 小窗：贴导航栏下方展开（与导航栏入口位置呼应），高度由 top/bottom 自适应。
-   刻意不与导航栏区域重叠：既避免遮挡导航，也避免标题栏按钮被导航压住。 */
+/* 小窗：贴导航栏下方展开（与导航栏入口位置呼应）。
+   高度用 lvh/vh（不随键盘收缩），并去掉 bottom 锚定——否则 resize 模式下
+   软键盘收缩布局视口时，浮窗底部会随视口被顶高（二次上移）。
+   键盘遮挡由面板内部 visualViewport 避让处理，浮窗本身保持稳定不动。 */
 #${ROOT_ID} .dbox-ext-panel[data-mode="floating"] {
   right: 16px;
   top: calc(var(--nav-height, 60px) + 8px);
-  bottom: 16px;
+  bottom: auto;
   width: 420px;
-  height: auto;
+  height: calc(100vh - var(--nav-height, 60px) - 24px);
+  height: calc(100lvh - var(--nav-height, 60px) - 24px);
   max-width: calc(100vw - 32px);
 }
 /* 窄屏：改为水平居中、左右等距的悬浮卡片（与桌面「小窗」语义一致，但更克制）。
@@ -220,8 +229,10 @@ function injectStylesOnce() {
     bottom: auto;
     width: min(440px, calc(100vw - 36px));
     max-width: 100%;
-    height: calc(100dvh - var(--nav-height, 60px) - 80px);
-    max-height: calc(100dvh - var(--nav-height, 60px) - 80px);
+    height: calc(100vh - var(--nav-height, 60px) - 80px);
+    height: calc(100lvh - var(--nav-height, 60px) - 80px);
+    max-height: calc(100vh - var(--nav-height, 60px) - 80px);
+    max-height: calc(100lvh - var(--nav-height, 60px) - 80px);
   }
 }
 /* 全屏：铺满视口，层级高于导航与浮层 */
