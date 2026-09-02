@@ -407,7 +407,6 @@
   canvas.addEventListener('mousedown', function (e) {
     if (touchActive) return;
     e.preventDefault();
-    if (document.activeElement === kb) kb.blur();   // 点屏幕＝关键盘（桌面端无影响，移动端防输入法回弹）
     var p = toScreen(e.clientX, e.clientY);
     if (!p) return;
     if (e.button === 1) { startPan(e); return; }   // 中键：本地平移，不发给远程
@@ -633,10 +632,6 @@
     e.preventDefault();
     clearTimeout(touchEndTimer);
     touchActive = true;
-    // 点屏幕＝鼠标操作：立即让 #kb 真正失焦。否则手机上点系统「收起键盘」只是隐藏输入法、
-    // 输入框仍 focused，再点屏幕（touchstart 的 preventDefault 又阻止了浏览器默认的「点别处失焦」）
-    // 输入法就会重新弹起。显式 blur 才能彻底关掉。
-    if (document.activeElement === kb) kb.blur();
     if (e.touches.length >= 2) {                 // 进入双指：先收掉单指未完成的动作
       clearTimeout(lpTimer);
       if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
