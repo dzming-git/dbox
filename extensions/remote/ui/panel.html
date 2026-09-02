@@ -598,6 +598,7 @@
   var app = document.getElementById('app');
   var fullH = window.innerHeight;          // 键盘收起时全高，用于算真·键盘高（ih 与 vh 弹起后恒等，不能用 ih−vh）
   var kbLifted = false;
+  var kbDismissT = null;   // 系统「收起键盘」的延迟确认（见 syncKb 收起分支）
   // 两个跨周期记忆值（持久化到 localStorage，硬刷新/重开仍有效）：
   //   kbK       ：键盘本体高（候选栏未现时），= 键盘周期内见到的最小遮挡（候选栏只增不减）
   //   kbMaxEver ：键盘+候选栏的历史最大遮挡（候选栏出现时会变大）
@@ -645,6 +646,7 @@
     var visH = vv ? vv.height : window.innerHeight;
     var kbH = fullH - visH;
     if (kbH > 20) {                         // 键盘弹起
+      clearTimeout(kbDismissT);             // 键盘在台上：撤销待执行的失焦，避免打字中被误关
       if (kbH > kbMaxEver) { kbMaxEver = kbH; saveKb(); }
       if (kbK <= 0 || kbH < kbK) { kbK = kbK <= 0 ? kbH : Math.min(kbK, kbH); saveKb(); }  // 记录键盘本体高（取最小）
       var est = Math.max(36, Math.min(120, Math.round((kbK || kbH) * 0.12)));
@@ -653,7 +655,19 @@
       kbLifted = true;
       kbEvt = 'up h=' + Math.round(kbH) + ' lift=' + Math.round(lift);
     } else {                                // 键盘收起
-      if (kbLifted) { applyKbDrop(); kbEvt = 'drop'; }
+      if (kbLifted) {
+        applyKbDrop(); kbEvt = 'drop';
+        // 用户若点的是系统「收起键盘」，系统只隐藏输入法、#kb 仍 focused（不触发 blur）。
+        // 此时必须真正 blur：否则之后点屏幕，touchstart 的 preventDefault 挡掉了浏览器默认的
+        // 「点别处失焦」，输入法又会重新弹起。延迟确认收起态稳定后再 blur，避免误伤打字中的瞬时抖动。
+        clearTimeout(kbDismissT);
+        kbDismissT = setTimeout(function () {
+          if (document.activeElement !== kb) return;
+          var vv2 = window.visualViewport;
+          var visH2 = vv2 ? vv2.height : window.innerHeight;
+          if (fullH - visH2 <= 20) kb.blur();   // 仍是收起态 → 确认用户主动收起，彻底失焦
+        }, 250);
+      }
     }
   }
   window.addEventListener('resize', function () {
