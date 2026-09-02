@@ -184,39 +184,69 @@
   var screenW = 0, screenH = 0;      // 屏幕真实尺寸（用于坐标映射，取自 /status）
   var zoom = 1, fitMode = true;
 
-  // ---- 设置持久化：刷新/重开后记住用户对远程桌面的偏好（鼠标显示、分辨率、灰度、帧率、画质、静止、缩放模式）----
-  // 历史 bug（切档得到空 cfg）曾把 {"scale":null} 写进存档，导致刷新后分辨率恒为 0、画面永久模糊。
-  // 故 loadCfg 必须对每字段做合法性校验：越界/NaN/null/undefined 一律忽略、退回基准清晰值。
-  function isNum(v, lo, hi) { return typeof v === 'number' && isFinite(v) && v >= lo && v <= hi; }
-  function loadCfg() {
-    function apply(s) {
-      if (isNum(s.fps, 1, 30)) cfg.fps = s.fps;
-      if (isNum(s.q, 20, 95)) cfg.q = s.q;
-      if (isNum(s.scale, 30, 100)) cfg.scale = s.scale;   // 分辨率非法 → 退回 100（清晰）
-      if (typeof s.gray === 'boolean') cfg.gray = s.gray;
-      if (typeof s.still === 'boolean') cfg.still = s.still;
-      if (typeof s.cursor === 'boolean') cfg.cursor = s.cursor;
-    }
-    try { apply(JSON.parse(localStorage.getItem('remote_cfg') || '{}')); }
-    catch (e) { try { apply(JSON.parse(window.parent.localStorage.getItem('remote_cfg') || '{}')); } catch (e2) {} }
-    try { var pn = localStorage.getItem('remote_preset'); if (pn && BASE_PRESETS[pn]) presetName = pn; } catch (e) {}
-    try { var fm = localStorage.getItem('remote_fitMode'); if (fm === '0' || fm === '1') fitMode = (fm === '1'); } catch (e) {}
+  // ================= 参数 / 视图持久化（单键原子 JSON）=================
+  // 教训：旧实现只存 fitMode 不存 zoom 与滚动——刷新后 zoom 重置为 1，而 fitMode=false 时
+  // applyZoom 不再重算缩放，画面被放大到 100%，滚动又归零 → 甩到左上角。所以「缩放模式 + 缩放值 + 横纵滚动」必须一起存。
+  // 统一写进一个 JSON（remote_prefs）避免多键不一致；读取时逐字段校验，非法值丢弃回基准。
+  var PREF_KEY = 'remote_prefs';
+  var savedView = { sl: 0, st: 0 };      // 待还原的平移位置（画布尺寸就绪后才写入）
+  function numOr(v, lo, hi, dft) { return (typeof v === 'number' && isFinite(v) && v >= lo && v <= hi) ? v : dft; }
+  function boolOr(v, dft) { return (typeof v === 'boolean') ? v : dft; }
+
+  function readPrefs() {
+    var raw = null;
+    try { raw = localStorage.getItem(PREF_KEY); }
+    catch (e) { try { raw = window.parent.localStorage.getItem(PREF_KEY); } catch (e2) {} }
+    try {
+      var o = JSON.parse(raw || 'null');
+      if (o && o.cfg) {
+        cfg.fps   = numOr(o.cfg.fps, 1, 30, cfg.fps);
+        cfg.q     = numOr(o.cfg.q, 20, 95, cfg.q);
+        cfg.scale = numOr(o.cfg.scale, 30, 100, cfg.scale);   // 分辨率非法 → 退回 100（清晰）
+        cfg.gray   = boolOr(o.cfg.gray, cfg.gray);
+        cfg.still  = boolOr(o.cfg.still, cfg.still);
+        cfg.cursor = boolOr(o.cfg.cursor, cfg.cursor);
+      }
+      if (o && o.preset && BASE_PRESETS[o.preset]) presetName = o.preset;
+      if (o && o.view) {
+        fitMode = boolOr(o.view.fit, fitMode);
+        zoom    = numOr(o.view.zoom, 0.1, 4, zoom);           // 手动缩放值一并还原
+        savedView.sl = numOr(o.view.sl, 0, 1e6, 0);
+        savedView.st = numOr(o.view.st, 0, 1e6, 0);
+      }
+    } catch (e) {}
     $('btn-cursor').classList.toggle('on', !!cfg.cursor);   // 按钮初始态跟随已存设置
     $('preset').value = presetName;
   }
-  function saveCfg() {
-    var blob = JSON.stringify({ fps: cfg.fps, q: cfg.q, scale: cfg.scale, gray: cfg.gray, still: cfg.still, cursor: cfg.cursor });
-    try {
-      localStorage.setItem('remote_cfg', blob);
-      localStorage.setItem('remote_preset', presetName);
-      localStorage.setItem('remote_fitMode', fitMode ? '1' : '0');
-    } catch (e) { try {
-      window.parent.localStorage.setItem('remote_cfg', blob);
-      window.parent.localStorage.setItem('remote_preset', presetName);
-      window.parent.localStorage.setItem('remote_fitMode', fitMode ? '1' : '0');
-    } catch (e2) {} }
+  function writePrefs() {
+    var o = {
+      cfg: { fps: cfg.fps, q: cfg.q, scale: cfg.scale, gray: cfg.gray, still: cfg.still, cursor: cfg.cursor },
+      preset: presetName,
+      view: { fit: fitMode, zoom: zoom, sl: view ? view.scrollLeft : 0, st: view ? view.scrollTop : 0 },
+    };
+    var s = JSON.stringify(o);
+    try { localStorage.setItem(PREF_KEY, s); }
+    catch (e) { try { window.parent.localStorage.setItem(PREF_KEY, s); } catch (e2) {} }
   }
-  loadCfg();
+  var prefT = null;
+  function savePrefsSoon() { clearTimeout(prefT); prefT = setTimeout(writePrefs, 200); }   // 捏合/滚动等高频变更防抖落盘
+  readPrefs();
+  // 清理旧版多键存档（remote_cfg / remote_preset / remote_fitMode），避免残留干扰
+  ['remote_cfg', 'remote_preset', 'remote_fitMode'].forEach(function (k) {
+    try { localStorage.removeItem(k); } catch (e) { try { window.parent.localStorage.removeItem(k); } catch (e2) {} }
+  });
+
+  // 画布尺寸就绪（screenW 已知且 applyZoom 已铺好画布）后还原平移位置，只做一次。
+  var viewRestored = false;
+  function restoreView() {
+    if (viewRestored || !screenW) return;
+    viewRestored = true;
+    if (fitMode) return;                                  // 适应模式内容自适应，无需平移
+    var maxL = Math.max(0, view.scrollWidth - view.clientWidth);
+    var maxT = Math.max(0, view.scrollHeight - view.clientHeight);
+    view.scrollLeft = Math.min(savedView.sl, maxL);
+    view.scrollTop = Math.min(savedView.st, maxT);
+  }
   var online = false, autostart = false;
   var retry = 0, retryTimer = null, pollTimer = null;
 
@@ -387,6 +417,7 @@
     // 内容左缘在 vr.left+EDGE_PAD 处，算滚动量必须把这个偏移补回来（否则锚点偏一个边距）。
     view.scrollLeft = vr.left + EDGE_PAD - ax + cx * z;
     view.scrollTop = vr.top + EDGE_PAD - ay + cy * z;
+    savePrefsSoon();      // 缩放值与平移位置一并落盘（防抖：捏合高频变更不卡顿）
   }
   $('zoom-in').addEventListener('click', function () { setZoom(zoom * 1.25, false); });
   $('zoom-out').addEventListener('click', function () { setZoom(zoom / 1.25, false); });
@@ -394,9 +425,10 @@
     b.addEventListener('click', function () {
       if (b.dataset.fit === '1') { fitMode = true; applyZoom(); }
       else { fitMode = false; setZoom(1, false); }
-      saveCfg();
+      writePrefs();
     });
   });
+  view.addEventListener('scroll', savePrefsSoon);   // 平移落盘（防抖），刷新后仍停在同一位置
   $('btn-fs').addEventListener('click', function () {
     if (document.fullscreenElement) document.exitFullscreen();
     else if (view.requestFullscreen) view.requestFullscreen();
@@ -546,7 +578,7 @@
     this.classList.toggle('on', cfg.cursor);
     lastStreamKey = '';          // 强制重建流
     startStream();
-    saveCfg();
+    writePrefs();
   });
   // 按钮高亮跟随真实焦点，避免手动 toggle 与系统收起失同步（之前要按两次才正常）
   function syncKbBtn() { $('btn-kb').classList.toggle('on', document.activeElement === kb); }
@@ -797,15 +829,15 @@
   $('a-fps').addEventListener('input', function () { $('v-fps').textContent = this.value; });
   $('a-q').addEventListener('input', function () { $('v-q').textContent = this.value; });
   $('a-scale').addEventListener('input', function () { $('v-scale').textContent = this.value + '%'; });
-  $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); saveCfg(); });
+  $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); writePrefs(); });
   $('btn-reset').addEventListener('click', function () {
     cfg = Object.assign({}, PRESETS[presetName] || BASE_PRESETS[presetName] || BASE_PRESETS.balanced);
-    fillAdv(); startStream(); updateMeta(); saveCfg();
+    fillAdv(); startStream(); updateMeta(); writePrefs();
   });
   $('preset').addEventListener('change', function () {
     presetName = this.value;
     cfg = Object.assign({}, PRESETS[presetName] || BASE_PRESETS[presetName] || BASE_PRESETS.balanced);
-    fillAdv(); lastStreamKey = ''; startStream(); updateMeta(); saveCfg();   // 强制重建流，确保切档立刻生效
+    fillAdv(); lastStreamKey = ''; startStream(); updateMeta(); writePrefs();   // 强制重建流，确保切档立刻生效
   });
 
   function updateMeta() {
@@ -901,6 +933,7 @@
         if (changed || key !== lastStreamKey) {
           lastStreamKey = key;
           applyZoom();
+          restoreView();      // 画布尺寸就绪后还原上次平移位置（避免刷新甩到左上角）
           startStream();
         }
         updateMeta();
