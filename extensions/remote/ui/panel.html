@@ -646,7 +646,9 @@
     if (!p) return;
     touch = { sx: t.clientX, sy: t.clientY, lcx: t.clientX, lcy: t.clientY, p: p, last: p, pressT: Date.now(), moved: false, down: false, rightFired: false, pan: false };
     suppressUp = false;
-    send({ type: 'mouse_move', x: p.x, y: p.y });   // 立即把远端光标移到手指下，保证「跟手」
+    // 注意：单指落点**不**发 mouse_move 瞬移远端光标。否则滑动/平移手势起始的那一下
+    // 会把远端光标瞬移到手指处、松手后残留——表现为「鼠标跟着跑、停在我滑动的位置」。
+    // 真正点击(tap)时由 mouse_click 自带 mouse_move 定位即可；平移/滚轮手势全程不碰远端光标。
     clearTimeout(lpTimer);
     lpTimer = setTimeout(function () {           // 长时间长按＝右键
       if (!touch || touch.moved || touch.down) return;
