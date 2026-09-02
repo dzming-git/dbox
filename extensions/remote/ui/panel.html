@@ -187,6 +187,12 @@
 
   var view = $('view');
   var canvas = $('screen');
+  // 画面四周留黑边缓冲：远端屏幕边缘不与手机屏幕边缘贴合，方便点击靠近屏幕边缘的元素。
+  // 取屏幕尺寸较小边的一定比例，夹在 [20,40] 之间，保证手机/桌面都留得舒服。
+  // 该值同时用于 fit 缩放计算（扣掉边距）与 .view 的实际 padding，务必同源。
+  var EDGE_PAD = Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.06);
+  EDGE_PAD = Math.max(20, Math.min(40, EDGE_PAD));
+  view.style.padding = EDGE_PAD + 'px';
   var ctx = canvas.getContext('2d');
   var ov = $('ov');
 
@@ -320,7 +326,8 @@
     if (!screenW) return;
     if (fitMode) {
       var r = view.getBoundingClientRect();
-      var s = Math.min(r.width / screenW, r.height / screenH);
+      // r 含 padding，扣掉四周 EDGE_PAD 得到可用内容区，否则画布会溢出边距贴到手机屏幕边缘
+      var s = Math.min((r.width - 2 * EDGE_PAD) / screenW, (r.height - 2 * EDGE_PAD) / screenH);
       zoom = Math.max(0.1, Math.min(s, 1));
     }
     canvas.style.width = Math.round(screenW * zoom) + 'px';
@@ -341,8 +348,10 @@
     zoom = z;
     applyZoom();
     // 让该内容坐标在缩放后仍停留在原客户端位置 (ax,ay)
-    view.scrollLeft = vr.left - ax + cx * z;
-    view.scrollTop = vr.top - ay + cy * z;
+    // 注意 +EDGE_PAD：content 盒相对 border-box 左/上偏移了一个 padding，scrollLeft=0 时
+    // 内容左缘在 vr.left+EDGE_PAD 处，算滚动量必须把这个偏移补回来（否则锚点偏一个边距）。
+    view.scrollLeft = vr.left + EDGE_PAD - ax + cx * z;
+    view.scrollTop = vr.top + EDGE_PAD - ay + cy * z;
   }
   $('zoom-in').addEventListener('click', function () { setZoom(zoom * 1.25, false); });
   $('zoom-out').addEventListener('click', function () { setZoom(zoom / 1.25, false); });
