@@ -404,6 +404,7 @@
     if (pending) { send({ type: 'mouse_move', x: pending.x, y: pending.y }); pending = null; }
   }, MOVE_MS * 2);
 
+  var downSent = false;   // 仅当在画布上真正按下左/右键，松手才发 mouse_up；点在画布外（如操作栏）不算
   canvas.addEventListener('mousedown', function (e) {
     if (touchActive) return;
     e.preventDefault();
@@ -412,11 +413,17 @@
     if (e.button === 1) { startPan(e); return; }   // 中键：本地平移，不发给远程
     spawnClickFx(e.clientX, e.clientY);             // 点击反馈动画（非中键）
     send({ type: 'mouse_down', x: p.x, y: p.y, button: btnName(e.button) });
+    downSent = true;
   });
   window.addEventListener('mouseup', function (e) {
-    if (touchActive) return;
+    if (touchActive || !downSent) return;
+    downSent = false;
     var p = toScreen(e.clientX, e.clientY);
-    if (p) send({ type: 'mouse_up', x: p.x, y: p.y, button: btnName(e.button) });
+    if (p) {
+      p.x = Math.max(0, Math.min(screenW, p.x));   // 拖出画布外松手：坐标贴边，不越界
+      p.y = Math.max(0, Math.min(screenH, p.y));
+      send({ type: 'mouse_up', x: p.x, y: p.y, button: btnName(e.button) });
+    }
   });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   canvas.addEventListener('wheel', function (e) {
