@@ -182,6 +182,34 @@
   var presetName = 'balanced';
   var screenW = 0, screenH = 0;      // 屏幕真实尺寸（用于坐标映射，取自 /status）
   var zoom = 1, fitMode = true;
+
+  // ---- 设置持久化：刷新/重开后记住用户对远程桌面的偏好（鼠标显示、分辨率、灰度、帧率、画质、静止、缩放模式）----
+  function loadCfg() {
+    try {
+      var s = JSON.parse(localStorage.getItem('remote_cfg') || '{}');
+      ['fps', 'q', 'scale', 'gray', 'still', 'cursor'].forEach(function (k) { if (s[k] !== undefined) cfg[k] = s[k]; });
+      var pn = localStorage.getItem('remote_preset'); if (pn) presetName = pn;
+      var fm = localStorage.getItem('remote_fitMode'); if (fm !== null) fitMode = (fm === '1');
+    } catch (e) { try {
+      var ps = JSON.parse(window.parent.localStorage.getItem('remote_cfg') || '{}');
+      ['fps', 'q', 'scale', 'gray', 'still', 'cursor'].forEach(function (k) { if (ps[k] !== undefined) cfg[k] = ps[k]; });
+    } catch (e2) {} }
+    $('btn-cursor').classList.toggle('on', !!cfg.cursor);   // 按钮初始态跟随已存设置
+    $('preset').value = presetName;
+  }
+  function saveCfg() {
+    var blob = JSON.stringify({ fps: cfg.fps, q: cfg.q, scale: cfg.scale, gray: cfg.gray, still: cfg.still, cursor: cfg.cursor });
+    try {
+      localStorage.setItem('remote_cfg', blob);
+      localStorage.setItem('remote_preset', presetName);
+      localStorage.setItem('remote_fitMode', fitMode ? '1' : '0');
+    } catch (e) { try {
+      window.parent.localStorage.setItem('remote_cfg', blob);
+      window.parent.localStorage.setItem('remote_preset', presetName);
+      window.parent.localStorage.setItem('remote_fitMode', fitMode ? '1' : '0');
+    } catch (e2) {} }
+  }
+  loadCfg();
   var online = false, autostart = false;
   var retry = 0, retryTimer = null, pollTimer = null;
 
@@ -359,6 +387,7 @@
     b.addEventListener('click', function () {
       if (b.dataset.fit === '1') { fitMode = true; applyZoom(); }
       else { fitMode = false; setZoom(1, false); }
+      saveCfg();
     });
   });
   $('btn-fs').addEventListener('click', function () {
@@ -510,6 +539,7 @@
     this.classList.toggle('on', cfg.cursor);
     lastStreamKey = '';          // 强制重建流
     startStream();
+    saveCfg();
   });
   // 按钮高亮跟随真实焦点，避免手动 toggle 与系统收起失同步（之前要按两次才正常）
   function syncKbBtn() { $('btn-kb').classList.toggle('on', document.activeElement === kb); }
@@ -760,15 +790,15 @@
   $('a-fps').addEventListener('input', function () { $('v-fps').textContent = this.value; });
   $('a-q').addEventListener('input', function () { $('v-q').textContent = this.value; });
   $('a-scale').addEventListener('input', function () { $('v-scale').textContent = this.value + '%'; });
-  $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); });
+  $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); saveCfg(); });
   $('btn-reset').addEventListener('click', function () {
     cfg = Object.assign({}, PRESETS[presetName] || PRESETS.balanced);
-    fillAdv(); startStream(); updateMeta();
+    fillAdv(); startStream(); updateMeta(); saveCfg();
   });
   $('preset').addEventListener('change', function () {
     presetName = this.value;
     cfg = Object.assign({}, PRESETS[presetName] || PRESETS.balanced);
-    fillAdv(); startStream(); updateMeta();
+    fillAdv(); startStream(); updateMeta(); saveCfg();
   });
 
   function updateMeta() {
