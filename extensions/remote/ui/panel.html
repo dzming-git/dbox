@@ -137,10 +137,6 @@
   </div>
 </div>
 <textarea id="kb" autocomplete="off" spellcheck="false"></textarea>
-<!-- 临时诊断 HUD（定位软键盘避让为何未生效，修好后删除） -->
-<div id="dbg" style="position:fixed;right:4px;top:38px;z-index:9999;background:rgba(0,0,0,.78);
-  color:#7ee787;font:10px/1.35 monospace;padding:5px 7px;border-radius:6px;white-space:pre;
-  pointer-events:none;max-width:48vw"></div>
 
 <script>
 (function () {
@@ -516,7 +512,6 @@
   //   #app 保持全高(fullH)再 translateY(−kbH)，露出完整键盘上方区域（工具条+画布都在）。fit 态 resizes-content 已天然生效，不干预。
   // 注意：截图铁证 visualViewport.scrollTop 始终 NaN、window.scrollY 始终 0，绝不能用页面级滚动。
   var app = document.getElementById('app');
-  var dbgEl = document.getElementById('dbg');
   var fullH = window.innerHeight;          // 键盘收起时全高，用于算真·键盘高（ih 与 vh 弹起后恒等，不能用 ih−vh）
   var kbLifted = false;
   // 两个跨周期记忆值（持久化到 localStorage，硬刷新/重开仍有效）：
@@ -543,21 +538,6 @@
   } catch (e2) {} } }
   loadKb();
   var kbEvt = '';
-  function dbg() {
-    if (!dbgEl) return;
-    var vv = window.visualViewport, r = app.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
-    var visH = vv ? vv.height : window.innerHeight;
-    var kbH = kbLifted ? Math.max(kbMaxEver, fullH - visH) : Math.max(0, fullH - visH);
-    dbgEl.textContent =
-      'ih=' + window.innerHeight + '\nvh=' + Math.round(visH) + '\nkbH=' + Math.round(kbH) +
-      '\nkbK=' + Math.round(kbK) + '\nmaxEver=' + Math.round(kbMaxEver) + '\nlifted=' + kbLifted + '\nevt=' + kbEvt +
-      '\nfullH=' + fullH +
-      '\nappH=' + Math.round(r.height) + '\nappTop=' + Math.round(r.top) + '\nappBottom=' + Math.round(r.bottom) +
-      '\ninlH="' + (app.style.height || '') + '"\ninlT="' + (app.style.transform || '') + '"' +
-      '\ninlM="' + (app.style.marginTop || '') + '"' +
-      '\nviewST=' + Math.round(view.scrollTop) +
-      '\ncanvasTop=' + Math.round(cr.top) + '\nfit=' + fitMode + ' focus=' + (document.activeElement === kb);
-  }
   function applyKbLift(kbH) {
     if (fitMode) {
       // fit：收缩 #app 到可视高即可，resizes-content 天然把整块落到键盘之上，不动位移、不动滚动
@@ -573,9 +553,8 @@
       app.style.marginTop = kbH > 0 ? '-' + kbH + 'px' : '';
       app.style.transform = '';
     }
-    dbg();
   }
-  function applyKbDrop() { app.style.height = ''; app.style.marginTop = ''; app.style.transform = ''; kbLifted = false; dbg(); }
+  function applyKbDrop() { app.style.height = ''; app.style.marginTop = ''; app.style.transform = ''; kbLifted = false; }
   // 仅依据可视视口高度判定键盘弹起/收起，不依赖 blur（收起键盘时焦点常残留，会导致窗口卡在上方不复位）。
   function syncKb() {
     var vv = window.visualViewport;
@@ -605,7 +584,6 @@
   }
   kb.addEventListener('focus', syncKb);
   kb.addEventListener('blur', syncKb);       // 不主动 drop，交由 visH 判定，避免焦点残留卡住窗口
-  dbg();
 
   // ---- 触摸端交互（手机，单模式）----
   // 单指：轻点=左键(带波纹)；滑动=平移视角(滚动画布，不发任何远程鼠标事件)；长按不放(≥550ms 不动)=右键。
