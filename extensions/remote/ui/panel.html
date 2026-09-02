@@ -297,6 +297,7 @@
     return -1;
   }
   // 从缓冲里切出完整帧：--frame\r\n<headers>\r\n\r\n<数据>
+  // rect：本帧只是「屏幕的某块区域」时由服务端带在 X-Frame-Rect 里（ROI 省流量），整帧时为 null。
   function splitFrames(u8) {
     var frames = [], start = 0;
     for (;;) {
@@ -310,20 +311,42 @@
       var len = parseInt(m[1], 10);
       var ds = he + 4;
       if (u8.length < ds + len) break;          // 数据没到齐，等下一块
-      frames.push(u8.subarray(ds, ds + len));
+      var rm = /X-Frame-Rect:\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(hdr);
+      frames.push({
+        data: u8.subarray(ds, ds + len),
+        rect: rm ? { x: +rm[1], y: +rm[2], w: +rm[3], h: +rm[4] } : null,
+      });
       start = ds + len;
     }
     return { frames: frames, rest: u8.subarray(start) };
   }
 
-  async function drawFrame(u8) {
+  // 改画布尺寸必然清空内容，故先把旧画面按比例搬过去，避免切进/切出 ROI 时闪黑。
+  function resizeCanvas(w, h) {
+    var old = null;
+    if (canvas.width && canvas.height) {
+      try {
+        old = document.createElement('canvas');
+        old.width = canvas.width; old.height = canvas.height;
+        old.getContext('2d').drawImage(canvas, 0, 0);
+      } catch (e) { old = null; }
+    }
+    canvas.width = w; canvas.height = h;
+    if (old) ctx.drawImage(old, 0, 0, w, h);
+  }
+
+  // rect 非 null → 这是屏幕的一块区域，画布保持「整屏后备」尺寸，只把这块贴到对应位置。
+  // 关键：画布始终代表整块屏幕，toScreen() 的坐标映射与输入定位就完全不用改。
+  async function drawFrame(u8, rect) {
     try {
       var bmp = await createImageBitmap(new Blob([u8], { type: 'image/jpeg' }));
-      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
-        canvas.width = bmp.width;
-        canvas.height = bmp.height;
+      if (rect) {
+        if (canvas.width !== screenW || canvas.height !== screenH) resizeCanvas(screenW, screenH);
+        ctx.drawImage(bmp, rect.x, rect.y, rect.w, rect.h);
+      } else {
+        if (canvas.width !== bmp.width || canvas.height !== bmp.height) resizeCanvas(bmp.width, bmp.height);
+        ctx.drawImage(bmp, 0, 0);
       }
-      ctx.drawImage(bmp, 0, 0);
       bmp.close();
       stat.frames++;
       return true;
@@ -351,7 +374,7 @@
         var res = splitFrames(buf);
         buf = res.rest;
         for (var i = 0; i < res.frames.length; i++) {
-          if (await drawFrame(res.frames[i])) {
+          if (await drawFrame(res.frames[i].data, res.frames[i].rect)) {
             retry = 0;
             setWarn('');
             setState('on', '已连接');
@@ -399,7 +422,66 @@
     canvas.style.height = Math.round(screenH * zoom) + 'px';
     $('zoom-val').textContent = Math.round(zoom * 100) + '%';
     updateMeta();
+    scheduleRoi();
   }
+
+  // ---------------------------------------------------------------- ROI（只传正在看的区域）
+  // 用户多数时间在放大看某个区域，整屏采集+编码的绝大多数像素都被浪费了。
+  // 这里算出视口对应的屏幕矩形上报服务端，让它只抓、只编码、也只检测变化这一块；
+  // 省下的带宽足以把分辨率提到原生（比降采样更清晰），静止检测也更容易命中。
+  // 画布始终代表整块屏幕（见 drawFrame），故坐标映射与输入定位完全不受影响。
+  var ROI_MARGIN = 0.25;     // 四周余量：小幅平移直接复用已收到的像素，不必重新推帧
+  var ROI_MIN_GAIN = 0.92;   // 区域占比超过它就没省流量的意义，退回整帧
+  var sentRoi = null, roiT = null;
+
+  // 视口（不含余量）对应的屏幕矩形；越界部分不算——那部分本来就看不见
+  function calcViewRect() {
+    if (!screenW || !screenH) return null;
+    var vr = view.getBoundingClientRect();
+    var cr = canvas.getBoundingClientRect();
+    if (!cr.width || !cr.height) return null;
+    var l = Math.max(vr.left, cr.left), t = Math.max(vr.top, cr.top);
+    var r = Math.min(vr.right, cr.right), b = Math.min(vr.bottom, cr.bottom);
+    if (r <= l || b <= t) return null;
+    return {
+      x0: Math.max(0, Math.floor((l - cr.left) / cr.width * screenW)),
+      y0: Math.max(0, Math.floor((t - cr.top) / cr.height * screenH)),
+      x1: Math.min(screenW, Math.ceil((r - cr.left) / cr.width * screenW)),
+      y1: Math.min(screenH, Math.ceil((b - cr.top) / cr.height * screenH)),
+    };
+  }
+
+  function calcRoi() {
+    var v = calcViewRect();
+    if (!v || v.x1 - v.x0 <= 0 || v.y1 - v.y0 <= 0) return null;
+    var mx = Math.round((v.x1 - v.x0) * ROI_MARGIN), my = Math.round((v.y1 - v.y0) * ROI_MARGIN);
+    var x0 = Math.max(0, v.x0 - mx), y0 = Math.max(0, v.y0 - my);
+    var x1 = Math.min(screenW, v.x1 + mx), y1 = Math.min(screenH, v.y1 + my);
+    if (x1 - x0 <= 0 || y1 - y0 <= 0) return null;
+    if ((x1 - x0) * (y1 - y0) >= screenW * screenH * ROI_MIN_GAIN) return null;   // 接近全屏 → 退回整帧
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  function roiSame(a, b) {
+    return (!a && !b) || !!(a && b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h);
+  }
+
+  function reportRoi() {
+    var v = calcViewRect();
+    var r = calcRoi();
+    // 视口仍完整落在已上报区域内 → 手上像素还够用，不必惊动服务端（连续平移时几乎不产生上报）
+    if (r && sentRoi && v && v.x0 >= sentRoi.x && v.y0 >= sentRoi.y &&
+        v.x1 <= sentRoi.x + sentRoi.w && v.y1 <= sentRoi.y + sentRoi.h) return;
+    if (roiSame(r, sentRoi)) return;
+    sentRoi = r;
+    updateMeta();
+    api('/viewport', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(r ? { x: r.x, y: r.y, w: r.w, h: r.h } : { none: true }),
+    }).catch(function () {});
+  }
+  function scheduleRoi() { clearTimeout(roiT); roiT = setTimeout(reportRoi, 120); }
   // 锚点缩放：缩放时保持客户端锚点 (ax,ay) 下的内容不动（默认视口中心）。
   // 双指捏合传「初始双指中点」做锚点，缩放即围绕该点、跟手不漂移。
   function setZoom(z, keepFit, ax, ay) {
@@ -418,6 +500,7 @@
     view.scrollLeft = vr.left + EDGE_PAD - ax + cx * z;
     view.scrollTop = vr.top + EDGE_PAD - ay + cy * z;
     savePrefsSoon();      // 缩放值与平移位置一并落盘（防抖：捏合高频变更不卡顿）
+    scheduleRoi();        // 缩放会改变可见区域 → 重新上报 ROI
   }
   $('zoom-in').addEventListener('click', function () { setZoom(zoom * 1.25, false); });
   $('zoom-out').addEventListener('click', function () { setZoom(zoom / 1.25, false); });
@@ -428,7 +511,8 @@
       writePrefs();
     });
   });
-  view.addEventListener('scroll', savePrefsSoon);   // 平移落盘（防抖），刷新后仍停在同一位置
+  // 平移/缩放都改变可见区域：落盘 + 重新上报 ROI（均防抖，连续拖动也不会刷爆请求）
+  view.addEventListener('scroll', function () { savePrefsSoon(); scheduleRoi(); });
   $('btn-fs').addEventListener('click', function () {
     if (document.fullscreenElement) document.exitFullscreen();
     else if (view.requestFullscreen) view.requestFullscreen();
@@ -863,6 +947,7 @@
     if (cfg.gray) bits.push('灰度');
     if (cfg.still) bits.push('静止不推帧');
     bits.push('缩放 ' + Math.round(zoom * 100) + '%');
+    if (sentRoi) bits.push('区域 ' + sentRoi.w + '×' + sentRoi.h);   // 生效中的 ROI，便于核对省流量是否真的在工作
     if (stat.fps || stat.kbps) bits.push('实测 ' + stat.fps + 'fps · ' + stat.kbps + ' KB/s');
     $('f-meta').textContent = bits.join(' · ');
   }
@@ -948,6 +1033,7 @@
           lastStreamKey = key;
           applyZoom();
           restoreView();      // 画布尺寸就绪后还原上次平移位置（避免刷新甩到左上角）
+          reportRoi();        // 立即上报一次，确保首帧就按 ROI 传（而不是先传整屏再切）
           startStream();
         }
         updateMeta();
