@@ -173,12 +173,13 @@
   }
 
   // ---- 状态 ----
-  var PRESETS = {
+  var BASE_PRESETS = {   // 永不随服务端 presets 响应被覆盖的基准，切换/重置兜底用
     smooth:   { fps: 15, q: 72, scale: 100, gray: false, still: false, cursor: true },
     balanced: { fps: 8,  q: 60, scale: 100, gray: false, still: true,  cursor: true },
     saver:    { fps: 3,  q: 42, scale: 70,  gray: false, still: true,  cursor: true },
   };
-  var cfg = Object.assign({}, PRESETS.balanced);
+  var PRESETS = Object.assign({}, BASE_PRESETS);   // 可被服务端 d.presets 局部覆盖，但三档基准始终在
+  var cfg = Object.assign({}, BASE_PRESETS.balanced);
   var presetName = 'balanced';
   var screenW = 0, screenH = 0;      // 屏幕真实尺寸（用于坐标映射，取自 /status）
   var zoom = 1, fitMode = true;
@@ -792,13 +793,13 @@
   $('a-scale').addEventListener('input', function () { $('v-scale').textContent = this.value + '%'; });
   $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); saveCfg(); });
   $('btn-reset').addEventListener('click', function () {
-    cfg = Object.assign({}, PRESETS[presetName] || PRESETS.balanced);
+    cfg = Object.assign({}, PRESETS[presetName] || BASE_PRESETS[presetName] || BASE_PRESETS.balanced);
     fillAdv(); startStream(); updateMeta(); saveCfg();
   });
   $('preset').addEventListener('change', function () {
     presetName = this.value;
-    cfg = Object.assign({}, PRESETS[presetName] || PRESETS.balanced);
-    fillAdv(); startStream(); updateMeta(); saveCfg();
+    cfg = Object.assign({}, PRESETS[presetName] || BASE_PRESETS[presetName] || BASE_PRESETS.balanced);
+    fillAdv(); lastStreamKey = ''; startStream(); updateMeta(); saveCfg();   // 强制重建流，确保切档立刻生效
   });
 
   function updateMeta() {
@@ -887,7 +888,7 @@
         var changed = (sw !== screenW || sh !== screenH);
         screenW = sw; screenH = sh;
         hideOverlay();
-        if (d.presets) PRESETS = d.presets;
+        if (d.presets) PRESETS = Object.assign({}, PRESETS, d.presets);   // 合并不整体替换，保留三档基准
         var key = [cfg.fps, cfg.q, cfg.scale, cfg.gray, cfg.still].join('|');
         // 只在「首次连上」「分辨率变了」「档位变了」时重建流——
         // 否则轮询会不停打断正在看的画面
