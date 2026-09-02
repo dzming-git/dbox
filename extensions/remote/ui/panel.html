@@ -185,16 +185,22 @@
   var zoom = 1, fitMode = true;
 
   // ---- 设置持久化：刷新/重开后记住用户对远程桌面的偏好（鼠标显示、分辨率、灰度、帧率、画质、静止、缩放模式）----
+  // 历史 bug（切档得到空 cfg）曾把 {"scale":null} 写进存档，导致刷新后分辨率恒为 0、画面永久模糊。
+  // 故 loadCfg 必须对每字段做合法性校验：越界/NaN/null/undefined 一律忽略、退回基准清晰值。
+  function isNum(v, lo, hi) { return typeof v === 'number' && isFinite(v) && v >= lo && v <= hi; }
   function loadCfg() {
-    try {
-      var s = JSON.parse(localStorage.getItem('remote_cfg') || '{}');
-      ['fps', 'q', 'scale', 'gray', 'still', 'cursor'].forEach(function (k) { if (s[k] !== undefined) cfg[k] = s[k]; });
-      var pn = localStorage.getItem('remote_preset'); if (pn) presetName = pn;
-      var fm = localStorage.getItem('remote_fitMode'); if (fm !== null) fitMode = (fm === '1');
-    } catch (e) { try {
-      var ps = JSON.parse(window.parent.localStorage.getItem('remote_cfg') || '{}');
-      ['fps', 'q', 'scale', 'gray', 'still', 'cursor'].forEach(function (k) { if (ps[k] !== undefined) cfg[k] = ps[k]; });
-    } catch (e2) {} }
+    function apply(s) {
+      if (isNum(s.fps, 1, 30)) cfg.fps = s.fps;
+      if (isNum(s.q, 20, 95)) cfg.q = s.q;
+      if (isNum(s.scale, 30, 100)) cfg.scale = s.scale;   // 分辨率非法 → 退回 100（清晰）
+      if (typeof s.gray === 'boolean') cfg.gray = s.gray;
+      if (typeof s.still === 'boolean') cfg.still = s.still;
+      if (typeof s.cursor === 'boolean') cfg.cursor = s.cursor;
+    }
+    try { apply(JSON.parse(localStorage.getItem('remote_cfg') || '{}')); }
+    catch (e) { try { apply(JSON.parse(window.parent.localStorage.getItem('remote_cfg') || '{}')); } catch (e2) {} }
+    try { var pn = localStorage.getItem('remote_preset'); if (pn && BASE_PRESETS[pn]) presetName = pn; } catch (e) {}
+    try { var fm = localStorage.getItem('remote_fitMode'); if (fm === '0' || fm === '1') fitMode = (fm === '1'); } catch (e) {}
     $('btn-cursor').classList.toggle('on', !!cfg.cursor);   // 按钮初始态跟随已存设置
     $('preset').value = presetName;
   }
