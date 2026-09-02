@@ -339,7 +339,7 @@
   // 双指捏合传「初始双指中点」做锚点，缩放即围绕该点、跟手不漂移。
   function setZoom(z, keepFit, ax, ay) {
     fitMode = !!keepFit;
-    z = Math.max(0.25, Math.min(4, z));
+    z = Math.max(0.1, Math.min(4, z));
     var vr = view.getBoundingClientRect();
     var cr = canvas.getBoundingClientRect();
     if (ax == null) { ax = vr.left + vr.width / 2; ay = vr.top + vr.height / 2; }
@@ -681,7 +681,7 @@
         pinch.zoomMode = (dd >= mt);
       }
       if (pinch.zoomMode === true) {             // 捏合：缩放画面（以双指初始中点为锚点）
-        var nz = Math.max(0.25, Math.min(4, pinch.z0 * nd / (pinch.d0 || 1)));
+        var nz = Math.max(0.1, Math.min(4, pinch.z0 * nd / (pinch.d0 || 1)));
         if (Math.abs(nz - zoom) > 0.002) setZoom(nz, false, pinch.m0.x, pinch.m0.y);
       } else {                                   // 平移/未定：发远程滚轮（不缩放，避免同向滑动误缩放）
         // 与竖向一致的「抓取」手感：内容跟随手指方向，故横向取反（手指右移→内容右移）
