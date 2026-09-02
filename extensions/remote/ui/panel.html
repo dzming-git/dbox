@@ -551,23 +551,31 @@
     dbgEl.textContent =
       'ih=' + window.innerHeight + '\nvh=' + Math.round(visH) + '\nkbH=' + Math.round(kbH) +
       '\nkbK=' + Math.round(kbK) + '\nmaxEver=' + Math.round(kbMaxEver) + '\nlifted=' + kbLifted + '\nevt=' + kbEvt +
+      '\nfullH=' + fullH +
       '\nappH=' + Math.round(r.height) + '\nappTop=' + Math.round(r.top) + '\nappBottom=' + Math.round(r.bottom) +
+      '\ninlH="' + (app.style.height || '') + '"\ninlT="' + (app.style.transform || '') + '"' +
+      '\ninlM="' + (app.style.marginTop || '') + '"' +
       '\nviewST=' + Math.round(view.scrollTop) +
       '\ncanvasTop=' + Math.round(cr.top) + '\nfit=' + fitMode + ' focus=' + (document.activeElement === kb);
   }
   function applyKbLift(kbH) {
     if (fitMode) {
-      // fit：收缩 #app 到可视高即可，resizes-content 天然把整块落到键盘之上，不动 transform、不动滚动
+      // fit：收缩 #app 到可视高即可，resizes-content 天然把整块落到键盘之上，不动位移、不动滚动
       app.style.height = Math.max(1, fullH - kbH) + 'px';
+      app.style.marginTop = '';
       app.style.transform = '';
     } else {
-      // zoom：保持 #app 全高，仅用 transform 把整块顶到键盘上方；不改 .view 内部滚动 → 用户当前视角完全保留
+      // zoom：保持 #app 全高，用 marginTop 把整块顶到键盘上方（不用 transform——transform 在某些
+      //   webview 的合成层中可能被外层容器的 overflow/clip 截断或覆盖；marginTop 是布局属性，
+      //   必定影响 getBoundingClientRect，且不会被合成管线吞掉）。
+      // 不改 .view 内部滚动 → 用户当前视角完全保留。
       app.style.height = fullH + 'px';
-      app.style.transform = kbH > 0 ? 'translateY(-' + kbH + 'px)' : '';
+      app.style.marginTop = kbH > 0 ? '-' + kbH + 'px' : '';
+      app.style.transform = '';
     }
     dbg();
   }
-  function applyKbDrop() { app.style.height = ''; app.style.transform = ''; kbLifted = false; dbg(); }
+  function applyKbDrop() { app.style.height = ''; app.style.marginTop = ''; app.style.transform = ''; kbLifted = false; dbg(); }
   // 仅依据可视视口高度判定键盘弹起/收起，不依赖 blur（收起键盘时焦点常残留，会导致窗口卡在上方不复位）。
   function syncKb() {
     var vv = window.visualViewport;
