@@ -60,12 +60,21 @@
     border-top-color: #1f6feb; border-radius: 50%; animation: sp .8s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
 
-  /* ---- 底部状态 ---- */
-  .foot { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
-    padding: 5px 10px; background: #161b22; border-top: 1px solid #262d38;
+  /* ---- 底部状态 ----
+     拆成两行：① 动态信息行（meta+警告）② 静态提示行（tip）。
+     旧实现所有内容挤在一个 nowrap 的 flex 行里：meta 每秒都在变长
+     （追加「实测 Xfps · Y KB/s」「区域 WxH」）、warn 还时有时无 → 抢给 tip 的宽度
+     每变一次，tip 就重新折行、行数在 4↔5 之间跳，整条信息栏高度跟着闪。
+     现在 tip 独占整行宽度 → 折行数只取决于自身固定文案，恒定不闪；
+     meta 行 nowrap + 省略号，永不换行，高度也恒定。 */
+  .foot { flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch;
+    gap: 3px; padding: 5px 10px; background: #161b22; border-top: 1px solid #262d38;
     font-size: 11.5px; color: #6e7681; }
-  .foot .warn { color: #d29922; }
-  .foot .sp { flex: 1; }
+  .foot-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  #f-meta { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .foot .warn { color: #d29922; flex: 0 0 auto; }
+  .foot-tip { line-height: 1.45; }
   /* 软键盘输入框：必须**留在视口内**（不能 left:-9999px 移出屏幕），否则 webview 不弹键盘。
      opacity:0 隐形；font-size:16px 避免 iOS 聚焦自动放大；caret-color:transparent 隐藏光标。
      关键：保持在正常流、紧随 #app 之后、高度仅 1px——focus 时 #kb 落在 #app 正下方(=可视高顶部)，
@@ -148,6 +157,7 @@
     <label>分辨率 <input type="range" id="a-scale" min="30" max="100" step="10" value="100" /><span class="v" id="v-scale">100%</span></label>
     <label><input type="checkbox" id="a-gray" /> 灰度</label>
     <label><input type="checkbox" id="a-still" checked /> 静止不推帧</label>
+    <label><input type="checkbox" id="a-delta" checked /> 差分传输(P帧)</label>
     <button id="btn-apply">应用</button>
     <button id="btn-reset">跟随档位</button>
   </div>
@@ -163,10 +173,11 @@
   </div>
 
   <div class="foot">
-    <span id="f-meta">—</span>
-    <span class="sp"></span>
-    <span class="warn" id="f-warn"></span>
-    <span id="f-tip">滚轮＝远程滚动 · Ctrl+滚轮＝本地缩放 · 中键拖拽＝平移 · 触屏：单指滑＝平移视角，轻点＝左键，长按＝右键，双指捏合＝缩放/平移</span>
+    <div class="foot-row">
+      <span id="f-meta">—</span>
+      <span class="warn" id="f-warn"></span>
+    </div>
+    <div class="foot-tip" id="f-tip">滚轮＝远程滚动 · Ctrl+滚轮＝本地缩放 · 中键拖拽＝平移 · 触屏：单指滑＝平移视角，轻点＝左键，长按＝右键，双指捏合＝缩放/平移</div>
   </div>
 </div>
 <textarea id="kb" autocomplete="off" spellcheck="false"></textarea>
@@ -225,9 +236,9 @@
 
   // ---- 状态 ----
   var BASE_PRESETS = {   // 永不随服务端 presets 响应被覆盖的基准，切换/重置兜底用
-    smooth:   { fps: 15, q: 72, scale: 100, gray: false, still: false, cursor: true },
-    balanced: { fps: 8,  q: 60, scale: 100, gray: false, still: true,  cursor: true },
-    saver:    { fps: 3,  q: 42, scale: 70,  gray: false, still: true,  cursor: true },
+    smooth:   { fps: 15, q: 72, scale: 100, gray: false, still: false, cursor: true, delta: true },
+    balanced: { fps: 8,  q: 60, scale: 100, gray: false, still: true,  cursor: true, delta: true },
+    saver:    { fps: 3,  q: 42, scale: 70,  gray: false, still: true,  cursor: true, delta: true },
   };
   var PRESETS = Object.assign({}, BASE_PRESETS);   // 可被服务端 d.presets 局部覆盖，但三档基准始终在
   var cfg = Object.assign({}, BASE_PRESETS.balanced);
@@ -324,6 +335,7 @@
     return API + '/stream?token=' + encodeURIComponent(token())
       + '&fps=' + cfg.fps + '&q=' + cfg.q + '&scale=' + (cfg.scale / 100)
       + '&gray=' + (cfg.gray ? 1 : 0) + '&still=' + (cfg.still ? 1 : 0)
+      + '&delta=' + (cfg.delta ? 1 : 0)
       + '&cursor=' + (cfg.cursor ? 1 : 0)
       + '&_t=' + Date.now();
   }
@@ -533,6 +545,20 @@
       body: JSON.stringify(r ? { x: r.x, y: r.y, w: r.w, h: r.h } : { none: true }),
     }).catch(function () {});
   }
+  function pushCfg() {
+    // 热更新画质参数（分辨率/质量/fps/灰度/静止/光标），不重建流：后端下一拍检测到
+    // scale/ROI 变化会强制关键帧重建画布，避免「改缩放→重建流→断流黑框」。
+    api('/cfg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scale: cfg.scale, q: cfg.q, fps: cfg.fps,
+        gray: cfg.gray, cursor: cfg.cursor, still: cfg.still, delta: cfg.delta
+      })
+    }).catch(function () {});
+  }
+  var cfgPushT = null;
+  function scheduleCfgPush() { clearTimeout(cfgPushT); cfgPushT = setTimeout(pushCfg, 200); }
   function scheduleRoi() { clearTimeout(roiT); roiT = setTimeout(reportRoi, 120); }
   // 锚点缩放：缩放时保持客户端锚点 (ax,ay) 下的内容不动（默认视口中心）。
   // 双指捏合传「初始双指中点」做锚点，缩放即围绕该点、跟手不漂移。
@@ -1141,11 +1167,12 @@
     $('a-scale').value = cfg.scale; $('v-scale').textContent = cfg.scale + '%';
     $('a-gray').checked = !!cfg.gray;
     $('a-still').checked = !!cfg.still;
+    $('a-delta').checked = !!cfg.delta;
   }
   function readAdv() {
     cfg.fps = +$('a-fps').value; cfg.q = +$('a-q').value;
     cfg.scale = +$('a-scale').value; cfg.gray = $('a-gray').checked;
-    cfg.still = $('a-still').checked;
+    cfg.still = $('a-still').checked; cfg.delta = $('a-delta').checked;
   }
   $('btn-adv').addEventListener('click', function () {
     var p = $('adv');
@@ -1153,10 +1180,10 @@
     p.style.display = show ? '' : 'none';
     this.classList.toggle('on', show);
   });
-  $('a-fps').addEventListener('input', function () { $('v-fps').textContent = this.value; });
-  $('a-q').addEventListener('input', function () { $('v-q').textContent = this.value; });
-  $('a-scale').addEventListener('input', function () { $('v-scale').textContent = this.value + '%'; });
-  $('btn-apply').addEventListener('click', function () { readAdv(); startStream(); updateMeta(); writePrefs(); });
+  $('a-fps').addEventListener('input', function () { cfg.fps = +this.value; $('v-fps').textContent = this.value; scheduleCfgPush(); });
+  $('a-q').addEventListener('input', function () { cfg.q = +this.value; $('v-q').textContent = this.value; scheduleCfgPush(); });
+  $('a-scale').addEventListener('input', function () { cfg.scale = +this.value; $('v-scale').textContent = this.value + '%'; scheduleCfgPush(); });
+  $('btn-apply').addEventListener('click', function () { readAdv(); pushCfg(); updateMeta(); writePrefs(); });
   $('btn-reset').addEventListener('click', function () {
     cfg = Object.assign({}, PRESETS[presetName] || BASE_PRESETS[presetName] || BASE_PRESETS.balanced);
     fillAdv(); startStream(); updateMeta(); writePrefs();
@@ -1175,6 +1202,7 @@
     if (cfg.scale < 100) bits.push('分辨率 ' + cfg.scale + '%');
     if (cfg.gray) bits.push('灰度');
     if (cfg.still) bits.push('静止不推帧');
+    if (cfg.delta) bits.push('差分');
     bits.push('缩放 ' + Math.round(zoom * 100) + '%');
     if (sentRoi) bits.push('区域 ' + sentRoi.w + '×' + sentRoi.h);   // 生效中的 ROI，便于核对省流量是否真的在工作
     if (stat.fps || stat.kbps) bits.push('实测 ' + stat.fps + 'fps · ' + stat.kbps + ' KB/s');
@@ -1265,7 +1293,7 @@
         screenW = sw; screenH = sh;
         hideOverlay();
         if (d.presets) PRESETS = Object.assign({}, PRESETS, d.presets);   // 合并不整体替换，保留三档基准
-        var key = [cfg.fps, cfg.q, cfg.scale, cfg.gray, cfg.still].join('|');
+        var key = [cfg.fps, cfg.q, cfg.scale, cfg.gray, cfg.still, cfg.delta].join('|');
         // 只在「首次连上」「分辨率变了」「档位变了」时重建流——
         // 否则轮询会不停打断正在看的画面
         if (changed || key !== lastStreamKey) {
