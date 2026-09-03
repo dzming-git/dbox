@@ -22,6 +22,8 @@ import sys
 import json
 import subprocess
 
+from ext_urls import ext_api_prefix
+
 # 与 backend.utils.jwt_authlib 完全一致：优先环境变量 DBOX_JWT_SECRET，回退内置默认密钥。
 # 直接读取环境变量（而非依赖模块导入），避免在不同进程 / 导入顺序下拿到错误的密钥，
 # 从而导致脚本接口 401 把用户踢出登录。
@@ -332,7 +334,7 @@ def get_panel(script_id):
     # 使面板不再写死插件 id / 前缀（零入侵、可复用于任意拓展）。
     #   __EXT_KEY__          -> 拓展 key（=文件夹名）
     #   __EXT_API_PREFIX__   -> 后端 API 前缀（/api/ext/<key>/，含结尾斜杠）
-    api_prefix = (sc.get('backend') or {}).get('url_prefix') or ('/api/ext/%s' % script_id)
+    api_prefix = ext_api_prefix(script_id)
     if not api_prefix.endswith('/'):
         api_prefix += '/'
     content = content.replace('__EXT_KEY__', script_id).replace(

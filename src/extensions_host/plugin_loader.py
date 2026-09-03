@@ -23,6 +23,7 @@ from flask import Flask
 
 from manifest import load_all, scripts_base_dir
 from plugin_host import build_host
+from ext_urls import ext_api_prefix
 
 
 def import_plugin_module(key, folder_dir, mod_path):
@@ -151,7 +152,7 @@ def reload_plugin(app: Flask, script_id: str, logger=None):
     sys.modules.pop('ext_%s' % safe, None)
 
     # 2) 注销旧 Blueprint（url_prefix 属于该插件）
-    want_prefix = sc.get('backend', {}).get('url_prefix') or ('/api/ext/%s' % script_id)
+    want_prefix = ext_api_prefix(script_id)
     for bp_name in list(app.blueprints.keys()):
         bp = app.blueprints[bp_name]
         bp_prefix = getattr(bp, 'url_prefix', None) or ''

@@ -34,6 +34,9 @@ from registry import (
     resolve as _reg_resolve,
 )
 
+# 扩展 API 基础路径：唯一事实来源（插件不得自行声明/硬编码完整 URL）。
+from ext_urls import ext_api_prefix
+
 
 class _VaultProxy:
     """插件凭证读写代理，封装 CredentialVault 实现细节。"""
@@ -242,7 +245,7 @@ class Host:
         self.plugin_id = self.key  # 向后兼容：旧插件仍可用 host.plugin_id
         self.manifest = manifest
         self.config = manifest.get('backend', {}) or {}
-        self.url_prefix = self.config.get('url_prefix') or ('/api/ext/' + self.key)
+        self.url_prefix = ext_api_prefix(self.key)
         # 插件私有数据目录：<data_dir>/plugins/<key>
         root = os.environ.get('DBOX_DATA_DIR')
         if not root:
