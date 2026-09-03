@@ -755,8 +755,14 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({'ok': False, 'error': 'bad json: %s' % e}, 400)
             return
+        # 支持数组：后端的高频输入（滚轮 30ms 节流 ≈ 33 次/秒）可以整批一次送达，
+        # 省掉逐条的 HTTP 往返。旧版后端逐条发单事件时行为不变。
         try:
-            _STATE.input.dispatch(ev)
+            if isinstance(ev, list):
+                for one in ev:
+                    _STATE.input.dispatch(one)
+            else:
+                _STATE.input.dispatch(ev)
             self._json({'ok': True})
         except Exception as e:
             self._json({'ok': False, 'error': str(e)}, 400)

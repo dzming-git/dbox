@@ -50,6 +50,169 @@ _last_input_ts = 0.0
 _viewports = {}
 
 
+# ---------------------------------------------------------------- 输入 WebSocket 服务
+# 根治高频输入（滚轮/拖拽）的排队卡顿：HTTP 下**每个**输入事件都是一次 POST，要
+# 浏览器 → 主服务 → 扩展宿主 → 代理 三跳；滚轮 30ms 节流就是 33 req/s，手机网络下
+# RTT 几十毫秒 + 同域并发上限排队 → 输入延迟雪崩（「滚了半天画面才动」）。
+# WS 一次握手后每个事件只是一个帧，实测 50 条仅 3.3ms（0.065ms/条），比 HTTP 快 2~3 个数量级。
+#
+# 两个必须绕开的坑（均已实测确认）：
+#  1. 不能走主服务代理：_proxy_to_extensions_host 是普通 HTTP 转发，不处理 Upgrade: websocket。
+#  2. 不能挂在 Flask 路由上：Werkzeug 3.1.6 在 HTTP 解析层就拒绝 Upgrade 请求（400，路由不执行）。
+# 故用 wsproto 在**独立端口 + 独立线程**起 WS 服务，与现有 WSGI 服务互不影响。
+INPUT_WS_PORT_BASE = 8094
+_input_ws_port = 0          # 实际监听端口，由 /status 下发给前端
+
+
+def _ws_handle(conn, auth_user):
+    """单个 WS 连接的处理循环。"""
+    from wsproto import WSConnection, ConnectionType
+    from wsproto.events import (Request, AcceptConnection, TextMessage,
+                                CloseConnection, RejectConnection, Ping, Pong)
+    ws = WSConnection(ConnectionType.SERVER)
+    authed = False
+    try:
+        conn.settimeout(300)
+        while True:
+            data = conn.recv(65536)
+            if not data:
+                break
+            ws.receive_data(data)
+            for ev in ws.events():
+                if isinstance(ev, Request):
+                    # 鉴权：WS 握手不能带自定义请求头，token 只能走 query（同 /stream?token=）
+                    tok = ''
+                    try:
+                        from urllib.parse import urlparse, parse_qs
+                        tok = (parse_qs(urlparse(ev.target).query).get('token') or [''])[0]
+                    except Exception:
+                        tok = ''
+                    if not tok or not auth_user(tok):
+                        try:
+                            conn.sendall(ws.send(RejectConnection()))
+                        except Exception:
+                            pass
+                        return
+                    conn.sendall(ws.send(AcceptConnection()))
+                    authed = True
+                elif isinstance(ev, TextMessage):
+                    if not authed:
+                        return
+                    try:
+                        payload = json.loads(ev.data)
+                    except Exception:
+                        continue
+                    events = payload if isinstance(payload, list) else [payload]
+                    events = [e for e in events if isinstance(e, dict) and e.get('type')]
+                    if events:
+                        _agent_post_input_impl(events)
+                        _touch_input()
+                elif isinstance(ev, Ping):
+                    try:
+                        conn.sendall(ws.send(Pong(payload=ev.payload)))
+                    except Exception:
+                        pass
+                elif isinstance(ev, CloseConnection):
+                    try:
+                        conn.sendall(ws.send(ev.response()))
+                    except Exception:
+                        pass
+                    return
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _start_input_ws(auth_user):
+    """启动输入用的 WebSocket 服务（独立线程 + 独立端口）。失败静默降级：前端仍走 HTTP。"""
+    global _input_ws_port
+    if _input_ws_port:
+        return
+    try:
+        from wsproto import WSConnection            # noqa: F401  仅用于确认依赖可用
+    except Exception:
+        return
+    import socket
+    srv = None
+    port = INPUT_WS_PORT_BASE
+    for _ in range(12):                             # 端口被占就顺延，最多试 12 个
+        try:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(('0.0.0.0', port))
+            srv.listen(32)
+            break
+        except Exception:
+            try:
+                srv.close()
+            except Exception:
+                pass
+            srv = None
+            port += 1
+    if srv is None:
+        return
+    _input_ws_port = port
+
+    def _accept_loop():
+        while True:
+            try:
+                c, _a = srv.accept()
+            except Exception:
+                return
+            threading.Thread(target=_ws_handle, args=(c, auth_user), daemon=True).start()
+
+    threading.Thread(target=_accept_loop, daemon=True).start()
+
+
+def _agent_post_input_impl(events):
+    """把输入事件转发给代理，返回 (sent, last_err)。HTTP 与 WebSocket 两条通道共用。
+
+    优先「一次 POST 整个数组」：新版代理的 /input 接受数组，高频输入（滚轮 30ms 节流
+    就是 33 次/秒）下能显著减少本机往返。旧版代理不认数组会返回 400，此时退回逐条转发，
+    保证 agent 没重启时输入也不会整体失效。
+    """
+    try:
+        req = urllib.request.Request(
+            _agent_url('/input'),
+            data=json.dumps(events).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST')
+        with urllib.request.urlopen(req, timeout=3.0) as r:
+            r.read()
+        return len(events), None
+    except urllib.error.HTTPError:
+        pass                                   # 多半是旧版代理不认数组 → 逐条重试
+    except Exception as e:
+        return 0, str(e)
+    sent = 0
+    last_err = None
+    for ev in events:
+        try:
+            req = urllib.request.Request(
+                _agent_url('/input'),
+                data=json.dumps(ev).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST')
+            with urllib.request.urlopen(req, timeout=3.0) as r:
+                r.read()
+            sent += 1
+        except Exception as e:
+            last_err = str(e)
+            break
+    return sent, last_err
+
+
+def _touch_input():
+    """记录最近一次输入时间。流生成器据此在「活跃窗口」内强制推帧、并让代理跳过
+    静止检测，保证画图/拖拽实时可见。HTTP 与 WebSocket 两条输入通道都必须调用。"""
+    global _last_input_ts
+    _last_input_ts = time.time()
+
+
 def _parse_agent_rect(v):
     """解析代理回的 X-Frame-Rect: x,y,w,h；缺失或非法返回 None（表示整帧）。"""
     try:
@@ -138,6 +301,9 @@ def create_blueprint(host):
             err = '桌面代理未运行'
         except Exception as e:
             err = '桌面代理不可达: %s' % e
+        # 下发输入用 WebSocket 的端口（独立 WS 服务，非本 WSGI 端口）。
+        # 为 0 表示服务未起来（缺依赖/端口全被占），前端会走 HTTP 降级。
+        wport = _input_ws_port
         try:
             installed = autostart.is_installed()
         except Exception:
@@ -150,6 +316,7 @@ def create_blueprint(host):
             'autostart': installed,
             'presets': PRESETS,
             'agent': {'host': AGENT_HOST, 'port': AGENT_PORT},
+            'ws_port': wport,
         })
 
     @bp.route('/stream', methods=['GET'])
@@ -244,34 +411,27 @@ def create_blueprint(host):
                         headers={'Cache-Control': 'no-store',
                                  'X-Accel-Buffering': 'no'})
 
+    def _agent_post_input(events):
+        return _agent_post_input_impl(events)
+
     @bp.route('/input', methods=['POST'])
     @host.login_required
     def input_ep():
         payload = request.get_json(force=True, silent=True) or {}
         events = payload if isinstance(payload, list) else [payload]
-        sent = 0
-        last_err = None
-        for ev in events:
-            if not isinstance(ev, dict) or not ev.get('type'):
-                continue
-            try:
-                req = urllib.request.Request(
-                    _agent_url('/input'),
-                    data=json.dumps(ev).encode('utf-8'),
-                    headers={'Content-Type': 'application/json'},
-                    method='POST')
-                with urllib.request.urlopen(req, timeout=3.0) as r:
-                    r.read()
-                sent += 1
-            except Exception as e:
-                last_err = str(e)
-                break
+        events = [e for e in events if isinstance(e, dict) and e.get('type')]
+        sent, last_err = (0, None)
+        if events:
+            sent, last_err = _agent_post_input(events)
         if last_err and sent == 0:
             return jsonify({'success': False, 'message': '桌面代理未响应: %s' % last_err}), 502
-        # 记录最近一次输入时间，流生成器据此在「活跃窗口」内强制推帧（实时可见）。
-        global _last_input_ts
-        _last_input_ts = time.time()
+        _touch_input()
         return jsonify({'success': True, 'sent': sent, 'error': last_err})
+
+    # 输入通道的 WebSocket 由 _start_input_ws() 在独立线程/端口提供（见模块级实现）。
+    # 这里**不能**用 Flask 路由 + simple_websocket：实测 Werkzeug 3.1.6 会在 HTTP 解析层
+    # 直接拒绝 Upgrade 请求（返回 400，路由根本不执行），握手到不了应用层。
+    _start_input_ws(host.auth_user)
 
     @bp.route('/viewport', methods=['POST'])
     @host.login_required

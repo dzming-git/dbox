@@ -539,8 +539,35 @@
   var MOVE_MS = 30;          // 鼠标移动节流：再密也没有意义，只会白烧流量
   var lastMove = 0, pending = null, composing = false;
 
+  // ---- 输入通道：优先 WebSocket，不可用时自动降级 HTTP ----
+  // HTTP 下每个输入事件都是一次 POST，要 浏览器→主服务→扩展宿主→代理 三跳；
+  // 滚轮 30ms 节流就是 33 req/s，手机网络下 RTT 几十毫秒 + 同域并发排队 → 输入延迟雪崩。
+  // WS 一次握手后每个事件只是一个帧，没有 per-event HTTP 开销、也不受并发排队影响。
+  // 注意必须**直连扩展宿主**：主服务代理不处理 Upgrade: websocket，握手过不去，
+  // 所以 ws_port 由 /status 下发，前端据此拼直连地址。
+  var inputWs = null, wsOpen = false, wsRetry = 0, wsTimer = null, wsPort = 0;
+
+  function wsConnect() {
+    if (!wsPort || typeof WebSocket === 'undefined') return;
+    if (inputWs && (wsOpen || inputWs.readyState === 0)) return;   // 已连接 / 连接中
+    var url = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+      + location.hostname + ':' + wsPort + API + '/ws?token=' + encodeURIComponent(token());
+    try { inputWs = new WebSocket(url); } catch (_) { inputWs = null; return; }
+    inputWs.onopen = function () { wsOpen = true; wsRetry = 0; };
+    inputWs.onclose = function () { wsOpen = false; inputWs = null; scheduleWs(); };
+    inputWs.onerror = function () { try { inputWs.close(); } catch (_) {} };
+  }
+  function scheduleWs() {
+    clearTimeout(wsTimer);
+    wsTimer = setTimeout(wsConnect, Math.min(8000, 500 * Math.pow(2, wsRetry++)));
+  }
+
   function send(ev) {
     if (!online) return;
+    if (wsOpen && inputWs && inputWs.readyState === 1) {
+      try { inputWs.send(JSON.stringify(ev)); return; } catch (_) { wsOpen = false; }
+    }
+    // 降级：WS 不可用/未就绪时仍走 HTTP，保证功能不中断
     fetch(API + '/input', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' },
@@ -803,12 +830,26 @@
   }
   function tmid(a, b) { return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; }
 
-  var lastWheel = 0;
-  function sendWheel(dx, dy) {
-    var now = Date.now();
-    if (now - lastWheel < 30) return;     // 节流，避免 60Hz 狂发滚轮
-    lastWheel = now;
-    send({ type: 'wheel', dx: dx, dy: dy });
+  // 滚轮：**累积**而不是节流丢弃。
+  // 旧实现在节流窗口内直接 return，把这段时间的滚动量凭空丢掉——慢速小幅滑动时
+  // 大量增量消失，表现「划了半天内容才动一点」，且滚多远与手指速度不成比例。
+  var WHEEL_MS = 30;         // 发送间隔（约 33 次/秒，与原来一致）
+  var WHEEL_GAIN = 2.5;      // 手指位移(换算成远端屏幕像素) → 滚轮单位
+  var lastWheel = 0, wheelAcc = { x: 0, y: 0 }, wheelTimer = null;
+
+  function queueWheel(dx, dy) {
+    wheelAcc.x += dx; wheelAcc.y += dy;
+    var wait = WHEEL_MS - (Date.now() - lastWheel);
+    if (wait <= 0) { flushWheel(); return; }
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(flushWheel, wait);
+  }
+  function flushWheel() {
+    clearTimeout(wheelTimer); wheelTimer = null;
+    lastWheel = Date.now();
+    var dx = Math.trunc(wheelAcc.x), dy = Math.trunc(wheelAcc.y);
+    wheelAcc.x -= dx; wheelAcc.y -= dy;      // 留不足 1 的余数，慢速滑动也能持续滚动
+    if (dx || dy) send({ type: 'wheel', dx: dx, dy: dy });
   }
 
   // 触摸与桌面共用的鼠标移动节流
@@ -865,14 +906,23 @@
       if (pinch.zoomMode === null && (dd > 10 || mt > 10)) {
         // 移动足够后判定手势类型：间距变化占优=捏合(缩放)；中心位移占优=平移(滚轮)
         pinch.zoomMode = (dd >= mt);
+        // 判定为滚轮的瞬间：先把远端光标移到手指中点。
+        // 滚轮是在**光标位置**滚动的（agent 的 wheel 不移动光标），不先定位的话
+        // 滚的是光标停留处的内容，与手指看着的位置完全对不上。
+        if (pinch.zoomMode === false) {
+          var wp = toScreen(pinch.m0.x, pinch.m0.y);
+          if (wp) { send({ type: 'mouse_move', x: wp.x, y: wp.y }); lastMove = Date.now(); }
+        }
       }
       if (pinch.zoomMode === true) {             // 捏合：缩放画面（以双指初始中点为锚点）
         var nz = Math.max(0.1, Math.min(4, pinch.z0 * nd / (pinch.d0 || 1)));
         if (Math.abs(nz - zoom) > 0.002) setZoom(nz, false, pinch.m0.x, pinch.m0.y);
-      } else {                                   // 平移/未定：发远程滚轮（不缩放，避免同向滑动误缩放）
-        // 与竖向一致的「抓取」手感：内容跟随手指方向，故横向取反（手指右移→内容右移）
-        sendWheel(-Math.round((nc.x - pinch.c0.x) * 2.5),
-                  Math.round((nc.y - pinch.c0.y) * 2.5));
+      } else if (pinch.zoomMode === false) {     // 已判定为滚轮才滚；未定(null)时不动，
+        // 否则想捏合缩放时，起手 10px 内的位移会被当成滚轮发出去（误滚）。
+        // 与竖向一致的「抓取」手感：内容跟随手指方向，故横向取反（手指右移→内容右移）。
+        // 除以 zoom 换算成**远端屏幕像素**：灵敏度不再随缩放漂移。
+        queueWheel(-(nc.x - pinch.c0.x) / (zoom || 1) * WHEEL_GAIN,
+                   (nc.y - pinch.c0.y) / (zoom || 1) * WHEEL_GAIN);
       }
       pinch.c0 = nc;
       return;
@@ -902,7 +952,10 @@
       }
       touch = null;
     }
-    if (e && e.touches.length <= 1) pinch = null;   // 双指松开到单指：结束捏合/滚轮
+    if (e && e.touches.length <= 1) {
+      if (pinch && pinch.zoomMode === false) flushWheel();   // 手势结束：把残余滚动量发出去
+      pinch = null;                                          // 双指松开到单指：结束捏合/滚轮
+    }
     if (e && e.touches.length === 0) {
       // 部分 WebView 在 touchend 后约 300ms 仍补发合成 mousedown/up，
       // 若此刻 touchActive 已为 false，这些合成事件会穿透桌面鼠标处理器→远端误触发点击。
@@ -1043,6 +1096,9 @@
     }).then(function (d) {
       if (!d || !d.success) return;
       autostart = !!d.autostart;
+      // 拿到扩展宿主直连端口后建立 WebSocket 输入通道（失败会自动降级 HTTP）
+      if (d.ws_port && d.ws_port !== wsPort) { wsPort = d.ws_port; wsRetry = 0; }
+      wsConnect();
       if (d.online && d.info && d.info.screen) {
         online = true;
         var sw = d.info.screen.w, sh = d.info.screen.h;
