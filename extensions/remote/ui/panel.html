@@ -153,23 +153,39 @@
     });
   }
 
-  // ---- token：优先读宿主写进 localStorage 的最新 token ----
+  // ---- token：**宿主实时推送的优先** ----
+  // access token 有效期只有 24 小时（ACCESS_TOKEN_EXPIRE_HOURS），且刷新令牌续签后
+  // 新 token 由宿主经 postMessage 下发。旧实现把 localStorage 那份排在 PUSHED 前面，
+  // 于是过期 token 会一直被优先使用——叠加 /status 对 401 的静默处理，
+  // 表现就是「重启电脑/隔天再进来，永远卡在重连中，且毫无提示」。
   var PUSHED = null;
   window.addEventListener('message', function (e) {
     if (e.data && e.data.type === 'DBOX_TOKEN' && e.data.token) PUSHED = e.data.token;
   });
-  try { window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'remote' }, '*'); } catch (_) {}
+  function requestToken() {
+    try { window.parent.postMessage({ type: 'DBOX_REQUEST_TOKEN', extId: 'remote' }, '*'); } catch (_) {}
+  }
+  requestToken();
   function token() {
     try {
-      return localStorage.getItem('token') || localStorage.getItem('access_token')
-        || sessionStorage.getItem('token') || PUSHED || '';
+      return PUSHED || localStorage.getItem('token') || localStorage.getItem('access_token')
+        || sessionStorage.getItem('token') || '';
     } catch (_) { return PUSHED || ''; }
   }
+  // 401 多半是 token 过期：先向宿主再要一次最新 token，稍等其送达后重试一次。
+  // 宿主会自动续签 access token，这一步让「隔天进来」的场景自愈，不必手动刷新页面。
   function api(path, opts) {
     opts = opts || {};
-    return fetch(API + path, Object.assign({}, opts, {
-      headers: Object.assign({ 'Authorization': 'Bearer ' + token() }, opts.headers || {}),
-    }));
+    function once() {
+      return fetch(API + path, Object.assign({}, opts, {
+        headers: Object.assign({ 'Authorization': 'Bearer ' + token() }, opts.headers || {}),
+      }));
+    }
+    return once().then(function (r) {
+      if (r.status !== 401) return r;
+      requestToken();
+      return new Promise(function (res) { setTimeout(res, 400); }).then(once);
+    });
   }
 
   // ---- 状态 ----
@@ -363,6 +379,7 @@
     setState('wait', '连接中');
     try {
       var resp = await fetch(streamURL(), { signal: ctl.signal, cache: 'no-store' });
+      if (resp.status === 401) requestToken();   // 令牌过期：索要新 token，下一次重连即可用上
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       var reader = resp.body.getReader();
       var buf = new Uint8Array(0);
@@ -1016,7 +1033,14 @@
 
   var lastStreamKey = '';
   function poll() {
-    api('/status').then(function (r) { return r.json(); }).then(function (d) {
+    api('/status').then(function (r) {
+      // 401/403 必须显式抛错交给下面的 catch 弹「登录已过期」：
+      // 若像以前那样只判 d.success 后静默 return，界面就会一直停在「重连中」且毫无提示。
+      if (r.status === 401 || r.status === 403) {
+        var e = new Error('unauthorized'); e.unauthorized = true; throw e;
+      }
+      return r.json();
+    }).then(function (d) {
       if (!d || !d.success) return;
       autostart = !!d.autostart;
       if (d.online && d.info && d.info.screen) {
@@ -1043,11 +1067,23 @@
         agentGuide(d.error || '');
         setState('err', '代理未运行');
       }
-    }).catch(function () {
+    }).catch(function (err) {
       online = false;
       stopStream();
-      setState('err', '服务不可达');
-      showOverlay('无法连接', '请确认 Dbox 正在运行。稍后自动重试。', [], true);
+      if (err && err.unauthorized) {
+        // 认证失败必须明说：否则 /stream 会一直 401 并退避重试，界面只剩一个「重连中」，
+        // 用户完全无从判断是代理没起、服务没起、还是自己登录过期了。
+        setState('err', '登录已过期');
+        showOverlay('登录已过期',
+          '访问令牌有效期为 24 小时，已过期或已在别处登出。<br><br>'
+          + '请<b>回到 Dbox 主界面重新登录</b>后再刷新本页；若确认当前是登录状态，'
+          + '可点下方按钮重新向主界面索取令牌。',
+          [{ text: '重新获取令牌', onClick: function () { requestToken(); setTimeout(poll, 500); } }],
+          false);
+      } else {
+        setState('err', '服务不可达');
+        showOverlay('无法连接', '请确认 Dbox 正在运行。稍后自动重试。', [], true);
+      }
     }).then(function () {
       clearTimeout(pollTimer);
       pollTimer = setTimeout(poll, online ? 3000 : 1500);

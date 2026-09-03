@@ -156,6 +156,11 @@ def create_blueprint(host):
     def stream():
         if _stream_auth() is None:
             return jsonify({'success': False, 'message': '未授权'}), 401
+        # uid 必须**在请求上下文里**取，不能放进 gen()：
+        # 流式响应的生成器被消费时上下文可能已弹出，此时访问 g 抛的是 RuntimeError，
+        # 而 getattr 的默认值只吞 AttributeError——整条流会被打成 500，
+        # 客户端除了「重连中」什么也看不到。
+        uid = getattr(g, 'user_id', None)
         preset = _preset(request.args.get('preset'))
 
         def _num(name, default, lo, hi, cast):
@@ -181,7 +186,6 @@ def create_blueprint(host):
         def gen():
             last_hash = None
             miss = 0
-            uid = getattr(g, 'user_id', None)
             try:
                 while True:
                     # 活跃窗口内：强制推帧，且让代理跳过静止检测（still_thr=0），
