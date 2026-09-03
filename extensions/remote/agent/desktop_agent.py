@@ -64,9 +64,17 @@ class ScreenCapture(object):
         self._win32ui = win32ui
         self._lock = threading.Lock()
         self._dcs = None
-        self._roi = None          # (memdc, bmp, w, h)：仅 ROI 大小的位图，按需创建
         self.cursor_on = True
         self._setup(win32api, win32gui, win32ui)
+        # GDI 专属抓屏线程：HTTP 每请求一个线程，而 win32ui 的 DC/位图对象**绑在创建它的线程上**，
+        # 跨线程复用会直接 BitBlt failed（实测：A 线程建的 DC，B 线程用必挂）。
+        # 故所有 GDI 调用都收敛到这一个线程里做，DC 在哪建就在哪用，彻底规避线程亲和问题。
+        # 顺带修掉一个既有隐患：分辨率变化时 refresh_if_changed→_setup 会在请求线程重建整屏 DC，
+        # 之后其它线程的整屏抓取全部永久失败（远程画面就此卡死）。
+        self._jobs = __import__('queue').Queue()
+        self._worker = threading.Thread(target=self._worker_loop, name='gdi-capture')
+        self._worker.daemon = True
+        self._worker.start()
 
     def _setup(self, win32api, win32gui, win32ui):
         # 虚拟屏（多显示器合并后的整块画布）；单显示器时这几个值与主屏一致
@@ -78,7 +86,6 @@ class ScreenCapture(object):
             left, top = 0, 0
             width = win32api.GetSystemMetrics(0)
             height = win32api.GetSystemMetrics(1)
-        self._release_roi()
         self._release()
         self.left, self.top = left, top
         self.width, self.height = width, height
@@ -110,39 +117,86 @@ class ScreenCapture(object):
         except Exception:
             pass
 
-    def _roi_dc(self, rw, rh):
-        """按需取一块「仅 ROI 大小」的 memdc + 位图（尺寸变化时重建）。
+    def _worker_loop(self):
+        """抓屏线程主循环：所有 GDI 调用都在这里发生。"""
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            rect, slot = job
+            try:
+                slot['img'] = self._grab_now(rect)
+            except Exception as e:
+                slot['err'] = e
+            slot['evt'].set()
 
-        不能复用整屏位图：GetBitmapBits 会把整块（1920×1080≈8MB）全部拷出来，
-        只抓一小块时这个拷贝反而成了主要开销。故 ROI 单独备一块小位图。
+    def grab(self, rect=None):
+        """取一帧 PIL Image（RGB）。可从任意线程调用，实际 GDI 工作交给抓屏线程。
+
+        rect=(x, y, w, h) 为虚拟屏坐标时只抓这一块（省流量：用户放大看局部时，
+        整屏采集+编码的绝大多数像素都被浪费）。rect 为 None 时整屏。
         """
-        cur = self._roi
-        if cur and cur[2] == rw and cur[3] == rh:
-            return cur[0], cur[1]
-        self._release_roi()
-        srcdc = self._dcs[1]
-        win32ui = self._win32ui
-        memdc = srcdc.CreateCompatibleDC()
-        bmp = win32ui.CreateBitmap()
-        bmp.CreateCompatibleBitmap(srcdc, rw, rh)
-        memdc.SelectObject(bmp)
-        self._roi = (memdc, bmp, rw, rh)
-        return memdc, bmp
+        if threading.current_thread() is self._worker:
+            return self._grab_now(rect)          # 已在抓屏线程：直接做，避免自锁
+        slot = {'evt': threading.Event(), 'img': None, 'err': None}
+        self._jobs.put((rect, slot))
+        if not slot['evt'].wait(15):
+            raise RuntimeError('capture timeout')
+        if slot['err'] is not None:
+            raise slot['err']
+        return slot['img']
 
-    def _release_roi(self):
-        cur = getattr(self, '_roi', None)
-        self._roi = None
-        if not cur:
-            return
-        memdc, bmp = cur[0], cur[1]
-        try:
-            self._win32gui.DeleteObject(bmp.GetHandle())
-        except Exception:
-            pass
-        try:
-            memdc.DeleteDC()
-        except Exception:
-            pass
+    def _grab_now(self, rect=None):
+        """真正的 GDI 抓取，**只允许在 self._worker 线程内调用**。"""
+        from PIL import Image
+        with self._lock:
+            self.refresh_if_changed()
+            if rect is None:
+                # 整屏位图长期复用；若 BitBlt 失败（DC 已失效）就在本线程重建后重试一次。
+                # 重建必须在这里做：在别的线程重建会让这个 DC 对所有其它线程失效。
+                for attempt in (0, 1):
+                    try:
+                        _, srcdc, memdc, bmp = self._dcs
+                        memdc.BitBlt((0, 0), (self.width, self.height),
+                                     srcdc, (self.left, self.top), self.SRCCOPY)
+                        break
+                    except Exception:
+                        if attempt:
+                            raise
+                        self._setup(self._win32api, self._win32gui, self._win32ui)
+                if self.cursor_on:
+                    self._draw_cursor(memdc)
+                bits = bmp.GetBitmapBits(True)
+                w, h = self.width, self.height
+            else:
+                rx, ry, rw, rh = rect
+                srcdc = self._dcs[1]
+                # ROI 每次现建现用：不能复用整屏位图（GetBitmapBits 会把整块 8MB 全拷出来，
+                # 只抓一小块时这个拷贝才是主要开销），而 ROI 尺寸随视口频繁变化、缓存收益有限，
+                # 现建现用还顺带彻底避开「跨线程复用 DC」这一整类问题。
+                memdc = srcdc.CreateCompatibleDC()
+                bmp = self._win32ui.CreateBitmap()
+                try:
+                    bmp.CreateCompatibleBitmap(srcdc, rw, rh)
+                    memdc.SelectObject(bmp)
+                    memdc.BitBlt((0, 0), (rw, rh), srcdc,
+                                 (self.left + rx, self.top + ry), self.SRCCOPY)
+                    if self.cursor_on:
+                        # 指针是屏幕坐标，抓子区域时要减掉区域原点才是位图内坐标
+                        self._draw_cursor(memdc, offset=(-rx, -ry), size=(rw, rh))
+                    bits = bmp.GetBitmapBits(True)
+                finally:
+                    try:
+                        self._win32gui.DeleteObject(bmp.GetHandle())
+                    except Exception:
+                        pass
+                    try:
+                        memdc.DeleteDC()
+                    except Exception:
+                        pass
+                w, h = rw, rh
+        # frombuffer 是零拷贝视图，必须 copy 后才能安全复用底层 DC
+        return Image.frombuffer('RGB', (w, h), bits, 'raw', 'BGRX', 0, 1).copy()
 
     def refresh_if_changed(self):
         """分辨率/显示器布局变了要重建 DC，否则画面会被裁掉或拉伸。"""
@@ -155,39 +209,6 @@ class ScreenCapture(object):
         except Exception:
             pass
         return False
-
-    def grab(self, rect=None):
-        """返回 PIL Image（RGB）。
-
-        rect=(x, y, w, h) 为虚拟屏坐标时只抓这一块（子矩形 BitBlt + 小位图回读），
-        省流量档位下用户多半在放大看某个区域，整屏采集+编码的绝大部分像素都被浪费了。
-        rect 为 None 时行为与原来一致（整屏）。
-        """
-        from PIL import Image
-        with self._lock:
-            self.refresh_if_changed()
-            if rect is None:
-                _, srcdc, memdc, bmp = self._dcs
-                memdc.BitBlt((0, 0), (self.width, self.height),
-                             srcdc, (self.left, self.top), self.SRCCOPY)
-                if self.cursor_on:
-                    self._draw_cursor(memdc)
-                bits = bmp.GetBitmapBits(True)
-                w, h = self.width, self.height
-            else:
-                rx, ry, rw, rh = rect
-                srcdc = self._dcs[1]
-                ro_memdc, ro_bmp = self._roi_dc(rw, rh)
-                ro_memdc.BitBlt((0, 0), (rw, rh), srcdc,
-                                (self.left + rx, self.top + ry), self.SRCCOPY)
-                if self.cursor_on:
-                    # 指针是屏幕坐标，抓子区域时要减掉区域原点才是位图内坐标
-                    self._draw_cursor(ro_memdc, offset=(-rx, -ry), size=(rw, rh))
-                bits = ro_bmp.GetBitmapBits(True)
-                w, h = rw, rh
-        # frombuffer 是零拷贝视图，必须 copy 后才能安全复用底层 DC
-        return Image.frombuffer('RGB', (w, h),
-                                bits, 'raw', 'BGRX', 0, 1).copy()
 
     def _draw_cursor(self, memdc, offset=(0, 0), size=None):
         """把指针画进位图。抓 ROI 时 offset=(-rx,-ry)、size=(rw,rh)，
@@ -213,6 +234,10 @@ class ScreenCapture(object):
             pass
 
     def close(self):
+        try:
+            self._jobs.put(None)          # 通知抓屏线程退出
+        except Exception:
+            pass
         self._release()
 
 
