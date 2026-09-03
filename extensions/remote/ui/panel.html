@@ -82,6 +82,30 @@
     0%   { transform: scale(.4); opacity: .9; }
     100% { transform: scale(2.6); opacity: 0; }
   }
+
+  /* ---- 触摸指示器：按下**立刻**显示 ----
+     解决两个体验问题：
+     ① 此前只有松手才出波纹，按下瞬间用户不知道自己按在了哪里——现在按下即有落点指示。
+     ② 长按阈值(550ms)对用户完全不可见——内圈在 RIGHT_DELAY 内逐渐长满，
+        长满即触发右键，用户能直观看到「还要按住多久」，不必猜两个时间段。 */
+  /* z-index 取 4（与 click-fx 同级）：高于画布，但低于 z-index:5 的引导浮层，
+     这样代理未运行等浮层出现时能正常盖住它。 */
+  .touch-ind { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px;
+    border-radius: 50%; pointer-events: none; z-index: 4; display: none;
+    border: 2px solid rgba(88,166,255,.9); box-shadow: 0 0 10px rgba(88,166,255,.45);
+    background: rgba(88,166,255,.08); }
+  .touch-ind.on { display: block; }
+  /* 内圈 = 长按进度：时长由 --dur 与 RIGHT_DELAY 保持一致 */
+  .touch-ind .fill { position: absolute; top: 7px; left: 7px; right: 7px; bottom: 7px;
+    border-radius: 50%; background: rgba(88,166,255,.5); transform: scale(0); }
+  .touch-ind.charging .fill { transform: scale(1); transition: transform var(--dur, 550ms) linear; }
+  /* 长按完成 → 右键：变绿，明确告知已触发 */
+  .touch-ind.right { border-color: #3fb950; box-shadow: 0 0 14px rgba(63,185,80,.75);
+    background: rgba(63,185,80,.14); }
+  .touch-ind.right .fill { background: rgba(63,185,80,.8); transform: scale(1); transition: none; }
+  /* 判定为拖动：取消充电并淡化，明确表示「这次不会点击」 */
+  .touch-ind.drag { border-color: rgba(139,148,158,.8); box-shadow: none; opacity: .5; }
+  .touch-ind.drag .fill { transform: scale(0); transition: transform .12s ease-out; }
 </style>
 </head>
 <body>
@@ -664,6 +688,39 @@
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 380);
   }
 
+  // ---- 触摸指示器：按下即显示落点，并把长按阈值做成可见的进度 ----
+  var touchInd = document.createElement('div');
+  touchInd.className = 'touch-ind';
+  touchInd.innerHTML = '<div class="fill"></div>';
+  view.appendChild(touchInd);
+
+  function indSetPos(clientX, clientY) {
+    var vr = view.getBoundingClientRect();
+    touchInd.style.left = (clientX - vr.left + view.scrollLeft) + 'px';
+    touchInd.style.top = (clientY - vr.top + view.scrollTop) + 'px';
+  }
+  var indHideT = null;
+  function indStart(clientX, clientY) {
+    clearTimeout(indHideT);
+    touchInd.className = 'touch-ind';                    // 先清掉 charging，确保 transition 重新起效
+    touchInd.style.setProperty('--dur', RIGHT_DELAY + 'ms');
+    indSetPos(clientX, clientY);
+    void touchInd.offsetWidth;                           // 强制重排，否则同一帧内加 class 不会有过渡
+    touchInd.className = 'touch-ind on charging';
+  }
+  function indMove(clientX, clientY) { indSetPos(clientX, clientY); }
+  function indDrag() { clearTimeout(indHideT); touchInd.className = 'touch-ind on drag'; }
+  function indRight() { clearTimeout(indHideT); touchInd.className = 'touch-ind on right'; }
+  // delay>0：保留一小段时间再收，用于让右键的绿色确认「看得见」（否则一松手就没了）
+  function indHide(delay) {
+    clearTimeout(indHideT);
+    if (delay) {
+      indHideT = setTimeout(function () { touchInd.className = 'touch-ind'; }, delay);
+      return;
+    }
+    touchInd.className = 'touch-ind';
+  }
+
   function btnName(b) { return b === 2 ? 'right' : b === 1 ? 'middle' : 'left'; }
 
   var pan = null;
@@ -886,6 +943,7 @@
     touchActive = true;
     if (e.touches.length >= 2) {                 // 进入双指：先收掉单指未完成的动作
       clearTimeout(lpTimer);
+      indHide();                                 // 双指手势不是点击，收起单指落点标记
       if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
       touch = null; suppressUp = false;
       var pa = e.touches[0], pb = e.touches[1];
@@ -908,11 +966,14 @@
     // 注意：单指落点**不**发 mouse_move 瞬移远端光标。否则滑动/平移手势起始的那一下
     // 会把远端光标瞬移到手指处、松手后残留——表现为「鼠标跟着跑、停在我滑动的位置」。
     // 真正点击(tap)时由 mouse_click 自带 mouse_move 定位即可；平移/滚轮手势全程不碰远端光标。
+    // 远端不瞬移，但**本地必须立刻给反馈**：否则用户按下时完全不知道自己点在了哪里。
+    indStart(t.clientX, t.clientY);
     clearTimeout(lpTimer);
     lpTimer = setTimeout(function () {           // 长时间长按＝右键
       if (!touch || touch.moved || touch.down) return;
       send({ type: 'mouse_down', x: touch.p.x, y: touch.p.y, button: 'right' });
       send({ type: 'mouse_up', x: touch.p.x, y: touch.p.y, button: 'right' });
+      indRight();                                // 变绿：明确告知右键已触发
       spawnClickFx(touch.sx, touch.sy);
       touch.rightFired = true; suppressUp = true;
     }, RIGHT_DELAY);
@@ -971,11 +1032,13 @@
       if (!touch.moved && (Math.abs(t.clientX - touch.sx) > 6 || Math.abs(t.clientY - touch.sy) > 6)) {
         touch.moved = true;
         clearTimeout(lpTimer);                   // 一旦移动，右键定时器取消（移动＝平移，不当作点击）
+        indDrag();                               // 转拖动态并停止充电，明确表示「这次不会点击」
       }
       // 单指滑动一律＝平移本地视角（滚动画布），绝不向远程发鼠标事件，避免误触
       view.scrollLeft -= (t.clientX - touch.lcx);
       view.scrollTop  -= (t.clientY - touch.lcy);
       touch.lcx = t.clientX; touch.lcy = t.clientY;
+      indMove(t.clientX, t.clientY);             // 落点标记跟随手指（内容坐标，故画面同步移动时它不动）
     }
   }, { passive: false });
 
@@ -987,9 +1050,11 @@
       // 移动过＝平移，右键已发＝suppressUp，均不触发。
       if (!suppressUp && !touch.moved) {
         send({ type: 'mouse_click', x: touch.p.x, y: touch.p.y, button: 'left', clicks: 1 });
-        spawnClickFx(touch.sx, touch.sy);
+        spawnClickFx(touch.sx, touch.sy);        // 波纹＝点击已确认发出的回执
       }
       touch = null;
+      // 松手收起落点标记；右键已触发时多留 420ms，让用户看清绿色确认
+      indHide(suppressUp ? 420 : 0);
     }
     if (e && e.touches.length <= 1) {
       if (pinch && pinch.zoomMode === false) flushWheel();   // 手势结束：把残余滚动量发出去
@@ -1008,11 +1073,12 @@
     clearTimeout(lpTimer);
     if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
     touch = null; pinch = null; suppressUp = false; touchActive = false;
+    indHide();
   }, { passive: false });
 
   // 底部手势提示
   var tip = $('f-tip');
-  if (tip) tip.textContent = '单指：轻点=左键，滑动=平移视角，长按=右键；双指：捏合=缩放（捏合同拖动可移视角），同向滑动=滚轮';
+  if (tip) tip.textContent = '单指：轻点=左键，滑动=平移视角，长按(圆环长满)=右键；双指：捏合=缩放（可同时拖移视角），同向滑动=滚轮';
 
   // ---------------------------------------------------------------- 档位 / 细项
   function fillAdv() {
