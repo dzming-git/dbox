@@ -519,6 +519,26 @@
     savePrefsSoon();      // 缩放值与平移位置一并落盘（防抖：捏合高频变更不卡顿）
     scheduleRoi();        // 缩放会改变可见区域 → 重新上报 ROI
   }
+
+  // 双指手势的统一表达：把「屏幕内容点 (cxp,cyp)」摆到「客户端位置 (ax,ay)」，同时把缩放设为 z。
+  // setZoom 只能让 (ax,ay) 处的内容**原地不动**（缩放锚点＝目标点，二者是同一点）；
+  // 这里把它拆成「内容点」与「目标位置」两个独立量，于是**缩放与平移可以同时发生**：
+  //   (cxp,cyp) = 手势开始时双指中心下的内容（锚点，全程固定不变）
+  //   (ax,ay)   = 当前双指中心
+  // 手指中心移动 → 目标位置移动 → 画面跟着手指走；手指间距变化 → z 变化 → 以锚点为中心缩放。
+  function setZoomAt(z, cxp, cyp, ax, ay) {
+    fitMode = false;
+    z = Math.max(0.1, Math.min(4, z));
+    zoom = z;
+    applyZoom();
+    // canvas 左上角的客户端坐标 = vr.left + EDGE_PAD - view.scrollLeft
+    // 故内容点 (cxp,cyp) 的客户端位置 = vr.left + EDGE_PAD - scrollLeft + cxp*z，令其等于 ax：
+    var vr = view.getBoundingClientRect();
+    view.scrollLeft = vr.left + EDGE_PAD + cxp * z - ax;
+    view.scrollTop = vr.top + EDGE_PAD + cyp * z - ay;
+    savePrefsSoon();
+    scheduleRoi();
+  }
   $('zoom-in').addEventListener('click', function () { setZoom(zoom * 1.25, false); });
   $('zoom-out').addEventListener('click', function () { setZoom(zoom / 1.25, false); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-fit]'), function (b) {
@@ -869,11 +889,14 @@
       if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
       touch = null; suppressUp = false;
       var pa = e.touches[0], pb = e.touches[1];
+      var mid = tmid(pa, pb);
       pinch = {
         d0: tdist(pa, pb), z0: zoom,
-        m0: tmid(pa, pb),                         // 初始手指中心，用于判定捏合 vs 平移
-        c0: tmid(pa, pb),                         // 上一帧手指中心，双指平移→滚轮 delta 用
-        zoomMode: null                            // null=未定；true=捏合(缩放)；false=平移(滚轮)
+        m0: mid,                                  // 初始手指中心：判定手势用，且**始终**是缩放锚点
+        c0: mid,                                  // 上一帧手指中心：滚轮 delta 用（增量）
+        nc: mid,                                  // 上一帧手指中心：缩放+平移的目标位置用
+        cx0: null, cy0: null,                     // 锚点内容坐标（判定为缩放时按 m0 算一次）
+        zoomMode: null                            // null=未定；true=捏合(缩放+平移)；false=滚轮
       };
       return;
     }
@@ -912,11 +935,27 @@
         if (pinch.zoomMode === false) {
           var wp = toScreen(pinch.m0.x, pinch.m0.y);
           if (wp) { send({ type: 'mouse_move', x: wp.x, y: wp.y }); lastMove = Date.now(); }
+        } else {
+          // 判定为缩放的瞬间：记下**双指初始中心** m0 下的内容点作为锚点。
+          // 用 m0 而非当前中心 nc，锚点才不会随手指漂移——之后手指怎么动，
+          // 画面都以这个固定的内容点为基准跟随，缩放与平移互不干扰。
+          var cr0 = canvas.getBoundingClientRect();
+          if (cr0.width > 0 && cr0.height > 0 && screenW) {
+            pinch.cx0 = (pinch.m0.x - cr0.left) / cr0.width * screenW;
+            pinch.cy0 = (pinch.m0.y - cr0.top) / cr0.height * screenH;
+          }
         }
       }
-      if (pinch.zoomMode === true) {             // 捏合：缩放画面（以双指初始中点为锚点）
+      if (pinch.zoomMode === true) {             // 捏合：缩放**同时**平移视角
+        // 锚点 (cx0,cy0) 是手势开始时双指中心下的内容点，全程固定；
+        // 目标位置取**当前**双指中心 nc，于是画面跟着手指一起移动。
         var nz = Math.max(0.1, Math.min(4, pinch.z0 * nd / (pinch.d0 || 1)));
-        if (Math.abs(nz - zoom) > 0.002) setZoom(nz, false, pinch.m0.x, pinch.m0.y);
+        if (pinch.cx0 != null &&
+            (Math.abs(nz - zoom) > 0.0005 ||
+             Math.abs(nc.x - pinch.nc.x) > 0.5 || Math.abs(nc.y - pinch.nc.y) > 0.5)) {
+          setZoomAt(nz, pinch.cx0, pinch.cy0, nc.x, nc.y);
+          pinch.nc = nc;
+        }
       } else if (pinch.zoomMode === false) {     // 已判定为滚轮才滚；未定(null)时不动，
         // 否则想捏合缩放时，起手 10px 内的位移会被当成滚轮发出去（误滚）。
         // 与竖向一致的「抓取」手感：内容跟随手指方向，故横向取反（手指右移→内容右移）。
@@ -973,7 +1012,7 @@
 
   // 底部手势提示
   var tip = $('f-tip');
-  if (tip) tip.textContent = '单指：轻点=左键，滑动=平移视角，长按=右键；双指：捏合=缩放，同向滑动=滚轮';
+  if (tip) tip.textContent = '单指：轻点=左键，滑动=平移视角，长按=右键；双指：捏合=缩放（捏合同拖动可移视角），同向滑动=滚轮';
 
   // ---------------------------------------------------------------- 档位 / 细项
   function fillAdv() {
