@@ -103,9 +103,18 @@
   .touch-ind.right { border-color: #3fb950; box-shadow: 0 0 14px rgba(63,185,80,.75);
     background: rgba(63,185,80,.14); }
   .touch-ind.right .fill { background: rgba(63,185,80,.8); transform: scale(1); transition: none; }
-  /* 判定为拖动：取消充电并淡化，明确表示「这次不会点击」 */
+  /* 判定为平移视角（未武装就拖动）：取消充电并淡化，明确表示「这次不会点击远端」 */
   .touch-ind.drag { border-color: rgba(139,148,158,.8); box-shadow: none; opacity: .5; }
   .touch-ind.drag .fill { transform: scale(0); transition: transform .12s ease-out; }
+  /* 已武装（按住满 DRAG_HOLD）：橙色 = 此时拖动将**拖拽远端内容**，而非平移视角。
+     内圈仍在长，继续按住到 RIGHT_DELAY 会转绿触发右键。 */
+  .touch-ind.armed { border-color: #d29922; box-shadow: 0 0 14px rgba(210,153,34,.7);
+    background: rgba(210,153,34,.14); }
+  .touch-ind.armed .fill { background: rgba(210,153,34,.85); }
+  /* 正在远程拖拽（左键已按下并跟随） */
+  .touch-ind.remote { border-color: #a371f7; box-shadow: 0 0 16px rgba(163,113,247,.8);
+    background: rgba(163,113,247,.18); }
+  .touch-ind.remote .fill { background: rgba(163,113,247,.85); transform: scale(1); transition: none; }
 </style>
 </head>
 <body>
@@ -710,6 +719,9 @@
   }
   function indMove(clientX, clientY) { indSetPos(clientX, clientY); }
   function indDrag() { clearTimeout(indHideT); touchInd.className = 'touch-ind on drag'; }
+  // armed：按住满 DRAG_HOLD —— 此时拖动 = 拖拽远端内容（内圈继续长，满 RIGHT_DELAY 转右键）
+  function indArm() { clearTimeout(indHideT); touchInd.className = 'touch-ind on charging armed'; }
+  function indRemote() { clearTimeout(indHideT); touchInd.className = 'touch-ind on remote'; }
   function indRight() { clearTimeout(indHideT); touchInd.className = 'touch-ind on right'; }
   // delay>0：保留一小段时间再收，用于让右键的绿色确认「看得见」（否则一松手就没了）
   function indHide(delay) {
@@ -895,11 +907,15 @@
   var touch = null;        // 单指状态
   var pinch = null;        // 双指状态
   var lpTimer = null;      // 右键（长按）定时器
+  var dragArmT = null;     // 拖拽「武装」定时器：按住满 DRAG_HOLD 后拖动=拖拽远端
   var suppressUp = false;  // 已发右键，touchend 不再补左键
   var touchActive = false; // 触摸进行中：屏蔽合成鼠标事件（见上方桌面鼠标处理）
   var touchEndTimer = null; // touchend 后延迟复位 touchActive，避免合成鼠标事件穿透
 
-  var RIGHT_DELAY = 550;   // 单指「长时间长按」：超过此毫秒且未移动＝右键
+  var RIGHT_DELAY = 550;   // 单指长按**不动** → 右键
+  var DRAG_HOLD = 300;     // 按住满此时长即「武装」，此后的拖动 = **远程拖拽**（拖文件/选文本/拖窗口）；
+                           // 未满就拖动 = 平移本地视角。这是「拖动画布」与「拖动远端内容」的分界。
+                           // 取 300ms：短到不必久等，又长到不会把「想平移视角」误判成拖拽远端。
 
   function tdist(a, b) {
     var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
@@ -943,6 +959,7 @@
     touchActive = true;
     if (e.touches.length >= 2) {                 // 进入双指：先收掉单指未完成的动作
       clearTimeout(lpTimer);
+      clearTimeout(dragArmT);
       indHide();                                 // 双指手势不是点击，收起单指落点标记
       if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
       touch = null; suppressUp = false;
@@ -961,13 +978,23 @@
     var t = e.touches[0];
     var p = toScreen(t.clientX, t.clientY);
     if (!p) return;
-    touch = { sx: t.clientX, sy: t.clientY, lcx: t.clientX, lcy: t.clientY, p: p, last: p, pressT: Date.now(), moved: false, down: false, rightFired: false, pan: false };
+    touch = { sx: t.clientX, sy: t.clientY, lcx: t.clientX, lcy: t.clientY, p: p, last: p,
+              pressT: Date.now(), moved: false, down: false, rightFired: false, pan: false,
+              armed: false, dragMode: null };   // dragMode: null=未定 | 'pan'=平移视角 | 'remote'=拖拽远端
     suppressUp = false;
     // 注意：单指落点**不**发 mouse_move 瞬移远端光标。否则滑动/平移手势起始的那一下
     // 会把远端光标瞬移到手指处、松手后残留——表现为「鼠标跟着跑、停在我滑动的位置」。
     // 真正点击(tap)时由 mouse_click 自带 mouse_move 定位即可；平移/滚轮手势全程不碰远端光标。
     // 远端不瞬移，但**本地必须立刻给反馈**：否则用户按下时完全不知道自己点在了哪里。
     indStart(t.clientX, t.clientY);
+    // 按住满 DRAG_HOLD 即「武装」：此后开始拖动 = 拖拽远端内容（左键按下并跟随）。
+    // 若此前就已移动，说明用户想平移视角，不再武装。
+    clearTimeout(dragArmT);
+    dragArmT = setTimeout(function () {
+      if (!touch || touch.moved || touch.down) return;
+      touch.armed = true;
+      indArm();                                  // 转橙：告知「现在拖动＝拖远端」
+    }, DRAG_HOLD);
     clearTimeout(lpTimer);
     lpTimer = setTimeout(function () {           // 长时间长按＝右键
       if (!touch || touch.moved || touch.down) return;
@@ -1031,12 +1058,31 @@
       var t = e.touches[0];
       if (!touch.moved && (Math.abs(t.clientX - touch.sx) > 6 || Math.abs(t.clientY - touch.sy) > 6)) {
         touch.moved = true;
-        clearTimeout(lpTimer);                   // 一旦移动，右键定时器取消（移动＝平移，不当作点击）
-        indDrag();                               // 转拖动态并停止充电，明确表示「这次不会点击」
+        clearTimeout(lpTimer);                   // 一旦移动，右键定时器取消（移动＝拖拽/平移，不当作点击）
+        clearTimeout(dragArmT);
+        if (touch.armed) {
+          // 已武装 → 这次拖动是**拖拽远端内容**（拖文件 / 选文本 / 拖窗口）。
+          // 按下点用落点 touch.p（用户瞄准的位置），而非当前位置，保证按得准。
+          touch.dragMode = 'remote';
+          send({ type: 'mouse_down', x: touch.p.x, y: touch.p.y, button: 'left' });
+          touch.down = true;
+          indRemote();
+        } else {
+          // 未武装就移动 → 平移本地视角，绝不向远程发鼠标事件，避免误触
+          touch.dragMode = 'pan';
+          indDrag();                             // 灰色淡化：明确表示「这次不会点击远端」
+        }
       }
-      // 单指滑动一律＝平移本地视角（滚动画布），绝不向远程发鼠标事件，避免误触
-      view.scrollLeft -= (t.clientX - touch.lcx);
-      view.scrollTop  -= (t.clientY - touch.lcy);
+      if (touch.dragMode === 'remote') {
+        // 拖拽路径**不能节流丢弃**中间点：否则远端只能收到首尾两个点，
+        // 画曲线会被连成直线（拖选文本、拖窗口都会明显失真）。
+        var pd = toScreen(t.clientX, t.clientY);
+        if (pd) { send({ type: 'mouse_move', x: pd.x, y: pd.y }); touch.last = pd; }
+      } else {
+        // 平移本地视角（滚动画布）
+        view.scrollLeft -= (t.clientX - touch.lcx);
+        view.scrollTop  -= (t.clientY - touch.lcy);
+      }
       touch.lcx = t.clientX; touch.lcy = t.clientY;
       indMove(t.clientX, t.clientY);             // 落点标记跟随手指（内容坐标，故画面同步移动时它不动）
     }
@@ -1046,13 +1092,18 @@
     if (e) e.preventDefault();
     clearTimeout(lpTimer);
     if (touch) {
-      // 只有「没移动过且没发过右键」才当作一次左键点击（波纹反馈）；
-      // 移动过＝平移，右键已发＝suppressUp，均不触发。
-      if (!suppressUp && !touch.moved) {
+      if (touch.down) {
+        // 远程拖拽结束：按下已在进入拖拽时发过，这里补抬起。
+        // 漏发会让远端鼠标**一直卡在按下状态**（表现为东西被粘住跟着跑）。
+        send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
+      } else if (!suppressUp && !touch.moved) {
+        // 只有「没移动过且没发过右键」才当作一次左键点击（波纹反馈）；
+        // 移动过＝平移，右键已发＝suppressUp，均不触发。
         send({ type: 'mouse_click', x: touch.p.x, y: touch.p.y, button: 'left', clicks: 1 });
         spawnClickFx(touch.sx, touch.sy);        // 波纹＝点击已确认发出的回执
       }
       touch = null;
+      clearTimeout(dragArmT);
       // 松手收起落点标记；右键已触发时多留 420ms，让用户看清绿色确认
       indHide(suppressUp ? 420 : 0);
     }
@@ -1071,6 +1122,7 @@
   canvas.addEventListener('touchend', endTouch, { passive: false });
   canvas.addEventListener('touchcancel', function () {
     clearTimeout(lpTimer);
+    clearTimeout(dragArmT);
     if (touch && touch.down && !suppressUp) send({ type: 'mouse_up', x: touch.last.x, y: touch.last.y, button: 'left' });
     touch = null; pinch = null; suppressUp = false; touchActive = false;
     indHide();
@@ -1078,7 +1130,7 @@
 
   // 底部手势提示
   var tip = $('f-tip');
-  if (tip) tip.textContent = '单指：轻点=左键，滑动=平移视角，长按(圆环长满)=右键；双指：捏合=缩放（可同时拖移视角），同向滑动=滚轮';
+  if (tip) tip.textContent = '单指：轻点=左键｜立即拖=平移视角｜按住变橙后拖=拖拽远端｜长按变绿=右键；双指：捏合=缩放（可同时拖移视角），同向滑动=滚轮';
 
   // ---------------------------------------------------------------- 档位 / 细项
   function fillAdv() {
