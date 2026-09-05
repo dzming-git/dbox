@@ -131,8 +131,18 @@ watch(() => route.hash, (h) => {
 function goBack() {
   // 全屏页左上角：回到进入全屏页之前的页面（优先 history back，无历史则回首页）。
   // 面板实例保留，状态移交给 onUnmounted 决定收起还是切回小窗。
-  if (window.history.length > 1) router.back()
-  else router.push('/')
+  // 关键：直接通过 URL 打开独立全屏页时，浏览器历史里全是本页的 hash 变体
+  // （/ext/x、/ext/x#/home…），router.back() 只回到同一条路由、ExtensionStandalone
+  // 组件不卸载、onUnmounted 不触发，面板就永远切不出全屏（小窗/收起“点了没反应”）。
+  // 因此后退后若仍停在独立全屏页，强制回首页，确保路由组件卸载、面板形态得以切换。
+  const leaveStandaloneIfStill = () => {
+    if (route.name === 'ext-standalone' || route.name === ('ext-' + extId)) router.push('/')
+  }
+  if (window.history.length > 1) {
+    router.back().then(leaveStandaloneIfStill).catch(() => router.push('/'))
+  } else {
+    router.push('/')
+  }
 }
 
 // 面板标题栏「收起」或「小窗」按钮（extPanelHost 内建）在全屏态触发：
@@ -142,6 +152,10 @@ function onExitFullscreen(e: Event) {
   const d = (e as CustomEvent).detail || {}
   if (d.extId && d.extId !== extId) return
   pendingExitMode = d.mode === 'floating' ? 'floating' : 'hidden'
+  // 立即切换面板形态，而非等 ExtensionStandalone 卸载（onUnmounted）才切：
+  // 直接通过 URL 打开时路由可能始终停在 /ext/x、组件不卸载，若等卸载再切，
+  // 小窗/收起会“点了没反应”。这里先切（即时生效），goBack 再兜底离开空白的独立全屏页。
+  if (getPanelIframe(extId)) setPanelMode(extId, pendingExitMode)
   goBack()
 }
 
