@@ -513,9 +513,12 @@ _SIG_W, _SIG_H = 64, 36
 # 光标独立编码，无需额外处理。关键帧强制原生分辨率，确保前端画布锁定为整屏虚拟分辨率、补丁坐标对齐。
 TILE = 32                      # 脏矩形检测块大小（像素）
 DIFF_THRESHOLD = 12            # 单像素灰度差超过此值即认为该块变化（0-255）
-KF_INTERVAL = 45               # 每隔多少拍发一次整帧关键帧（≈8fps 下约 5.6s）
+KF_INTERVAL = 45               # 兜底：最多多少拍发一次关键帧（防计数器逻辑异常时永不发关帧）
+KF_INTERVAL_SEC = 4.0          # 关键帧按「时间」而非「拍数」强制：低帧率下拍间隔长，
+                               # 若只按拍数计，关帧会十几秒才来一次，丢一拍补丁就花屏很久；
+                               # 改时间制后任何帧率都至多 4s 自校准一次，低帧率也不再明显。
 _last = {'data': None, 'hash': None, 'sig': None, 'key': None,
-         'img': None, 'kf_img': None, 'rect': None, 'kf': 0}
+         'img': None, 'kf_img': None, 'rect': None, 'kf': 0, 'kf_ts': 0.0}
 
 
 def _signature(img):
@@ -669,11 +672,16 @@ def encode_frame(scale, quality, gray, still_thr=STILL_THRESHOLD, cursor=True, r
         # kf_force：后端在一条新流的首拍强制关键帧，否则重连时屏幕静止会一直返回空帧、
         # 前端永远等不到首帧而卡在「正在连接」。
         need_kf = (kf_force or prev is None or not same_region
-                   or _last.get('kf', 0) >= KF_INTERVAL)
+                   or _last.get('kf', 0) >= KF_INTERVAL
+                   or (time.time() - _last.get('kf_ts', 0)) >= KF_INTERVAL_SEC
+                   # 分辨率/布局变化：旧基准图尺寸与新帧不一致，逐 tile 比对会越界/错位，
+                   # 必须立即重发关键帧重建画布，否则整段花屏直到下一个周期关帧。
+                   or (prev is not None and img.size != prev.size))
         if need_kf:
             # 关键帧强制原生分辨率，确保前端画布锁定整屏虚拟分辨率、补丁坐标对齐
             data = _encode_jpeg(img, 1.0, quality, gray)
-            _last.update({'kf_img': img, 'img': img, 'rect': rk, 'kf': 0})
+            _last.update({'kf_img': img, 'img': img, 'rect': rk, 'kf': 0,
+                          'kf_ts': time.time()})
             return ('kf', data, rk)                 # 整帧关键帧；前端按 rk 贴（None=整屏）
         rects = _diff_dirty_rects(img, prev, th, TILE)
         if not rects:
