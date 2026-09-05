@@ -307,20 +307,37 @@
     }
 
     /* ---- 锚点：捕获视口顶部第一个足够可见的条目 ---- */
+    // 锚点判定的「最低可见高度」：条目只露一丝边角，不能算「正在看」。
+    // 往回滑一点点就会把上一条的底边带进视口顶，若仍按「底边露出 4px」判定，锚点会被
+    // 那条用户根本没在读、甚至没看见内容的边角条目抢走 —— 刷新后直接跳过去，
+    // 用户会纳闷「这是哪条？我上次看的位置呢？」
+    var ANCHOR_MIN_VISIBLE = 64;
+    function _anchorMinVisible(h) {
+      // 极矮的条目按比例放宽，否则它永远选不中
+      return Math.min(ANCHOR_MIN_VISIBLE, Math.max(16, (h || 0) * 0.35));
+    }
     function capture() {
       var c = cont();
       if (!c) return null;
       var cr = c.getBoundingClientRect();
       var nodes = c.querySelectorAll(opts.itemSelector || '[data-id]');
+      var fb = null;   // 兜底：视口顶那条（旧行为），仅当没有任何条目「看得见」时才用
       for (var i = 0; i < nodes.length; i++) {
         var r = nodes[i].getBoundingClientRect();
-        if (r.bottom > cr.top + 4) {
-          var id = nodes[i].getAttribute(idAttr);
-          if (!id) continue;
-          return { id: String(id), offset: Math.max(0, r.top - cr.top), at: Date.now() };
+        var id = nodes[i].getAttribute(idAttr);
+        if (!id) continue;
+        // 可见高度 = 条目与容器可视区的交集
+        var visH = Math.min(r.bottom, cr.bottom) - Math.max(r.top, cr.top);
+        if (visH < _anchorMinVisible(r.height)) {
+          if (!fb && r.bottom > cr.top + 4) fb = { id: String(id), offset: r.top - cr.top, at: Date.now() };
+          continue;
         }
+        // offset 语义见 restoreOnce：scrollTop = 条目位置 - offset，即条目顶边落在
+        // 容器顶边下方 offset px。已滚入条目内部时 r.top < cr.top → offset 为负 →
+        // 恢复时定位到条目内部（而非条目顶部），条内阅读进度得以保留。
+        return { id: String(id), offset: r.top - cr.top, at: Date.now() };
       }
-      return null;
+      return fb;
     }
 
     function timeOfId(id) {
