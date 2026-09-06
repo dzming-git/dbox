@@ -36,6 +36,7 @@ from registry import (
 
 # 扩展 API 基础路径：唯一事实来源（插件不得自行声明/硬编码完整 URL）。
 from ext_urls import ext_api_prefix, ext_api_path
+from weblogin import get_manager as _get_weblogin
 
 
 class _VaultProxy:
@@ -259,6 +260,9 @@ class Host:
         self.vault = _VaultProxy()
         self.tasks = _TasksProxy(self.key)
         self.http = _HttpProxy()
+        # 通用网页登录：在用户桌面打开真实浏览器，人工完成登录，自动取回 cookie。
+        # 进程内单例，各插件共用（详见 weblogin.py 模块头）。
+        self.weblogin = _get_weblogin()
         self.state = _StateProxy(self.key)   # 统一用户状态（跨设备，按插件隔离）
         self._app = app
         # 集中登记到资源注册表，供框架统一翻译真实地址（db / cache / url）。
