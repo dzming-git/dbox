@@ -79,10 +79,60 @@
     return SDK;
   };
 
-  function _persist() {
+  // 落盘只能整份写（localStorage 按 key 整体覆盖，无法增量）。实测单份可达
+  // 2.4MB、单次约 10ms。**原先 SDK.set() 每次都同步调 _persist()**：滚动时锚点每 ~200ms
+  // 写一次 → 每秒 5~7 次 2.4MB 同步写，独占帧预算的 10~25%（实测 dbox_state_x 写入
+  // 吃掉滚动总耗时的四分之一），正是「上下滑动明显卡顿」的主因。
+  function _persistNow() {
     var ls = _ls();
     if (!ls) return;
     try { ls.setItem(LS_PREFIX + SDK.ns, JSON.stringify(SDK._cache)); } catch (_) {}
+  }
+
+  // 防抖合并：每次写入都把落盘**往后推**，连续写入期间一次都不落。
+  // 滚动时锚点每 ~200ms 写一次，落盘要 1s 静默才触发 → 滚动全程 0 次 2.4MB 写，
+  // 停下 1s 后补一次（那时已不在滚动帧里，用户无感）。
+  // 曾用 requestIdleCallback 想「空闲时写」，但滚动帧之间也常有几毫秒空闲、rIC 照样
+  // 频繁触发（实测一次滚动仍写 15 次），故改回确定性的 setTimeout 防抖。
+  // PERSIST_MAX_STALE 兜底：万一有东西持续写（长时间不静默），也不会永远不落盘。
+  // 800ms：滚动时锚点每 ~200ms 写一次，防抖被不断重置 → 滚动中 0 次写；
+  // 取 4 倍余量是因为实测 400ms 会在滚动的短暂停顿里被触发（一次滚动仍写 3 次）。
+  // 停止滚动 800ms 后补写一次；退出 / 隐藏由 _flushPersist 兜底，不存在丢数据窗口。
+  var PERSIST_DEBOUNCE = 800;
+  var PERSIST_MAX_STALE = 4000;
+  var _persistTimer = null, _persistDirty = false, _persistIdle = false, _lastPersistAt = 0;
+
+  function _cancelPersistTimer() {
+    if (!_persistTimer) return;
+    try {
+      if (_persistIdle && typeof global.cancelIdleCallback === 'function') {
+        global.cancelIdleCallback(_persistTimer);
+      } else {
+        global.clearTimeout(_persistTimer);
+      }
+    } catch (_) {}
+    _persistTimer = null; _persistIdle = false;
+  }
+
+  function _persist() {
+    _persistDirty = true;
+    _cancelPersistTimer();
+    var run = function () {
+      _persistTimer = null; _persistIdle = false;
+      if (!_persistDirty) return;
+      _persistDirty = false; _lastPersistAt = Date.now();
+      _persistNow();
+    };
+    if (Date.now() - _lastPersistAt >= PERSIST_MAX_STALE) { run(); return; }   // 拖太久，这一拍就写
+    _persistIdle = false;
+    _persistTimer = global.setTimeout(run, PERSIST_DEBOUNCE);
+  }
+
+  // 立即落盘：卸载 / 隐藏时调用，保证已合并的改动绝不丢
+  function _flushPersist() {
+    _persistDirty = false;
+    _cancelPersistTimer();
+    _persistNow();
   }
 
   function _headers(json) {
@@ -201,6 +251,7 @@
 
   // 卸载/隐藏时立即落盘：keepalive 保证请求不被浏览器掐断
   SDK.flushNow = function () {
+    _flushPersist();     // 无论有没有待推送，先把合并中的本地改动落盘（卸载不丢）
     if (SDK._timer) { global.clearTimeout(SDK._timer); SDK._timer = null; }
     var put = {}, del = [], has = false;
     for (var k in SDK._pending) {
@@ -237,6 +288,10 @@
       if (SDK._cache[p] !== undefined) next[p] = SDK._cache[p];
     }
     SDK._cache = next;
+    // 用**合并**落盘而非立即落盘：滚动期间 push/pull 很频繁（防抖 1.2s 一次），
+    // 这里若强制立即写，就等于把每 200ms 一次退化回「每次同步对账都写 2.4MB」
+    // （实测一次滚动能写 29 次、耗时 331ms）。缓存是本地优先的副本，晚几毫秒落盘
+    // 无所谓，退出 / 隐藏由 _flushPersist 兜底。
     _persist();
   }
 
