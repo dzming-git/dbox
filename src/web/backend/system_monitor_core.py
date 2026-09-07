@@ -29,9 +29,12 @@ try:
 except Exception:
     _BOOT_TIME = time.time()
 
-_HISTORY = {'cpu': [], 'mem': [], 'net_up': [], 'net_down': []}
+_HISTORY = {'cpu': [], 'mem': [], 'net_up': [], 'net_down': [], 'temp': []}
 _HISTORY_MAX = 60
 _HISTORY_LOCK = threading.Lock()
+
+# 最近一次采到的核心温度（°C），供 metrics/current 直接返回，无需每次请求都查 WMI
+_LAST_TEMP = None
 
 try:
     _last_net = (psutil.net_io_counters().bytes_sent, psutil.net_io_counters().bytes_recv) if psutil else (0, 0)
@@ -49,8 +52,40 @@ def _safe_net_io():
         return 0, 0
 
 
+def _read_cpu_temperature():
+    """读取主要温度（摄氏度）。优先 psutil（Linux/Mac 可用），回退 Windows WMI
+    的 MSAcpi_ThermalZoneTemperature（decikelvin）。读不到返回 None。"""
+    if psutil:
+        try:
+            st = psutil.sensors_temperatures()
+            if st:
+                for _label, entries in st.items():
+                    vals = [e.current for e in entries if e.current is not None]
+                    if vals:
+                        return round(sum(vals) / len(vals), 1)
+        except Exception:
+            pass
+    try:
+        import win32com.client
+        wmi = win32com.client.GetObject('winmgmts:\\\\.\\root\\wmi')
+        rows = wmi.ExecQuery('SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature')
+        vals = []
+        for r in rows:
+            try:
+                ct = r.CurrentTemperature
+                if ct:
+                    vals.append(ct / 10.0 - 273.15)
+            except Exception:
+                continue
+        if vals:
+            return round(max(vals), 1)
+    except Exception:
+        pass
+    return None
+
+
 def _sample():
-    global _last_net
+    global _last_net, _LAST_TEMP
     if not psutil:
         return
     cpu = psutil.cpu_percent(interval=None)
@@ -59,12 +94,15 @@ def _sample():
     up = max(0, sent - _last_net[0])
     down = max(0, recv - _last_net[1])
     _last_net = (sent, recv)
+    temp = _read_cpu_temperature()
+    _LAST_TEMP = temp
     with _HISTORY_LOCK:
         h = _HISTORY
         h['cpu'].append(round(cpu, 1))
         h['mem'].append(round(mem.percent, 1))
         h['net_up'].append(round(up / 1024, 1))
         h['net_down'].append(round(down / 1024, 1))
+        h['temp'].append(round(temp, 1) if temp is not None else None)
         for k in h:
             if len(h[k]) > _HISTORY_MAX:
                 h[k] = h[k][-_HISTORY_MAX:]
@@ -183,6 +221,7 @@ def create_blueprint(admin_required):
                 'free': d['free'],
             } for d in disks],
             'uptime': int(time.time() - _BOOT_TIME) if _BOOT_TIME else 0,
+            'temperature': _LAST_TEMP,
         }
         return jsonify({'success': True, 'data': payload})
 
