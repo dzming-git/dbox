@@ -27,12 +27,24 @@ from shared.cache_store import CachePartition, migrate_legacy_cache
 
 
 def resolve_data_dir():
-    root = os.environ.get('DBOX_DATA_DIR')
-    if not root:
-        # __file__ = <root>/src/cache/bus_adapter.py -> _SRC_DIR = <root>/src
-        # 因此 dirname(_SRC_DIR) = <root>
-        root = os.path.join(os.path.dirname(_SRC_DIR), 'data')
-    return os.path.abspath(root)
+    # 与框架其余服务一致的数据目录解析顺序：
+    #   1) 显式 DBOX_DATA_DIR（两端应一致设置）
+    #   2) 生产运行时数据区 %ProgramData%\Dbox\data（拓展宿主落盘处）
+    #   3) 仓库内 data/（dev 兜底）
+    # 仅回退到仓库 data 会在“服务以生产数据区运行、缓存服务却装成开发模式”时
+    # 扫错目录、看到全假数据且清空间操作打不到真实缓存。
+    candidates = []
+    env = os.environ.get('DBOX_DATA_DIR')
+    if env:
+        candidates.append(env)
+    prog = os.environ.get('ProgramData')
+    if prog:
+        candidates.append(os.path.join(prog, 'Dbox', 'data'))
+    candidates.append(os.path.join(os.path.dirname(_SRC_DIR), 'data'))
+    for c in candidates:
+        if c and os.path.isdir(c):
+            return os.path.abspath(c)
+    return os.path.abspath(candidates[-1])
 
 
 # 历史散落缓存目录 -> 托管分区 的映射（启动自检迁移用）
