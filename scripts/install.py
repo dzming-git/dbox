@@ -145,6 +145,14 @@ NSSM_SERVICES = {
         'port': None,
         'log_prefix': 'search',
     },
+    'cache': {
+        'service_name': 'dbox-cached',
+        'display_name': 'Dbox 缓存管理服务',
+        'description': 'Dbox 缓存管理服务 - 统一接管并治理各拓展的媒体/资源磁盘缓存（容量上限/远程清理/启动迁移）',
+        'entry': 'src/cache/main.py',
+        'port': None,
+        'log_prefix': 'cached',
+    },
     'scheduler': {
         'service_name': 'dbox-scheduler',
         'display_name': 'Dbox 脚本调度器',
