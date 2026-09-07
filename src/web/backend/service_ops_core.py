@@ -202,8 +202,19 @@ def _query_windows_status(service_name):
 
 
 def _find_pid(service_name, port):
-    """通过监听端口或命令行匹配定位服务进程 PID。"""
+    """通过监听端口或命令行匹配定位服务进程 PID。
+
+    优化：若有 _PROC_CACHE（_do_scan 每轮一次性快照的 (pid, 小写命令行) 列表），
+    直接在内存里匹配，不再每个服务各 process_iter 遍历一遍全进程——原写法每 5 秒对
+    约 16 个服务各遍历一次（含读 cmdline），持续占用约 24% CPU。
+    """
     if not psutil:
+        return None
+    svc_key = service_name.replace('dbox-', '')
+    if _PROC_CACHE is not None:
+        for pid, cmdline_str in _PROC_CACHE:
+            if 'dbox' in cmdline_str and svc_key in cmdline_str:
+                return pid
         return None
     if port:
         try:
@@ -214,7 +225,6 @@ def _find_pid(service_name, port):
         except Exception:
             pass
     try:
-        svc_key = service_name.replace('dbox-', '')
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 if proc.info['name'] and proc.info['name'].lower() in ('python.exe', 'pythonw.exe'):
@@ -471,13 +481,39 @@ _CACHE = {}
 _CACHE_LOCK = threading.Lock()
 _SCANNER_STARTED = False
 
+# 进程快照（_do_scan 每次扫描时刷新）：一次性 process_iter 收集所有 python 进程，
+# 供 _find_pid 在内存里匹配，避免每 5 秒对 N 个服务各遍历一遍全进程（持续高 CPU 根因）。
+_PROC_CACHE = None
+
+
+def _snapshot_python_procs():
+    """快照所有 python/pythonw 进程为 (pid, 小写命令行) 列表。"""
+    out = []
+    if not psutil:
+        return out
+    try:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                name = proc.info.get('name') or ''
+                if name.lower() in ('python.exe', 'pythonw.exe'):
+                    out.append((proc.info['pid'],
+                                ' '.join(proc.info.get('cmdline') or []).lower()))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
+    return out
+
 
 def _do_scan():
+    global _PROC_CACHE
     names = _scan_nssm_services()
     merged = list(names)
     for n in _ALWAYS_LIST_SERVICES:
         if n not in merged:
             merged.append(n)
+    # 一次性快照所有 python 进程，本次扫描内所有服务复用，避免每个服务各遍历一遍全进程。
+    _PROC_CACHE = _snapshot_python_procs()
     with _CACHE_LOCK:
         for n in merged:
             try:
@@ -497,7 +533,7 @@ def _do_scan():
 def _scan_loop():
     _do_scan()
     while True:
-        time.sleep(5)
+        time.sleep(15)
         _do_scan()
 
 
