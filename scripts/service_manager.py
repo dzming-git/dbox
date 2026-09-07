@@ -126,6 +126,12 @@ SERVICES = {
         'description': 'Dbox 用户/账号管理服务',
         'port': 0,
     },
+    'cache': {
+        'service_name': 'dbox-cached',
+        'display_name': 'Dbox 缓存管理服务',
+        'description': 'Dbox 缓存管理（统一治理各拓展媒体/资源磁盘缓存）',
+        'port': 0,
+    },
 }
 
 

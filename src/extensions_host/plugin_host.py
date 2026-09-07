@@ -347,12 +347,20 @@ class Host:
         """
         return _reg_db_path(self.key, name)
 
-    def cache(self, name='main'):
-        """返回该拓展下名为 name 的缓存目录真实路径（按需建目录）。
+    def cache(self, name='main', key_hash='sha256', key_len=32,
+              default_ext='', cap=None, nested=False):
+        """返回该拓展下名为 name 的托管缓存分区（CachePartition）。
 
-        允许多缓存：host.cache('thumb') / host.cache('tmp') 互不干扰。
+        分区即 ``<data_dir>/cache/<name>`` 目录下的 key->file LRU 缓存；插件后端
+        可直接 put/get/remove/stat，由 cached 微服务统一治理（统计/清理/容量上限）。
+
+        允许多缓存：host.cache('media') / host.cache('img') 互不干扰。
+        key_hash/key_len 用于兼容历史文件名（x 用 md5、pixiv 用 sha256[:32]）。
         """
-        return _reg_cache_path(self.key, name)
+        from shared.cache_store import CachePartition
+        root = _reg_cache_path(self.key, name)
+        return CachePartition(root, key_hash=key_hash, key_len=key_len,
+                              default_ext=default_ext, cap=cap, nested=nested)
 
     def resolve(self, kind, name='main'):
         """真实地址翻译：kind ∈ {db, cache, url}。
