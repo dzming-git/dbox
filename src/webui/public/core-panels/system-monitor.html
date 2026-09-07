@@ -151,6 +151,13 @@
       <div class="v" id="procV" style="font-size:26px">–</div>
       <div class="meta" id="uptimeV">–</div>
     </div>
+    <div class="kpi" id="kTemp">
+      <div class="k">🌡️ 核心温度</div>
+      <div class="v" id="tempV">–<small>°C</small></div>
+      <div class="meta" id="tempMeta">–</div>
+      <div class="gauge"><i id="tempBar"></i></div>
+      <svg class="spark" id="tempSpark" viewBox="0 0 96 30" preserveAspectRatio="none"></svg>
+    </div>
   </div>
 
   <div class="section">
@@ -189,6 +196,8 @@ function fmtUptime(s) {
 }
 function lvl(p) { return p > 90 ? 'danger' : p > 70 ? 'warn' : ''; }
 function colorOf(p) { return p > 90 ? 'var(--danger)' : p > 70 ? 'var(--warn)' : 'var(--ok)'; }
+function tempLvl(p) { return p >= 90 ? 'danger' : p >= 75 ? 'warn' : ''; }
+function tempColor(p) { return p >= 90 ? 'var(--danger)' : p >= 75 ? 'var(--warn)' : 'var(--ok)'; }
 function spark(svg, arr, color, max) {
   svg.innerHTML = '';
   if (!arr || arr.length < 2) return;
@@ -231,6 +240,22 @@ async function load() {
       document.getElementById('kMem').className = 'kpi ' + (lvl(mem) ? 'lvl-' + lvl(mem) : '');
       document.getElementById('memMeta').textContent =
         (d.memory ? fmtBytes(d.memory.used) + ' / ' + fmtBytes(d.memory.total) : '–');
+      const temp = (d.temperature != null) ? d.temperature : null;
+      const tempEl = document.getElementById('tempV');
+      if (temp != null) {
+        tempEl.innerHTML = temp + '<small>°C</small>';
+        const tb = document.getElementById('tempBar');
+        tb.style.width = Math.min(Math.max(temp, 0), 100) + '%';
+        tb.style.background = tempColor(temp);
+        const tL = tempLvl(temp);
+        document.getElementById('kTemp').className = 'kpi ' + (tL ? 'lvl-' + tL : '');
+        document.getElementById('tempMeta').textContent =
+          tL === 'danger' ? '过热' : tL === 'warn' ? '偏高' : '正常';
+      } else {
+        tempEl.innerHTML = '–<small>°C</small>';
+        document.getElementById('tempMeta').textContent = '读不到';
+        document.getElementById('kTemp').className = 'kpi';
+      }
       document.getElementById('netUp').textContent = '–';
       document.getElementById('netDown').textContent = '–';
       document.getElementById('procV').textContent = (st && st.success) ? (st.process_count ?? '–') : '–';
@@ -283,6 +308,8 @@ async function load() {
       spark(document.getElementById('memSpark'), h.mem, 'var(--ok)', 100);
       const net = (h.net_up || []).concat();
       spark(document.getElementById('netSpark'), net, 'var(--accent)', Math.max(...net, 1) || 1);
+      const tarr = (h.temp || []).filter(v => typeof v === 'number' && isFinite(v));
+      spark(document.getElementById('tempSpark'), tarr, 'var(--danger)', Math.max(...tarr, 100) || 100);
       const up = (h.net_up || []), dn = (h.net_down || []);
       document.getElementById('netUp').textContent = up.length ? up[up.length-1] + ' KB/s' : '–';
       document.getElementById('netDown').textContent = dn.length ? dn[dn.length-1] + ' KB/s' : '–';
