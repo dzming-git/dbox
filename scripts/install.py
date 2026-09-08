@@ -187,13 +187,14 @@ def get_version(source_dir: Path) -> str:
 
 
 def find_python_exe() -> str:
-    """查找可用的 Python 可执行文件"""
-    # 源码目录下的 venv
-    src_venv_py = SOURCE_DIR / 'venv' / 'Scripts' / 'python.exe'
-    if src_venv_py.exists():
-        return str(src_venv_py)
-    
-    # 当前 Python
+    """查找可用的 Python 可执行文件（用于注册 NSSM 服务）。
+
+    注意：dbox 服务实际运行在系统 Python（依赖装在那里，启动时也会 re-exec 到系统
+    Python）。直接用系统 Python 注册 NSSM，可避免每个服务额外 spawn 一个 venv 监督
+    进程（实例冗余、进程数翻倍）。若当前处于 venv，则回退到其 base（系统）Python。
+    """
+    if sys.prefix != sys.base_prefix:
+        return str(Path(sys.base_prefix) / 'python.exe')
     return sys.executable
 
 
