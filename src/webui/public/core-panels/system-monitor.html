@@ -245,6 +245,8 @@ function spark(svg, arr, color, max) {
 let lastTs = 0;
 let tempWindowSec = 86400;
 let lastRecs = [];
+let chartData = [];   // 本地累积的温度/指标历史记录（增量补齐，裁剪到 24h）
+let pollTimer = null;
 
 function drawTempChart(recs, windowSec) {
   const svg = document.getElementById('tempChart');
@@ -315,12 +317,14 @@ document.querySelectorAll('.win-btn').forEach(b => {
   });
 });
 async function load() {
+  if (document.hidden) return;  // 后台/不可见时停止轮询与重绘：省流量，且回前台不再连刷积压
   try {
+    const sinceParam = chartData.length ? ('?since=' + encodeURIComponent(chartData[chartData.length - 1].t)) : '';
     const [m, info, st, hist] = await Promise.all([
       fetch(PREFIX + '/metrics/current', { headers: authHeaders() }).then(r=>r.json()),
       fetch(PREFIX + '/info', { headers: authHeaders() }).then(r=>r.json()),
       fetch(PREFIX + '/stats', { headers: authHeaders() }).then(r=>r.json()),
-      fetch(PREFIX + '/metrics/history', { headers: authHeaders() }).then(r=>r.json()),
+      fetch(PREFIX + '/metrics/history' + sinceParam, { headers: authHeaders() }).then(r=>r.json()),
     ]);
     lastTs = Date.now();
     if (m && m.success && m.data) {
@@ -402,6 +406,21 @@ async function load() {
     }
     if (hist && hist.success && hist.history) {
       const recs = hist.history;
+      // 增量合并：首次用全量，之后只追加比本地更新的样本，并裁剪到最近 24 小时
+      if (!chartData.length) {
+        chartData = recs.slice();
+      } else if (recs.length) {
+        const lastT = chartData[chartData.length - 1].t;
+        for (const r of recs) if (r.t > lastT) chartData.push(r);
+        const cutoff = Math.floor(Date.now() / 1000) - 24 * 3600;
+        if (chartData.length && chartData[0].t < cutoff) {
+          chartData = chartData.filter(r => r.t >= cutoff);
+        }
+      }
+    }
+    // 始终基于本地累积数据绘制（即使本 tick 无新数据也保持既有曲线，不闪烁清空）
+    if (chartData.length) {
+      const recs = chartData;
       lastRecs = recs;
       const cpuArr = recs.map(r => r.cpu);
       const memArr = recs.map(r => r.mem);
@@ -427,7 +446,15 @@ function tickLive() {
   const s = Math.round((Date.now() - lastTs) / 1000);
   el.textContent = '更新于 ' + s + ' 秒前';
 }
-load(); setInterval(load, 2000); setInterval(tickLive, 1000);
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(load, 2000);
+}
+// 回前台时立即补齐增量并重置轮询，避免后台积压导致回前台连刷
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { load(); startPolling(); }
+});
+load(); startPolling(); setInterval(tickLive, 1000);
 </script>
 </body>
 </html>

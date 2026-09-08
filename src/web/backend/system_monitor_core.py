@@ -266,10 +266,13 @@ def create_blueprint(admin_required):
     @bp.route('/metrics/history', methods=['GET'])
     @admin_required
     def metrics_history():
+        since = request.args.get('since', 0, type=int)
         with _HISTORY_LOCK:
+            # 支持增量拉取：仅返回 since 之后的新样本，省流量（手机后台回来不重复下载全量）
+            data = [r for r in _HISTORY if r['t'] > since] if since else list(_HISTORY)
             return jsonify({
                 'success': True,
-                'history': list(_HISTORY),
+                'history': data,
                 'interval': _SAMPLE_INTERVAL,
                 'now': int(time.time()),
             })
