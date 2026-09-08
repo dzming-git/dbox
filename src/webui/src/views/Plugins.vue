@@ -3,6 +3,9 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
 
+// embedded：作为后台「应用」标签页内嵌时，隐藏自身页面标题（标题由后台统一提供）
+const props = defineProps<{ embedded?: boolean }>()
+
 interface PluginInfo {
   id: string
   name: string
@@ -109,7 +112,7 @@ onMounted(load)
 
 <template>
   <div class="plugins-page">
-    <header class="page-header">
+    <header class="page-header" v-if="!props.embedded">
       <h1 class="page-title">扩展管理</h1>
       <p class="page-subtitle">
         管理所有已安装的外部扩展 / 第三方插件。可手动启用或停用，并为每个插件配置独立设置（由插件自身声明）。

@@ -153,9 +153,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '管理后台', requiresAuth: true, requiresAdmin: true }
   },
   {
+    // 扩展管理已收编为后台「应用」标签页；此处保留旧链接重定向，避免收藏/外链失效。
+    // 保留 meta 让重定向首趟导航就受同一套权限校验（而非依赖重定向后的第二趟）。
     path: '/plugins',
-    name: 'Plugins',
-    component: () => import('../views/Plugins.vue'),
+    redirect: '/admin?tab=extensions',
     meta: { title: '扩展管理', requiresAuth: true, requiresAdmin: true }
   },
   {
@@ -165,9 +166,9 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '插件设置', requiresAuth: true, requiresAdmin: true }
   },
   {
+    // 凭证保险库已收编为后台「应用」标签页（同上，保留旧链接与权限校验）
     path: '/vault',
-    name: 'Vault',
-    component: () => import('../views/Vault.vue'),
+    redirect: '/admin?tab=vault',
     meta: { title: '凭证保险库', requiresAuth: true, requiresAdmin: true }
   },
   {

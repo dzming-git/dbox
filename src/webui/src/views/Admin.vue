@@ -18,6 +18,10 @@ import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
+// 扩展管理与凭证保险库原为 /plugins、/vault 两个独立顶层入口，
+// 现收编为后台「应用」标签组，使「管理」只有一个权威入口。
+import Plugins from './Plugins.vue'
+import Vault from './Vault.vue'
 import Pagination from '../components/Pagination.vue'
 import BaseModal from '../components/BaseModal.vue'
 
@@ -29,7 +33,9 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 
 // 当前活动标签页 —— 使用 sessionStorage 持久化，防止手机切后台后状态丢失
 const ADMIN_TAB_KEY = 'admin_active_tab'
-const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'users', 'config', 'power', 'monitor']
+// 注：'trash' 原先漏在这份白名单外（导致从 sessionStorage 恢复回收站标签会被拒），一并补上；
+// 'extensions' / 'vault' 为收编进来的扩展管理与凭证保险库。
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'trash', 'users', 'config', 'power', 'monitor', 'cache', 'extensions', 'vault']
 const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
 const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
@@ -1885,11 +1891,11 @@ const switchTab = (tab: string) => {
 }
 
 onMounted(() => {
-  // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=services）
-  // 注意：外部脚本入口已移至用户头像下拉菜单，不再作为后台标签页
+  // 支持通过 URL query 参数直接跳转到指定标签页（如 /admin?tab=services）。
+  // /plugins、/vault 已重定向到 /admin?tab=extensions / ?tab=vault，故此处需认这两个新标签。
   const routeTab = router.currentRoute.value.query?.tab as string
-  const validTabs = ['services', 'thumbnail', 'libraries', 'resources', 'users', 'config', 'monitor', 'power']
-  if (routeTab && validTabs.includes(routeTab)) activeTab.value = routeTab
+  // 复用统一白名单，不再另存一份会与 VALID_ADMIN_TABS 漂移的副本
+  if (routeTab && VALID_ADMIN_TABS.includes(routeTab)) activeTab.value = routeTab
 
   fetchSystemInfo()
   fetchSystemStats()
@@ -1976,6 +1982,22 @@ onUnmounted(() => {
       </div>
 
       <div class="tab-group">
+        <span class="tab-group-label">应用</span>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'extensions' }"
+          @click="switchTab('extensions')"
+          v-if="userStore.isAdmin"
+        >🧩 扩展管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'vault' }"
+          @click="switchTab('vault')"
+          v-if="userStore.isAdmin"
+        >🔑 凭证保险库</button>
+      </div>
+
+      <div class="tab-group">
         <span class="tab-group-label">系统</span>
         <button
           class="tab-btn"
@@ -2001,6 +2023,12 @@ onUnmounted(() => {
           @click="switchTab('power')"
           v-if="userStore.isAdmin"
         >⏻ 电源控制</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'cache' }"
+          @click="switchTab('cache')"
+          v-if="userStore.isAdmin"
+        >💾 缓存管理</button>
       </div>
 
       <div class="tab-group">
@@ -2405,6 +2433,11 @@ onUnmounted(() => {
       <!-- 用户管理标签页 -->
       <AdminUsers v-if="activeTab === 'users'" />
 
+      <!-- 应用标签页：扩展管理（原 /plugins）与凭证保险库（原 /vault）收编至此，
+           与「服务管理」（微服务）同属后台，运维视角下统一为可管理的运行时单元。 -->
+      <Plugins v-if="activeTab === 'extensions'" embedded />
+      <Vault v-if="activeTab === 'vault'" embedded />
+
       <!-- 系统配置标签页 -->
       <AdminConfig v-if="activeTab === 'config'" />
 
@@ -2737,6 +2770,12 @@ onUnmounted(() => {
       <div v-if="activeTab === 'power'" class="tab-content">
         <div class="section-header"><h3>电源控制</h3></div>
         <iframe src="/core-panels/system-power.html" class="core-panel-frame"></iframe>
+      </div>
+
+      <!-- 缓存管理标签页（核心面板，运行于主服务，独立于 dbox-extensions） -->
+      <div v-if="activeTab === 'cache'" class="tab-content">
+        <div class="section-header"><h3>缓存管理</h3></div>
+        <iframe src="/core-panels/cache.html" class="core-panel-frame"></iframe>
       </div>
 
       <!-- 服务管理标签页 -->
