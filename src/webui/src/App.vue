@@ -7,6 +7,7 @@ import { fetchServerSettings, clearServerSettings, getEffectiveSettings } from '
 import { applyThemeById, DEFAULT_THEME_ID } from './utils/theme'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
+import { canShow } from './utils/routeAccess'
 import { taskApi } from './api/task'
 import ExtensionHost from './components/ExtensionHost.vue'
 import PullToRefresh from './components/PullToRefresh.vue'
@@ -204,7 +205,7 @@ const closeUserDropdown = (event: MouseEvent) => {
 
           <!-- 管理后台入口：头像下拉菜单已瘦身、不再承载系统入口，
                这里作为「管理」维度的唯一顶层入口（与「应用」维度的入口并列）。 -->
-          <RouterLink to="/admin" class="nav-link nav-icon-link" title="管理后台" v-if="userStore.isAdmin">
+          <RouterLink to="/admin" class="nav-link nav-icon-link" title="管理后台" v-if="canShow('/admin')">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
             </svg>

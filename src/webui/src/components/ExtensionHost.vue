@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { useUserStore } from '../stores/userStore'
 import { withExtRuntime } from '../utils/extRuntime'
+import { canShow } from '../utils/routeAccess'
 import {
   ensurePanel, setPanelMode, postToPanel, getPanelIframe,
   onPanelMessage, isPanelVisible,
@@ -190,6 +191,9 @@ const builtinApps = [
   },
 ]
 
+// 内置应用的可见性同样只问路由 meta，与导航栏/菜单入口保持同一套判据
+const visibleBuiltinApps = computed(() => builtinApps.filter((a) => canShow(a.to)))
+
 function openBuiltin(app: { to: string }) {
   launcherOpen.value = false
   router.push(app.to)
@@ -362,7 +366,7 @@ watch(() => route.path, async (p) => {
     <div v-if="openId" class="ext-mask" @click="closePanel"></div>
 
     <!-- 统一的 apps 启动器入口：注入全局导航栏（与「任务」「稍后再看」等图标同排） -->
-    <Teleport v-if="navSlotReady && (extensions.length || builtinApps.length)" to="#ext-launcher-slot">
+    <Teleport v-if="navSlotReady && (extensions.length || visibleBuiltinApps.length)" to="#ext-launcher-slot">
       <button
         type="button"
         class="nav-link nav-icon-link ext-nav-trigger"
@@ -409,11 +413,11 @@ watch(() => route.path, async (p) => {
               </button>
             </div>
           </div>
-          <div v-if="builtinApps.length" class="ext-launcher-section">
+          <div v-if="visibleBuiltinApps.length" class="ext-launcher-section">
             <span class="ext-launcher-label">内置</span>
             <div class="ext-launcher-grid">
               <button
-                v-for="app in builtinApps"
+                v-for="app in visibleBuiltinApps"
                 :key="app.id"
                 class="ext-app"
                 @click="openBuiltin(app)"
@@ -423,7 +427,7 @@ watch(() => route.path, async (p) => {
               </button>
             </div>
           </div>
-          <div v-if="!extensions.length && !builtinApps.length" class="ext-launcher-empty">
+          <div v-if="!extensions.length && !visibleBuiltinApps.length" class="ext-launcher-empty">
             暂无可用应用
           </div>
         </div>
