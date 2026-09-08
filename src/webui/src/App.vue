@@ -300,8 +300,12 @@ const closeUserDropdown = (event: MouseEvent) => {
     <!-- 全局 Toast 宿主：后台上传完成等通知 -->
     <div v-if="showToastFlag" class="global-toast">{{ toastMessage }}</div>
 
-    <!-- 扩展脚本 UI 注入宿主（仅管理员已启用的脚本可见） -->
-    <ExtensionHost v-if="userStore.isAdmin" />
+    <!-- 扩展脚本 UI 注入宿主。
+         注意：这里按「已登录」而非「管理员」渲染——应用列表现在同时承载内置功能
+         （上传/标签/合集/帖子/文本），后端上传接口本就是 @auth_required，
+         普通登录用户同样可用；扩展部分由 listExtensions 自行鉴权，
+         非管理员拿到的扩展列表为空，不会越权。 -->
+    <ExtensionHost v-if="userStore.isLoggedIn" />
   </div>
 </template>
 
