@@ -23,9 +23,9 @@ _SERVICE_ENTRY = os.path.join(_PROJECT_ROOT, 'src', 'system', 'main.py')
 
 
 def get_python():
-    """获取 Python 解释器路径"""
-    if os.path.exists(_VENV_PYTHON):
-        return _VENV_PYTHON
+    """获取 Python 解释器路径（优先系统 Python，避免实例冗余）"""
+    if sys.prefix != sys.base_prefix:
+        return os.path.join(sys.base_prefix, 'python.exe')
     return sys.executable
 
 
