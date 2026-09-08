@@ -141,6 +141,16 @@ def get_allowed_library_ids(user_id: int) -> list:
     return r.get('library_ids', []) if isinstance(r, dict) else []
 
 
+def get_user_role(user_id: int):
+    """获取指定用户在**库中**的真实角色数值；查不到返回 None。
+
+    用于让拓展宿主的管理员判定与主服务同口径（主服务按 user_id 查库，
+    而非只信 JWT 里的 role 声明）。
+    """
+    r = _get('/user-role', {'user_id': user_id})
+    return r.get('role') if isinstance(r, dict) else None
+
+
 def notify_job_done(job_id, result: dict) -> dict:
     """通知主服务某个脚本任务已完成（用于联动业务逻辑，如清理临时态）。"""
     return _post('/job-done', {'job_id': job_id, 'result': result or {}})

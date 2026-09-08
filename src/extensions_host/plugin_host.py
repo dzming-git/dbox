@@ -9,6 +9,7 @@
 - 契约通信：插件依赖 host 的稳定接口，而非框架内部实现。
 """
 import os
+import time
 import uuid
 import logging
 
@@ -232,6 +233,38 @@ class _StateProxy:
         return r.get('data') or {}
 
 
+# 角色缓存：{user_id: (role, expire_ts)}。
+# 面板会高频轮询（如系统监控 4 个端点 / 2 秒），不能每次请求都打一次跨服务调用，
+# 故缓存 30 秒；角色变更后最多 30s 生效，对管理操作可接受。
+_ROLE_CACHE = {}
+_ROLE_CACHE_TTL = 30.0
+
+
+def _resolve_role(user_id, claim_role):
+    """取用户在**库中**的真实角色；核心不可达时回退到 token 里的 role 声明。
+
+    为什么不能只信 token 的 role 声明：主服务的 admin_required 是按 user_id 查库
+    取最新角色的（backend.access.resolve_identity），而本进程此前只读 JWT 声明。
+    两者口径不一致时，声明一旦陈旧就会出现「主站页面全能用、插件接口 403」的怪象
+    ——即把原本运行在主服务里的功能迁到拓展宿主后才会暴露的回归。
+    """
+    if not user_id:
+        return claim_role
+    now = time.time()
+    hit = _ROLE_CACHE.get(user_id)
+    if hit and hit[1] > now:
+        return hit[0]
+    try:
+        import platform_client
+        role = platform_client.get_user_role(user_id)
+        if role is not None:
+            _ROLE_CACHE[user_id] = (int(role), now + _ROLE_CACHE_TTL)
+            return int(role)
+    except Exception as e:
+        logging.getLogger('plugin_host').warning('回查用户角色失败，回退 token 声明: %s', e)
+    return claim_role
+
+
 class Host:
     """注入插件的宿主对象。字段均为稳定契约，内部实现可自由演进。
 
@@ -331,7 +364,8 @@ class Host:
             if payload.get('type') != 'access':
                 return jsonify({'success': False, 'message': 'token 类型错误', 'code': 401}), 401
             g.user_id = payload.get('user_id')
-            g.role = payload.get('role', 3)  # 未登录默认 GUEST(3)，数值越大权限越低
+            # 角色以「库里的真实角色」为准（与主服务同口径），token 声明仅作兜底
+            g.role = _resolve_role(g.user_id, payload.get('role', 3))
             g.username = payload.get('username')
             if g.role > ADMIN_ROLE:
                 return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403

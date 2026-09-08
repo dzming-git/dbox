@@ -574,6 +574,20 @@ def _user_library_admin_ids(user_id):
     return ids
 
 
+def get_user_role(user_id):
+    """返回指定用户在**库中**的真实角色数值；查不到返回 None。
+
+    供拓展宿主经 /internal/user-role 回调，使其管理员判定与主服务同口径：
+    主服务是按 user_id 查库取最新角色的（见 admin_required / resolve_identity），
+    而拓展宿主若只读 JWT 里的 role 声明，声明一陈旧就会出现
+    「主站页面全能用、插件接口 403」的怪象。
+    """
+    if not user_id:
+        return None
+    u = User.query.get(user_id)
+    return int(u.role) if u else None
+
+
 def auth_required(f):
     """通用认证装饰器 - 复用 resolve_identity 统一解析；保留 URL query token 回退。"""
     @wraps(f)
