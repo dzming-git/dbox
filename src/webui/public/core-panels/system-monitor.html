@@ -100,6 +100,18 @@
   .info-grid .row .k { color:var(--muted); font-size:12px; }
   .info-grid .row .v { font-size:13px; font-weight:600; text-align:right; }
   .err { color:var(--danger); font-size:13px; padding:10px 0; }
+  .win-sel { display:flex; gap:6px; }
+  .win-btn {
+    border:1px solid var(--line); background:var(--surface2); color:var(--muted);
+    padding:5px 11px; border-radius:999px; font-size:12px; cursor:pointer;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .win-btn:hover { color:var(--text); border-color:rgba(255,255,255,.14); }
+  .win-btn.active { background:var(--accent); border-color:transparent; color:#fff; }
+  .temp-chart-foot { color:var(--muted); font-size:12px; margin-top:10px; }
+  .temp-chart-foot b { color:var(--text); font-weight:600; }
+  #tempChart text { fill:var(--faint); font-size:11px; }
+  #tempChart .axis-line { stroke:var(--line); stroke-width:1; }
   @media (max-width:560px) {
     .top { flex-wrap:wrap; }
     .top .live { margin-left:0; }
@@ -162,6 +174,21 @@
 
   <div class="section">
     <div class="section-head">
+      <h2>🌡️ 核心温度曲线</h2>
+      <div class="win-sel">
+        <button class="win-btn" data-win="3600">1 小时</button>
+        <button class="win-btn" data-win="21600">6 小时</button>
+        <button class="win-btn active" data-win="86400">24 小时</button>
+      </div>
+    </div>
+    <div class="card">
+      <svg id="tempChart" viewBox="0 0 960 240" preserveAspectRatio="none" style="width:100%;height:240px;display:block"></svg>
+      <div class="temp-chart-foot" id="tempChartFoot">–</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
       <h2>💽 磁盘空间</h2>
       <span class="hint">按使用率排序</span>
     </div>
@@ -216,6 +243,75 @@ function spark(svg, arr, color, max) {
   svg.appendChild(pl);
 }
 let lastTs = 0;
+let tempWindowSec = 86400;
+let lastRecs = [];
+
+function drawTempChart(recs, windowSec) {
+  const svg = document.getElementById('tempChart');
+  const foot = document.getElementById('tempChartFoot');
+  const now = Math.floor(Date.now() / 1000);
+  const win = recs.filter(r => typeof r.t === 'number' && now - r.t <= windowSec);
+  const pts = win.filter(r => typeof r.temp === 'number' && isFinite(r.temp));
+  if (!pts.length) {
+    svg.innerHTML = '';
+    foot.innerHTML = '该时段内没有可用的温度数据（设备可能未上报核心温度，或刚启动尚在积累）。';
+    return;
+  }
+  const W = 960, H = 240, pl = 44, pr = 14, pt = 14, pb = 24;
+  const iw = W - pl - pr, ih = H - pt - pb;
+  const temps = pts.map(r => r.temp);
+  const maxT = Math.max.apply(null, temps);
+  const minT = Math.min.apply(null, temps);
+  const yMax = Math.max(Math.ceil(maxT / 5) * 5 + 5, 80);
+  const yMin = 0;
+  const x0 = pts[0].t, x1 = pts[pts.length - 1].t;
+  const span = Math.max(x1 - x0, 1);
+  const X = t => pl + ((t - x0) / span) * iw;
+  const Y = v => pt + (1 - (v - yMin) / (yMax - yMin)) * ih;
+  let s = '';
+  // 阈值带（偏高 / 过热）
+  [[75, 'var(--warn)'], [90, 'var(--danger)']].forEach(([tv, c]) => {
+    if (tv <= yMax) {
+      const y = Y(tv);
+      s += '<line x1="' + pl + '" y1="' + y + '" x2="' + (W - pr) + '" y2="' + y +
+        '" stroke="' + c + '" stroke-width="1" stroke-dasharray="4 4" opacity="0.4"/>';
+      s += '<text x="' + (W - pr) + '" y="' + (y - 3) + '" text-anchor="end">' + tv + '°</text>';
+    }
+  });
+  // y 轴刻度
+  [yMin, Math.round((yMin + yMax) / 2), yMax].forEach(v => {
+    const y = Y(v);
+    s += '<text x="' + (pl - 6) + '" y="' + (y + 3) + '" text-anchor="end">' + v + '°</text>';
+  });
+  // x 轴时间刻度（约 5 格）
+  const ticks = 5;
+  for (let i = 0; i <= ticks; i++) {
+    const t = x0 + span * (i / ticks);
+    const x = X(t);
+    const d = new Date(t * 1000);
+    const hh = ('0' + d.getHours()).slice(-2), mm = ('0' + d.getMinutes()).slice(-2);
+    s += '<text x="' + x.toFixed(1) + '" y="' + (H - 7) + '" text-anchor="' +
+      (i === 0 ? 'start' : i === ticks ? 'end' : 'middle') + '">' + hh + ':' + mm + '</text>';
+  }
+  // 曲线
+  const dPath = pts.map((r, i) => (i ? 'L' : 'M') + X(r.t).toFixed(1) + ' ' + Y(r.temp).toFixed(1)).join(' ');
+  s += '<path d="' + dPath + '" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  const last = pts[pts.length - 1];
+  s += '<circle cx="' + X(last.t).toFixed(1) + '" cy="' + Y(last.temp).toFixed(1) + '" r="3.2" fill="var(--danger)"/>';
+  svg.innerHTML = s;
+  const label = windowSec >= 86400 ? '24 小时' : windowSec >= 21600 ? '6 小时' : '1 小时';
+  foot.innerHTML = '最近 ' + label + '：最高 <b>' + maxT.toFixed(1) + '°C</b> · 最低 <b>' +
+    minT.toFixed(1) + '°C</b> · 当前 <b>' + last.temp.toFixed(1) + '°C</b>（采样 1 分钟/次，共 ' + pts.length + ' 个采样点）';
+}
+
+document.querySelectorAll('.win-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.win-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    tempWindowSec = parseInt(b.dataset.win, 10);
+    drawTempChart(lastRecs, tempWindowSec);
+  });
+});
 async function load() {
   try {
     const [m, info, st, hist] = await Promise.all([
@@ -303,16 +399,21 @@ async function load() {
         '<div class="row"><span class="k">'+r[0]+'</span><span class="v">'+r[1]+'</span></div>').join('');
     }
     if (hist && hist.success && hist.history) {
-      const h = hist.history;
-      spark(document.getElementById('cpuSpark'), h.cpu, 'var(--accent)', 100);
-      spark(document.getElementById('memSpark'), h.mem, 'var(--ok)', 100);
-      const net = (h.net_up || []).concat();
-      spark(document.getElementById('netSpark'), net, 'var(--accent)', Math.max(...net, 1) || 1);
-      const tarr = (h.temp || []).filter(v => typeof v === 'number' && isFinite(v));
+      const recs = hist.history;
+      lastRecs = recs;
+      const cpuArr = recs.map(r => r.cpu);
+      const memArr = recs.map(r => r.mem);
+      const netUpArr = recs.map(r => r.net_up);
+      const netDnArr = recs.map(r => r.net_down);
+      const tempArr = recs.map(r => r.temp);
+      spark(document.getElementById('cpuSpark'), cpuArr, 'var(--accent)', 100);
+      spark(document.getElementById('memSpark'), memArr, 'var(--ok)', 100);
+      spark(document.getElementById('netSpark'), netUpArr, 'var(--accent)', Math.max.apply(null, netUpArr.concat([1])));
+      const tarr = tempArr.filter(v => typeof v === 'number' && isFinite(v));
       spark(document.getElementById('tempSpark'), tarr, 'var(--danger)', Math.max(...tarr, 100) || 100);
-      const up = (h.net_up || []), dn = (h.net_down || []);
-      document.getElementById('netUp').textContent = up.length ? up[up.length-1] + ' KB/s' : '–';
-      document.getElementById('netDown').textContent = dn.length ? dn[dn.length-1] + ' KB/s' : '–';
+      document.getElementById('netUp').textContent = netUpArr.length ? netUpArr[netUpArr.length-1] + ' KB/s' : '–';
+      document.getElementById('netDown').textContent = netDnArr.length ? netDnArr[netDnArr.length-1] + ' KB/s' : '–';
+      drawTempChart(recs, tempWindowSec);
     }
   } catch (e) {
     console.error('[system-monitor] load failed:', e);

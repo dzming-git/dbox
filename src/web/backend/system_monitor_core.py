@@ -9,6 +9,7 @@
 import os
 import sys
 import time
+import json
 import platform
 import threading
 import logging
@@ -29,8 +30,12 @@ try:
 except Exception:
     _BOOT_TIME = time.time()
 
-_HISTORY = {'cpu': [], 'mem': [], 'net_up': [], 'net_down': [], 'temp': []}
-_HISTORY_MAX = 60
+# 历史指标：带时间戳的采样记录，持久化到磁盘以支持 24 小时温度曲线（重启不丢）。
+# 每条记录: {'t': 采样时刻 epoch 秒, 'cpu', 'mem', 'net_up', 'net_down', 'temp'}
+_SAMPLE_INTERVAL = 60            # 采样频率（秒）：1 分钟一次
+_RETENTION = 24 * 3600           # 保留窗口（秒）：最近 24 小时
+_HISTORY_FILE = os.path.join(_ROOT, 'data', 'system_monitor_history.json')
+_HISTORY = []
 _HISTORY_LOCK = threading.Lock()
 
 # 最近一次采到的核心温度（°C），供 metrics/current 直接返回，无需每次请求都查 WMI
@@ -84,34 +89,66 @@ def _read_cpu_temperature():
     return None
 
 
+def _load_history():
+    global _HISTORY
+    try:
+        if os.path.exists(_HISTORY_FILE):
+            with open(_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                cutoff = int(time.time()) - _RETENTION
+                _HISTORY = [r for r in data if isinstance(r, dict) and r.get('t', 0) >= cutoff]
+    except Exception as e:
+        logger.warning('加载系统监控历史失败，将从头记录: %s', e)
+        _HISTORY = []
+
+
+def _persist_history():
+    try:
+        d = os.path.dirname(_HISTORY_FILE)
+        if not os.path.exists(d):
+            os.makedirs(d, exist_ok=True)
+        tmp = _HISTORY_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(_HISTORY, f)
+        os.replace(tmp, _HISTORY_FILE)
+    except Exception as e:
+        logger.warning('持久化系统监控历史失败: %s', e)
+
+
 def _sample():
-    global _last_net, _LAST_TEMP
+    global _last_net, _LAST_TEMP, _HISTORY
     if not psutil:
         return
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     sent, recv = _safe_net_io()
-    up = max(0, sent - _last_net[0])
-    down = max(0, recv - _last_net[1])
+    # 网络速率按采样间隔折算为 KB/s（平均速率，标签即 KB/s）
+    up = max(0, (sent - _last_net[0]) / _SAMPLE_INTERVAL / 1024)
+    down = max(0, (recv - _last_net[1]) / _SAMPLE_INTERVAL / 1024)
     _last_net = (sent, recv)
     temp = _read_cpu_temperature()
     _LAST_TEMP = temp
+    rec = {
+        't': int(time.time()),
+        'cpu': round(cpu, 1),
+        'mem': round(mem.percent, 1),
+        'net_up': round(up, 1),
+        'net_down': round(down, 1),
+        'temp': round(temp, 1) if temp is not None else None,
+    }
     with _HISTORY_LOCK:
-        h = _HISTORY
-        h['cpu'].append(round(cpu, 1))
-        h['mem'].append(round(mem.percent, 1))
-        h['net_up'].append(round(up / 1024, 1))
-        h['net_down'].append(round(down / 1024, 1))
-        h['temp'].append(round(temp, 1) if temp is not None else None)
-        for k in h:
-            if len(h[k]) > _HISTORY_MAX:
-                h[k] = h[k][-_HISTORY_MAX:]
+        _HISTORY.append(rec)
+        cutoff = rec['t'] - _RETENTION
+        if len(_HISTORY) > 2 and _HISTORY[0]['t'] < cutoff:
+            _HISTORY = [r for r in _HISTORY if r['t'] >= cutoff]
+    _persist_history()
 
 
 def _sample_loop():
     while True:
         _sample()
-        time.sleep(2)
+        time.sleep(_SAMPLE_INTERVAL)
 
 
 _started = False
@@ -121,6 +158,7 @@ def _ensure_sampler():
     global _started
     if not _started and psutil:
         _started = True
+        _load_history()
         threading.Thread(target=_sample_loop, daemon=True).start()
 
 
@@ -229,7 +267,12 @@ def create_blueprint(admin_required):
     @admin_required
     def metrics_history():
         with _HISTORY_LOCK:
-            return jsonify({'success': True, 'history': dict(_HISTORY)})
+            return jsonify({
+                'success': True,
+                'history': list(_HISTORY),
+                'interval': _SAMPLE_INTERVAL,
+                'now': int(time.time()),
+            })
 
     @bp.route('/info', methods=['GET'])
     @admin_required
