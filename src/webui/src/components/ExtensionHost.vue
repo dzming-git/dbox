@@ -163,6 +163,38 @@ async function openPanel(id: string) {
 // apps 列表点击某 app：打开对应面板（floating → 浮动面板；panel → 侧边面板）。
 // 独立全屏路由 standalone_route 保留给面板内「全屏」入口或导航，不在此自动跳转，
 // 以维持右下角浮层内的即时操作体验。
+// 内置功能：与扩展并列进「应用」列表。
+// 若不把它们纳入应用列表，核心功能就无处安放，只会不断往头像下拉菜单回流
+// （「上传」此前就是这么掉进管理项堆里的）。
+// 可见性统一由路由 meta 决定，这里只声明「有哪些内置应用」。
+const builtinApps = [
+  {
+    id: 'builtin-upload', title: '上传', to: '/upload',
+    icon: '<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>',
+  },
+  {
+    id: 'builtin-tags', title: '标签', to: '/tags',
+    icon: '<svg viewBox="0 0 24 24"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 2 2 2h11c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg>',
+  },
+  {
+    id: 'builtin-collections', title: '合集', to: '/collections',
+    icon: '<svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
+  },
+  {
+    id: 'builtin-posts', title: '帖子', to: '/posts',
+    icon: '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>',
+  },
+  {
+    id: 'builtin-texts', title: '文本', to: '/texts',
+    icon: '<svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 4h10v2H4V8zm0 4h16v2H4v-2zm0 4h10v2H4v-2z"/></svg>',
+  },
+]
+
+function openBuiltin(app: { to: string }) {
+  launcherOpen.value = false
+  router.push(app.to)
+}
+
 async function openApp(id: string) {
   launcherOpen.value = false
   await openPanel(id)
@@ -330,7 +362,7 @@ watch(() => route.path, async (p) => {
     <div v-if="openId" class="ext-mask" @click="closePanel"></div>
 
     <!-- 统一的 apps 启动器入口：注入全局导航栏（与「任务」「稍后再看」等图标同排） -->
-    <Teleport v-if="navSlotReady && extensions.length" to="#ext-launcher-slot">
+    <Teleport v-if="navSlotReady && (extensions.length || builtinApps.length)" to="#ext-launcher-slot">
       <button
         type="button"
         class="nav-link nav-icon-link ext-nav-trigger"
@@ -359,20 +391,39 @@ watch(() => route.path, async (p) => {
           <span>应用</span>
           <button class="ext-close" @click="launcherOpen = false">×</button>
         </div>
-        <div class="ext-launcher-grid">
-          <button
-            v-for="ext in extensions"
-            :key="ext.id"
-            class="ext-app"
-            @click="openApp(ext.id)"
-          >
-            <span v-if="isSvgIcon(ext.ui.icon)" class="ext-app-icon" v-html="ext.ui.icon"></span>
-            <img v-else-if="isImageIcon(ext.ui.icon)" class="ext-app-icon-img" :src="ext.ui.icon" alt="" />
-            <span v-else class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
-            <span class="ext-app-name">{{ ext.ui.title || ext.name }}</span>
-            <span v-if="fabUnread(ext.id)" class="ext-app-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
-          </button>
-          <div v-if="!extensions.length" class="ext-launcher-empty">
+        <div class="ext-launcher-body">
+          <div v-if="extensions.length" class="ext-launcher-section">
+            <span class="ext-launcher-label">扩展</span>
+            <div class="ext-launcher-grid">
+              <button
+                v-for="ext in extensions"
+                :key="ext.id"
+                class="ext-app"
+                @click="openApp(ext.id)"
+              >
+                <span v-if="isSvgIcon(ext.ui.icon)" class="ext-app-icon" v-html="ext.ui.icon"></span>
+                <img v-else-if="isImageIcon(ext.ui.icon)" class="ext-app-icon-img" :src="ext.ui.icon" alt="" />
+                <span v-else class="ext-app-icon">{{ ext.ui.icon || '🔧' }}</span>
+                <span class="ext-app-name">{{ ext.ui.title || ext.name }}</span>
+                <span v-if="fabUnread(ext.id)" class="ext-app-badge">{{ fabUnread(ext.id) > 99 ? '99+' : fabUnread(ext.id) }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="builtinApps.length" class="ext-launcher-section">
+            <span class="ext-launcher-label">内置</span>
+            <div class="ext-launcher-grid">
+              <button
+                v-for="app in builtinApps"
+                :key="app.id"
+                class="ext-app"
+                @click="openBuiltin(app)"
+              >
+                <span class="ext-app-icon" v-html="app.icon"></span>
+                <span class="ext-app-name">{{ app.title }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="!extensions.length && !builtinApps.length" class="ext-launcher-empty">
             暂无可用应用
           </div>
         </div>
@@ -491,12 +542,24 @@ watch(() => route.path, async (p) => {
   font-size: 14px;
   font-weight: 600;
 }
+.ext-launcher-body {
+  padding: 14px 16px 16px;
+  overflow-y: auto;
+}
+.ext-launcher-section + .ext-launcher-section {
+  margin-top: 16px;
+}
+.ext-launcher-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary, #888);
+}
 .ext-launcher-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
   gap: 12px;
-  padding: 16px;
-  overflow-y: auto;
 }
 .ext-launcher-empty {
   grid-column: 1 / -1;
