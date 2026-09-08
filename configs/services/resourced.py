@@ -32,9 +32,10 @@ VENV_PYTHON = os.path.join(SRC_DIR, 'venv', 'Scripts', 'python.exe')
 
 def get_paths():
     """获取各种路径"""
-    # 检测 venv python 是否存在
-    if os.path.isfile(VENV_PYTHON):
-        python_exe = VENV_PYTHON
+    # dbox 服务实际运行在系统 Python（依赖装在那里，启动会 re-exec 到系统 Python）。
+    # 直接用系统 Python 注册 NSSM，避免每个服务额外 spawn 一个 venv 监督进程（实例冗余）。
+    if sys.prefix != sys.base_prefix:
+        python_exe = os.path.join(sys.base_prefix, 'python.exe')
     else:
         python_exe = sys.executable
 
