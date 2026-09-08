@@ -164,37 +164,27 @@ async function openPanel(id: string) {
 // apps 列表点击某 app：打开对应面板（floating → 浮动面板；panel → 侧边面板）。
 // 独立全屏路由 standalone_route 保留给面板内「全屏」入口或导航，不在此自动跳转，
 // 以维持右下角浮层内的即时操作体验。
-// 内置功能：与扩展并列进「应用」列表。
-// 若不把它们纳入应用列表，核心功能就无处安放，只会不断往头像下拉菜单回流
-// （「上传」此前就是这么掉进管理项堆里的）。
-// 可见性统一由路由 meta 决定，这里只声明「有哪些内置应用」。
-const builtinApps = [
+// 工具：与扩展并列进「应用」列表。
+//
+// 「应用」的判据是「**可独立启动的能力/工具**」，不是「内容的一个视图」：
+//   - 资源类型 / 模式（视频、图集、帖子、文本）是同一资源库的视图切换 → 归首页模式 tab
+//   - 浏览维度（标签、合集）是资源的组织切片 → 归导航栏
+//   - 个人集合（点赞、收藏、历史、稍后再看、不喜欢）是用户维度 → 归导航栏 / 头像菜单
+//   - 动作类工具（上传）才是应用
+// 把前几类塞进应用列表，既是重复入口，又是范畴错误——
+// 「帖子」是资源类型，不是一个可独立启动的 app。
+// 可见性统一由路由 meta 决定，这里只声明「有哪些工具」。
+const toolApps = [
   {
-    id: 'builtin-upload', title: '上传', to: '/upload',
+    id: 'tool-upload', title: '上传', to: '/upload',
     icon: '<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg>',
-  },
-  {
-    id: 'builtin-tags', title: '标签', to: '/tags',
-    icon: '<svg viewBox="0 0 24 24"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 2 2 2h11c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg>',
-  },
-  {
-    id: 'builtin-collections', title: '合集', to: '/collections',
-    icon: '<svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
-  },
-  {
-    id: 'builtin-posts', title: '帖子', to: '/posts',
-    icon: '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>',
-  },
-  {
-    id: 'builtin-texts', title: '文本', to: '/texts',
-    icon: '<svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 4h10v2H4V8zm0 4h16v2H4v-2zm0 4h10v2H4v-2z"/></svg>',
   },
 ]
 
-// 内置应用的可见性同样只问路由 meta，与导航栏/菜单入口保持同一套判据
-const visibleBuiltinApps = computed(() => builtinApps.filter((a) => canShow(a.to)))
+// 工具的可见性同样只问路由 meta，与导航栏/菜单入口保持同一套判据
+const visibleToolApps = computed(() => toolApps.filter((a) => canShow(a.to)))
 
-function openBuiltin(app: { to: string }) {
+function openTool(app: { to: string }) {
   launcherOpen.value = false
   router.push(app.to)
 }
@@ -366,7 +356,7 @@ watch(() => route.path, async (p) => {
     <div v-if="openId" class="ext-mask" @click="closePanel"></div>
 
     <!-- 统一的 apps 启动器入口：注入全局导航栏（与「任务」「稍后再看」等图标同排） -->
-    <Teleport v-if="navSlotReady && (extensions.length || visibleBuiltinApps.length)" to="#ext-launcher-slot">
+    <Teleport v-if="navSlotReady && (extensions.length || visibleToolApps.length)" to="#ext-launcher-slot">
       <button
         type="button"
         class="nav-link nav-icon-link ext-nav-trigger"
@@ -413,21 +403,21 @@ watch(() => route.path, async (p) => {
               </button>
             </div>
           </div>
-          <div v-if="visibleBuiltinApps.length" class="ext-launcher-section">
-            <span class="ext-launcher-label">内置</span>
+          <div v-if="visibleToolApps.length" class="ext-launcher-section">
+            <span class="ext-launcher-label">工具</span>
             <div class="ext-launcher-grid">
               <button
-                v-for="app in visibleBuiltinApps"
+                v-for="app in visibleToolApps"
                 :key="app.id"
                 class="ext-app"
-                @click="openBuiltin(app)"
+                @click="openTool(app)"
               >
                 <span class="ext-app-icon" v-html="app.icon"></span>
                 <span class="ext-app-name">{{ app.title }}</span>
               </button>
             </div>
           </div>
-          <div v-if="!extensions.length && !visibleBuiltinApps.length" class="ext-launcher-empty">
+          <div v-if="!extensions.length && !visibleToolApps.length" class="ext-launcher-empty">
             暂无可用应用
           </div>
         </div>
