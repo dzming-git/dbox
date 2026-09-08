@@ -108,6 +108,19 @@ def allowed_libraries():
     return jsonify({'success': True, 'library_ids': ids})
 
 
+@internal_bp.route('/internal/user-role', methods=['GET'])
+def user_role():
+    """返回指定用户在库中的真实角色（供拓展宿主做管理员判定）。
+
+    两端判定口径必须一致：主服务按 user_id 查库取最新角色，拓展宿主若只信 JWT
+    里的 role 声明，声明陈旧/缺失时就会出现「主站正常、插件 403」。
+    """
+    from backend.access import get_user_role as _get_role
+    user_id = request.args.get('user_id', type=int)
+    role = _get_role(user_id)
+    return jsonify({'success': role is not None, 'role': role})
+
+
 @internal_bp.route('/internal/resource-resolve', methods=['POST'])
 def resource_resolve():
     """解析 AI 回复中的资源引用 (type, ref) 为可跳转详情页路径与封面。
