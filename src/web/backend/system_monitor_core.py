@@ -38,8 +38,9 @@ _HISTORY_FILE = os.path.join(_ROOT, 'data', 'system_monitor_history.json')
 _HISTORY = []
 _HISTORY_LOCK = threading.Lock()
 
-# 最近一次采到的核心温度（°C），供 metrics/current 直接返回，无需每次请求都查 WMI
+# 最近一次采到的温度（°C）及来源，供 metrics/current 直接返回，无需每次请求都查 WMI
 _LAST_TEMP = None
+_LAST_TEMP_SOURCE = 'none'   # 'cpu' | 'thermal_zone' | 'none'
 
 try:
     _last_net = (psutil.net_io_counters().bytes_sent, psutil.net_io_counters().bytes_recv) if psutil else (0, 0)
@@ -58,35 +59,54 @@ def _safe_net_io():
 
 
 def _read_cpu_temperature():
-    """读取主要温度（摄氏度）。优先 psutil（Linux/Mac 可用），回退 Windows WMI
-    的 MSAcpi_ThermalZoneTemperature（decikelvin）。读不到返回 None。"""
-    if psutil:
-        try:
-            st = psutil.sensors_temperatures()
-            if st:
-                for _label, entries in st.items():
-                    vals = [e.current for e in entries if e.current is not None]
-                    if vals:
-                        return round(sum(vals) / len(vals), 1)
-        except Exception:
-            pass
+    """读取主要温度（摄氏度）并标注来源。
+    优先级：LibreHardwareMonitor / OpenHardwareMonitor（真实 CPU 温度，需安装并运行）
+            > Windows WMI MSAcpi_ThermalZoneTemperature（ACPI 热区温度，粗略、非 CPU 核心）
+    读不到返回 (None, 'none')。Windows 上 psutil.sensors_temperatures 不可用，
+    故主要依赖 WMI；ACPI 热区常是 BIOS 固定/粗略阈值，不能作为 CPU 核心温度。"""
+    # 1) LibreHardwareMonitor / OpenHardwareMonitor：最可靠的 CPU 温度来源
+    try:
+        import win32com.client
+        for nsname in ('root\\LibreHardwareMonitor', 'root\\OpenHardwareMonitor'):
+            try:
+                ns = win32com.client.GetObject('winmgmts:\\\\.\\' + nsname)
+                rows = ns.ExecQuery("SELECT * FROM Sensor WHERE SensorType='Temperature'")
+                cands = []
+                for r in rows:
+                    name = (getattr(r, 'Name', '') or '').upper()
+                    val = getattr(r, 'Value', None)
+                    if isinstance(val, (int, float)) and 'CPU' in name:
+                        # 优先取 CPU Package（汇总），其次 CPU Core
+                        cands.append((0 if 'PACKAGE' in name else 1, float(val)))
+                if cands:
+                    cands.sort()
+                    return round(cands[0][1], 1), 'cpu'
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # 2) ACPI 热区（Windows 标准，但不是 CPU 核心温度，粗略/易偏高）
     try:
         import win32com.client
         wmi = win32com.client.GetObject('winmgmts:\\\\.\\root\\wmi')
         rows = wmi.ExecQuery('SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature')
         vals = []
         for r in rows:
-            try:
-                ct = r.CurrentTemperature
-                if ct:
-                    vals.append(ct / 10.0 - 273.15)
-            except Exception:
+            ct = getattr(r, 'CurrentTemperature', None)
+            if ct is None:
                 continue
+            # CurrentTemperature 可能是标量或元组，统一按 decikelvin 转换
+            parts = ct if isinstance(ct, (tuple, list)) else (ct,)
+            for x in parts:
+                try:
+                    vals.append(float(x) / 10.0 - 273.15)
+                except Exception:
+                    pass
         if vals:
-            return round(max(vals), 1)
+            return round(max(vals), 1), 'thermal_zone'
     except Exception:
         pass
-    return None
+    return None, 'none'
 
 
 def _load_history():
@@ -117,7 +137,7 @@ def _persist_history():
 
 
 def _sample():
-    global _last_net, _LAST_TEMP, _HISTORY
+    global _last_net, _LAST_TEMP, _LAST_TEMP_SOURCE, _HISTORY
     if not psutil:
         return
     cpu = psutil.cpu_percent(interval=None)
@@ -127,8 +147,9 @@ def _sample():
     up = max(0, (sent - _last_net[0]) / _SAMPLE_INTERVAL / 1024)
     down = max(0, (recv - _last_net[1]) / _SAMPLE_INTERVAL / 1024)
     _last_net = (sent, recv)
-    temp = _read_cpu_temperature()
+    temp, src = _read_cpu_temperature()
     _LAST_TEMP = temp
+    _LAST_TEMP_SOURCE = src
     rec = {
         't': int(time.time()),
         'cpu': round(cpu, 1),
@@ -260,6 +281,7 @@ def create_blueprint(admin_required):
             } for d in disks],
             'uptime': int(time.time() - _BOOT_TIME) if _BOOT_TIME else 0,
             'temperature': _LAST_TEMP,
+            'temp_source': _LAST_TEMP_SOURCE,
         }
         return jsonify({'success': True, 'data': payload})
 
