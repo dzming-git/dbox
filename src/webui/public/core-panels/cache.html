@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>缓存管理</title>
+<style>
+  :root {
+    --bg:#15151f; --surface:#1e1e2e; --surface2:#262638; --surface3:#2f2f44;
+    --text:#e8e8f0; --muted:#9a9ab0; --faint:#6c6c84;
+    --accent:#7c7cf0; --accent-soft:rgba(124,124,240,.14);
+    --ok:#46a758; --warn:#e8b341; --danger:#e5484d; --radius:14px;
+    --line:rgba(255,255,255,.06);
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body {
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1080px; margin:0 auto; padding:20px 18px 30px; }
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .top .logo {
+    width:36px; height:36px; border-radius:10px; flex:none;
+    background:linear-gradient(135deg,#5b8def,#9d6bf0);
+    display:flex; align-items:center; justify-content:center; font-size:19px;
+  }
+  .top h1 { font-size:18px; margin:0; line-height:1.2; }
+  .top .sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  .top .live {
+    margin-left:auto; display:flex; align-items:center; gap:7px;
+    font-size:12px; color:var(--muted);
+    background:var(--surface); border:1px solid var(--line);
+    padding:6px 11px; border-radius:999px; white-space:nowrap;
+  }
+  .live .pulse {
+    width:8px; height:8px; border-radius:50%; background:var(--ok);
+    box-shadow:0 0 0 0 rgba(70,167,88,.6); animation:pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow:0 0 0 0 rgba(70,167,88,.55); }
+    70% { box-shadow:0 0 0 7px rgba(70,167,88,0); }
+    100% { box-shadow:0 0 0 0 rgba(70,167,88,0); }
+  }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-bottom:18px; }
+  .kpi {
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:15px 16px; position:relative; overflow:hidden;
+  }
+  .kpi::before {
+    content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:linear-gradient(var(--accent),#9d6bf0); opacity:.85;
+  }
+  .kpi .k { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; }
+  .kpi .v { font-size:28px; font-weight:700; line-height:1.15; margin-top:8px; letter-spacing:-.5px; }
+  .kpi .v small { font-size:13px; font-weight:500; color:var(--muted); margin-left:2px; }
+  .kpi .meta { color:var(--faint); font-size:12px; margin-top:3px; }
+
+  .toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .toolbar .hint { color:var(--muted); font-size:12px; margin-right:auto; }
+  .btn {
+    border:1px solid var(--line); background:var(--surface2); color:var(--text);
+    padding:8px 14px; border-radius:10px; font-size:13px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px; transition:background .15s, border-color .15s, opacity .15s;
+  }
+  .btn:hover { background:var(--surface3); border-color:rgba(255,255,255,.14); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn.primary { background:var(--accent); border-color:transparent; color:#fff; }
+  .btn.primary:hover { background:#6b6be8; }
+  .btn.danger { color:#ffd7d8; }
+  .btn.danger:hover { background:rgba(229,72,77,.18); border-color:rgba(229,72,77,.5); }
+
+  .ns-list { display:flex; flex-direction:column; gap:13px; }
+  .ns {
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:15px 16px; position:relative; overflow:hidden;
+  }
+  .ns::before {
+    content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:var(--ok); transition:background .4s;
+  }
+  .ns.lvl-warn::before { background:var(--warn); }
+  .ns.lvl-danger::before { background:var(--danger); }
+  .ns-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .ns-id { font-size:15px; font-weight:700; letter-spacing:.2px; }
+  .tag {
+    font-size:11px; padding:2px 9px; border-radius:999px;
+    background:var(--accent-soft); color:var(--accent);
+  }
+  .tag.flat { background:rgba(70,167,88,.16); color:var(--ok); }
+  .tag.nested { background:rgba(232,179,65,.16); color:var(--warn); }
+  .ns-path { margin-left:auto; color:var(--faint); font-size:11px; max-width:46%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .bar { height:11px; background:var(--surface3); border-radius:6px; overflow:hidden; }
+  .bar > i { display:block; height:100%; border-radius:6px; transition:width .45s ease, background .4s; }
+  .bar-meta { display:flex; justify-content:space-between; align-items:baseline; margin-top:7px; font-size:12px; color:var(--muted); }
+  .bar-meta .pct { font-weight:700; color:var(--text); }
+
+  .ns-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px 18px; margin:13px 0 14px; }
+  .ns-grid .cell .ck { color:var(--muted); font-size:11px; }
+  .ns-grid .cell .cv { font-size:14px; font-weight:600; margin-top:1px; }
+
+  .ns-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:12px; border-top:1px solid var(--line); }
+  .cap-edit { display:flex; align-items:center; gap:7px; }
+  .cap-edit label { color:var(--muted); font-size:12px; }
+  .cap-edit input {
+    width:96px; background:var(--bg); border:1px solid var(--line); color:var(--text);
+    border-radius:9px; padding:7px 9px; font-size:13px; outline:none;
+  }
+  .cap-edit input:focus { border-color:var(--accent); }
+  .cap-edit .unit { color:var(--muted); font-size:12px; }
+
+  .empty, .err {
+    text-align:center; color:var(--muted); padding:46px 0; font-size:14px;
+    background:var(--surface); border:1px dashed var(--line); border-radius:var(--radius);
+  }
+  .err { color:var(--danger); border-color:rgba(229,72,77,.4); }
+  @media (max-width:560px) {
+    .ns-path { display:none; }
+    .kpis { grid-template-columns:1fr 1fr; }
+  }
+  @media (max-width:380px) { .kpis { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">💾</div>
+    <div>
+      <h1>缓存管理</h1>
+      <div class="sub">统一治理各拓展的媒体/资源磁盘缓存 · 每 3 秒刷新</div>
+    </div>
+    <div class="live"><span class="pulse"></span><span id="liveTxt">连接中…</span></div>
+  </div>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi">
+      <div class="k">📦 总缓存占用</div>
+      <div class="v" id="kBytes">–</div>
+      <div class="meta" id="kBytesMeta">–</div>
+    </div>
+    <div class="kpi">
+      <div class="k">🗂️ 缓存分区</div>
+      <div class="v" id="kParts">–</div>
+      <div class="meta">个托管命名空间</div>
+    </div>
+    <div class="kpi">
+      <div class="k">📄 文件总数</div>
+      <div class="v" id="kFiles">–</div>
+      <div class="meta">缓存文件</div>
+    </div>
+    <div class="kpi">
+      <div class="k">💾 容量上限</div>
+      <div class="v" id="kCap">–</div>
+      <div class="meta">全部分区合计</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <span class="hint" id="toolHint">超出上限时按最久未使用自动回收（LRU）</span>
+    <button class="btn" id="btnRefresh">🔄 重新扫描</button>
+    <button class="btn danger" id="btnClearAll">🗑️ 全部清空</button>
+  </div>
+
+  <div id="body"></div>
+</div>
+
+<script>
+const PREFIX = '/api/admin/cache';
+function authHeaders() {
+  const t = (window.parent && window.parent.__dbox_token)
+    || localStorage.getItem('token')
+    || localStorage.getItem('dbox_token');
+  return { 'Authorization': 'Bearer ' + (t || '') };
+}
+function fmtBytes(n) {
+  if (n == null || isNaN(n)) return '–';
+  if (!n) return '0 B';
+  const u = ['B','KB','MB','GB','TB','PB']; const i = Math.floor(Math.log(n)/Math.log(1024));
+  return (n/Math.pow(1024,i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+function pctOf(bytes, cap) {
+  if (!cap) return 0;
+  return Math.max(0, Math.min(100, bytes / cap * 100));
+}
+function lvl(p) { return p > 90 ? 'danger' : p > 70 ? 'warn' : ''; }
+function colorOf(p) { return p > 90 ? 'var(--danger)' : p > 70 ? 'var(--warn)' : 'var(--ok)'; }
+
+let lastTs = 0;
+function setLive() {
+  const el = document.getElementById('liveTxt');
+  if (!lastTs) { el.textContent = '连接中…'; return; }
+  el.textContent = '更新于 ' + Math.round((Date.now() - lastTs) / 1000) + ' 秒前';
+}
+
+function renderTotals(t) {
+  const totalBytes = t.bytes || 0, totalCap = t.cap || 0, totalFiles = t.count || 0;
+  document.getElementById('kBytes').textContent = fmtBytes(totalBytes);
+  const p = pctOf(totalBytes, totalCap);
+  document.getElementById('kBytesMeta').textContent = totalCap ? (p.toFixed(1) + '% of ' + fmtBytes(totalCap)) : '无上限';
+  document.getElementById('kParts').textContent = (window.__nsCount || 0);
+  document.getElementById('kFiles').textContent = totalFiles.toLocaleString();
+  document.getElementById('kCap').textContent = fmtBytes(totalCap);
+}
+
+function nsCard(ns) {
+  const bytes = ns.bytes || 0, cap = ns.cap || 0, count = ns.count || 0;
+  const p = pctOf(bytes, cap);
+  const L = lvl(p);
+  const key = (ns.id || '').split('/')[0];
+  const name = (ns.id || '').split('/').slice(1).join('/') || ns.id;
+  const typeTag = ns.nested
+    ? '<span class="tag nested">嵌套</span>'
+    : '<span class="tag flat">扁平</span>';
+  const capMB = Math.round(cap / 1024 / 1024);
+  return '<div class="ns ' + L + '" data-id="' + ns.id + '">'
+    + '<div class="ns-head">'
+      + '<span class="ns-id" title="' + ns.id + '">' + name + '</span>'
+      + '<span class="tag">' + key + '</span>' + typeTag
+      + '<span class="ns-path" title="' + (ns.root || '') + '">' + (ns.root || '') + '</span>'
+    + '</div>'
+    + '<div class="bar"><i style="width:' + p + '%;background:' + colorOf(p) + '"></i></div>'
+    + '<div class="bar-meta"><span>' + fmtBytes(bytes) + ' / ' + (cap ? fmtBytes(cap) : '无上限') + '</span>'
+      + '<span class="pct" style="color:' + (L ? colorOf(p) : 'var(--text)') + '">' + p.toFixed(1) + '%</span></div>'
+    + '<div class="ns-grid">'
+      + '<div class="cell"><div class="ck">文件数</div><div class="cv">' + count.toLocaleString() + '</div></div>'
+      + '<div class="cell"><div class="ck">已用</div><div class="cv">' + fmtBytes(bytes) + '</div></div>'
+      + '<div class="cell"><div class="ck">上限</div><div class="cv">' + (cap ? fmtBytes(cap) : '∞') + '</div></div>'
+      + '<div class="cell"><div class="ck">类型</div><div class="cv">' + (ns.nested ? '嵌套目录' : '扁平文件') + '</div></div>'
+    + '</div>'
+    + '<div class="ns-actions">'
+      + '<div class="cap-edit"><label>上限</label>'
+        + '<input type="number" min="0" step="64" value="' + capMB + '" data-id="' + ns.id + '" class="cap-input" />'
+        + '<span class="unit">MB</span>'
+        + '<button class="btn cap-apply" data-id="' + ns.id + '">应用</button></div>'
+      + '<button class="btn danger ns-clear" data-id="' + ns.id + '" style="margin-left:auto">🗑️ 清空</button>'
+    + '</div>'
+    + '</div>';
+}
+
+async function load() {
+  try {
+    const r = await fetch(PREFIX + '/namespaces', { headers: authHeaders() }).then(x => x.json());
+    lastTs = Date.now();
+    if (!r || !r.success) {
+      document.getElementById('body').innerHTML = '<div class="err">' + (r && r.message ? r.message : '加载失败') + '</div>';
+      return;
+    }
+    const nss = r.namespaces || [];
+    window.__nsCount = nss.length;
+    renderTotals(Object.assign({}, r.totals, { count: r.totals ? r.totals.count : 0 }));
+    document.getElementById('kParts').textContent = nss.length;
+    if (!nss.length) {
+      document.getElementById('body').innerHTML = '<div class="empty">暂无缓存分区。拓展首次产生媒体缓存后会自动在此出现。</div>';
+      return;
+    }
+    // 正在编辑上限输入框时跳过卡片重建：重建 innerHTML 会让输入失焦、手机键盘收起，
+    // 导致争分夺秒设上限时体验极差。此时仅刷新顶部 KPI，输入框与键盘保持不动。
+    const editing = document.activeElement
+      && document.activeElement.classList
+      && document.activeElement.classList.contains('cap-input');
+    if (editing) return;
+    document.getElementById('body').innerHTML = '<div class="ns-list">' + nss.map(nsCard).join('') + '</div>';
+  } catch (e) {
+    document.getElementById('body').innerHTML = '<div class="err">请求异常: ' + (e && e.message ? e.message : e) + '</div>';
+  }
+}
+
+// 事件委托：应用上限 / 清空
+document.getElementById('body').addEventListener('click', async (ev) => {
+  const apply = ev.target.closest('.cap-apply');
+  const clear = ev.target.closest('.ns-clear');
+  if (apply) {
+    const id = apply.dataset.id;
+    const inp = document.querySelector('.cap-input[data-id="' + CSS.escape(id) + '"]');
+    const mb = parseInt(inp && inp.value, 10);
+    if (!mb || mb < 0) { alert('请输入有效的上限（MB）'); return; }
+    apply.disabled = true;
+    try {
+      const r = await fetch(PREFIX + '/cap', {
+        method: 'POST', headers: Object.assign(authHeaders(), {'Content-Type':'application/json'}),
+        body: JSON.stringify({ namespace: id, bytes: mb * 1024 * 1024 }),
+      }).then(x => x.json());
+      if (!r || !r.success) alert('设置失败: ' + (r && r.message ? r.message : '未知错误'));
+      load();
+    } catch (e) { alert('设置异常: ' + e); }
+    finally { apply.disabled = false; }
+  } else if (clear) {
+    const id = clear.dataset.id;
+    if (!confirm('确定清空分区「' + id + '」？已缓存文件将需要从源站重新加载。')) return;
+    clear.disabled = true;
+    try {
+      const r = await fetch(PREFIX + '/clear', {
+        method: 'POST', headers: Object.assign(authHeaders(), {'Content-Type':'application/json'}),
+        body: JSON.stringify({ namespace: id }),
+      }).then(x => x.json());
+      if (!r || !r.success) alert('清空失败: ' + (r && r.message ? r.message : '未知错误'));
+      load();
+    } finally { clear.disabled = false; }
+  }
+});
+
+document.getElementById('btnRefresh').addEventListener('click', async () => {
+  const b = document.getElementById('btnRefresh'); b.disabled = true;
+  try { await fetch(PREFIX + '/refresh', { method:'POST', headers: authHeaders() }).then(x=>x.json()); } catch (e) {}
+  await load(); b.disabled = false;
+});
+document.getElementById('btnClearAll').addEventListener('click', async () => {
+  if (!confirm('确定清空全部缓存分区？所有拓展的媒体缓存将一次性清除。')) return;
+  const b = document.getElementById('btnClearAll'); b.disabled = true;
+  try {
+    await fetch(PREFIX + '/clear', { method:'POST', headers: Object.assign(authHeaders(),{'Content-Type':'application/json'}), body: JSON.stringify({ namespace:'*' }) }).then(x=>x.json());
+  } catch (e) {}
+  await load(); b.disabled = false;
+});
+
+load(); setInterval(load, 3000); setInterval(setLive, 1000);
+</script>
+</body>
+</html>
