@@ -202,6 +202,15 @@ const closeUserDropdown = (event: MouseEvent) => {
             <span>任务</span>
           </RouterLink>
 
+          <!-- 管理后台入口：头像下拉菜单已瘦身、不再承载系统入口，
+               这里作为「管理」维度的唯一顶层入口（与「应用」维度的入口并列）。 -->
+          <RouterLink to="/admin" class="nav-link nav-icon-link" title="管理后台" v-if="userStore.isAdmin">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+            </svg>
+            <span>管理</span>
+          </RouterLink>
+
           <!-- 扩展应用入口挂载点：ExtensionHost 通过 Teleport 把「应用」按钮注入这里。
                入口放在导航栏而非右下角悬浮球，从根上避免遮挡页面内容/扩展自身的操作区。 -->
           <div id="ext-launcher-slot" class="ext-launcher-slot"></div>
@@ -227,30 +236,6 @@ const closeUserDropdown = (event: MouseEvent) => {
               </span>
             </div>
             <div class="dropdown-divider"></div>
-            <RouterLink to="/admin" class="dropdown-item" v-if="userStore.isAdmin" @click="showUserDropdown = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
-              </svg>
-              管理
-            </RouterLink>
-            <RouterLink to="/plugins" class="dropdown-item" v-if="userStore.isAdmin" @click="showUserDropdown = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
-              </svg>
-              扩展管理
-            </RouterLink>
-            <RouterLink to="/vault" class="dropdown-item" v-if="userStore.isAdmin" @click="showUserDropdown = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
-              </svg>
-              凭证保险库
-            </RouterLink>
-            <RouterLink to="/upload" class="dropdown-item" v-if="userStore.isAdmin" @click="showUserDropdown = false">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/>
-              </svg>
-              上传视频
-            </RouterLink>
             <RouterLink to="/settings" class="dropdown-item" @click="showUserDropdown = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.49l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
