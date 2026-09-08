@@ -3,6 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { scriptApi, type CookieProfile } from '../api/script'
 import BaseModal from '../components/BaseModal.vue'
 
+// embedded：作为后台「应用」标签页内嵌时，隐藏自身页面标题（标题由后台统一提供）
+const props = defineProps<{ embedded?: boolean }>()
+
 const loading = ref(false)
 const profiles = ref<CookieProfile[]>([])
 const errorMsg = ref('')
@@ -129,7 +132,7 @@ onMounted(load)
 <template>
   <div class="vault-page">
     <div class="page-head">
-      <h2>凭证保险库</h2>
+      <h2 v-if="!props.embedded">凭证保险库</h2>
       <button class="btn-primary" @click="openCreate">新增凭证</button>
     </div>
 
