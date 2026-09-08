@@ -40,13 +40,18 @@ def register_core_blueprints(app: Flask) -> None:
     from backend.user_state_api import bp as user_state_bp
     app.register_blueprint(user_state_bp)
 
-    # 系统电源控制 / 系统资源监控（本地版）：同为平台系统功能，并入核心，
+    # 系统电源控制 / 缓存管理（本地版）：平台系统功能，且被核心其它部分依赖，
     # 不依赖被管理的 dbox-extensions 进程。
+    # 注：系统资源监控已迁为插件 extensions/system-monitor——它只依赖 psutil、
+    # 核心不依赖它（依赖方向干净，适合独立迭代与装卸）；核心仪表板原本用到的
+    # 「安装信息 / 路径」不属于监控，另立 system_info 蓝图留在核心。
     from backend.system_power_local import create_blueprint as _system_power_create
-    from backend.system_monitor_local import create_blueprint as _system_monitor_create
+    from backend.system_info import create_blueprint as _system_info_create
+    from backend.cache_local import create_blueprint as _cache_create
     from backend.access import admin_required
     app.register_blueprint(_system_power_create(admin_required))
-    app.register_blueprint(_system_monitor_create(admin_required))
+    app.register_blueprint(_system_info_create(admin_required))
+    app.register_blueprint(_cache_create(admin_required))
 
 
 def register_domain_blueprints(app: Flask) -> None:

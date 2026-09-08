@@ -35,7 +35,7 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 const ADMIN_TAB_KEY = 'admin_active_tab'
 // 注：'trash' 原先漏在这份白名单外（导致从 sessionStorage 恢复回收站标签会被拒），一并补上；
 // 'extensions' / 'vault' 为收编进来的扩展管理与凭证保险库。
-const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'trash', 'users', 'config', 'power', 'monitor', 'cache', 'extensions', 'vault']
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'trash', 'users', 'config', 'power', 'cache', 'extensions', 'vault']
 const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
 const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
@@ -1154,7 +1154,7 @@ const selectFileFromBrowser = (item: any) => {
 const fetchSystemInfo = async () => {
   loading.value.info = true
   try {
-    const res = await api.get('/api/admin/system-monitor/info') as any
+    const res = await api.get('/api/admin/system-info') as any
     if (res.success) {
       systemInfo.value = res.info
     }
@@ -1198,7 +1198,7 @@ const fetchSystemStats = async () => {
 const fetchSystemPaths = async () => {
   loading.value.paths = true
   try {
-    const res = await api.get('/api/admin/system-monitor/paths') as any
+    const res = await api.get('/api/admin/system-paths') as any
     if (res.success) {
       systemPaths.value = res.paths
     }
@@ -2011,12 +2011,8 @@ onUnmounted(() => {
           @click="switchTab('services')"
           v-if="userStore.isAdmin"
         >🔧 服务管理</button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'monitor' }"
-          @click="switchTab('monitor')"
-          v-if="userStore.isAdmin"
-        >📊 系统监控</button>
+        <!-- 系统监控已迁为插件 extensions/system-monitor（入口在导航栏「应用」列表）。
+             按 Single Home 原则，后台不再保留第二处入口。 -->
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'power' }"
@@ -2760,11 +2756,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 系统监控标签页（核心面板，运行于主服务，独立于 dbox-extensions） -->
-      <div v-if="activeTab === 'monitor'" class="tab-content">
-        <div class="section-header"><h3>系统监控</h3></div>
-        <iframe src="/core-panels/system-monitor.html" class="core-panel-frame"></iframe>
-      </div>
+
 
       <!-- 电源控制标签页（核心面板，运行于主服务，独立于 dbox-extensions） -->
       <div v-if="activeTab === 'power'" class="tab-content">
