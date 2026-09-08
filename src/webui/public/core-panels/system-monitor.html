@@ -343,6 +343,8 @@ async function load() {
       document.getElementById('memMeta').textContent =
         (d.memory ? fmtBytes(d.memory.used) + ' / ' + fmtBytes(d.memory.total) : '–');
       const temp = (d.temperature != null) ? d.temperature : null;
+      const tempSrc = d.temp_source || 'none';
+      const tempSrcLabel = tempSrc === 'cpu' ? 'CPU · ' : tempSrc === 'thermal_zone' ? '热区 · ' : '';
       const tempEl = document.getElementById('tempV');
       if (temp != null) {
         tempEl.innerHTML = temp + '<small>°C</small>';
@@ -351,8 +353,8 @@ async function load() {
         tb.style.background = tempColor(temp);
         const tL = tempLvl(temp);
         document.getElementById('kTemp').className = 'kpi ' + (tL ? 'lvl-' + tL : '');
-        document.getElementById('tempMeta').textContent =
-          tL === 'danger' ? '过热' : tL === 'warn' ? '偏高' : '正常';
+        const tStatus = tL === 'danger' ? '过热' : tL === 'warn' ? '偏高' : '正常';
+        document.getElementById('tempMeta').textContent = tempSrcLabel + tStatus;
       } else {
         tempEl.innerHTML = '–<small>°C</small>';
         document.getElementById('tempMeta').textContent = '读不到';
