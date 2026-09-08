@@ -55,6 +55,7 @@ class CredentialVault:
         self._key_path = os.path.join(data_dir, 'credential_vault.key')
         self._key = self._load_or_create_key()
         self._cache = self._load()
+        self._mtime = self._file_mtime()
 
     # ---------- 密钥 ----------
     def _load_or_create_key(self):
@@ -123,12 +124,36 @@ class CredentialVault:
             with open(tmp, 'w', encoding='utf-8') as f:
                 json.dump(self._cache, f, ensure_ascii=False, indent=2)
             os.replace(tmp, self._path)
+            self._mtime = self._file_mtime()
             try:
                 os.chmod(self._path, 0o600)
             except Exception:
                 pass
         except Exception:
             pass
+
+    # ---------- 惰性回源（多实例 / 多进程一致性） ----------
+    def _file_mtime(self) -> float:
+        """凭证落盘文件的修改时间；不存在返回 0.0。"""
+        try:
+            return os.path.getmtime(self._path)
+        except OSError:
+            return 0.0
+
+    def _reload_if_changed(self):
+        """多实例场景下，其他实例（如凭证管理 API）更新磁盘文件后，本实例的进程内
+        缓存可能过期。按文件 mtime 惰性回源，避免「改了凭证却必须重启进程才生效」。
+
+        典型场景：拓展宿主内插件各自持有独立 CredentialVault 实例，API 进程写入
+        x.com Cookie 后，运行中的插件若不回源就会一直用过期 Cookie → 搜索持续 404。
+        """
+        m = self._file_mtime()
+        if m and m > self._mtime:
+            try:
+                self._cache = self._load()
+                self._mtime = m
+            except Exception:
+                pass
 
     # ---------- CRUD ----------
     def add(self, kind: str, name: str, domain: str, value,
@@ -164,24 +189,28 @@ class CredentialVault:
         return pid
 
     def get(self, pid: str) -> dict:
+        self._reload_if_changed()
         rec = self._cache['profiles'].get(pid)
         if not rec:
             return None
         return self._decode(rec)
 
     def get_by_domain(self, domain: str, kind: str = None) -> dict:
+        self._reload_if_changed()
         for rec in self._cache['profiles'].values():
             if rec.get('domain') == domain and (kind is None or rec.get('kind') == kind):
                 return self._decode(rec)
         return None
 
     def get_by_name(self, name: str, kind: str = None) -> dict:
+        self._reload_if_changed()
         for rec in self._cache['profiles'].values():
             if rec.get('name') == name and (kind is None or rec.get('kind') == kind):
                 return self._decode(rec)
         return None
 
     def list_all(self) -> list:
+        self._reload_if_changed()
         return [self._decode(rec) for rec in self._cache['profiles'].values()]
 
     def delete(self, pid: str) -> bool:
