@@ -264,3 +264,36 @@
 
 原先用 `dirname` 链推导安装根**少上了一层**（得到 `<root>/src`），
 现统一改用 `backend.paths` 的 `PROJECT_ROOT` / `DATA_DIR` / `USER_CONFIG_DIR`。
+
+### 验证（两轮，均 `VERIFY_PASS`）
+
+**接口侧（12 项）**
+
+- 扩展已注册，`ui.standalone_route === /ext/system-monitor`
+- 插件后端 `/api/ext/system-monitor/metrics/current|history` 取到真实指标
+- 核心 `/api/admin/system-info`、`/api/admin/system-paths` 正常返回
+- 旧核心监控接口 `/api/admin/system-monitor/info|paths|metrics/current` 全部 404
+  （Single Home：不允许核心与插件两处实现）
+
+**界面侧 Playwright（13 项）**
+
+- 应用列表含「系统监控」（扩展组）与「上传」（工具组），分组标签正确
+- 打开面板取到真实数值（CPU/内存非「–」，顶部显示"更新于 N 秒前"）
+- 独立全屏路由 `/ext/system-monitor` 渲染正常
+- 后台标签页已无「系统监控」，但「扩展管理」仍在
+- 后台仪表板「版本信息」卡片正常（运行目录取到核心系统信息）
+- 无 404、无控制台报错
+
+### 迁移附带修复
+
+`Admin.vue` 的「编辑视频」弹窗内容**缺少空值守卫**：弹窗隐藏时插槽同样渲染，
+而 `editingVideo` 初始为 `null`，`v-model="editingVideo.title"` 每次进后台抛一次
+`Cannot read properties of null (reading 'title')`（提交 `b18c1c2`）。
+旁侧的「资源编辑弹窗」原本就有 `v-if="editingResource"`，视频弹窗漏了。
+
+### 遗留（未修，需产品决策）
+
+后台仪表板「版本信息」卡片里的**安装时间 / 来源目录 / 升级状态**三项
+读的是 `systemInfo.install.*`，但后端（含迁移前的旧监控接口）**从未产出过
+`install` 字段**，也找不到安装标记文件——即这三项一直是空白死 UI。
+要填需先确定数据来源（如安装时写一份 install manifest），本次未臆造。
