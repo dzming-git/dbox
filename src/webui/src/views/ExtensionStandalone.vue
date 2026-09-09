@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { withExtRuntime } from '../utils/extRuntime'
+import { LAST_MAIN_ROUTE_KEY } from '../router'
 import {
   ensurePanel, setPanelMode, postToPanel, getPanelIframe,
   onPanelMessage, setPanelTitle,
@@ -129,20 +130,20 @@ watch(() => route.hash, (h) => {
 })
 
 function goBack() {
-  // 全屏页左上角：回到进入全屏页之前的页面（优先 history back，无历史则回首页）。
-  // 面板实例保留，状态移交给 onUnmounted 决定收起还是切回小窗。
-  // 关键：直接通过 URL 打开独立全屏页时，浏览器历史里全是本页的 hash 变体
-  // （/ext/x、/ext/x#/home…），router.back() 只回到同一条路由、ExtensionStandalone
-  // 组件不卸载、onUnmounted 不触发，面板就永远切不出全屏（小窗/收起“点了没反应”）。
-  // 因此后退后若仍停在独立全屏页，强制回首页，确保路由组件卸载、面板形态得以切换。
-  const leaveStandaloneIfStill = () => {
-    if (route.name === 'ext-standalone' || route.name === ('ext-' + extId)) router.push('/')
-  }
-  if (window.history.length > 1) {
-    router.back().then(leaveStandaloneIfStill).catch(() => router.push('/'))
-  } else {
-    router.push('/')
-  }
+  // 全屏页左上角 / 收起按钮的落点：回到「最近一次停留的非扩展页」；
+  // 本标签页没有这类记录（如直接粘贴 app 链接进来）则回首页。
+  //
+  // 不能用 router.back() 赌历史：独立全屏页的历史栈里全是本页自身的 hash 变体
+  // （/ext/x、/ext/x#/search?q=…），back() 常常只是换了 hash、组件根本不卸载，
+  // 于是落在一个面板已切走、只剩返回条的空壳页上。改为显式 push 确定性落点，
+  // 路由必然离开 /ext/*，组件卸载、面板形态由 onUnmounted 兜底移交。
+  let target = '/'
+  try {
+    const saved = sessionStorage.getItem(LAST_MAIN_ROUTE_KEY)
+    if (saved && !saved.startsWith('/ext/')) target = saved
+  } catch { /* 隐私模式等存储异常时按无记录处理 */ }
+  if (target === route.fullPath) target = '/' // 极端情况：记录恰好是当前页，避免原地不动
+  router.push(target)
 }
 
 // 面板标题栏「收起」或「小窗」按钮（extPanelHost 内建）在全屏态触发：
@@ -181,7 +182,7 @@ onUnmounted(() => {
   -->
   <div class="ext-standalone-page">
     <div class="ext-std-header">
-      <button class="ext-std-back" @click="goBack">← 首页</button>
+      <button class="ext-std-back" @click="goBack">← 返回</button>
       <span class="ext-std-title">{{ extId }}</span>
     </div>
     <div v-if="loading" class="ext-std-tip">加载中…</div>
