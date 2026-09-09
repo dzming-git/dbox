@@ -2104,7 +2104,10 @@ onUnmounted(() => {
                 <span class="label">安装时间</span>
                 <span class="value">{{ formatDate(installInfo?.install_time) }}</span>
               </div>
-              <div class="info-row">
+              <!-- 只在「安装来源」与「当前运行目录」不一致时才显示：
+                   源码模式下服务直接从源码目录运行，两者通常相同（此时并列展示只是噪音）；
+                   不同则意味着安装后搬过目录，这才有信息量。 -->
+              <div class="info-row" v-if="installInfo?.source_dir && installInfo.source_dir !== systemInfo?.runtime_dir">
                 <span class="label">来源目录</span>
                 <span class="value path" :title="installInfo?.source_dir">
                   {{ formatPath(installInfo?.source_dir) }}
