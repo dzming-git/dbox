@@ -305,4 +305,17 @@ router.beforeEach(async (to, from, next) => {
   next()
 })
 
+// 最近一次停留的「非扩展全屏页」路由（扩展全屏页收起/返回时的落点）。
+// 用 sessionStorage：按标签页隔离——新标签页直接粘贴 app 链接进来时没有这条记录，
+// 此时收起应回首页，而不是别的标签页看过的页面。
+export const LAST_MAIN_ROUTE_KEY = 'dbox_last_main_route'
+
+router.afterEach((to) => {
+  if (to.path.startsWith('/ext/')) return // 扩展全屏页不属于「主站位置」
+  if (to.name === 'Login') return // 登录页不算浏览位置（且已登录访问会被守卫弹回首页）
+  try {
+    sessionStorage.setItem(LAST_MAIN_ROUTE_KEY, to.fullPath)
+  } catch { /* 隐私模式等存储异常时静默放弃 */ }
+})
+
 export default router
