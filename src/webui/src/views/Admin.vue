@@ -3186,7 +3186,9 @@ onUnmounted(() => {
 
     <!-- 视频编辑弹窗 -->
     <BaseModal v-model:visible="showVideoEditModal" title="编辑视频" max-width="520px">
-      <div class="modal-body">
+      <!-- 必须守卫：弹窗内容在隐藏时同样会渲染，而 editingVideo 初始为 null，
+           直接 v-model 绑定 editingVideo.title 会每次进后台抛一次「reading 'title' of null」 -->
+      <div class="modal-body" v-if="editingVideo">
         <div class="form-group">
           <label>标题</label>
           <input v-model="editingVideo.title" type="text" />
