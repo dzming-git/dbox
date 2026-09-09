@@ -45,6 +45,7 @@ def init_service_buses(src_dir):
         'collection_bus': None,
         'search_bus': None,
         'resource_bus': None,
+        'cached_bus': None,
     }
     try:
         buses['thumbnail_bus'] = _make_bus('web-client', src_dir)
@@ -53,6 +54,7 @@ def init_service_buses(src_dir):
         buses['collection_bus'] = _make_bus('web-collection', src_dir)
         buses['search_bus'] = _make_bus('web-search', src_dir)
         buses['resource_bus'] = _make_bus('web-resource', src_dir)
+        buses['cached_bus'] = _make_bus('web-cached', src_dir)
     except Exception as e:
         log.maintenance('WARN', f'总线客户端初始化失败: {e}')
 
@@ -63,5 +65,6 @@ def init_service_buses(src_dir):
         history_bus=buses['history_bus'],
         collection_bus=buses['collection_bus'],
         search_bus=buses['search_bus'],
+        cached_bus=buses['cached_bus'],
     )
     return buses

@@ -22,10 +22,12 @@ class _Runtime:
         self.history_bus = None
         self.collection_bus = None
         self.search_bus = None
+        self.cached_bus = None
 
     def init(self, db=None, app=None, app_config=None,
              thumbnail_bus=None, resource_bus=None, svc_mgr_bus=None,
-             history_bus=None, collection_bus=None, search_bus=None):
+             history_bus=None, collection_bus=None, search_bus=None,
+             cached_bus=None):
         if db is not None:
             self.db = db
         if app is not None:
@@ -44,6 +46,8 @@ class _Runtime:
             self.collection_bus = collection_bus
         if search_bus is not None:
             self.search_bus = search_bus
+        if cached_bus is not None:
+            self.cached_bus = cached_bus
 
 
 # 全局唯一运行时注册表
