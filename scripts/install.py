@@ -186,6 +186,90 @@ def get_version(source_dir: Path) -> str:
     return '2.0.0'
 
 
+def get_config_dir() -> Path:
+    """用户配置目录（与 backend.paths.get_user_config_dir 同规则）。
+
+    安装记录要落在**用户数据/配置区**而不是源码目录：服务是直接从源码目录运行的，
+    把记录写进源码目录会在换目录/重装时丢失，也就失去了「首次安装时间」的意义。
+    """
+    env = os.environ.get('DBOX_USER_CONFIG_DIR')
+    if env:
+        return Path(env)
+    root = os.environ.get('DBOX_DATA_ROOT') or (r'C:\ProgramData\Dbox' if os.name == 'nt' else '/var/lib/Dbox')
+    return Path(root) / 'config'
+
+
+def guess_first_install_time() -> str | None:
+    """推断首次安装时间（仅用于「老安装补记」）。
+
+    安装记录是后来才加的，老安装没有 install_info.json。此时不能把 install_time
+    记成「这一次运行的时刻」——那不是首次安装时间。主数据库的创建时间≈首次运行
+    时间，是可用且诚实的近似（与 backend.system_info 的兜底口径一致）。
+    """
+    root = os.environ.get('DBOX_DATA_ROOT') or (r'C:\ProgramData\Dbox' if os.name == 'nt' else '/var/lib/Dbox')
+    db = Path(root) / 'data' / 'databases' / 'dbox.db'
+    try:
+        if db.is_file():
+            return datetime.fromtimestamp(db.stat().st_ctime).replace(microsecond=0).isoformat()
+    except Exception:
+        pass
+    return None
+
+
+def record_install_info(source_dir: Path) -> dict:
+    """记录/更新安装信息（后台「版本信息」卡片的数据源）。
+
+    历史上这张卡片读 systemInfo.install.*，但**后端从未产出过 install 字段**，
+    三项（安装时间 / 来源目录 / 升级状态）一直是空白死 UI。这里给它一个真实数据源：
+
+      - 首次安装：写入 install_time / source_dir / version
+      - 再次安装且版本变化：保留原 install_time，记录 updated_at / previous_version /
+        update_count，「升级状态」据此为真
+
+    返回最终的安装信息字典（失败只记日志，不影响安装流程）。
+    """
+    cfg_dir = get_config_dir()
+    info_file = cfg_dir / 'install_info.json'
+    version = get_version(source_dir)
+    now = datetime.now().replace(microsecond=0).isoformat()
+
+    info: dict = {}
+    if info_file.exists():
+        try:
+            info = json.loads(info_file.read_text(encoding='utf-8')) or {}
+        except Exception as e:
+            log.warning(f'  安装信息文件损坏，将重建: {e}')
+            info = {}
+
+    if not info.get('install_time'):
+        # 老安装补记：不能用「本次运行时刻」冒充首次安装时间
+        info['install_time'] = guess_first_install_time() or now
+        if not info.get('version'):
+            info['estimated'] = True
+    # 字段始终齐全，前端/后端不必区分「首次记录」与「升级过」
+    info.setdefault('update_count', 0)
+    info.setdefault('previous_version', None)
+    if version != info.get('version'):
+        # 版本变化 = 一次升级（首次写入时 version 为空，不算升级）
+        if info.get('version'):
+            info['previous_version'] = info.get('version')
+            info['updated_at'] = now
+            info['update_count'] = int(info.get('update_count') or 0) + 1
+        info['version'] = version
+    info['source_dir'] = str(source_dir)
+    info['is_update'] = bool(info.get('update_count'))
+
+    try:
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        tmp = info_file.with_suffix('.json.tmp')
+        tmp.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.replace(info_file)
+        log.info(f'  安装信息: {info_file}')
+    except Exception as e:
+        log.warning(f'  写入安装信息失败（不影响安装）: {e}')
+    return info
+
+
 def find_python_exe() -> str:
     """查找可用的 Python 可执行文件（用于注册 NSSM 服务）。
 
@@ -415,6 +499,12 @@ def main():
         print('  [OK] 卸载完成')
         print('=' * 60)
         return
+
+    # 记录安装信息（后台「版本信息」卡片的 安装时间 / 来源目录 / 升级状态 数据源）
+    install_info = record_install_info(SOURCE_DIR)
+    log.info(f'  首次安装: {install_info.get("install_time")}')
+    if install_info.get('is_update'):
+        log.info(f'  已升级: {install_info.get("previous_version")} → {install_info.get("version")}')
 
     # 注册服务
     reg_results = register_nssm_services(
