@@ -177,7 +177,11 @@ const routes: RouteRecordRaw[] = [
     // 框架不硬编码任何插件 id——插件 id 直接从路径参数取，因此新增插件无需改框架。
     // 各插件仍由 ensureExtensionRoutes() 动态注册其精确路径（带各自标题），
     // 静态段优先于动态段匹配，故精确路由存在时以它为准，本条仅作竞态兜底。
-    path: '/ext/:extId',
+    // 末尾 catch-all：同一条记录同时承载 /ext/<id> 与 /ext/<id>/<子路径>
+    // （如 /ext/pixiv/users/103284583，插件可把内部路由映射成官方风格的多级路径）。
+    // 用一条记录而非「精确 + 子路径」两条：后者是两条记录，切换时组件会被卸载重建，
+    // 独立全屏页会闪一下、面板状态（滚动/播放）丢失。
+    path: '/ext/:extId/:pathMatch(.*)*',
     name: 'ext-standalone',
     component: () => import('../views/ExtensionStandalone.vue'),
     props: (route: any) => ({ id: route.params.extId }),
@@ -227,7 +231,9 @@ export async function ensureExtensionRoutes() {
       // 避免重复注册
       if (router.hasRoute(name)) continue
       router.addRoute({
-        path: route,
+        // 同样加 catch-all：/ext/<id> 与 /ext/<id>/<子路径> 属同一条记录，
+        // 面板把自己的内部路由映射成官方风格多级路径时组件不会被重建。
+        path: route + '/:pathMatch(.*)*',
         name,
         component: () => import('../views/ExtensionStandalone.vue'),
         props: { id: ext.id },
