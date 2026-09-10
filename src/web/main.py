@@ -173,7 +173,7 @@ _EXTENSIONS_HOST_URL = 'http://127.0.0.1:8093'
 # 不在框架中硬编码任何具体插件 id。
 _SCRIPT_PREFIXES = ('/api/scripts', '/api/admin/scripts', '/api/admin/cookies',
                     '/api/ui-extensions', '/api/ui-panel', '/api/ui-proxy',
-                    '/api/ext')
+                    '/api/ext', '/api/ext-sdk')
 
 
 def _proxy_to_extensions_host(path):
