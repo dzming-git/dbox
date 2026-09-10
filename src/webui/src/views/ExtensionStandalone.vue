@@ -63,6 +63,19 @@ function readToken(): string {
     || ''
 }
 
+/**
+ * 扩展全屏页的「子路径」：/ext/<id>/ 之后的部分。
+ * 面板可把内部路由映射成官方风格的多级路径（如 pixiv 的 /users/103284583），
+ * 比 ?view=..&id=.. 更贴近官网结构、也更利于分享与刷新直达。
+ * 子路径整体交给面板解析——框架不认识任何插件的子路由语义。
+ */
+function subPathOf(): string {
+  const p = route.path || ''
+  const prefix = '/ext/' + extId
+  if (!p.startsWith(prefix)) return ''
+  return p.slice(prefix.length).replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
 /** 向面板补注入 token/模式/路由 query（每次都读最新 token，避免 401） */
 function pushRuntime() {
   if (!getPanelIframe(extId)) return
@@ -75,6 +88,9 @@ function pushRuntime() {
   if (route.query && Object.keys(route.query).length) {
     postToPanel(extId, { type: 'DBOX_ROUTE', query: { ...route.query } })
   }
+  // 路径式子路由（官方风格）：直接粘贴 /ext/<id>/users/123 进来时据此还原
+  const sp = subPathOf()
+  if (sp) postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp })
 }
 
 /**
@@ -127,6 +143,13 @@ function handleMsg(data: any, id: string) {
 watch(() => route.hash, (h) => {
   if (!getPanelIframe(extId)) return
   postToPanel(extId, { type: 'DBOX_ROUTE', hash: h || '' })
+})
+
+// 路径式子路由（官方风格）同理：浏览器前进/后退在 /ext/<id>/users/123 之间切换时
+// 回推给面板，让面板内部视图跟着走（面板会自行忽略与自己当前位置相同的回推）。
+watch(() => route.path, () => {
+  if (!getPanelIframe(extId)) return
+  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf() })
 })
 
 function goBack() {

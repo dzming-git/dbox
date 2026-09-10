@@ -199,6 +199,15 @@ def _load_plugins(app):
   对每个声明了 `ui.standalone_route` 的插件动态 `router.addRoute()`，
   挂载通用 `ExtensionStandalone.vue`（按 `props.id` 取对应 panel.html）。
   **框架路由表不写死任何插件路径。**
+- **子路径深链（官方风格 URL）**：独立全屏路由注册为 `<standalone_route>/:pathMatch(.*)*`，
+  插件可把内部路由映射成与官网同构的多级路径，而不必挤在 query 里：
+  如 pixiv 的 `/ext/pixiv/users/103284583`、`/ext/pixiv/artworks/123`。
+  `/ext/<id>` 与其子路径命中**同一条路由记录**，故切换子路径时组件不会被卸载重建
+  （面板不闪，滚动位置/播放进度等状态不丢）——这一点是刻意用 catch-all 单条记录
+  而非「精确 + 子路径」两条记录实现的。
+  契约：宿主以 `postMessage` 下发 `{ type:'DBOX_ROUTE', subPath }` 把子路径交给面板解析；
+  浏览器前进/后退时同样回推；面板用 `DBOX_NAVIGATE`（带 `keepPanel: true`）
+  把路径写回地址栏。**子路径语义完全由插件自己定义，框架不解析、不硬编码。**
 
 ---
 
