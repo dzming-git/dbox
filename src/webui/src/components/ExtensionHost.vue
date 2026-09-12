@@ -657,6 +657,16 @@ watch(() => route.path, async (p) => {
 body.ext-no-scroll {
   overflow: hidden;
 }
+/* 内联 SVG 图标（系统监控等扩展、上传工具）经 v-html 注入，不会带上 scoped 的
+   data-v 属性，故 scoped 里的 `.ext-app-icon svg` 匹配不到——SVG 会退化为默认尺寸、
+   fill 也不生效，看起来像「没有图标」。这里用全局规则兜底设置尺寸与颜色。 */
+.ext-app-icon svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+  fill: currentColor;
+  color: inherit;
+}
 /* 浮动面板呼出时把导航栏抬到遮罩（z-index 8999）之上：
    保证导航栏里的「应用」入口在面板打开时仍可点击，一次点击即可切回应用列表。
    竖屏沉浸播放器是 z-index 2000 的全屏浮层，此时不抬高，避免导航栏钻到视频上方。 */
