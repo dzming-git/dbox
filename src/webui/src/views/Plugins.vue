@@ -284,9 +284,6 @@ onMounted(load)
   font-size: 11px;
   font-weight: 400;
   color: var(--text-tertiary);
-  background: var(--bg-surface-2);
-  padding: 1px 6px;
-  border-radius: 4px;
 }
 .plugin-desc {
   margin-top: 4px;
@@ -367,4 +364,17 @@ onMounted(load)
 }
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>
+
+<!-- 全局（非 scoped）：内联 SVG 图标经 v-html 注入、不带 scoped 的 data-v 属性，
+     故 scoped 的 `.plugin-icon svg` 匹配不到——SVG 会退化为默认尺寸、fill 也不生效，
+     看起来像「没有图标」。系统监控等扩展图标在此兜底。 -->
+<style>
+.plugin-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  fill: currentColor;
+  color: inherit;
+}
 </style>
