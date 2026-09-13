@@ -50,11 +50,15 @@ def _init_task_store():
 
 
 def _finish_task_quiet(task_id, status, **kwargs):
-    """结束任务但不让异常影响扫描结果。"""
+    """结束任务但不让异常影响扫描结果。
+
+    收尾失败只影响任务可见性（任务会一直显示为进行中），不能因此判定扫描失败，
+    但要记 ERROR 级日志——这类失败是静默的，不记下来没人会发现。
+    """
     try:
         finish_task(task_id, status, **kwargs)
     except Exception as e:
-        log.debug('WARN', f'更新任务状态失败({task_id}): {e}')
+        log.debug('ERROR', f'更新任务状态失败({task_id}): {type(e).__name__}: {e}')
 
 
 def _update_task_quiet(task_id, **kwargs):
