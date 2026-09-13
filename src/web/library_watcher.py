@@ -237,20 +237,6 @@ class ResourceLibraryWatcher:
             self._debug('ERROR', f'[LibWatcher] 收集库 {library_id} 目标失败: {e}')
         return targets
 
-    def scan_library(self, library_id: int):
-        """对单个资源库执行全量同步：磁盘 -> Video 表（web 唯一索引源）。
-
-        新增/更新/重命名/删除均复用已验证的 _diff_sync。只针对该库监控目标，
-        不会误删其它库。返回实际扫描的目录数。
-        """
-        targets = self._targets_for_library(library_id)
-        if not targets:
-            self._debug('WARN', f'[LibWatcher] 库 {library_id} 没有可扫描的目录')
-            return 0
-        # 管理员主动的全量/单库扫描：强制把标题对齐为文件名，让索引与磁盘一致
-        self._diff_sync(targets, refresh_title=True)
-        return len(targets)
-
     def library_disk_targets(self, library_id: int):
         """返回该资源库在磁盘上的监控根目录列表（供图集等扫描复用）。"""
         return [p for p, _ in self._targets_for_library(library_id)]
@@ -395,7 +381,7 @@ class ResourceLibraryWatcher:
             pass
         return found
 
-    def _diff_sync(self, targets, mode='full'):
+    def _diff_sync(self, targets, mode='full', should_stop=None):
         """对比磁盘与 Video 表，处理新增、重命名、删除。用于初始补齐与轮询。
 
         title 与 file_name 解耦：已存在视频仅同步 file_name / url / 内容指纹等
@@ -407,6 +393,12 @@ class ResourceLibraryWatcher:
           'incremental' —— 仅枚举自 _last_scan_epoch 以来 mtime 变化的目录，
                            只处理新增/改名/删除，最快的日常同步策略
           'verify' —— 仅校验 DB 孤儿：清理磁盘已不存在的视频，不枚举磁盘新增文件
+
+        should_stop: 可选的可调用对象，返回 True 表示外部请求中断（用户取消扫描）。
+                     在枚举磁盘、逐条入库、清理孤儿三处循环内检查，命中即立即返回
+                     False（已处理的部分保留，未更新增量基线，下次仍会重新扫描）。
+
+        返回：True 表示完整跑完；False 表示被中断。
         """
         try:
             from core.models import Video, ResourceIndex
@@ -414,15 +406,24 @@ class ResourceLibraryWatcher:
             verify_only = (mode == 'verify')
             since = self._last_scan_epoch if incremental else 0.0
 
+            def _stopped():
+                return bool(should_stop and should_stop())
+
             disk = {}
             if not verify_only:
                 for root, lib_id in targets:
+                    if _stopped():
+                        self._debug('INFO', f'[LibWatcher] diff({mode}) 收到中断请求，停止枚举磁盘')
+                        return False
                     disk.update(self._collect_disk_videos(root, lib_id, since_epoch=since))
 
             # 新增 / 重命名 / 文件名对齐（仅更新物理信息，不动 title）
             if not verify_only:
                 self._debug('INFO', f'[LibWatcher] diff({mode}) 开始，磁盘文件数 {len(disk)}')
                 for np_norm, (p, lib_id) in disk.items():
+                    if _stopped():
+                        self._debug('INFO', f'[LibWatcher] diff({mode}) 收到中断请求，停止入库')
+                        return False
                     with self._app.app_context():
                         existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == p).first()
                         if existing:
@@ -445,6 +446,9 @@ class ResourceLibraryWatcher:
             roots_norm = [os.path.normcase(os.path.abspath(r)) for r, _ in targets]
             with self._app.app_context():
                 for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
+                    if _stopped():
+                        self._debug('INFO', f'[LibWatcher] diff({mode}) 收到中断请求，停止清理孤儿')
+                        return False
                     np = os.path.normcase(os.path.abspath(v.local_path))
                     if not verify_only and np in disk:
                         continue
@@ -454,32 +458,39 @@ class ResourceLibraryWatcher:
             # 记录成功扫描时间，供后续增量剪枝使用
             if mode != 'verify':
                 self._last_scan_epoch = time.time()
+            return True
         except Exception as e:
             self._debug('ERROR', f'[LibWatcher] diff({mode}) 同步失败: {e}')
+            return False
 
     # ---------- 单库扫描（对外 API，支持模式）----------
-    def scan_library(self, library_id, mode='incremental'):
+    def scan_library(self, library_id, mode='incremental', should_stop=None):
         """对单个 web 资源库执行扫描/同步。
 
         mode 透传给 _diff_sync：'incremental'（默认，快）/ 'full' / 'verify'。
-        返回 (added, updated, removed) 计数。
+        should_stop 透传给 _diff_sync，用于用户取消时中断长扫描。
+
+        返回 (added, updated, removed, cancelled) 计数；cancelled 为 True 表示被中断，
+        此时前三个计数只是「中断前已发生的部分」，不代表最终结果。
         """
         try:
             targets = self._targets_for_library(library_id)
             if not targets:
                 self._debug('WARN', f'[LibWatcher] 库 {library_id} 无可扫描目标')
-                return (0, 0, 0)
+                return (0, 0, 0, False)
             before = self._count_videos(targets)
-            self._diff_sync(targets, mode=mode)
+            completed = self._diff_sync(targets, mode=mode, should_stop=should_stop)
             after = self._count_videos(targets)
             added = max(0, after - before)
             removed = max(0, before - after)
-            self._debug('INFO', f'[LibWatcher] 扫描库 {library_id}({mode}) 完成: '
+            cancelled = not completed
+            self._debug('INFO', f'[LibWatcher] 扫描库 {library_id}({mode}) '
+                                f'{"中断" if cancelled else "完成"}: '
                                 f'新增≈{added} 移除≈{removed}')
-            return (added, 0, removed)
+            return (added, 0, removed, cancelled)
         except Exception as e:
             self._debug('ERROR', f'[LibWatcher] 扫描库 {library_id} 失败: {e}')
-            return (0, 0, 0)
+            return (0, 0, 0, False)
 
     def _count_videos(self, targets):
         try:
