@@ -197,7 +197,8 @@ def mark_started(task_id):
     return get_task(task_id)
 
 
-def finish_task(task_id, status, progress=None, detail=None, error_code=None):
+def finish_task(task_id, status, progress=None, stage=None, detail=None,
+                error_code=None):
     """结束任务：写入终态与 finished_at。
 
     status 必须是 completed / failed / cancelled 之一，其它值会被忽略（返回 None），
@@ -208,21 +209,23 @@ def finish_task(task_id, status, progress=None, detail=None, error_code=None):
     with _lock:
         with _conn() as conn:
             row = conn.execute(
-                'SELECT progress, detail, error_code FROM tasks WHERE task_id=?',
+                'SELECT progress, stage, detail, error_code FROM tasks WHERE task_id=?',
                 (task_id,),
             ).fetchone()
             if not row:
                 return None
             new_progress = row['progress'] if progress is None else progress
+            new_stage = row['stage'] if stage is None else stage
             new_detail = row['detail'] if detail is None else detail
             if status == STATUS_COMPLETED:
                 new_error = None
             else:
                 new_error = row['error_code'] if error_code is None else (error_code or None)
             conn.execute(
-                '''UPDATE tasks SET status=?, progress=?, detail=?, error_code=?,
+                '''UPDATE tasks SET status=?, progress=?, stage=?, detail=?, error_code=?,
                    finished_at=?, updated_at=? WHERE task_id=?''',
-                (status, new_progress, new_detail, new_error, _now(), _now(), task_id),
+                (status, new_progress, new_stage, new_detail, new_error,
+                 _now(), _now(), task_id),
             )
     return get_task(task_id)
 
