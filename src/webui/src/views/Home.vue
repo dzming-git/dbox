@@ -1201,7 +1201,7 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .breadcrumb-root {
-  color: #4FC3F7;
+  color: var(--info);
   cursor: pointer;
 }
 
@@ -1223,7 +1223,7 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .breadcrumb-item.active {
-  color: #4FC3F7;
+  color: var(--info);
   cursor: default;
 }
 
@@ -1421,12 +1421,12 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .sort-select:hover {
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
 }
 
 .sort-select:focus {
   outline: none;
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 
@@ -1444,12 +1444,12 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .sort-order-select:hover {
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
 }
 
 .sort-order-select:focus {
   outline: none;
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 
@@ -1468,12 +1468,12 @@ const listThumbUrl = (video: Video): string => {
 }
 
 .library-select:hover {
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
 }
 
 .library-select:focus {
   outline: none;
-  border-color: #4a9eff;
+  border-color: var(--accent-border);
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 

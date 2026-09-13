@@ -3532,7 +3532,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-root {
-  color: #4FC3F7;
+  color: var(--info);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -3561,7 +3561,7 @@ const handleDelete = async () => {
 }
 
 .breadcrumb-item.active {
-  color: #4FC3F7;
+  color: var(--info);
   cursor: default;
 }
 
@@ -3613,7 +3613,7 @@ const handleDelete = async () => {
 }
 
 .path-part {
-  color: #4FC3F7;
+  color: var(--info);
 }
 
 .path-separator {
