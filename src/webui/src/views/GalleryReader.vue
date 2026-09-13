@@ -942,7 +942,7 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
 .btn-secondary { background: var(--bg-surface-hover); border: 1px solid #444; color: var(--text-secondary); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
 .btn-secondary:hover { background: #333; color: var(--text-on-accent); }
 .btn-danger { background: #e53935; border: 1px solid #e53935; color: var(--text-on-accent); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.btn-danger:hover { background: #f44336; }
+.btn-danger:hover { background: var(--danger); }
 .reader.immersive.controls-shown .immersive-exit { top: 64px; }
 
 @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }

@@ -301,7 +301,7 @@ watch(() => route.query, async (newQuery) => {
 .gallery-list { display: flex; flex-direction: column; gap: 8px; }
 .list-actions { display: flex; gap: 6px; }
 .list-action-btn { width: 34px; height: 34px; background: var(--bg-surface-hover); border: none; border-radius: 50%; color: var(--text-secondary); cursor: pointer; }
-.list-action-btn.like.active { color: #ff4757; background: rgba(255,71,87,0.15); }
+.list-action-btn.like.active { color: var(--like); background: var(--like-soft); }
 .list-action-btn.favorite.active { color: #ffa502; background: rgba(255,165,2,0.15); }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; }
 .spinner { width: 48px; height: 48px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }

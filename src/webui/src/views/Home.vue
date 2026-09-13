@@ -1821,7 +1821,7 @@ const listThumbUrl = (video: Video): string => {
 
 .continue-progress-bar {
   height: 100%;
-  background: #ff4757;
+  background: var(--like);
 }
 
 .continue-info {
@@ -1842,7 +1842,7 @@ const listThumbUrl = (video: Video): string => {
 
 .continue-pct {
   font-size: 12px;
-  color: #ff4757;
+  color: var(--like);
 }
 
 /* 响应式 */

@@ -139,7 +139,7 @@ onDeactivated(() => ptr.clearHandler())
 .playlist-card.active { border-color: var(--accent); background: var(--info-soft); }
 .pl-head { display: flex; align-items: center; justify-content: space-between; }
 .pl-head h3 { font-size: 16px; color: var(--text-primary); margin: 0; }
-.badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #4caf50; color: var(--text-on-accent); }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--success); color: var(--text-on-accent); }
 .pl-desc { color: var(--text-tertiary); font-size: 13px; margin: 8px 0; min-height: 18px; }
 .pl-meta { color: var(--text-tertiary); font-size: 12px; }
 .detail { margin-top: 28px; border-top: 1px solid var(--border-default); padding-top: 20px; }

@@ -3513,7 +3513,7 @@ const handleDelete = async () => {
 
 .tag-tree-leaf {
   font-size: 12px;
-  color: #4CAF50;
+  color: var(--success);
   flex-shrink: 0;
 }
 
@@ -3814,7 +3814,7 @@ const handleDelete = async () => {
 
 .tag-flat-check {
   font-size: 12px;
-  color: #4CAF50;
+  color: var(--success);
   margin-left: 8px;
   flex-shrink: 0;
 }
@@ -3952,7 +3952,7 @@ const handleDelete = async () => {
 
 .btn-danger {
   padding: 10px 24px;
-  background: #f44336;
+  background: var(--danger);
   border: none;
   border-radius: 8px;
   color: var(--text-on-accent);
@@ -3970,7 +3970,7 @@ const handleDelete = async () => {
 }
 
 .delete-btn:hover {
-  background: #f44336;
+  background: var(--danger);
 }
 
 /* 对话框内容 */
@@ -4092,7 +4092,7 @@ const handleDelete = async () => {
 }
 
 .status-value.active {
-  background: #4caf50;
+  background: var(--success);
   color: var(--text-on-accent);
 }
 

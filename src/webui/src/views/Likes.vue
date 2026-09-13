@@ -121,7 +121,7 @@ const showToast = (message: string) => {
   width: 48px;
   height: 48px;
   border: 3px solid var(--border-default);
-  border-top-color: #ff4757;
+  border-top-color: var(--like);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

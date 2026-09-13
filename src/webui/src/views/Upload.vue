@@ -671,13 +671,13 @@ const clearError = () => {
 }
 
 .library-section.has-error {
-  border-color: #ff4d4f;
+  border-color: var(--danger);
   animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
   0%, 100% {
-    border-color: #ff4d4f;
+    border-color: var(--danger);
   }
   50% {
     border-color: #ff8080;
@@ -694,12 +694,12 @@ const clearError = () => {
 }
 
 .required-mark {
-  color: #ff4d4f;
+  color: var(--danger);
   font-size: 20px;
 }
 
 .hint-text {
-  color: #ff4d4f;
+  color: var(--danger);
   font-size: 14px;
   font-weight: normal;
 }
@@ -748,7 +748,7 @@ const clearError = () => {
   right: 8px;
   width: 24px;
   height: 24px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -899,7 +899,7 @@ const clearError = () => {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-active) 100%);
   border-radius: 4px;
   transition: width 0.3s ease;
 }
@@ -920,7 +920,7 @@ const clearError = () => {
 .success-icon {
   width: 80px;
   height: 80px;
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  background: linear-gradient(135deg, var(--success) 0%, #45a049 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -951,7 +951,7 @@ const clearError = () => {
 .error-icon {
   width: 64px;
   height: 64px;
-  background: #ff4d4f;
+  background: var(--danger);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -962,13 +962,13 @@ const clearError = () => {
 }
 
 .upload-error p {
-  color: #ff4d4f;
+  color: var(--danger);
   margin-bottom: 20px;
 }
 
 .retry-btn {
   padding: 12px 32px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
@@ -1060,7 +1060,7 @@ const clearError = () => {
 }
 
 .tag-option.selected {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   border-color: transparent;
   color: var(--text-on-accent);
 }
@@ -1098,8 +1098,8 @@ const clearError = () => {
 }
 
 .clear-btn:hover {
-  border-color: #ff4d4f;
-  color: #ff4d4f;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .files-list {
@@ -1144,7 +1144,7 @@ const clearError = () => {
 .upload-btn {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
@@ -1195,7 +1195,7 @@ const clearError = () => {
 
 /* 进度条处理中状态（闪烁动画） */
 .progress-fill.processing {
-  background: linear-gradient(90deg, #f97316 0%, #ea580c 50%, #f97316 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-active) 50%, var(--accent) 100%);
   background-size: 200% 100%;
   animation: progressShimmer 1.5s ease infinite;
 }
@@ -1236,7 +1236,7 @@ const clearError = () => {
 .error-modal-retry {
   flex: 1;
   padding: 12px;
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
   color: var(--text-on-accent);
   border: none;
   border-radius: 10px;
