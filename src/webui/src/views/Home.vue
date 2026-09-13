@@ -11,6 +11,7 @@ import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import ResourceListRow from '../components/ResourceListRow.vue'
+import ContinueSection from '../components/ContinueSection.vue'
 import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
@@ -580,6 +581,9 @@ const listThumbUrl = (video: Video): string => {
 
 <template>
   <div class="home-container">
+    <!-- 「继续」：跨模态聚合「看了但没看完」的内容，回到首页一次点击接着上次 -->
+    <ContinueSection />
+
     <!-- 首屏引导：尚无资源库时引导用户添加/上传/扫描 -->
     <div class="onboarding-banner" v-if="noLibraries">
       <div class="ob-icon">
