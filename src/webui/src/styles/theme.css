@@ -90,6 +90,10 @@
   --accent-bg: var(--accent-soft);
   --bg-secondary: var(--bg-surface-2);
   --bg-elev: var(--bg-elevated);
+  /* 早期遗留的短名：组件里写作 var(--bg, …) / var(--border, …)，此前从未定义，
+     实际一直在吃兜底值。别名到 canonical，让它们真正随主题走。 */
+  --bg: var(--bg-base);
+  --border: var(--border-default);
 }
 
 /* 滚动条统一美化（使用主题变量） */
