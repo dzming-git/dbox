@@ -272,7 +272,7 @@ const handleClick = () => {
 /* 点赞：比较喜欢（红色） */
 .like-action:hover,
 .like-action.active {
-  color: #ff4757;
+  color: var(--like);
 }
 .like-action.active {
   background: rgba(255, 71, 87, 0.2);
@@ -392,7 +392,7 @@ const handleClick = () => {
   display: flex;
   align-items: center;
   gap: 3px;
-  color: #ff4757;
+  color: var(--like);
   font-weight: 500;
 }
 

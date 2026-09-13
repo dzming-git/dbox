@@ -177,7 +177,7 @@ const formatDate = (s?: string) => {
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 16px; line-height: 1.5; }
 .hint code { background: var(--bg-surface-hover); padding: 1px 6px; border-radius: 4px; color: var(--text-secondary); }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
-.spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: #4CAF50; border-radius: 50%; animation: spin 1s linear infinite; }
+.spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: var(--success); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-box { color: var(--danger); padding: 12px; background: var(--danger-soft); border-radius: 8px; }
 .empty-state { color: var(--text-tertiary); text-align: center; padding: 60px 0; }
@@ -190,11 +190,11 @@ const formatDate = (s?: string) => {
 .field-label { display: block; color: var(--text-secondary); font-size: 13px; margin: 14px 0 6px; }
 .text-input, .text-area { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-primary); padding: 10px 12px; font-size: 14px; font-family: inherit; }
 .text-area { resize: vertical; }
-.text-input:focus, .text-area:focus { outline: none; border-color: #4CAF50; }
+.text-input:focus, .text-area:focus { outline: none; border-color: var(--success); }
 .modal-ops { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .cancel-btn { padding: 8px 18px; border: 1px solid var(--border-default); background: var(--bg-surface-hover); color: var(--text-secondary); border-radius: 8px; cursor: pointer; }
 .cancel-btn:hover { color: var(--accent); }
-.save-btn { padding: 8px 22px; border: none; border-radius: 8px; background: #4CAF50; color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
+.save-btn { padding: 8px 22px; border: none; border-radius: 8px; background: var(--success); color: var(--text-on-accent); font-size: 14px; cursor: pointer; }
 .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .save-btn:hover:not(:disabled) { background: #43a047; }
 </style>

@@ -3784,7 +3784,7 @@ onUnmounted(() => {
   line-height: 18px;
   text-align: center;
   border-radius: 9px;
-  background: #ef4444;
+  background: var(--danger);
   color: #fff;
   font-size: 11px;
 }
@@ -6676,7 +6676,7 @@ input:checked + .slider:before {
 }
 .rv-type-video { background: #4f7cff; }
 .rv-type-gallery { background: #f59e0b; }
-.rv-type-post { background: #10b981; }
+.rv-type-post { background: var(--success); }
 .rv-type-text { background: #8b5cf6; }
 .rv-title {
   flex: 1;
@@ -7282,7 +7282,7 @@ input:checked + .slider:before {
 
 .btn-primary {
 
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-active) 100%);
 
   color: white;
 
@@ -7432,7 +7432,7 @@ input:checked + .slider:before {
 
 .status-ok {
 
-  color: #10b981;
+  color: var(--success);
 
 }
 
@@ -7440,7 +7440,7 @@ input:checked + .slider:before {
 
 .status-error {
 
-  color: #ef4444;
+  color: var(--danger);
 
 }
 
@@ -7456,7 +7456,7 @@ input:checked + .slider:before {
 
 .text-error {
 
-  color: #ef4444;
+  color: var(--danger);
 
 }
 
@@ -7640,7 +7640,7 @@ input:checked + .slider:before {
 
   border: 1px solid rgba(16, 185, 129, 0.3);
 
-  color: #10b981;
+  color: var(--success);
 
 }
 
@@ -7718,7 +7718,7 @@ input:checked + .slider:before {
 
 .auto-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #10b981);
+  background: linear-gradient(90deg, #3b82f6, var(--success));
   border-radius: 6px;
   transition: width 0.4s ease;
 }
@@ -8055,7 +8055,7 @@ input:checked + .slider:before {
 
 .health-light.svc-stopped .light-dot {
 
-  background: #ef4444;
+  background: var(--danger);
 
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
 
@@ -8175,9 +8175,9 @@ input:checked + .slider:before {
 
 
 
-.metric-value.svc-running { color: #10b981; }
+.metric-value.svc-running { color: var(--success); }
 
-.metric-value.svc-stopped { color: #ef4444; }
+.metric-value.svc-stopped { color: var(--danger); }
 
 .metric-value.svc-paused { color: #f59e0b; }
 

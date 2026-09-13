@@ -153,8 +153,8 @@ const showToast = (message: string) => {
 }
 .clear-btn:hover {
   background: rgba(244, 67, 54, 0.1);
-  border-color: #f44336;
-  color: #f44336;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .loading-container {
   display: flex;

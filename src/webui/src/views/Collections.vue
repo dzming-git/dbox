@@ -420,7 +420,7 @@ onDeactivated(() => ptr.clearHandler())
   cursor: pointer;
   font-size: 12px;
 }
-.ci-del:hover { color: #f44336; }
+.ci-del:hover { color: var(--danger); }
 .ci-edit-btn {
   position: absolute;
   top: 8px;
@@ -511,7 +511,7 @@ onDeactivated(() => ptr.clearHandler())
 }
 .add-btn:hover { background: var(--accent-active); }
 .playall-btn {
-  background: #4caf50;
+  background: var(--success);
   border: none;
   color: var(--text-on-accent);
   border-radius: 6px;
@@ -550,7 +550,7 @@ onDeactivated(() => ptr.clearHandler())
 }
 .col-card-actions button:hover:not(:disabled) { background: var(--accent); }
 .col-card-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
-.col-card-actions .del:hover { background: #f44336; }
+.col-card-actions .del:hover { background: var(--danger); }
 .col-card-title {
   font-size: 13px;
   color: var(--text-secondary);

@@ -952,7 +952,7 @@ const confirmMerge = async () => {
 }
 
 .action-icon-btn.add-child:hover {
-  color: #4CAF50;
+  color: var(--success);
 }
 
 .action-icon-btn.edit:hover {
@@ -960,7 +960,7 @@ const confirmMerge = async () => {
 }
 
 .action-icon-btn.delete:hover {
-  color: #f44336;
+  color: var(--danger);
 }
 
 .empty-state {
@@ -1058,7 +1058,7 @@ const confirmMerge = async () => {
 }
 
 .error-text {
-  color: #f44336;
+  color: var(--danger);
   font-size: 13px;
   margin: -8px 0 16px 0;
 }
@@ -1115,7 +1115,7 @@ const confirmMerge = async () => {
 
 .btn-danger {
   padding: 10px 20px;
-  background: #f44336;
+  background: var(--danger);
   border: none;
   border-radius: 6px;
   color: var(--text-on-accent);
@@ -1259,11 +1259,11 @@ const confirmMerge = async () => {
 }
 
 .batch-btn.merge {
-  border-color: #4CAF50;
+  border-color: var(--success);
 }
 
 .batch-btn.danger {
-  border-color: #f44336;
+  border-color: var(--danger);
 }
 
 .batch-check {

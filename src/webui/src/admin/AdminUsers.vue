@@ -339,7 +339,7 @@ onMounted(() => {
 .dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
-.dot-none { background: #ef4444; }
+.dot-none { background: var(--danger); }
 .dot-read { background: #3b82f6; }
 .dot-write { background: #22c55e; }
 
@@ -423,7 +423,7 @@ onMounted(() => {
 }
 .perm-chip.active.none {
   background: rgba(239,68,68,0.14);
-  border-color: #ef4444;
+  border-color: var(--danger);
   color: #fca5a5;
   text-decoration: line-through;
 }

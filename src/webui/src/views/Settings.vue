@@ -822,9 +822,9 @@ input:disabled + .toggle-slider {
 .danger-btn {
   padding: 8px 16px;
   background: transparent;
-  border: 1px solid #f44336;
+  border: 1px solid var(--danger);
   border-radius: 8px;
-  color: #f44336;
+  color: var(--danger);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -908,7 +908,7 @@ input:disabled + .toggle-slider {
 }
 
 .toast.success {
-  background: #4caf50;
+  background: var(--success);
 }
 
 @keyframes fadeInOut {
