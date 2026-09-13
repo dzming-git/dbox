@@ -60,8 +60,10 @@ def _count_active_tasks():
     优先复用核心统一任务表；取不到时返回 None（调用方据此保持等待，不误关机）。
     """
     try:
-        from backend.tasks import task_store  # 核心统一任务存储
-        active = task_store.list_active_tasks(limit=500) if hasattr(task_store, 'list_active_tasks') else None
+        from unified_tasks import init_task_manager, list_active_tasks  # 核心统一任务表
+        from backend.paths import DATA_DIR
+        init_task_manager(DATA_DIR)
+        active = list_active_tasks(limit=500)
         if active is None:
             return None
         return len([t for t in active

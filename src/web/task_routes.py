@@ -17,7 +17,8 @@ from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
 from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_action_required,
-    delete_task, create_task, STATUS_RUNNING,
+    delete_task, create_task, request_cancel, bump_attempts,
+    STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
 )
 
 bp = Blueprint('task', __name__)
@@ -198,11 +199,46 @@ def delete_task_route(task_id):
     }), 409
 
 
+@bp.route('/api/tasks/<path:task_id>/cancel', methods=['POST'])
+@auth_required
+def cancel_task(task_id):
+    """请求取消一个进行中的任务。
+
+    取消是「协作式」的：这里只置 cancel_requested 标记，执行方在下一个检查点
+    检测到后自行停止并写入 cancelled 终态。因此接口返回后状态可能仍是 running，
+    前端应继续轮询而不是立刻认为已停止。
+    """
+    user_id, role = resolve_identity()
+    is_admin = _is_admin(role)
+
+    try:
+        from backend.paths import DATA_DIR
+        init_task_manager(DATA_DIR)
+    except Exception:
+        pass
+
+    task = get_task(task_id)
+    if not task:
+        return jsonify({'success': False, 'message': '任务不存在'}), 404
+    if not is_admin and task.get('owner_id') not in (None, user_id):
+        return jsonify({'success': False, 'message': '无权取消该任务'}), 403
+    if task.get('status') in (STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED):
+        return jsonify({'success': False, 'message': '任务已结束，无需取消'}), 400
+
+    updated = request_cancel(task_id)
+    return jsonify({
+        'success': True,
+        'task': updated,
+        'message': '已请求取消，任务会在下一个检查点停止',
+    })
+
+
 @bp.route('/api/tasks/<path:task_id>/retry', methods=['POST'])
 @auth_required
 def retry_task(task_id):
     """重试一个最终失败的任务。
 
+    - 扫描任务（scan:*）：按登记的参数（scope / library_id / mode）重新发起一次扫描；
     - 脚本任务（script:*）：读取登记时的可重放参数（script_id + 原始 params），
       向内网下载器服务重新提交 run 请求，由下载器创建新 job 并同步回统一任务表，
       用户可在任务列表看到新任务。
@@ -224,6 +260,18 @@ def retry_task(task_id):
     status = task.get('status')
     if status not in ('failed', 'cancelled'):
         return jsonify({'success': False, 'message': '仅失败/已取消的任务可重试'}), 400
+
+    if kind == 'scan':
+        # 扫描任务自带完整可重放参数（scope / library_id / mode），直接重放即可
+        try:
+            from backend.library_helpers import restart_scan_from_params
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'扫描模块不可用：{e}'}), 500
+        ok, message = restart_scan_from_params(task.get('params'), owner_id=task.get('owner_id'))
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        bump_attempts(task_id)
+        return jsonify({'success': True, 'message': message, 'task_id': task_id})
 
     if kind == 'script':
         params = task.get('params') or {}
