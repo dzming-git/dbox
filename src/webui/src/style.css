@@ -1,12 +1,16 @@
+/* ⚠️ 废弃中的遗留样式：本文件目前**未被任何入口 import**（只有 styles/theme.css
+   在 main.ts 中被引入），其 :root 里与 canonical token 重名的变量（--accent /
+   --accent-border）值与 theme.css 不一致（#ea580c vs #f97316），一旦被引入就会
+   静默改掉全站强调色。故此处删除重名的颜色定义，颜色 token 的唯一来源是
+   styles/theme.css（运行时再由 utils/theme.ts 按皮肤计算注入）。
+   保留本文件仅因其结构性排版规则可能在别处被引用；确认无人引用后可整体删除。 */
 :root {
   --text: #5a5e6b;
   --text-h: #1c1e26;
   --bg: #f5f6f8;
   --border: #e5e7eb;
   --code-bg: #f4f3ec;
-  --accent: #ea580c;
-  --accent-bg: rgba(234, 88, 12, 0.1);
-  --accent-border: rgba(234, 88, 12, 0.42);
+  /* --accent / --accent-bg / --accent-border 已移除：统一走 styles/theme.css */
   --social-bg: rgba(244, 243, 236, 0.5);
   --shadow:
     rgba(20, 20, 30, 0.1) 0 10px 15px -3px, rgba(20, 20, 30, 0.05) 0 4px 6px -2px;

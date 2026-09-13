@@ -74,6 +74,18 @@
   /* 向后兼容 */
   --primary: var(--accent);
   --nav-bg: rgba(28, 31, 38, 0.82);
+
+  /* —— 别名：业务代码里仍在用的等价名，但此前从未在任何 :root 定义，
+     引用它们的样式会静默失效（回落到继承值 / 初始值，肉眼只觉得「颜色不对」）。
+     这里统一别名到 canonical token：同一语义只保留一个来源，且随主题自动换算，
+     因此不写死字面量（写死会在切换皮肤后失去对比度保障）。
+     注：--warning-border 未纳入——它应当参与主题计算，留作后续统一处理。 —— */
+  --text-muted: var(--text-tertiary);
+  --text-quaternary: var(--text-tertiary);
+  --accent-color: var(--accent);
+  --accent-bg: var(--accent-soft);
+  --bg-secondary: var(--bg-surface-2);
+  --bg-elev: var(--bg-elevated);
 }
 
 /* 滚动条统一美化（使用主题变量） */
