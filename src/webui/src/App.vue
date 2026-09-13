@@ -53,7 +53,16 @@ const showUserDropdown = ref(false)
 const navEl = ref<HTMLElement | null>(null)
 const navHeight = ref(60)
 const updateNavHeight = () => {
-  navHeight.value = navEl.value ? navEl.value.offsetHeight : 0
+  const h = navEl.value ? navEl.value.offsetHeight : 0
+  navHeight.value = h
+  // 单一事实源：同时写到 :root。
+  // Settings 的锚点跳转偏移、插件浮动面板定位都是从 documentElement 读 --nav-height 的，
+  // 而此前它只存在于 .app-container 的内联样式里 → 那些地方永远读到空、静默退回兜底 60px。
+  // 导航栏在窄屏会换行变高（远高于 60），于是跳转后的标题恰好被导航挡住。
+  // 登录页不渲染导航（测得 0）：此时必须**移除**该变量而不是写 0，好让各处的
+  // var(--nav-height, 60px) 兜底继续生效——写 0 会比原来的兜底值更糟。
+  if (h > 0) document.documentElement.style.setProperty('--nav-height', h + 'px')
+  else document.documentElement.style.removeProperty('--nav-height')
 }
 
 // 应用生效的主题（与 Settings 的 applyTheme 保持一致），让首屏即应用主题
@@ -81,6 +90,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateNavHeight)
+  document.documentElement.style.removeProperty('--nav-height')
 })
 
 // 登录/登出、路由切换后导航栏结构会变化，重新测量高度
