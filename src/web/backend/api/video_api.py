@@ -19,6 +19,7 @@ from core.models import UserInteraction
 from backend.helpers import _resolve_resource_library_id
 from core.models import db
 import os
+from datetime import datetime, timedelta
 from backend.helpers import _build_tag_tree
 from core.models import Video
 from core.models import UserRole
@@ -57,6 +58,13 @@ def get_videos():
         # 仅看点赞 / 仅看收藏
         only_liked = request.args.get('only_liked', '').lower() == 'true'
         only_favorited = request.args.get('only_favorited', '').lower() == 'true'
+        # 模式内合集（/api/mode-collections）筛选
+        collection_id = request.args.get('collection_id', type=int)
+        # 时长范围（秒），供「长视频 / 短视频」这类视图使用
+        min_duration = request.args.get('min_duration', type=float)
+        max_duration = request.args.get('max_duration', type=float)
+        # 最近 N 天没有看过（含从未看过）的视频
+        unwatched_days = request.args.get('unwatched_days', type=int)
 
         query = Video.query.options(joinedload(Video.resource_index))
 
@@ -98,6 +106,20 @@ def get_videos():
             tagged_video_ids = db.session.query(VideoTag.video_id)
             query = query.filter(Video.id.notin_(tagged_video_ids))
 
+        # 合集筛选：视频经「资源索引 → 模式归属」挂到合集上，这里按合集的成员资格过滤
+        if collection_id:
+            from core.models import ResourceModeMembership
+            member_ri = db.session.query(ResourceModeMembership.resource_index_id).filter(
+                ResourceModeMembership.collection_id == collection_id
+            )
+            query = query.filter(Video.resource_index_id.in_(member_ri))
+
+        # 时长筛选：NULL 视为未知，命中范围筛选时排除（避免「长视频」里混进一堆 0 秒项）
+        if min_duration is not None:
+            query = query.filter(Video.duration.isnot(None), Video.duration >= min_duration)
+        if max_duration is not None:
+            query = query.filter(Video.duration.isnot(None), Video.duration <= max_duration)
+
 
         # ============ 排除不喜欢的视频（默认屏蔽） ============
         disliked_ids = set()
@@ -125,6 +147,26 @@ def get_videos():
             query = query.filter(Video.id.in_(liked_ids) if liked_ids else Video.id.in_([-1]))
         if only_favorited:
             query = query.filter(Video.id.in_(favorited_ids) if favorited_ids else Video.id.in_([-1]))
+
+        # 「最近 N 天没看过」：从观看历史里排除这段时间内有记录的项，
+        # 从未看过的（历史里根本没有记录）也算未看，这正是「待重看」想要的结果。
+        if unwatched_days and unwatched_days > 0:
+            from core.models import WatchHistory
+            since = datetime.utcnow() - timedelta(days=unwatched_days)
+            try:
+                user_key = current_interaction_key()
+            except Exception:
+                user_key = None
+            if not user_key:
+                # 拿不到身份键时无法判定观看记录，宁可返回空也不要给出误导性结果
+                query = query.filter(Video.id.in_([-1]))
+            else:
+                recent = db.session.query(WatchHistory.item_id).filter(
+                    WatchHistory.user_key == user_key,
+                    WatchHistory.item_type == 'video',
+                    WatchHistory.watched_at >= since,
+                )
+                query = query.filter(Video.hash.notin_(recent))
 
         # ============ 重要：total 统计必须在权限过滤之后 ============
         # 获取总数（已应用权限过滤与不喜欢排除）
@@ -154,8 +196,12 @@ def get_videos():
             videos = query.order_by(Video.download_count.desc() if is_desc else Video.download_count.asc()).offset(offset).limit(limit).all()
         else:
             # 默认推荐排序：首页推荐带随机成分（仅支持倒序）
-            # 如果没有指定 tag_id 和 search，则认为是首页推荐，加入随机成分
-            if not tag_id and not search and not untagged:
+            # 只有「未施加任何筛选」时才算首页推荐；一旦用户用了合集/时长/未看等条件，
+            # 说明他在找确定的东西，随机成分只会让结果看起来毫无章法。
+            _has_filter = any(
+                (tag_id, search, untagged, collection_id, unwatched_days)
+            ) or (min_duration is not None) or (max_duration is not None)
+            if not _has_filter:
                 # 使用 func.random() 为每个视频赋予随机权重
                 # 排序公式：view_count * 0.1 + random() * 50
                 # 这样热门视频仍有优势，但随机视频也有机会排在前面
