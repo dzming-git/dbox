@@ -5,6 +5,7 @@ import { useWatchLaterStore } from './stores/watchLaterStore'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { fetchServerSettings, clearServerSettings, getEffectiveSettings } from './utils/settings'
 import { applyThemeById, DEFAULT_THEME_ID } from './utils/theme'
+import { pushThemeToPanels } from './utils/extUiKit'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
 import { useTaskStream } from './composables/useTaskStream'
@@ -99,6 +100,8 @@ const updateNavHeight = () => {
 function applyStartupTheme() {
   // 通过主题 id 查询注册表的颜色逻辑再应用
   applyThemeById(getEffectiveSettings().theme || DEFAULT_THEME_ID)
+  // 启动时把当前主题推给插件面板（此时通常还没有面板，但设置从别的设备同步过来时可能有）
+  pushThemeToPanels()
 }
 
 onMounted(async () => {

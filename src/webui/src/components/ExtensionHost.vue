@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { useUserStore } from '../stores/userStore'
 import { withExtRuntime } from '../utils/extRuntime'
+import { withExtUiKit } from '../utils/extUiKit'
 import { canShow } from '../utils/routeAccess'
 import {
   ensurePanel, setPanelMode, postToPanel, getPanelIframe,
@@ -142,7 +143,8 @@ async function openPanel(id: string) {
   try {
     const res: any = await scriptApi.getPanel(id)
     // 前置共享运行时：与全屏页共用同一份数据缓存，形态切换不再重复加载
-    panelHtml.value[id] = withExtRuntime(res, id)
+    // 再套一层 UI Kit：注入宿主主题变量与 .dbox-ui-* 组件类，让插件与主站观感一致
+    panelHtml.value[id] = withExtUiKit(withExtRuntime(res, id), id)
   } catch (e) {
     panelHtml.value[id] = '<p style="color:#f66;padding:12px">面板加载失败</p>'
   }

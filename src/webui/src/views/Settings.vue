@@ -20,6 +20,7 @@ import {
   type SettingScope,
 } from '../utils/settings'
 import { applyThemeById, getThemeOptions, DEFAULT_THEME_ID } from '../utils/theme'
+import { pushThemeToPanels } from '../utils/extUiKit'
 import { interactionApi } from '../api'
 
 const videoStore = useVideoStore()
@@ -194,6 +195,8 @@ const isDirty = computed(() =>
 function applyTheme() {
   // 通过主题 id 查询注册表的颜色逻辑再应用，杜绝散落硬编码色值
   applyThemeById(form.value.theme || DEFAULT_THEME_ID)
+  // 已打开的插件面板跟着换肤（不重建文档，面板内现场保留）
+  pushThemeToPanels()
 }
 
 async function saveSettings() {

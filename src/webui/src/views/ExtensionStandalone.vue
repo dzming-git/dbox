@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { scriptApi } from '../api/script'
 import { withExtRuntime } from '../utils/extRuntime'
+import { withExtUiKit } from '../utils/extUiKit'
 import { LAST_MAIN_ROUTE_KEY } from '../router'
 import {
   ensurePanel, setPanelMode, postToPanel, getPanelIframe,
@@ -36,7 +37,11 @@ async function load() {
   try {
     const exts: any = await scriptApi.listExtensions()
     const ext = (exts.extensions || []).find((e: any) => e.id === extId)
-    const html = withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId)
+    // 前置共享运行时 + UI Kit（宿主主题变量与组件类），让插件与主站观感一致
+    const html = withExtUiKit(
+      withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId),
+      extId
+    )
     const title = ext?.ui?.title || extId
     // 已存在实例则只更新（不重建文档）；不存在则创建并立即切到 fullscreen
     const existed = !!getPanelIframe(extId)
