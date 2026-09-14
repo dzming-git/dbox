@@ -15,6 +15,11 @@ from backend.thumbnail_helpers import _start_auto_generate
 from backend.thumbnail_helpers import _thumb_auto_thread
 from backend.thumbnail_helpers import get_auto_generate_progress
 from backend.thumbnail_helpers import _load_thumb_config
+from backend.thumbnail_helpers import _thumb_progress, THUMB_TASK_ID, start_thumbnail_batch
+from backend.task_helpers import (
+    finish_task_quiet as _finish_task_quiet,
+    init_task_store as _init_task_store,
+)
 import os
 import json
 from backend.access import admin_required
@@ -487,15 +492,18 @@ def update_thumbnail_config():
 @bp.route('/api/admin/thumbnail/generate-missing', methods=['POST'])
 @admin_required
 def generate_missing_thumbnails():
-    """手动触发一次批量生成缺失缩略图（不开启自动模式）"""
+    """手动触发一次批量生成缺失缩略图（不开启自动模式）。
+
+    改为后台执行并立即返回任务号：批量生成可能持续几十分钟，同步等待会把请求
+    一直挂住。进度与停止统一走任务中心（task_id = thumb:missing），
+    与资源库扫描的行为保持一致。
+    """
     try:
-        config = _load_thumb_config()
-        result = _generate_missing_thumbnails(config)
-        return jsonify({
-            'success': True,
-            'message': f'已提交生成任务',
-            'submitted': result.get('submitted', 0) if result else 0
-        })
+        owner_id = getattr(g, 'user_id', None)
+        ok, message = start_thumbnail_batch(owner_id=owner_id)
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        return jsonify({'success': True, 'message': message, 'task_id': THUMB_TASK_ID})
     except Exception as e:
         log.debug('ERROR', f'批量生成缩略图失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -519,16 +527,28 @@ def get_auto_generate_status():
 @bp.route('/api/admin/thumbnail/auto-generate/stop', methods=['POST'])
 @admin_required
 def stop_auto_generate():
-    """停止自动生成线程"""
+    """停止自动生成线程（并请求停止正在进行的批量生成）。
+
+    两条停止路径必须都走到：线程级事件停止「自动循环」，统一任务取消请求停止
+    「当前这一轮批量生成」——只停前者时，已下发的一轮还会跑完。
+    """
     global _thumb_auto_thread
 
+    _thumb_auto_stop_event.set()
+    # 同步请求取消统一任务：手动生成（后台线程）也走这条路停下
+    if _init_task_store():
+        try:
+            from unified_tasks import request_cancel
+            request_cancel(THUMB_TASK_ID)
+        except Exception as e:
+            log.debug('WARN', f'请求取消批量生成任务失败: {e}')
+
     if _thumb_auto_thread is not None and _thumb_auto_thread.is_alive():
-        _thumb_auto_stop_event.set()
         # 更新配置文件
         config = _load_thumb_config()
         config['auto_generate'] = False
         _save_thumb_config(config)
         log.maintenance('INFO', '缩略图自动生成已手动停止')
-        return jsonify({'success': True, 'message': '自动生成已停止'})
-    else:
-        return jsonify({'success': True, 'message': '自动生成已停止'})
+        return jsonify({'success': True, 'message': '自动生成已停止', 'task_id': THUMB_TASK_ID})
+    return jsonify({'success': True, 'message': '已请求停止当前批量生成',
+                    'task_id': THUMB_TASK_ID})

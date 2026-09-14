@@ -157,10 +157,11 @@ def create_task(task_id, kind, title, owner_id=None, library_id=None,
 
 
 def update_task(task_id, status=None, progress=None, stage=None, detail=None,
-                error_code=None):
+                error_code=None, params=None):
     """更新任务进度/状态。
 
     error_code 仅在显式传入时写入（传 '' 表示清空），用于前端区分失败原因。
+    params 用于补充执行过程中才知道的信息（如实际待处理总数）。
     """
     with _lock:
         with _conn() as conn:
@@ -173,13 +174,15 @@ def update_task(task_id, status=None, progress=None, stage=None, detail=None,
             new_stage = stage if stage is not None else row['stage']
             new_detail = detail if detail is not None else row['detail']
             new_error = row['error_code'] if error_code is None else (error_code or None)
+            new_params = (row['params'] if params is None
+                          else json.dumps(params, ensure_ascii=False))
             if new_status not in _VALID_STATUS:
                 new_status = row['status']
             conn.execute(
                 '''UPDATE tasks SET status=?, progress=?, stage=?, detail=?, error_code=?,
-                   updated_at=? WHERE task_id=?''',
+                   params=?, updated_at=? WHERE task_id=?''',
                 (new_status, new_progress, new_stage, new_detail, new_error,
-                 _now(), task_id),
+                 new_params, _now(), task_id),
             )
     return get_task(task_id)
 
