@@ -273,6 +273,18 @@ def retry_task(task_id):
         bump_attempts(task_id)
         return jsonify({'success': True, 'message': message, 'task_id': task_id})
 
+    if kind == 'thumbnail':
+        # 批量生成缺失缩略图：参数可重放（重新扫一遍缺失项即可），直接再跑一次
+        try:
+            from backend.thumbnail_helpers import start_thumbnail_batch
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'缩略图模块不可用：{e}'}), 500
+        ok, message = start_thumbnail_batch(owner_id=task.get('owner_id'))
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        bump_attempts(task_id)
+        return jsonify({'success': True, 'message': message, 'task_id': task_id})
+
     if kind == 'script':
         params = task.get('params') or {}
         script_id = params.get('script_id')

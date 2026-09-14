@@ -309,6 +309,10 @@ function taskParamPreview(t: Task): string[] {
     if (p.scope === 'all') out.push('范围:全部资源库')
     else if (p.library_id != null) out.push(`资源库:#${p.library_id}`)
     if (p.mode) out.push(`方式:${modeText[p.mode] || p.mode}`)
+  } else if (t.kind === 'thumbnail' && p) {
+    if (p.scope === 'missing') out.push('范围:缺失的缩略图')
+    if (p.total != null) out.push(`待生成:${p.total}`)
+    if (p.output_format) out.push(`格式:${p.output_format}`)
   } else if (p && typeof p === 'object') {
     for (const [k, v] of Object.entries(p)) {
       if (v !== undefined && v !== null && v !== '') out.push(`${k}:${v}`)

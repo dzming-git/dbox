@@ -16,9 +16,14 @@ from liblog import get_service_logger
 log = get_service_logger('dbox-web')
 from backend.runtime import runtime
 from unified_tasks import (
-    init_task_manager, create_task, update_task, finish_task, mark_started,
-    is_cancel_requested, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_CANCELLED,
+    create_task, mark_started,
+    STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
+)
+from backend.task_helpers import (
+    init_task_store as _init_task_store,
+    finish_task_quiet as _finish_task_quiet,
+    update_task_quiet as _update_task_quiet,
+    cancel_watcher as _cancel_watcher,
 )
 
 
@@ -36,60 +41,6 @@ _SCAN_MODE_LABEL = {'incremental': '增量同步', 'verify': '校验清理', 'fu
 
 class _ScanCancelled(Exception):
     """扫描在开始前就收到取消请求（内部信号）。"""
-
-
-def _init_task_store():
-    """初始化统一任务表（幂等）。失败不影响扫描本身，只损失任务可见性。"""
-    try:
-        from backend.paths import DATA_DIR
-        init_task_manager(DATA_DIR)
-        return True
-    except Exception as e:
-        log.debug('WARN', f'统一任务表初始化失败，本次扫描不登记任务: {e}')
-        return False
-
-
-def _finish_task_quiet(task_id, status, **kwargs):
-    """结束任务但不让异常影响扫描结果。
-
-    收尾失败只影响任务可见性（任务会一直显示为进行中），不能因此判定扫描失败，
-    但要记 ERROR 级日志——这类失败是静默的，不记下来没人会发现。
-    """
-    try:
-        finish_task(task_id, status, **kwargs)
-    except Exception as e:
-        log.debug('ERROR', f'更新任务状态失败({task_id}): {type(e).__name__}: {e}')
-
-
-def _update_task_quiet(task_id, **kwargs):
-    try:
-        update_task(task_id, **kwargs)
-    except Exception:
-        pass
-
-
-def _cancel_watcher(task_id, min_interval=1.0):
-    """构造「是否收到取消请求」回调。
-
-    扫描循环里可能每处理一个文件就问一次，直接查库会放大 IO，因此按
-    min_interval 节流（默认最多每秒查一次），命中后结果缓存不再回源。
-    """
-    state = {'at': 0.0, 'stop': False}
-
-    def _should_stop():
-        if state['stop']:
-            return True
-        now = time.time()
-        if now - state['at'] < min_interval:
-            return False
-        state['at'] = now
-        try:
-            state['stop'] = is_cancel_requested(task_id)
-        except Exception:
-            state['stop'] = False
-        return state['stop']
-
-    return _should_stop
 
 
 def start_library_scan(library_id, owner_id=None, mode='incremental'):

@@ -16,6 +16,16 @@ log = get_service_logger('dbox-web')
 from backend.runtime import runtime
 
 from backend.paths import DATA_DIR, THUMB_CONFIG_FILE
+from backend.task_helpers import (
+    register_task as _register_task,
+    ensure_task as _ensure_task,
+    finish_task_quiet as _finish_task_quiet,
+    update_task_quiet as _update_task_quiet,
+    cancel_watcher as _cancel_watcher,
+)
+
+# 批量生成缺失缩略图在统一任务表里的固定任务号（同一时刻只会有一个批量生成在进行）
+THUMB_TASK_ID = 'thumb:missing'
 
 # 缩略图文件扩展名集合（含 sprite 雪碧图与 vtt 预览索引）。
 # gif = 动图缩略（可配置生成的备选格式），jpg = 静态 poster，png = 静态回退，
@@ -158,6 +168,39 @@ def _start_auto_generate(config=None, app=None):
     _thumb_auto_thread.start()
 
 
+def start_thumbnail_batch(owner_id=None, task_id=THUMB_TASK_ID):
+    """后台启动一次「批量生成缺失缩略图」，立即返回。
+
+    返回 (ok, message)。与资源库扫描保持同样的形态：后台线程执行、登记统一任务、
+    支持中途停止（停止信号来自 _thumb_auto_stop_event 或任务取消请求）。
+    """
+    if _thumb_progress.get('running'):
+        return False, '已有批量生成在进行中，请稍候...'
+    config = _load_thumb_config()
+    # 上一次「停止自动生成」留下的停止信号会让新任务立刻被判停，这里先清掉
+    _thumb_auto_stop_event.clear()
+    # 先登记任务再起线程：扫描缺失项可能要一会儿，任务应当立刻可见（也立刻可取消）
+    _register_task(
+        task_id, 'thumbnail', '批量生成缺失缩略图', owner_id=owner_id,
+        params={'scope': 'missing', 'output_format': config.get('output_format', 'sprite')},
+    )
+
+    def _run():
+        try:
+            if runtime.app is not None:
+                with runtime.app.app_context():
+                    _generate_missing_thumbnails(config, owner_id=owner_id, task_id=task_id)
+            else:
+                _generate_missing_thumbnails(config, owner_id=owner_id, task_id=task_id)
+        except Exception as e:
+            log.debug('ERROR', f'批量生成缩略图失败: {e}')
+            _finish_task_quiet(task_id, 'failed', detail=f'批量生成失败: {e}',
+                               error_code='thumbnail_failed')
+
+    threading.Thread(target=_run, daemon=True, name='thumb-generate-missing').start()
+    return True, '已启动批量生成，可在任务中心查看进度或停止'
+
+
 def _get_visible_library_ids():
     """返回当前「已激活」资源库的 ID 列表，不依赖请求上下文。
 
@@ -251,14 +294,24 @@ def _record_thumbnail_path_in_index(video, force=False):
         log.debug('ERROR', f'记录缩略图路径到资源索引失败: {e}')
 
 
-def _generate_missing_thumbnails(config=None):
-    """扫描并生成缺失的缩略图，并实时更新 _thumb_progress 进度快照"""
+def _generate_missing_thumbnails(config=None, owner_id=None, task_id=THUMB_TASK_ID):
+    """扫描并生成缺失的缩略图，并实时更新 _thumb_progress 进度快照。
+
+    同时登记进统一任务表（默认任务号 `thumb:missing`），使其具备进度、取消与历史。
+    停止信号有两个来源，任一命中都会在中途收尾：
+      - `_thumb_auto_stop_event`：管理页「停止自动生成」；
+      - 统一任务的取消请求：任务中心 / 管理页「停止」按钮。
+    """
     if config is None:
         config = _load_thumb_config()
 
     import time
     max_workers = config.get('max_workers', 2)
     task_interval = config.get('task_interval', 3)
+    should_stop = _cancel_watcher(task_id)
+
+    def _stopped():
+        return _thumb_auto_stop_event.is_set() or should_stop()
 
     from core.models import Video
     visible_ids = _get_visible_library_ids()
@@ -304,11 +357,22 @@ def _generate_missing_thumbnails(config=None):
         'started_at': time.time(),
         'finished_at': None,
     })
+    output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
+    # 用 ensure 而非 register：此时用户可能已经点了取消，重新登记会把取消标记清零
+    _ensure_task(
+        task_id, 'thumbnail', '批量生成缺失缩略图', owner_id=owner_id,
+        params={'scope': 'missing', 'total': len(missing_videos),
+                'output_format': output_format},
+    )
+    _update_task_quiet(task_id, progress=0, stage='0/{}'.format(len(missing_videos)),
+                       detail='已找到 {} 个缺少缩略图的视频'.format(len(missing_videos)))
 
     if not missing_videos:
         log.maintenance('INFO', '没有需要生成缩略图的视频')
         _thumb_progress['running'] = False
         _thumb_progress['finished_at'] = time.time()
+        _finish_task_quiet(task_id, 'completed', progress=100, stage='完成',
+                           detail='没有缺失的缩略图，无需生成')
         return
 
     log.maintenance('INFO', f'发现 {len(missing_videos)} 个视频缺少缩略图，开始批量生成（并发数: {max_workers}，间隔: {task_interval}秒）')
@@ -346,8 +410,12 @@ def _generate_missing_thumbnails(config=None):
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, video in enumerate(missing_videos):
-                if _thumb_auto_stop_event.is_set():
-                    log.maintenance('INFO', f'自动生成被停止，已提交 {i}/{len(missing_videos)} 个任务')
+                if _stopped():
+                    log.maintenance('INFO', f'批量生成被停止，已提交 {i}/{len(missing_videos)} 个任务')
+                    _update_task_quiet(
+                        task_id, stage=f'{i}/{len(missing_videos)}',
+                        detail=f'已请求停止，已提交 {i}/{len(missing_videos)} 个任务',
+                    )
                     break
 
                 # 在本线程（有应用上下文）里就把路径/哈希取成普通字符串，
@@ -356,10 +424,16 @@ def _generate_missing_thumbnails(config=None):
                 v_path, v_hash = video.local_path, video.hash
                 future = executor.submit(_submit_one, v_path, v_hash)
                 futures.append((future, v_hash))
+                _update_task_quiet(
+                    task_id,
+                    progress=int((i + 1) / max(1, len(missing_videos)) * 100),
+                    stage=f'{i + 1}/{len(missing_videos)}',
+                    detail=f'正在下发：{video.title or video.hash}',
+                )
 
                 # 轮询式等待，兼顾停止信号，避免 task_interval 期间无法及时响应停止
                 waited = 0
-                while waited < task_interval and not _thumb_auto_stop_event.is_set():
+                while waited < task_interval and not _stopped():
                     _thumb_auto_stop_event.wait(0.5)
                     waited += 0.5
 
@@ -368,6 +442,9 @@ def _generate_missing_thumbnails(config=None):
             # thumbnaild 队列」，并非「已生成出文件」，真实产出以后续对账为准。
             success = 0
             failed = 0
+            # 抽样保留失败原因：批量任务动辄上百个，只把前几条带进任务详情，
+            # 否则失败原因沉在日志里，用户在任务中心只看到「失败 N」而无从下手。
+            error_samples = []
             for future, vhash in futures:
                 try:
                     _, ok, err = future.result()
@@ -377,18 +454,39 @@ def _generate_missing_thumbnails(config=None):
                     success += 1
                 else:
                     failed += 1
+                    if err and len(error_samples) < 3:
+                        error_samples.append(f'{str(vhash)[:8]}…: {err}')
                     if err:
-                        log.debug('WARNING', f'视频 {vhash} 缩略图生成失败: {err}')
+                        log.debug('ERROR', f'缩略图下发失败 {vhash}: {err}')
                 _thumb_progress['processed'] = _thumb_progress['processed'] + 1
                 if ok:
                     _thumb_progress['success'] = _thumb_progress['success'] + 1
                 else:
                     _thumb_progress['failed'] = _thumb_progress['failed'] + 1
+                _update_task_quiet(
+                    task_id,
+                    progress=int(_thumb_progress['processed'] / max(1, _thumb_progress['total']) * 100),
+                    stage=f"{_thumb_progress['processed']}/{_thumb_progress['total']}",
+                    detail=f"已下发成功 {_thumb_progress['success']}，失败 {_thumb_progress['failed']}",
+                )
 
         log.maintenance('INFO', f'批量生成缩略图完成: 已下发成功 {success}, 下发被拒/失败 {failed}')
+        err_text = '；示例：' + ' / '.join(error_samples) if error_samples else ''
+        if _stopped():
+            _finish_task_quiet(
+                task_id, 'cancelled',
+                detail=f'已停止：下发成功 {success}，失败 {failed}{err_text}',
+            )
+        else:
+            _finish_task_quiet(
+                task_id, 'completed', progress=100, stage='完成',
+                detail=f'下发成功 {success}，失败 {failed}（真实产出以后续对账为准）{err_text}',
+            )
     else:
         log.maintenance('WARN', '缩略图微服务不可用，无法批量生成')
         _thumb_progress['failed'] = _thumb_progress['total']
+        _finish_task_quiet(task_id, 'failed', detail='缩略图微服务未连接，无法生成',
+                           error_code='thumbnail_service_unavailable')
 
     _thumb_progress['running'] = False
     _thumb_progress['finished_at'] = time.time()

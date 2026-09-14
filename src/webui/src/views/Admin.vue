@@ -1342,9 +1342,10 @@ const triggerGenerateMissing = async () => {
   try {
     const res = await thumbnailManageApi.generateMissing() as any
     if (res.success) {
-      showToast(`已提交 ${res.submitted} 个缩略图生成任务`)
-      // 延迟刷新统计
-      setTimeout(() => fetchThumbnailConfig(), 5000)
+      // 后端改为后台执行并立即返回，进度与停止统一走任务中心（task_id 回传）
+      showToast(res.message || '已启动批量生成，可在任务中心查看进度或停止')
+      startAutoProgressPolling()
+      setTimeout(() => fetchThumbnailConfig(), 3000)
     } else {
       showToast(res.message || '生成失败')
     }
@@ -1356,16 +1357,17 @@ const triggerGenerateMissing = async () => {
   }
 }
 
-const stopAutoGenerate = async () => {
+// 停止当前批量生成：走统一任务中心的取消入口（自动生成的停止也复用此路径）
+const stopThumbnailBatch = async () => {
   try {
     const res = await thumbnailManageApi.stopAuto() as any
     if (res.success) {
-      showToast(res.message || '自动生成已停止')
+      showToast(res.message || '已请求停止，正在收尾…')
       thumbConfig.value.auto_generate = false
       thumbStats.value.is_auto_generating = false
     }
   } catch (error) {
-    console.error('停止自动生成失败:', error)
+    console.error('停止生成失败:', error)
     showToast('停止失败')
   }
 }
@@ -2698,7 +2700,7 @@ onUnmounted(() => {
             <div v-if="thumbStats.is_auto_generating" class="auto-status-banner running">
               <div class="auto-status-dot"></div>
               <span>自动生成正在运行中</span>
-              <button class="action-btn danger small" @click="stopAutoGenerate">停止</button>
+              <button class="action-btn danger small" @click="stopThumbnailBatch">停止</button>
             </div>
 
             <!-- 自动生成实时进度 -->
@@ -2710,6 +2712,13 @@ onUnmounted(() => {
                 <span class="auto-progress-count">
                   {{ thumbProgress.processed }} / {{ thumbProgress.total }}
                 </span>
+                <!-- 手动批量生成时也要能停：统一走任务中心的取消入口 -->
+                <button
+                  v-if="thumbProgress.running && !thumbStats.is_auto_generating"
+                  class="action-btn danger small"
+                  title="请求停止当前批量生成，已下发的任务会保留"
+                  @click="stopThumbnailBatch"
+                >停止</button>
               </div>
               <div class="auto-progress-bar">
                 <div
