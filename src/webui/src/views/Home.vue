@@ -261,6 +261,34 @@ const handleLibraryChange = (event: Event) => {
   updateUrl()
 }
 
+// 关键词：本地输入，回车或清除时才应用，避免每敲一个字就打一次接口
+const filterKeyword = ref(videoStore.searchQuery || '')
+watch(() => videoStore.searchQuery, (v) => { filterKeyword.value = v || '' })
+
+function applyKeyword() {
+  videoStore.searchVideos(filterKeyword.value.trim())
+  updateUrl()
+}
+function clearKeyword() {
+  filterKeyword.value = ''
+  applyKeyword()
+}
+
+// 按模式内合集筛选
+const handleCollectionChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement
+  const val = target.value
+  videoStore.filterByCollection(val === '' ? null : parseInt(val))
+  updateUrl()
+}
+
+// 一键清空所有筛选条件（排序与显示方式不属于筛选，保留）
+async function handleClearFilters() {
+  filterKeyword.value = ''
+  await videoStore.clearFilters()
+  updateUrl()
+}
+
 onMounted(async () => {
   // 加载继续观看（本地观看历史）
   loadContinueWatching()
@@ -269,13 +297,15 @@ onMounted(async () => {
     await Promise.all([
       videoStore.initFromQuery(route.query as Record<string, string>),
       videoStore.fetchTags(),
-      videoStore.fetchUserLibraries()
+      videoStore.fetchUserLibraries(),
+      videoStore.fetchCollections()
     ])
   } else {
     await Promise.all([
       videoStore.fetchVideos(true),
       videoStore.fetchTags(),
-      videoStore.fetchUserLibraries()
+      videoStore.fetchUserLibraries(),
+      videoStore.fetchCollections()
     ])
   }
   // 通过分享链接或标签页眼睛图标进入时，若带 tag 参数，自动展开标签面板以显示当前筛选状态
@@ -732,7 +762,39 @@ const listThumbUrl = (video: Video): string => {
             <span class="view-toggle-text">列表</span>
           </button>
         </div>
-        <!-- 标签筛选按钮：与排序/显示方式同处      </div>
+        <!-- 合集筛选：与资源库同级，同属"归属"维度 -->
+        <select
+          class="collection-select"
+          :value="videoStore.selectedCollectionId || ''"
+          @change="handleCollectionChange"
+          title="按模式内合集筛选"
+        >
+          <option value="">全部合集</option>
+          <option v-for="c in videoStore.collections" :key="c.id" :value="c.id">
+            {{ c.name }}
+          </option>
+        </select>
+        <!-- 关键词搜索：首页此前没有搜索框，只能去全局搜索页 -->
+        <div class="filter-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
+          </svg>
+          <input
+            v-model="filterKeyword"
+            type="text"
+            placeholder="在当前结果中搜索"
+            @keyup.enter="applyKeyword"
+          />
+          <button v-if="filterKeyword" class="search-clear" @click="clearKeyword" title="清除关键词">×</button>
+        </div>
+        <!-- 一键清空：条件多了以后逐个改回来很麻烦 -->
+        <button
+          v-if="videoStore.hasActiveFilters"
+          class="filter-clear-btn"
+          @click="handleClearFilters"
+          title="清空所有筛选条件"
+        >清空筛选</button>
+      </div>
       <!-- PC 端刷新/换一批按钮：移动端用下拉刷新即可，此处仅在桌面端（非触屏）显示 -->
       <button
         class="pc-refresh-btn"
@@ -760,7 +822,6 @@ const listThumbUrl = (video: Video): string => {
             ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
           </span>
         </button>
-      </div>
     </div>
 
     <!-- 标签区域 - 可折叠 -->
@@ -1479,6 +1540,84 @@ const listThumbUrl = (video: Video): string => {
   outline: none;
   border-color: var(--accent-border);
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
+}
+
+/* 合集下拉：与资源库下拉同规格（同一"归属"维度） */
+.collection-select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  margin-left: 8px;
+}
+
+.collection-select:hover,
+.collection-select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+/* 过滤条内的关键词搜索 */
+.filter-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  margin-left: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  transition: border-color 0.2s;
+}
+
+.filter-search:focus-within {
+  border-color: var(--accent-border);
+}
+
+.filter-search input {
+  width: 160px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.filter-search .search-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* 清空筛选：仅在有条件生效时出现 */
+.filter-clear-btn {
+  height: 40px;
+  margin-left: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.filter-clear-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 
 @keyframes spin {

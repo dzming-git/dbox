@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { videoApi } from '../api'
+import { videoApi, resourceApi } from '../api'
 import { useTagStore } from './tagStore'
 import { getDefaultSort } from '../utils/userSettings'
 import type { Video, Tag } from '../types'
@@ -24,6 +24,12 @@ export const useVideoStore = defineStore('video', () => {
   const selectedUntagged = ref(false)  // 是否仅看「未标记（待整理）」的视频
   const selectedLibraryId = ref<number | null>(null)  // 按资源库筛选，null=全部
   const libraries = ref<any[]>([])  // 当前用户可访问的资源库列表
+  // 统一过滤条的其余维度：模式内合集、时长区间、最近 N 天未看（null 表示不限制）
+  const selectedCollectionId = ref<number | null>(null)
+  const collections = ref<any[]>([])
+  const minDuration = ref<number | null>(null)
+  const maxDuration = ref<number | null>(null)
+  const unwatchedDays = ref<number | null>(null)
   const searchQuery = ref('')
   const sortBy = ref(getDefaultSort().sort)  // 排序方式（默认读取用户设置，回退推荐）
   const sortOrder = ref(getDefaultSort().order)  // 排序方向: asc, desc
@@ -60,6 +66,59 @@ export const useVideoStore = defineStore('video', () => {
     return true
   }
   
+  // 组装请求参数：fetchVideos 与 fetchVideosByOffset 共用，
+  // 避免两处各写一份而逐渐漂移（新增维度时只改这里一处）
+  const buildParams = (offset: number) => {
+    const params: any = {
+      limit: pagination.value.limit,
+      offset,
+    }
+
+    if (selectedTagId.value && !selectedUntagged.value) {
+      params.tag_id = selectedTagId.value
+    }
+
+    if (selectedUntagged.value) {
+      params.untagged = 1
+    }
+
+    if (selectedLibraryId.value) {
+      params.library_id = selectedLibraryId.value
+    }
+
+    if (selectedCollectionId.value) {
+      params.collection_id = selectedCollectionId.value
+    }
+
+    if (minDuration.value != null) {
+      params.min_duration = minDuration.value
+    }
+
+    if (maxDuration.value != null) {
+      params.max_duration = maxDuration.value
+    }
+
+    if (unwatchedDays.value) {
+      params.unwatched_days = unwatchedDays.value
+    }
+
+    if (searchQuery.value.trim()) {
+      params.search = searchQuery.value.trim()
+    }
+
+    // 添加排序参数
+    if (sortBy.value) {
+      params.sort = sortBy.value
+    }
+    if (sortOrder.value) {
+      params.order = sortOrder.value
+    }
+
+    // 默认屏蔽不喜欢的视频（设置可关闭）
+    params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
+    return params
+  }
+
   const fetchVideos = async (reset = false) => {
     // 节流：如果最近刚获取过且不是强制刷新，跳过
     // 注意：reset=true 时强制刷新，不受冷却时间限制
@@ -70,38 +129,7 @@ export const useVideoStore = defineStore('video', () => {
       // reset=true: 从头开始 (offset=0)
       // reset=false: 继续加载 (offset = 已加载的视频数量)
       const currentOffset = reset ? 0 : videos.value.length
-      const params: any = {
-        limit: pagination.value.limit,
-        offset: currentOffset,
-      }
-      
-      if (selectedTagId.value && !selectedUntagged.value) {
-        params.tag_id = selectedTagId.value
-      }
-
-      if (selectedUntagged.value) {
-        params.untagged = 1
-      }
-
-      if (selectedLibraryId.value) {
-        params.library_id = selectedLibraryId.value
-      }
-
-      if (searchQuery.value.trim()) {
-        params.search = searchQuery.value.trim()
-      }
-
-      // 添加排序参数
-      if (sortBy.value) {
-        params.sort = sortBy.value
-      }
-      if (sortOrder.value) {
-        params.order = sortOrder.value
-      }
-
-      // 默认屏蔽不喜欢的视频（设置可关闭）
-      params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
-
+      const params = buildParams(currentOffset)
       const response = await videoApi.getVideos(params) as any
       videos.value = reset ? response.videos : [...videos.value, ...response.videos]
       pagination.value.total = response.total
@@ -130,37 +158,7 @@ export const useVideoStore = defineStore('video', () => {
     _lastFetchTime = Date.now()
     loading.value = true
     try {
-      const params: any = {
-        limit: pagination.value.limit,
-        offset: offset,
-      }
-
-      if (selectedTagId.value && !selectedUntagged.value) {
-        params.tag_id = selectedTagId.value
-      }
-
-      if (selectedUntagged.value) {
-        params.untagged = 1
-      }
-
-      if (selectedLibraryId.value) {
-        params.library_id = selectedLibraryId.value
-      }
-
-      if (searchQuery.value.trim()) {
-        params.search = searchQuery.value.trim()
-      }
-
-      if (sortBy.value) {
-        params.sort = sortBy.value
-      }
-      if (sortOrder.value) {
-        params.order = sortOrder.value
-      }
-
-      // 默认屏蔽不喜欢的视频（设置可关闭）
-      params.exclude_disliked = getBlockDisliked() ? 'true' : 'false'
-
+      const params = buildParams(offset)
       const response = await videoApi.getVideos(params) as any
       videos.value = response.videos
       pagination.value.total = response.total
@@ -315,6 +313,57 @@ export const useVideoStore = defineStore('video', () => {
     await fetchVideos(true)
   }
 
+  // 按模式内合集筛选
+  const filterByCollection = async (collectionId: number | null) => {
+    selectedCollectionId.value = collectionId
+    await fetchVideos(true)
+  }
+
+  // 时长区间（秒），两端都可为空表示不限
+  const setDurationRange = async (min: number | null, max: number | null) => {
+    minDuration.value = min
+    maxDuration.value = max
+    await fetchVideos(true)
+  }
+
+  // 最近 N 天未看（null 表示不限）
+  const setUnwatchedDays = async (days: number | null) => {
+    unwatchedDays.value = days
+    await fetchVideos(true)
+  }
+
+  // 一键清空所有筛选条件（保留排序与显示方式，它们不属于"筛选"）
+  const clearFilters = async () => {
+    selectedTagId.value = null
+    selectedUntagged.value = false
+    selectedLibraryId.value = null
+    selectedCollectionId.value = null
+    minDuration.value = null
+    maxDuration.value = null
+    unwatchedDays.value = null
+    searchQuery.value = ''
+    await fetchVideos(true)
+  }
+
+  // 是否有任一筛选条件生效（用于决定是否显示「清空」与「另存为视图」）
+  const hasActiveFilters = computed(
+    () => !!(selectedTagId.value || selectedUntagged.value || selectedLibraryId.value
+      || selectedCollectionId.value || minDuration.value != null
+      || maxDuration.value != null || unwatchedDays.value
+      || searchQuery.value.trim())
+  )
+
+  // 模式内合集列表（供过滤条下拉）
+  const fetchCollections = async (mode = 'video') => {
+    try {
+      const res = await resourceApi.collections(mode) as any
+      const list = Array.isArray(res) ? res : (res?.collections || [])
+      collections.value = list
+    } catch {
+      collections.value = []
+    }
+  }
+
   // 批量互动（点赞/收藏/不喜欢）
   const batchInteractVideos = async (hashes: string[], action: 'like' | 'favorite' | 'dislike') => {
     try {
@@ -396,6 +445,18 @@ export const useVideoStore = defineStore('video', () => {
     if (selectedLibraryId.value) {
       query.lib = String(selectedLibraryId.value)
     }
+    if (selectedCollectionId.value) {
+      query.col = String(selectedCollectionId.value)
+    }
+    if (minDuration.value != null) {
+      query.mindur = String(minDuration.value)
+    }
+    if (maxDuration.value != null) {
+      query.maxdur = String(maxDuration.value)
+    }
+    if (unwatchedDays.value) {
+      query.unwatched = String(unwatchedDays.value)
+    }
     if (searchQuery.value) {
       query.search = searchQuery.value
     }
@@ -428,6 +489,10 @@ export const useVideoStore = defineStore('video', () => {
     } else {
       selectedLibraryId.value = null
     }
+    selectedCollectionId.value = query.col ? (parseInt(query.col) || null) : null
+    minDuration.value = query.mindur ? (parseFloat(query.mindur) || null) : null
+    maxDuration.value = query.maxdur ? (parseFloat(query.maxdur) || null) : null
+    unwatchedDays.value = query.unwatched ? (parseInt(query.unwatched) || null) : null
     // 缺失的参数恢复默认值（切换模式时清空 URL，其他参数应回到默认）
     searchQuery.value = query.search || ''
     const defSort = getDefaultSort()
@@ -466,6 +531,12 @@ export const useVideoStore = defineStore('video', () => {
     selectedTagId,
     selectedUntagged,
     selectedLibraryId,
+    selectedCollectionId,
+    collections,
+    minDuration,
+    maxDuration,
+    unwatchedDays,
+    hasActiveFilters,
     libraries,
     searchQuery,
     sortBy,
@@ -488,6 +559,11 @@ export const useVideoStore = defineStore('video', () => {
     filterByTag,
     filterByUntagged,
     filterByLibrary,
+    filterByCollection,
+    setDurationRange,
+    setUnwatchedDays,
+    clearFilters,
+    fetchCollections,
     batchInteractVideos,
     fetchUserLibraries,
     setSortBy,
