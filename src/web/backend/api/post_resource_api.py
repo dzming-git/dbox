@@ -7,6 +7,9 @@ from core.models import ResourceMode
 from core.models import Gallery
 from core.models import Text
 from core.models import Post
+from core.models import (
+    STATUS_DRAFT, STATUS_PUBLISHED, POST_STATUSES,
+)
 from core.models import ResourceModeMembership
 from sqlalchemy import or_
 from backend.helpers import _resolve_post_refs
@@ -29,12 +32,30 @@ bp = Blueprint('post_resource_api', __name__)
 
 @bp.route('/api/posts', methods=['GET'])
 def get_posts():
+    """帖子列表。
+
+    query:
+      library_id / include_trash / search  —— 原有参数
+      status   —— 'draft' | 'published' | 'all'（默认 published）
+      mine     —— '1' 时只看自己创建的（引用到帖子时用来选目标）
+    """
     library_id = request.args.get('library_id', type=int)
     include_trash = request.args.get('include_trash') == '1'
     search = (request.args.get('search') or '').strip()
+    status = (request.args.get('status') or STATUS_PUBLISHED).strip()
+    mine = request.args.get('mine') == '1'
     q = Post.query
     if not include_trash:
         q = q.filter_by(in_trash=False)
+    # 默认只给已发布：草稿是「攒素材中」的中间态，不该混进正式帖子流
+    if status != 'all':
+        q = q.filter_by(status=status if status in POST_STATUSES else STATUS_PUBLISHED)
+    if mine:
+        _uid, _role = resolve_identity()
+        if _uid:
+            q = q.filter_by(owner_id=_uid)
+        else:
+            return jsonify({'posts': [], 'total': 0})
     if library_id is not None:
         q = q.filter_by(library_id=library_id)
     if search:
@@ -43,7 +64,14 @@ def get_posts():
     posts = q.order_by(Post.created_at.desc()).all()
     # 帖子 read 权限：其引用资源的全部权限取交集
     allowed_libs = get_allowed_library_ids()
-    visible = [p for p in posts if _user_can_read_post(p, allowed_libs)]
+    # 草稿只对自己可见——攒素材的过程不该被别人看到
+    _uid2, _role2 = resolve_identity()
+    visible = []
+    for p in posts:
+        if (p.status or STATUS_DRAFT) == STATUS_DRAFT and p.owner_id != _uid2:
+            continue
+        if _user_can_read_post(p, allowed_libs):
+            visible.append(p)
     return jsonify({'posts': [d.to_dict(resolve=True) for d in visible], 'total': len(visible)})
 
 @bp.route('/api/posts', methods=['POST'])
@@ -53,11 +81,19 @@ def create_post():
     if not user:
         return jsonify({'error': '未登录'}), 401
     data = request.get_json(force=True, silent=True) or {}
+    # 新建默认草稿：各处「引用到帖子」攒素材时应先可控，确认后再发布。
+    # 只有显式传 published 才直接进帖子流。
+    _st = (data.get('status') or STATUS_DRAFT).strip()
+    # 归属库兜底：帖子可见性 = 其引用资源所属库的交集，而未归类（None）不在任何
+    # 允许集合内 → 新建的空帖子会**连作者自己都看不见**（表现为「保存后消失了」）。
+    # 因此未指定时落到已激活的默认库，与上传等写入路径保持一致。
+    _lib_id = data.get('library_id') or default_library_id()
     d = Post(title=data.get('title', ''), content=data.get('content', ''),
-                owner_id=user.id, library_id=data.get('library_id'),
+                owner_id=user.id, library_id=_lib_id,
                 author_name=data.get('author_name'),
                 author_url=data.get('author_url'),
-                source_url=data.get('source_url'))
+                source_url=data.get('source_url'),
+                status=_st if _st in POST_STATUSES else STATUS_DRAFT)
     for ref in _build_post_refs(data.get('content', ''), data.get('refs')):
         d.refs.append(ref)
     db.session.add(d)
@@ -90,6 +126,10 @@ def update_post(did):
         d.content = data['content']
     if 'library_id' in data:
         d.library_id = data['library_id']
+    if 'status' in data:
+        _st = (data.get('status') or '').strip()
+        if _st in POST_STATUSES:
+            d.status = _st
     if 'refs' in data or 'content' in data:
         d.refs.clear()
         for ref in _build_post_refs(data.get('content', ''), data.get('refs')):
@@ -184,6 +224,48 @@ def add_post_ref(did):
     db.session.add(ref)
     db.session.commit()
     return jsonify(ref.to_dict()), 201
+
+@bp.route('/api/posts/<int:did>/refs/order', methods=['PATCH', 'POST'])
+@auth_required
+def reorder_post_refs(did):
+    """调整引用的展示顺序（策展的核心动作）。
+
+    body: { order: [PostRef.id, ...] }  —— 给出**完整**的新顺序即可，
+    按数组下标重写 position。
+
+    为什么需要独立接口：既有的 `PUT /api/posts/<id>` 虽然能靠 refs 数组重写顺序，
+    但 `_build_post_refs()` 在正文含内联标记时会**完全忽略 refs 参数**——
+    也就是说「正文里嵌了资源」的帖子，用 PUT 排完序会被正文 token 顺序覆盖，
+    拖拽结果丢失。这里直接改 position，与正文解耦。
+    """
+    user = resolve_user()
+    if not user:
+        return jsonify({'error': '未登录'}), 401
+    d = Post.query.get_or_404(did)
+    if d.owner_id != user.id and user.role > UserRole.ADMIN:
+        return jsonify({'error': '无权修改'}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    order = data.get('order') or []
+    if not isinstance(order, list) or not order:
+        return jsonify({'error': '缺少新的顺序'}), 400
+    try:
+        by_id = {r.id: r for r in d.refs}
+        idx = 0
+        for rid in order:
+            try:
+                ref = by_id.get(int(rid))
+            except (TypeError, ValueError):
+                continue
+            if ref is None:
+                continue
+            ref.position = idx
+            idx += 1
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    return jsonify(d.to_dict(resolve=True))
+
 
 @bp.route('/api/posts/<int:did>/refs/<int:rid>', methods=['DELETE'])
 @auth_required
