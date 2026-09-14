@@ -44,9 +44,42 @@ THUMBNAIL_DIR = os.path.join(_DATA_DIR, 'thumbnails')
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
 
+# ============ 统一任务表接入（可选） ============
+# 只登记「用户主动发起」的单个封面生成（总线 Regenerate），批量下发不逐条登记——
+# 批量已有 web 侧的聚合任务（thumb:missing）承载进度，逐条建任务只会把任务中心刷爆。
+# 登记/收尾均不参与生成流程，任何失败都只影响可见性，不影响出图。
+def _ut_register(unified_task_id, title, params=None):
+    """在统一任务表登记一条任务（幂等，失败静默）。"""
+    if not unified_task_id:
+        return
+    try:
+        from shared.unified_tasks import init_task_manager, create_task
+        init_task_manager(_DATA_DIR)
+        create_task(unified_task_id, 'thumbnail', title, status='running',
+                    progress=0, stage='排队中', detail='已提交到封面生成服务',
+                    params=params)
+    except Exception:
+        pass
+
+
+def _ut_finish(unified_task_id, success, detail=None):
+    """收尾统一任务（失败静默，绝不影响生成结果）。"""
+    if not unified_task_id:
+        return
+    try:
+        from shared.unified_tasks import init_task_manager, finish_task
+        init_task_manager(_DATA_DIR)
+        finish_task(unified_task_id, 'completed' if success else 'failed',
+                    progress=100, stage='完成' if success else '失败',
+                    detail=detail or ('封面已生成' if success else '封面生成失败'),
+                    error_code=None if success else 'thumbnail_failed')
+    except Exception:
+        pass
+
+
 # ============ 任务模型 ============
 class Task:
-    def __init__(self, task_id, video_path, video_hash, config):
+    def __init__(self, task_id, video_path, video_hash, config, unified_task_id=None):
         self.task_id = task_id
         self.video_path = video_path
         self.video_hash = video_hash
@@ -55,6 +88,8 @@ class Task:
         self.thumbnail_path = None
         self.format = config.get('output_format', 'sprite')
         self.created_at = datetime.now()
+        # 统一任务表的任务号（仅用户主动发起的单个生成才有，批量下发为 None）
+        self.unified_task_id = unified_task_id
 
 
 class TaskManager:
@@ -68,7 +103,7 @@ class TaskManager:
         self.lock = threading.Lock()
         self.stats = {'total': 0, 'completed': 0, 'failed': 0}
 
-    def create_task(self, video_path, video_hash, config):
+    def create_task(self, video_path, video_hash, config, unified_task_id=None):
         with self.lock:
             if video_hash in self.video_hash_to_task:
                 existing_id = self.video_hash_to_task[video_hash]
@@ -83,7 +118,8 @@ class TaskManager:
                 return None
 
             task_id = f"thumb_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-            task = Task(task_id, video_path, video_hash, config)
+            task = Task(task_id, video_path, video_hash, config,
+                        unified_task_id=unified_task_id)
             self.tasks[task_id] = task
             self.video_hash_to_task[video_hash] = task_id
             self.queue.append(task_id)
@@ -113,6 +149,9 @@ class TaskManager:
             task.thumbnail_path = thumbnail_path
             self.active_count -= 1
             self.stats['completed' if success else 'failed'] += 1
+        # 收尾统一任务（放锁外，避免把外部 IO 带进临界区）
+        _ut_finish(task.unified_task_id, success,
+                   detail=(error if (error and not success) else None))
 
     def get_stats(self):
         return {
