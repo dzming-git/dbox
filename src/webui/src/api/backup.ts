@@ -27,9 +27,9 @@ export const backupApi = {
       params: { what },
       responseType: 'blob',
     }),
-  // 合集导出为 M3U 播放列表
+  // 合集导出为 M3U 播放列表（用户自建合集，按拥有者鉴权）
   exportCollectionM3u: (collectionId: number) =>
-    api.get(`/api/admin/backup/collections/${collectionId}/m3u`, {
+    api.get(`/api/collections/${collectionId}/m3u`, {
       responseType: 'blob',
     }),
   // 按前缀批量重映射（换机 / 目录搬家），默认试运行

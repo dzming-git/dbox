@@ -172,47 +172,6 @@ def backup_export():
     )
 
 
-@bp.route('/api/admin/backup/collections/<int:collection_id>/m3u', methods=['GET'])
-@admin_required
-def export_collection_m3u(collection_id):
-    """把合集导出为 M3U 播放列表（通用格式，任何播放器都能打开）。
-
-    只导出仍然存在的本地文件：导一份点不开的列表没有意义。
-    """
-    c = Collection.query.get(collection_id)
-    if not c:
-        return jsonify({'success': False, 'message': '合集不存在'}), 404
-    rows = (
-        db.session.query(ResourceIndex.location, ResourceModeMembership.mode)
-        .join(ResourceModeMembership,
-              ResourceModeMembership.resource_index_id == ResourceIndex.id)
-        .filter(ResourceModeMembership.collection_id == collection_id)
-        .order_by(ResourceModeMembership.position)
-        .all()
-    )
-    lines = ['#EXTM3U']
-    kept = 0
-    for loc, _mode in rows:
-        if not loc or not os.path.exists(loc):
-            continue
-        title = os.path.splitext(os.path.basename(loc))[0]
-        lines.append(f'#EXTINF:-1,{title}')
-        lines.append(loc)
-        kept += 1
-
-    body = '\n'.join(lines) + '\n'
-    safe = ''.join(ch for ch in (c.name or '') if ch not in r'\/:*?"<>|').strip() or 'collection'
-    filename = f'{safe}.m3u'
-    return Response(
-        body.encode('utf-8'),
-        mimetype='audio/x-mpegurl; charset=utf-8',
-        headers={
-            'Content-Disposition': f"attachment; filename*=UTF-8''{filename}",
-            'X-Export-Kept': str(kept),
-        },
-    )
-
-
 @bp.route('/api/admin/backup/remap-prefix', methods=['POST'])
 @admin_required
 def remap_prefix():
