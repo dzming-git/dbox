@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { scriptApi, type CookieProfile } from '../api/script'
 import BaseModal from '../components/BaseModal.vue'
 
@@ -126,7 +126,89 @@ async function remove(p: CookieProfile) {
   }
 }
 
-onMounted(load)
+// ============ 健康度与重新登录 ============
+const fmtDate = (s?: string) => (s ? new Date(s).toLocaleString('zh-CN') : '')
+const health = ref<any>(null)
+
+async function loadHealth() {
+  try {
+    const r: any = await scriptApi.cookiesHealth()
+    health.value = r?.success ? r : null
+  } catch {
+    health.value = null
+  }
+}
+
+const STATUS_META: Record<string, { label: string; cls: string }> = {
+  ok: { label: '正常', cls: 'ok' },
+  expiring: { label: '即将过期', cls: 'warn' },
+  expired: { label: '已失效', cls: 'bad' },
+  unknown: { label: '待确认', cls: 'unknown' },
+}
+
+// 分组视图：有健康数据时按站点分组，否则退回平铺列表
+const grouped = computed(() => (health.value?.groups?.length ? true : false))
+const statusOf = (id: string) => {
+  for (const g of health.value?.groups || []) {
+    const hit = (g.items || []).find((x: any) => x.id === id)
+    if (hit) return hit
+  }
+  return null
+}
+
+const relinking = ref<string | null>(null)
+let relinkTimer: any = null
+
+async function relink(p: any) {
+  if (relinking.value) return
+  if (!confirm(`将打开浏览器登录「${p.domain}」，完成后会自动写回保险库。继续？`)) return
+  try {
+    const r: any = await scriptApi.relinkCookie({ id: p.id, domain: p.domain })
+    if (!r?.success) {
+      alert(r?.message || '无法打开登录页')
+      return
+    }
+    relinking.value = r.sid
+    pollRelink(r.sid)
+  } catch (e: any) {
+    alert(e?.response?.data?.message || '启动登录失败')
+  }
+}
+
+function pollRelink(sid: string) {
+  if (relinkTimer) clearInterval(relinkTimer)
+  relinkTimer = setInterval(async () => {
+    try {
+      const s: any = await scriptApi.relinkStatus(sid)
+      const state = s?.state
+      if (state === 'done') {
+        stopRelink()
+        const c: any = await scriptApi.relinkCommit(sid)
+        alert(c?.success ? `已更新，写入 ${c.cookie_count} 条 Cookie` : (c?.message || '写入失败'))
+        await load()
+        await loadHealth()
+      } else if (state === 'error' || state === 'timeout' || state === 'cancelled') {
+        stopRelink()
+        alert(`登录未成功：${s?.error || state}`)
+      }
+    } catch {
+      stopRelink()
+    }
+  }, 2000)
+}
+
+function stopRelink() {
+  if (relinkTimer) clearInterval(relinkTimer)
+  relinkTimer = null
+  relinking.value = null
+}
+
+onUnmounted(stopRelink)
+
+onMounted(() => {
+  load()
+  loadHealth()
+})
 </script>
 
 <template>
@@ -147,6 +229,14 @@ onMounted(load)
 
     <div v-else-if="!profiles.length" class="empty">暂无凭证，点击右上角「新增凭证」添加。</div>
 
+    <!-- 健康度概览：有问题时一眼看到，而不是等某次任务失败才发现 -->
+    <div v-if="health?.summary" class="health-bar">
+      <span class="hb-item ok">正常 {{ health.summary.ok || 0 }}</span>
+      <span class="hb-item warn">即将过期 {{ health.summary.expiring || 0 }}</span>
+      <span class="hb-item bad">已失效 {{ health.summary.expired || 0 }}</span>
+      <span class="hb-item unknown">待确认 {{ health.summary.unknown || 0 }}</span>
+    </div>
+
     <div v-else class="profile-list">
       <div v-for="p in profiles" :key="p.id" class="profile-card">
         <div class="profile-main">
@@ -161,6 +251,43 @@ onMounted(load)
         <div class="profile-actions">
           <button class="btn-text" @click="openEdit(p)">编辑</button>
           <button class="btn-text danger" @click="remove(p)">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按站点分组（健康视图） -->
+    <div v-if="grouped" class="group-list">
+      <div v-for="g in health.groups" :key="g.domain" class="group">
+        <div class="group-head">
+          <span class="group-domain">{{ g.domain }}</span>
+          <span class="health-dot" :class="STATUS_META[g.status]?.cls || 'unknown'"></span>
+          <span class="group-count">{{ g.items.length }} 条</span>
+        </div>
+        <div v-for="it in g.items" :key="it.id" class="group-item">
+          <div class="gi-main">
+            <span class="kind-badge">{{ kindLabel[it.kind || 'cookie'] || it.kind }}</span>
+            <span class="gi-name">{{ it.name || it.domain }}</span>
+            <span
+              class="health-tag"
+              :class="STATUS_META[it.status]?.cls || 'unknown'"
+              :title="it.message"
+            >{{ STATUS_META[it.status]?.label || it.status }}</span>
+          </div>
+          <div class="gi-meta">
+            <span v-if="it.message" class="gi-msg">{{ it.message }}</span>
+            <span v-if="it.last_used_at" class="gi-used">最近使用 {{ fmtDate(it.last_used_at) }}</span>
+          </div>
+          <div class="profile-actions">
+            <button
+              v-if="it.kind === 'cookie'"
+              class="btn-text"
+              :disabled="!!relinking"
+              @click="relink(it)"
+              title="打开浏览器重新登录并写回"
+            >{{ relinking ? '登录中…' : '重新登录' }}</button>
+            <button class="btn-text" @click="openEdit({ id: it.id, kind: it.kind, name: it.name, domain: it.domain, note: it.note })">编辑</button>
+            <button class="btn-text danger" @click="remove({ id: it.id, name: it.name, domain: it.domain })">删除</button>
+          </div>
         </div>
       </div>
     </div>
@@ -219,6 +346,31 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* 健康度 */
+.health-bar { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 4px; font-size: 12px; }
+.hb-item { padding: 3px 10px; border-radius: 999px; background: var(--bg-surface-2, #2a2f3a); }
+.hb-item.ok { color: var(--success, #4ade80); }
+.hb-item.warn { color: var(--warning, #fbbf24); }
+.hb-item.bad { color: var(--danger, #ff6b70); }
+.hb-item.unknown { color: var(--text-tertiary, #7c828f); }
+.group-list { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.group { border: 1px solid var(--border-default, rgba(255,255,255,.1)); border-radius: 10px; overflow: hidden; }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-surface-2, #2a2f3a); font-size: 13px; }
+.group-domain { font-weight: 600; }
+.group-count { margin-left: auto; color: var(--text-tertiary, #7c828f); font-size: 12px; }
+.health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary, #7c828f); }
+.health-dot.ok { background: var(--success, #4ade80); }
+.health-dot.warn { background: var(--warning, #fbbf24); }
+.health-dot.bad { background: var(--danger, #ff6b70); }
+.group-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--border-subtle, rgba(255,255,255,.06)); }
+.gi-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; }
+.gi-name { font-size: 14px; }
+.health-tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--bg-surface-2, #2a2f3a); color: var(--text-tertiary, #7c828f); }
+.health-tag.ok { color: var(--success, #4ade80); }
+.health-tag.warn { color: var(--warning, #fbbf24); }
+.health-tag.bad { color: var(--danger, #ff6b70); }
+.gi-meta { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-tertiary, #7c828f); }
+.gi-msg { color: var(--text-secondary, #b3b8c4); }
 .vault-page { padding: 24px; max-width: 900px; margin: 0 auto; color: var(--text-primary, #eee); }
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .page-head h2 { margin: 0; font-size: 20px; }

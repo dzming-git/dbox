@@ -113,6 +113,14 @@ export const scriptApi = {
   createCookie: (data: VaultPayload) => api.post('/api/admin/cookies', data),
   updateCookie: (id: string, data: VaultPayload) => api.put(`/api/admin/cookies/${id}`, data),
   deleteCookie: (id: string) => api.delete(`/api/admin/cookies/${id}`),
+  // 凭证健康度：按站点分组 + 过期/失效状态
+  cookiesHealth: () => api.get('/api/admin/cookies/health'),
+  // 一键重新登录：开浏览器登录 → 轮询状态 → 写回保险库
+  relinkCookie: (data: { id?: string; domain: string; url?: string; name?: string }) =>
+    api.post('/api/admin/cookies/relink', data),
+  relinkStatus: (sid: string) => api.get(`/api/admin/cookies/relink/${sid}/status`),
+  relinkCancel: (sid: string) => api.post(`/api/admin/cookies/relink/${sid}/cancel`),
+  relinkCommit: (sid: string) => api.post(`/api/admin/cookies/relink/${sid}/commit`),
 
   // 脚本参数用户默认值（管理员）
   getDefaults: (id: string) => api.get(`/api/admin/scripts/${id}/defaults`),
