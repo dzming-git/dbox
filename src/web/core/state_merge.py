@@ -69,14 +69,37 @@ def merge_union_by_id(old, new, cap=DEFAULT_CAP, **_kw):
     记录约定为 { id: str, order: 可排序值(数字/ISO时间), ...任意载荷 }。
     合并层只看 id / order，不关心载荷里是什么字段——这样通用状态层与
     各插件的字段命名完全解耦（瀑布流缓存、历史、最近使用都复用同一逻辑）。
+
+    删除用**墓碑**表达：新值里带 `_deleted: true` 的条目代表「删除这个 id」，
+    它本身不会出现在结果里，且会把 old 中同 id 的条目一并抹掉。
+    纯并集策略没有删除语义，若只把「去掉某条后的列表」写回来，
+    旧条目在合并时会被再次并进结果——删除看似成功、刷新后却又回来了。
     """
     merged, order = {}, []
+    # 先扫一遍新值，收集墓碑（删除请求）
+    tombstones = set()
+    if isinstance(new, list):
+        for item in new:
+            if isinstance(item, dict) and item.get('_deleted'):
+                iid = item.get('id')
+                if iid not in (None, ''):
+                    tombstones.add(str(iid))
+
+    def _skip(item):
+        if not isinstance(item, dict):
+            return True
+        if item.get('_deleted'):
+            return True
+        iid = item.get('id')
+        return iid not in (None, '') and str(iid) in tombstones
 
     for lst in (old, new):
         if not isinstance(lst, list):
             continue
         for item in lst:
             if not isinstance(item, dict):
+                continue
+            if _skip(item):
                 continue
             iid = item.get('id')
             if iid in (None, ''):

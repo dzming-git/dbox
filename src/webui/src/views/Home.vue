@@ -7,6 +7,8 @@ import { useGalleryStore } from '../stores/galleryStore'
 import { useUserStore } from '../stores/userStore'
 import { videoApi } from '../api'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
+import { useSavedViews } from '../composables/useSavedViews'
+import { useToast } from '../composables/useToast'
 import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
@@ -22,6 +24,7 @@ import type { Video, Tag } from '../types'
 const router = useRouter()
 const route = useRoute()
 const watchLaterStore = useWatchLaterStore()
+const { showToast } = useToast()
 
 // 首页媒体类型切换：视频 / 图集 对等展示，模式写入 URL（?mode=video|gallery）
 const mediaTab = ref<'video' | 'gallery' | 'mixed' | 'text'>(route.query.mode === 'gallery' ? 'gallery' : (route.query.mode === 'mixed' ? 'mixed' : (route.query.mode === 'text' ? 'text' : 'video')))
@@ -285,8 +288,73 @@ const handleCollectionChange = (event: Event) => {
 // 一键清空所有筛选条件（排序与显示方式不属于筛选，保留）
 async function handleClearFilters() {
   filterKeyword.value = ''
+  activeViewId.value = ''
   await videoStore.clearFilters()
   updateUrl()
+}
+
+// ============ 保存的视图 ============
+const { views: savedViews, load: loadSavedViews, save: saveView, remove: removeView } =
+  useSavedViews()
+const activeViewId = ref('')
+
+// 当前生效的一组筛选条件（供另存为视图）
+const currentFilters = () => ({
+  libraryId: videoStore.selectedLibraryId,
+  collectionId: videoStore.selectedCollectionId,
+  tagId: videoStore.selectedUntagged ? null : videoStore.selectedTagId,
+  untagged: videoStore.selectedUntagged,
+  search: videoStore.searchQuery || '',
+  minDuration: videoStore.minDuration,
+  maxDuration: videoStore.maxDuration,
+  unwatchedDays: videoStore.unwatchedDays,
+  sortBy: videoStore.sortBy,
+  sortOrder: videoStore.sortOrder,
+})
+
+async function handleSaveView() {
+  const name = prompt('给这组筛选条件起个名字（例如：最近一个月没看的长视频）')
+  if (!name) return
+  try {
+    const v = await saveView(name, currentFilters())
+    if (v) {
+      activeViewId.value = v.id
+      showToast(`已保存视图「${v.name}」`)
+    }
+  } catch (e) {
+    showToast('保存视图失败')
+  }
+}
+
+async function handleApplyView(e: Event) {
+  const id = (e.target as HTMLSelectElement).value
+  activeViewId.value = id
+  if (!id) return
+  const view = savedViews.value.find((v) => v.id === id)
+  if (!view) return
+  const f = view.filters || {}
+  videoStore.selectedLibraryId = f.libraryId ?? null
+  videoStore.selectedCollectionId = f.collectionId ?? null
+  videoStore.selectedUntagged = !!f.untagged
+  videoStore.selectedTagId = f.untagged ? null : (f.tagId ?? null)
+  videoStore.minDuration = f.minDuration ?? null
+  videoStore.maxDuration = f.maxDuration ?? null
+  videoStore.unwatchedDays = f.unwatchedDays ?? null
+  filterKeyword.value = f.search || ''
+  videoStore.searchQuery = f.search || ''
+  if (f.sortBy) videoStore.sortBy = f.sortBy
+  if (f.sortOrder) videoStore.sortOrder = f.sortOrder
+  await videoStore.fetchVideos(true)
+  updateUrl()
+}
+
+async function handleDeleteView() {
+  const view = savedViews.value.find((v) => v.id === activeViewId.value)
+  if (!view) return
+  if (!confirm(`删除视图「${view.name}」？`)) return
+  await removeView(view.id)
+  activeViewId.value = ''
+  showToast(`已删除视图「${view.name}」`)
 }
 
 onMounted(async () => {
@@ -298,14 +366,16 @@ onMounted(async () => {
       videoStore.initFromQuery(route.query as Record<string, string>),
       videoStore.fetchTags(),
       videoStore.fetchUserLibraries(),
-      videoStore.fetchCollections()
+      videoStore.fetchCollections(),
+      loadSavedViews()
     ])
   } else {
     await Promise.all([
       videoStore.fetchVideos(true),
       videoStore.fetchTags(),
       videoStore.fetchUserLibraries(),
-      videoStore.fetchCollections()
+      videoStore.fetchCollections(),
+      loadSavedViews()
     ])
   }
   // 通过分享链接或标签页眼睛图标进入时，若带 tag 参数，自动展开标签面板以显示当前筛选状态
@@ -787,6 +857,29 @@ const listThumbUrl = (video: Video): string => {
           />
           <button v-if="filterKeyword" class="search-clear" @click="clearKeyword" title="清除关键词">×</button>
         </div>
+        <!-- 保存的视图：把当前这组条件存下来，下次一键套用 -->
+        <select
+          v-if="savedViews.length"
+          class="views-select"
+          :value="activeViewId"
+          @change="handleApplyView"
+          title="套用已保存的视图"
+        >
+          <option value="">保存的视图</option>
+          <option v-for="v in savedViews" :key="v.id" :value="v.id">{{ v.name }}</option>
+        </select>
+        <button
+          class="filter-save-btn"
+          :disabled="!videoStore.hasActiveFilters"
+          @click="handleSaveView"
+          :title="videoStore.hasActiveFilters ? '把当前筛选条件存为视图' : '先选择筛选条件'"
+        >另存为视图</button>
+        <button
+          v-if="activeViewId"
+          class="filter-clear-btn"
+          @click="handleDeleteView"
+          title="删除当前视图"
+        >删除视图</button>
         <!-- 一键清空：条件多了以后逐个改回来很麻烦 -->
         <button
           v-if="videoStore.hasActiveFilters"
@@ -1598,6 +1691,50 @@ const listThumbUrl = (video: Video): string => {
   font-size: 16px;
   line-height: 1;
   padding: 0 2px;
+}
+
+/* 已保存视图下拉 */
+.views-select {
+  height: 40px;
+  padding: 0 12px;
+  margin-left: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.views-select:hover,
+.views-select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+/* 另存为视图 */
+.filter-save-btn {
+  height: 40px;
+  margin-left: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.filter-save-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.filter-save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border-default);
+  color: var(--text-tertiary);
 }
 
 /* 清空筛选：仅在有条件生效时出现 */
