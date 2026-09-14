@@ -614,6 +614,20 @@ class ResourceLibraryWatcher:
                             db.session.flush()
                         db.session.add(VideoTag(video_id=existing.id, tag_id=tag.id))
 
+                # 物理信息：文件大小与时长。
+                # 此前扫描入库从不写这两项，导致界面时长显示为 0、
+                # 「长视频 / 短视频」这类按时长筛选的视图完全失效。
+                try:
+                    existing.file_size = os.path.getsize(path)
+                except OSError:
+                    pass
+                if not existing.duration:
+                    try:
+                        from backend.utils.media import extract_mp4_duration
+                        existing.duration = extract_mp4_duration(path)
+                    except Exception:
+                        pass
+
                 db.session.commit()
 
                 # 统一封面入口：确保资源索引封面与视频缩略图一致（首次启动后 resource_index 已存在）
