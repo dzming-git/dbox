@@ -10,9 +10,11 @@
 （经网关转发到下载器），本蓝图只负责读取与红点计数。
 """
 import os
+import json
 import sqlite3
+import time
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, Response, stream_with_context
 from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
 from unified_tasks import (
@@ -124,6 +126,75 @@ def list_tasks():
         'tasks': tasks,
         'action_required_count': action_count,
     })
+
+
+@bp.route('/api/tasks/stream', methods=['GET'])
+@auth_required
+def task_stream():
+    """任务状态变化的实时推送（SSE）。
+
+    浏览器原生 EventSource 不能自定义请求头，因此鉴权走 `?token=` 查询参数
+    （与 resolve_identity 的 URL token 回退一致），前端把登录态里的 JWT 带上即可。
+
+    推送策略：**只推变化**。服务端每 2 秒比对一次快照，任务的状态/进度/阶段/详情
+    任一变化才发一条 `task` 事件；无变化时发注释行保活，避免长连接被中间层掐断。
+    """
+    user_id, role = resolve_identity()
+    is_admin = _is_admin(role)
+    role_arg = 'admin' if is_admin else 'user'
+
+    try:
+        from backend.paths import DATA_DIR
+        init_task_manager(DATA_DIR)
+    except Exception:
+        pass
+
+    def _signature(t):
+        return (t.get('status'), t.get('progress'), t.get('stage'), t.get('detail'))
+
+    def _gen():
+        last = {}
+        yield 'retry: 5000\n\n'
+        while True:
+            events = []
+            try:
+                current = get_tasks(role=role_arg, user_id=user_id, limit=200)
+                seen = set()
+                for t in current:
+                    tid = t.get('task_id')
+                    if not tid:
+                        continue
+                    seen.add(tid)
+                    sig = _signature(t)
+                    if last.get(tid) != sig:
+                        events.append(t)
+                    last[tid] = sig
+                # 已被删除的任务从快照里移除，避免重新出现时重复推送
+                for tid in [k for k in last if k not in seen]:
+                    last.pop(tid, None)
+            except Exception:
+                # 单次比对失败不打断连接，下一轮继续
+                events = []
+
+            if events:
+                for t in events:
+                    yield 'event: task\ndata: ' + json.dumps(
+                        t, ensure_ascii=False, default=str) + '\n\n'
+            else:
+                yield ': ping\n\n'
+
+            time.sleep(2)
+
+    return Response(
+        stream_with_context(_gen()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            # 关闭反向代理的响应缓冲，否则事件会被攒着一起发
+            'X-Accel-Buffering': 'no',
+        },
+    )
 
 
 @bp.route('/api/tasks/action-count', methods=['GET'])

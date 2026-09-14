@@ -183,6 +183,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, ACTIVE_STATUSES, type Task } from '../api/task'
+import { useTaskStream } from '../composables/useTaskStream'
 import { type PendingInput } from '../api/script'
 
 const router = useRouter()
@@ -502,9 +503,22 @@ async function submitInteraction() {
   closeInteraction()
 }
 
+// 服务端推送：任务有变化才刷新，避免固定轮询的空转。
+// 这里做 1s 节流，批量任务高频更新时不会把列表刷爆。
+let pushRefreshTimer: any = null
+const schedulePushRefresh = () => {
+  if (pushRefreshTimer) return
+  pushRefreshTimer = setTimeout(() => {
+    pushRefreshTimer = null
+    refresh()
+  }, 1000)
+}
+useTaskStream(() => schedulePushRefresh())
+
 onMounted(() => {
   refresh()
-  pollTimer = setInterval(refresh, 2500)
+  // 推送不可用（代理掐断长连接等）时的兜底：低频轮询
+  pollTimer = setInterval(refresh, 10000)
   startLogsPoll()
 })
 onUnmounted(() => {
