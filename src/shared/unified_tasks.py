@@ -320,25 +320,67 @@ def get_task(task_id):
     return _row_to_dict(row) if row else None
 
 
-def get_tasks(role='user', user_id=None, limit=50):
+def count_tasks(role='user', user_id=None, status=None, kind=None):
+    """按条件统计任务数（供分页使用，条件与 get_tasks 保持一致）。"""
+    where, args = _build_filters(role, user_id, status, kind)
+    with _conn() as conn:
+        cnt = conn.execute(
+            f'SELECT COUNT(*) FROM tasks{where}', args
+        ).fetchone()[0]
+    return int(cnt)
+
+
+def _build_filters(role, user_id, status=None, kind=None):
+    """拼装可见性 + 筛选条件。
+
+    筛选值支持逗号分隔的多选（如 status='failed,cancelled'）；
+    status 传 'active' 等价于「进行中的三类状态」。
+    """
+    clauses = []
+    args = []
+    if role != 'admin':
+        if user_id is None:
+            # 非管理员且无身份：看不到任何任务
+            return ' WHERE 1=0', []
+        clauses.append('owner_id=?')
+        args.append(user_id)
+
+    if status:
+        wanted = [s for s in str(status).split(',') if s]
+        if wanted:
+            expanded = []
+            for s in wanted:
+                if s == 'active':
+                    expanded.extend([STATUS_PENDING, STATUS_RUNNING, STATUS_AWAITING])
+                elif s in _VALID_STATUS:
+                    expanded.append(s)
+            if expanded:
+                clauses.append('status IN ({})'.format(','.join('?' * len(expanded))))
+                args.extend(expanded)
+    if kind:
+        kinds = [k for k in str(kind).split(',') if k]
+        if kinds:
+            clauses.append('kind IN ({})'.format(','.join('?' * len(kinds))))
+            args.extend(kinds)
+    return (' WHERE ' + ' AND '.join(clauses)) if clauses else '', args
+
+
+def get_tasks(role='user', user_id=None, limit=50, offset=0, status=None, kind=None):
     """返回当前用户可见的任务列表（按更新时间倒序）。
 
     - 普通用户：仅看到自己发起的任务（owner_id == user_id）。
-    - 管理员：看到全部脚本任务 + 自己发起的上传任务。
+    - 管理员：看到全部任务。
+    - 支持按 status / kind 筛选（逗号分隔多选，status='active' 表示进行中），
+      以及 offset/limit 分页；与 count_tasks 使用同一套条件，避免页数与数据不一致。
     """
+    limit = max(1, min(int(limit or 50), 200))
+    offset = max(0, int(offset or 0))
+    where, args = _build_filters(role, user_id, status, kind)
     with _conn() as conn:
-        if role == 'admin':
-            rows = conn.execute(
-                '''SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ?''', (limit,)
-            ).fetchall()
-        else:
-            if user_id is None:
-                rows = []
-            else:
-                rows = conn.execute(
-                    '''SELECT * FROM tasks WHERE owner_id=? ORDER BY updated_at DESC LIMIT ?''',
-                    (user_id, limit),
-                ).fetchall()
+        rows = conn.execute(
+            f'SELECT * FROM tasks{where} ORDER BY updated_at DESC LIMIT ? OFFSET ?',
+            tuple(args) + (limit, offset),
+        ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 

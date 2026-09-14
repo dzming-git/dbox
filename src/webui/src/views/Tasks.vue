@@ -8,9 +8,9 @@
           class="refresh-btn"
           :disabled="clearing"
           @click="clearFinished"
-          title="删除所有已结束的任务"
+          title="删除当前筛选结果中已结束的任务"
         >
-          {{ clearing ? '清理中…' : '清理已完成' }}
+          {{ clearing ? '清理中…' : '清理已结束' }}
         </button>
         <button class="refresh-btn" @click="refresh" :disabled="loading">刷新</button>
       </div>
@@ -21,8 +21,25 @@
       有 {{ actionCount }} 个任务待你处理
     </div>
 
+    <!-- 筛选：状态 + 类型。任务会越积越多，只靠「清理已完成」不够，需要能按状态找 -->
+    <div v-if="tasks.length || activeFilter" class="task-filters">
+      <div class="filter-group">
+        <button
+          v-for="opt in STATUS_FILTERS"
+          :key="opt.value"
+          class="filter-chip"
+          :class="{ active: statusFilter === opt.value }"
+          @click="setStatusFilter(opt.value)"
+        >{{ opt.label }}<span v-if="opt.value === 'active' && activeCount" class="chip-count">{{ activeCount }}</span></button>
+      </div>
+      <select v-model="kindFilter" class="filter-select" @change="setKindFilter(kindFilter)">
+        <option value="">全部类型</option>
+        <option v-for="k in kindOptions" :key="k" :value="k">{{ kindLabel(k) }}</option>
+      </select>
+    </div>
+
     <div v-if="loading && tasks.length === 0" class="empty-tip">加载中…</div>
-    <div v-else-if="tasks.length === 0" class="empty-tip">暂无任务</div>
+    <div v-else-if="tasks.length === 0" class="empty-tip">没有符合条件的任务</div>
 
     <div v-else class="task-list">
       <div v-for="t in tasks" :key="t.task_id" class="task-card" :class="['status-' + t.status]">
@@ -141,6 +158,17 @@
       </div>
     </div>
 
+    <!-- 分页：任务历史只增不删，需要能翻页查看 -->
+    <div v-if="tasks.length" class="task-pager">
+      <button class="pager-btn" :disabled="page === 0 || loading" @click="gotoPage(page - 1)">
+        上一页
+      </button>
+      <span class="pager-info">第 {{ page + 1 }} 页 · 共 {{ total }} 条</span>
+      <button class="pager-btn" :disabled="!hasMore || loading" @click="gotoPage(page + 1)">
+        下一页
+      </button>
+    </div>
+
     <!-- 脚本交互弹窗 -->
     <div v-if="interaction" class="modal-mask" @click.self="closeInteraction">
       <div class="modal">
@@ -180,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, ACTIVE_STATUSES, type Task } from '../api/task'
 import { useTaskStream } from '../composables/useTaskStream'
@@ -249,12 +277,69 @@ function formatTime(ts: number) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+const PAGE_SIZE = 30
+
+// 状态筛选：active 对应后端的「进行中三类状态」
+const STATUS_FILTERS = [
+  { value: '', label: '全部' },
+  { value: 'active', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'failed,cancelled', label: '失败/已停止' },
+]
+const statusFilter = ref('')
+const kindFilter = ref('')
+const page = ref(0)
+const total = ref(0)
+const hasMore = ref(false)
+
+const activeFilter = computed(
+  () => statusFilter.value !== '' || kindFilter.value !== ''
+)
+// 类型选项从当前可见任务里汇总，避免写死一份会与后端漂移的清单
+const kindOptions = computed(() => {
+  const set = new Set<string>()
+  tasks.value.forEach((t) => t.kind && set.add(t.kind))
+  return Array.from(set).sort()
+})
+const activeCount = computed(
+  () => tasks.value.filter((t) => ACTIVE_STATUSES.includes(t.status)).length
+)
+
+function setStatusFilter(v: string) {
+  if (statusFilter.value === v) return
+  statusFilter.value = v
+  page.value = 0
+  refresh()
+}
+function setKindFilter(v: string) {
+  kindFilter.value = v
+  page.value = 0
+  refresh()
+}
+function gotoPage(p: number) {
+  if (p < 0) return
+  page.value = p
+  refresh()
+}
+
 async function refresh() {
   loading.value = true
   try {
-    const res: any = await taskApi.list()
+    const res: any = await taskApi.list({
+      status: statusFilter.value || undefined,
+      kind: kindFilter.value || undefined,
+      limit: PAGE_SIZE,
+      offset: page.value * PAGE_SIZE,
+    })
     tasks.value = res.tasks || []
+    total.value = res.total || 0
+    hasMore.value = !!res.has_more
     actionCount.value = res.action_required_count || 0
+    // 翻页越界（例如筛选后总数变少）时退回上一页
+    if (page.value > 0 && tasks.value.length === 0) {
+      page.value -= 1
+      await refresh()
+    }
   } catch (e) {
     console.error('加载任务失败', e)
   } finally {
@@ -657,6 +742,74 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-secondary);
   padding: 40px 0;
+}
+.task-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.filter-chip {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.filter-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.filter-chip.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.chip-count {
+  margin-left: 6px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+.filter-select {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.task-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.pager-btn {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pager-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .task-list {
   display: flex;
