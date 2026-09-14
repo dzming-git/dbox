@@ -96,8 +96,12 @@ class BusThumbnailAdapter(BaseDBusService):
         if not os.path.exists(video_path):
             return {'success': False, 'error': '视频文件不存在'}
 
+        # 调用方可通过 _unified_task_id 传入统一任务号（由 Regenerate 注入）：
+        # 必须一路带到真正入队的这个任务对象上，否则完成时无从收尾。
+        unified_task_id = params.pop('_unified_task_id', None) or None
         task = self._task_manager.create_task(
-            video_path, video_hash, {'output_format': output_format}
+            video_path, video_hash, {'output_format': output_format},
+            unified_task_id=unified_task_id,
         )
         if not task:
             return {'success': False, 'error': '队列已满'}
@@ -192,17 +196,42 @@ class BusThumbnailAdapter(BaseDBusService):
 
     def on_method_regenerate(self, params: Dict[str, Any]) -> Dict:
         """
-        重新生成封面。
+        重新生成封面（用户主动发起，会登记到统一任务表以便追踪结果）。
+
+        与 Generate 的区别：Generate 用于批量下发，数量可能成百上千，
+        逐条进任务表只会把任务中心刷爆（批量进度由 web 侧的聚合任务承载）；
+        Regenerate 是用户在界面上对单个视频点的「重新生成」，量小且需要看到结果，
+        因此登记一条统一任务，由工作线程完成时收尾。
 
         Args (params):
             video_path: str     - 视频文件路径
             video_hash: str     - 视频 hash
             output_format: str  - 输出格式
+            title: str          - 可选，用于任务标题（默认显示文件名）
 
         Returns:
-            {success: bool, task_id: str}
+            {success: bool, task_id: str, unified_task_id: str}
         """
-        return self.on_method_generate(params)
+        from thumbnail.task_manager import _ut_register
+
+        video_hash = params.get('video_hash', '') or ''
+        title = params.get('title') or (
+            os.path.basename(params.get('video_path', '')) or '封面')
+        unified_task_id = f'thumb:regen:{video_hash}' if video_hash else None
+        _ut_register(unified_task_id, f'重新生成封面：{title}',
+                     params={'scope': 'single', 'video_hash': video_hash,
+                             'output_format': params.get('output_format', 'sprite')})
+
+        result = self.on_method_generate(
+            dict(params, _unified_task_id=unified_task_id))
+        if isinstance(result, dict) and unified_task_id:
+            result['unified_task_id'] = unified_task_id
+            if result.get('success') is False:
+                # 入队失败（队列已满 / 文件不存在等）：立即收尾，避免留下僵尸任务
+                from thumbnail.task_manager import _ut_finish
+                _ut_finish(unified_task_id, False,
+                           detail=result.get('error') or '提交失败')
+        return result
 
     def on_method_get_metrics(self, params: Dict[str, Any]) -> Dict:
         """

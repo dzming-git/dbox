@@ -351,17 +351,25 @@ def regenerate_thumbnail(video_hash):
     if runtime.thumbnail_bus:
         try:
             output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
+            # 走 Regenerate 而不是 Generate：这是用户在界面上对单个视频发起的重生成，
+            # 需要在统一任务表里留痕并给出可追踪的任务号（批量下发才用 Generate）。
             result = runtime.thumbnail_bus.call_method(
                 service='com.dbox.thumbnaild',
                 interface='com.dbox.Thumbnaild',
-                method='Generate',
-                params={'video_path': video.local_path, 'video_hash': video_hash, 'output_format': output_format}
+                method='Regenerate',
+                params={
+                    'video_path': video.local_path,
+                    'video_hash': video_hash,
+                    'output_format': output_format,
+                    'title': video.title or os.path.basename(video.local_path or ''),
+                }
             )
             if result and result.get('success'):
                 return jsonify({
                     'success': True,
                     'message': '缩略图重新生成中',
-                    'task_id': result.get('task_id')
+                    'task_id': result.get('task_id'),
+                    'unified_task_id': result.get('unified_task_id')
                 })
             else:
                 return jsonify({'success': False, 'message': result.get('error', '生成失败')}), 500
