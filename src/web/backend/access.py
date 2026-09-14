@@ -386,10 +386,14 @@ def filter_visible_snapshots(rows, type_attr='item_type', id_attr='item_id',
 def default_library_id():
     """返回默认归属资源库（主资源库）ID，用于「所有资源必须有归属」的兜底。
 
-    找不到主资源库时退回任一激活库；再找不到返回 None（调用方据此拒绝写入）。
+    只返回**已激活**的库：停用库对外不可见，自然也不能作为写入目标。
+    因此主资源库若处于停用状态（历史数据中确实存在），必须继续回退到任一激活库，
+    否则调用方会拿到一个必定写不进去的库 ID，表现为「无写入权限」。
+
+    找不到任何激活库时返回 None（调用方据此拒绝写入）。
     """
     from core.models import MAIN_LIBRARY_NAME
-    lib = ResourceLibrary.query.filter_by(name=MAIN_LIBRARY_NAME).first()
+    lib = ResourceLibrary.query.filter_by(name=MAIN_LIBRARY_NAME, is_active=True).first()
     if lib:
         return lib.id
     lib = ResourceLibrary.query.filter_by(is_active=True).first()
