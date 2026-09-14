@@ -316,26 +316,32 @@ def _generate_missing_thumbnails(config=None):
     if runtime.thumbnail_bus:
         import concurrent.futures
 
-        def _submit_one(video):
+        def _submit_one(video_path, video_hash):
+            """下发单个生成任务。
+
+            入参必须是**已经取好值的字符串**：本函数在线程池的工作线程里执行，
+            那里没有 Flask 应用上下文，访问 `video.local_path`（会懒加载
+            resource_index 关联）会抛 "Working outside of application context"。
+            """
             try:
                 output_format = runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite')
                 r = runtime.thumbnail_bus.call_method(
                     service='com.dbox.thumbnaild',
                     interface='com.dbox.Thumbnaild',
                     method='Generate',
-                    params={'video_path': video.local_path, 'video_hash': video.hash, 'output_format': output_format}
+                    params={'video_path': video_path, 'video_hash': video_hash, 'output_format': output_format}
                 )
                 # 区分三类结果：
                 # 1) 调用异常（微服务不可用/超时）→ 失败，记录错误
                 # 2) 返回 success:False（队列已满/文件不存在等）→ 视为下发被拒，失败
                 # 3) 返回 success:True → 已下发到 thumbnaild 队列
                 if r is None:
-                    return (video.hash, False, '微服务无响应（thumbnaild 未连接）')
+                    return (video_hash, False, '微服务无响应（thumbnaild 未连接）')
                 if isinstance(r, dict) and r.get('success') is False:
-                    return (video.hash, False, r.get('error') or '任务被 thumbnaild 拒绝')
-                return (video.hash, True, None)
+                    return (video_hash, False, r.get('error') or '任务被 thumbnaild 拒绝')
+                return (video_hash, True, None)
             except Exception as e:
-                return (video.hash, False, str(e))
+                return (video_hash, False, str(e))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
@@ -344,9 +350,12 @@ def _generate_missing_thumbnails(config=None):
                     log.maintenance('INFO', f'自动生成被停止，已提交 {i}/{len(missing_videos)} 个任务')
                     break
 
+                # 在本线程（有应用上下文）里就把路径/哈希取成普通字符串，
+                # 再交给工作线程下发，避免在线程池里触发关联懒加载。
                 _thumb_progress['current'] = f'{video.title or video.hash}'
-                future = executor.submit(_submit_one, video)
-                futures.append((future, video.hash))
+                v_path, v_hash = video.local_path, video.hash
+                future = executor.submit(_submit_one, v_path, v_hash)
+                futures.append((future, v_hash))
 
                 # 轮询式等待，兼顾停止信号，避免 task_interval 期间无法及时响应停止
                 waited = 0
