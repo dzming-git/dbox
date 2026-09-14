@@ -5,6 +5,7 @@ import { useUserStore } from '../stores/userStore'
 import { useGalleryStore } from '../stores/galleryStore'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import CollectionPanel from '../components/CollectionPanel.vue'
+import AddToPostButton from '../components/AddToPostButton.vue'
 import BaseModal from '../components/BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import type { Gallery } from '../types'
@@ -673,6 +674,8 @@ watch(showThumbs, () => { /* 控制缩略图条显隐 */ })
         </button>
         <!-- 合集 -->
         <CollectionPanel item-type="gallery" :item-hash="(gallery && gallery.hash) || (route.params.hash as string)" />
+        <!-- 引用到帖子：把这本图集收进自己的策展 -->
+        <AddToPostButton :resource-index-id="gallery?.resource_index_id" />
         <!-- 更多（“不喜欢”收进此处，与视频方案一致） -->
         <div class="more-wrap">
           <button class="bar-action" @click="showMoreMenu = !showMoreMenu" title="更多">

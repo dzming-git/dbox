@@ -8,6 +8,7 @@ import { usePullToRefresh } from '../composables/usePullToRefresh'
 import { getEffectiveSettings } from '../utils/settings'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import CollectionPanel from '../components/CollectionPanel.vue'
+import AddToPostButton from '../components/AddToPostButton.vue'
 import BaseModal from '../components/BaseModal.vue'
 import VideoPlayer from '../components/VideoPlayer.vue'
 import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
@@ -1957,6 +1958,9 @@ const handleDelete = async () => {
                 </svg>
                 <span class="btn-label">分享</span>
               </button>
+
+              <!-- 引用到帖子：把这条视频收进自己的策展（草稿/已发布皆可） -->
+              <AddToPostButton :resource-index-id="video?.resource_index_id" class="action-btn atp-action" />
 
               <!-- 更多（不常用的操作收进此处，如“不喜欢”） -->
               <div class="more-wrap">
