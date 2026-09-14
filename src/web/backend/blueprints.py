@@ -68,6 +68,7 @@ def register_domain_blueprints(app: Flask) -> None:
     from backend.api.post_resource_api import bp as post_resource_api_bp
     from backend.api.serve_api import bp as serve_api_bp
     from backend.api.review_api import bp as review_api_bp
+    from backend.api.backup_api import bp as backup_api_bp
     from task_routes import bp as task_bp
 
     app.register_blueprint(video_api_bp)
@@ -82,4 +83,5 @@ def register_domain_blueprints(app: Flask) -> None:
     app.register_blueprint(post_resource_api_bp)
     app.register_blueprint(serve_api_bp)
     app.register_blueprint(review_api_bp)
+    app.register_blueprint(backup_api_bp)
     app.register_blueprint(task_bp)
