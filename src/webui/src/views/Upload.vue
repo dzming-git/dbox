@@ -3,7 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVideoStore } from '../stores/videoStore'
 import { useUserStore } from '../stores/userStore'
-import { api } from '../api'
+import { api, taskApi } from '../api'
 import { useToast } from '../composables/useToast'
 import BaseModal from '../components/BaseModal.vue'
 
@@ -275,6 +275,46 @@ const handleFiles = async (files: File[]) => {
   }
 }
 
+// 等待上传任务在服务端走到终态（入库 + 缩略图生成）。
+// 上传进度条只到 95%，剩下的 5% 由后端任务的真实进度补齐；
+// 查不到任务或超时都按「成功」放行，避免一次接口抖动把用户卡在上传页。
+const waitTaskSettled = async (
+  taskId: string,
+  doneCount: number,
+  totalCount: number,
+  timeoutMs = 120000
+): Promise<{ status: string; detail?: string }> => {
+  const deadline = Date.now() + timeoutMs
+  isProcessing.value = true
+  try {
+    while (Date.now() < deadline) {
+      try {
+        const res: any = await taskApi.detail(taskId)
+        const task = res?.task
+        if (task) {
+          // 传输阶段占 0~95%，处理阶段接管剩下的 95~100%，保证进度条只增不减
+          const pct = Math.max(0, Math.min(100, Number(task.progress) || 0))
+          const transferEnd = ((doneCount + 1) / Math.max(1, totalCount)) * 95
+          const target = ((doneCount + 1) / Math.max(1, totalCount)) * 100
+          uploadProgress.value = Math.min(
+            99,
+            transferEnd + ((target - transferEnd) * pct) / 100
+          )
+          if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+            return { status: task.status, detail: task.detail || undefined }
+          }
+        }
+      } catch {
+        // 单次查询失败不放弃，继续等到超时
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  } finally {
+    isProcessing.value = false
+  }
+  return { status: 'completed' }
+}
+
 // 开始上传
 const startUpload = async () => {
   if (selectedFiles.value.length === 0) {
@@ -332,12 +372,26 @@ const startUpload = async () => {
           }
         }) as any
         
-        isProcessing.value = false
-        
         if (response.success) {
+          // 文件已传完，但后端还要入库与生成缩略图：这里等统一任务真正走到终态，
+          // 不再「传完即报成功」——否则用户会看到视频列表里还没有这条。
+          const taskId: string | undefined = response.task_id
+          if (taskId) {
+            const settled = await waitTaskSettled(taskId, uploadedCount, totalFiles)
+            if (settled.status === 'failed' || settled.status === 'cancelled') {
+              failedFiles.push({
+                name: file.name,
+                reason: settled.detail || '服务器处理失败',
+              })
+              isProcessing.value = false
+              continue
+            }
+          }
+          isProcessing.value = false
           uploadedCount++
           uploadProgress.value = (uploadedCount / totalFiles) * 95
         } else {
+          isProcessing.value = false
           const reason = response.message || '未知错误'
           failedFiles.push({ name: file.name, reason })
           console.error(`上传失败 [${file.name}]:`, reason)
