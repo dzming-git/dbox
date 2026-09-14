@@ -32,7 +32,11 @@ from backend.access import (
 from backend.access import admin_required, auth_required
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
 from liblog import get_service_logger
-from unified_tasks import init_task_manager as _init_tm, create_task, update_task
+from unified_tasks import init_task_manager as _init_tm, create_task
+from backend.task_helpers import (
+    finish_task_quiet as _finish_task_quiet,
+    update_task_quiet as _update_task_quiet,
+)
 import threading
 log = get_service_logger('dbox-web')
 
@@ -778,6 +782,10 @@ def upload_video():
         except Exception:
             pass
 
+        # 上传任务号：文件落盘后才登记，此处先占位，
+        # 以便后续任何提前返回 / 异常都能把任务收尾，不留下永远「进行中」的僵尸任务
+        upload_task_id = None
+
         # 获取表单数据
         title = request.form.get('title', '').strip() or os.path.splitext(file.filename)[0]
         description = request.form.get('description', '').strip()
@@ -851,13 +859,12 @@ def upload_video():
         existing = Video.query.filter_by(hash=video_hash).first()
         if existing:
             os.remove(file_path)
-            try:
-                update_task(upload_task_id, status='failed', stage='重复', detail='该视频已存在，已取消上传')
-            except Exception:
-                pass
+            _finish_task_quiet(upload_task_id, 'failed', progress=100, stage='重复',
+                               detail='该视频已存在，已取消上传', error_code='duplicate')
             return jsonify({
                 'success': False,
                 'message': '该视频已存在',
+                'task_id': upload_task_id,
                 'video': existing.to_dict()
             }), 409
 
@@ -869,6 +876,9 @@ def upload_video():
             library = ResourceLibrary.query.get(library_id)
             if not library:
                 os.remove(file_path)
+                _finish_task_quiet(upload_task_id, 'failed', progress=100, stage='资源库不存在',
+                                   detail=f'资源库 {library_id} 不存在，已放弃本次上传',
+                                   error_code='library_missing')
                 return jsonify({'success': False, 'message': '视频集不存在'}), 400
 
             # 检查权限 - ROOT 和管理员可以上传到任意资源库
@@ -893,6 +903,9 @@ def upload_video():
 
                 if not has_permission:
                     os.remove(file_path)
+                    _finish_task_quiet(upload_task_id, 'failed', progress=100, stage='无权限',
+                                       detail='当前账号无权上传到该资源库，已放弃本次上传',
+                                       error_code='forbidden')
                     return jsonify({'success': False, 'message': '无权上传到该视频集'}), 403
         else:
             library_id = None
@@ -916,18 +929,14 @@ def upload_video():
         log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size}, 路径: {file_path})")
 
         # 更新上传任务进度（入库完成）
-        try:
-            update_task(upload_task_id, progress=60, stage='入库完成', detail='视频记录已写入数据库')
-        except Exception as e:
-            log.debug('WARN', f'更新上传任务失败: {e}')
+        _update_task_quiet(upload_task_id, progress=60, stage='入库完成',
+                           detail='视频记录已写入数据库')
 
         # 异步生成真实缩略图（走 thumbnaild 总线，产出 poster/sprite/vtt 三件套）
         try:
             def _gen_thumb():
-                try:
-                    update_task(upload_task_id, progress=80, stage='生成缩略图', detail='正在生成预览图')
-                except Exception:
-                    pass
+                _update_task_quiet(upload_task_id, progress=80, stage='生成缩略图',
+                                   detail='正在生成预览图')
                 try:
                     bus = runtime.thumbnail_bus
                     if bus is not None:
@@ -941,34 +950,37 @@ def upload_video():
                                 'output_format': runtime.app_config.get('thumbnails', {}).get('output_format', 'sprite'),
                             }
                         )
-                    update_task(upload_task_id, progress=100, status='completed',
-                                stage='完成', detail='上传成功，缩略图已生成')
+                    _finish_task_quiet(upload_task_id, 'completed', progress=100,
+                                       stage='完成', detail='上传成功，缩略图已生成')
                 except Exception as e:
                     log.debug('WARN', f'上传后异步生成缩略图失败: hash={video_hash}, 错误={e}')
                     # 缩略图失败不影响主任务，仍标记为完成
-                    update_task(upload_task_id, progress=100, status='completed',
-                                stage='完成', detail='上传成功（缩略图生成失败，可稍后重试）')
+                    _finish_task_quiet(upload_task_id, 'completed', progress=100,
+                                       stage='完成', detail='上传成功（缩略图生成失败，可稍后重试）')
 
             threading.Thread(target=_gen_thumb, daemon=True).start()
         except Exception as e:
             log.debug('WARN', f'启动缩略图生成线程失败: {e}')
-            try:
-                update_task(upload_task_id, progress=100, status='completed',
-                            stage='完成', detail='上传成功')
-            except Exception:
-                pass
+            _finish_task_quiet(upload_task_id, 'completed', progress=100,
+                               stage='完成', detail='上传成功')
 
         log_operation('upload video', target=video.hash, detail=f'标题={title}', success=True)
         return jsonify({
             'success': True,
             'message': '上传成功',
+            'task_id': upload_task_id,
             'video': video.to_dict()
         })
 
     except Exception as e:
         db.session.rollback()
         log.debug('ERROR', f'上传视频失败: {e}')
-        return jsonify({'success': False, 'message': str(e)}), 500
+        # 任务已登记但后续失败：若不收尾，任务中心会一直显示「进行中」
+        if upload_task_id:
+            _finish_task_quiet(upload_task_id, 'failed', stage='上传失败',
+                               detail=f'上传失败: {e}', error_code='upload_failed')
+        return jsonify({'success': False, 'message': str(e),
+                        'task_id': upload_task_id}), 500
 
 @bp.route('/api/admin/videos/batch-delete', methods=['POST'])
 @admin_required
