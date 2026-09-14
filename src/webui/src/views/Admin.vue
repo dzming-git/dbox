@@ -9,6 +9,7 @@ import { thumbnailManageApi } from '../api'
 import { serviceManageApi, systemApi } from '../api'
 import { resourceApi } from '../api'
 import { trashApi } from '../api'
+import { taskApi } from '../api'
 import {
   formatDate,
   formatPath,
@@ -495,24 +496,45 @@ const scanAllLibraries = async (mode: 'incremental' | 'verify' | 'full' = 'incre
   }
 }
 
+const stopScanAllPoll = () => {
+  if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
+}
+
 const pollScanAll = () => {
-  if (scanAllTimer) clearInterval(scanAllTimer)
+  stopScanAllPoll()
   scanAllTimer = setInterval(async () => {
     try {
       const res = await libraryApi.getScanAllStatus() as any
       if (res.success) {
         scanAllMessage.value = res.message || ''
-        if (res.status === 'done' || res.status === 'error') {
+        // cancelled：用户主动停止，已处理的部分保留，同样需要结束轮询
+        if (res.status === 'done' || res.status === 'error' || res.status === 'cancelled') {
           scanAllScanning.value = false
-          if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
-          showToast(res.message || '同步完成')
+          stopScanAllPoll()
+          showToast(res.message || '同步结束')
         }
       }
     } catch (e) {
-      if (scanAllTimer) { clearInterval(scanAllTimer); scanAllTimer = null }
+      stopScanAllPoll()
       scanAllScanning.value = false
     }
   }, 1500)
+}
+
+// 停止进行中的同步：走统一任务中心的取消接口（协作式，会在下一个资源库边界停下）
+const cancellingScanAll = ref(false)
+const cancelScanAll = async () => {
+  if (!scanAllScanning.value || cancellingScanAll.value) return
+  if (!confirm('确定要停止当前同步吗？已完成的资源库会保留。')) return
+  cancellingScanAll.value = true
+  try {
+    const res = await taskApi.cancel('scan:all') as any
+    showToast(res?.success ? '已请求停止，正在收尾…' : (res?.message || '停止失败'))
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || e?.message || '停止失败')
+  } finally {
+    cancellingScanAll.value = false
+  }
 }
 
 // 文件夹唯一Key
@@ -2943,6 +2965,16 @@ onUnmounted(() => {
               <button class="action-btn warn" @click="scanAllLibraries('full')" :disabled="scanAllScanning" v-if="userStore.isAdmin" title="全量枚举磁盘并比对（慢，仅数据严重不一致的小库使用）">
                 {{ scanAllScanning && scanAllMode === 'full' ? '全量重建中...' : '⚠ 全量重建' }}
               </button>
+              <!-- 进行中才出现：停止是协作式的，会在下一个资源库边界收尾，已完成的库保留 -->
+              <button
+                v-if="scanAllScanning && userStore.isAdmin"
+                class="action-btn scan-stop-btn"
+                :disabled="cancellingScanAll"
+                title="请求停止当前同步，已完成的资源库会保留"
+                @click="cancelScanAll"
+              >
+                {{ cancellingScanAll ? '请求中...' : '■ 停止' }}
+              </button>
             </div>
             <button class="action-btn primary" @click="editingLibrary = null; showLibraryModal = true" v-if="userStore.isAdmin">+ 新建资源库</button>
             <div class="scan-config-panel" v-if="scanConfigLoaded">
@@ -4121,6 +4153,14 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.scan-stop-btn {
+  color: var(--warning);
+  border-color: var(--warning-soft);
+}
+.scan-stop-btn:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
 .scan-all-status {
   padding: 8px 20px;
   font-size: 13px;
