@@ -7,6 +7,7 @@ import { fetchServerSettings, clearServerSettings, getEffectiveSettings } from '
 import { applyThemeById, DEFAULT_THEME_ID } from './utils/theme'
 import { routes } from './router'
 import { useToast } from './composables/useToast'
+import { useTaskStream } from './composables/useTaskStream'
 import { canShow } from './utils/routeAccess'
 import { taskApi } from './api/task'
 import ExtensionHost from './components/ExtensionHost.vue'
@@ -22,7 +23,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const watchLaterStore = useWatchLaterStore()
 const taskActionCount = ref(0)
-const { toastMessage, showToastFlag } = useToast()
+const { toastMessage, showToastFlag, showToast } = useToast()
 
 async function loadTaskCount() {
   if (!userStore.isLoggedIn) {
@@ -36,6 +37,35 @@ async function loadTaskCount() {
     // 红点非关键功能，忽略错误
   }
 }
+
+// 任务完成通知：订阅服务端推送，任务走到终态时给一次全局提示。
+// 只提示「连接建立后发生变化」的任务，避免刚连上就把历史任务挨个提示一遍。
+const TERMINAL_LABEL: Record<string, string> = {
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已停止',
+}
+const _taskLastStatus = new Map<string, string>()
+let _countReloadTimer: any = null
+const scheduleCountReload = () => {
+  if (_countReloadTimer) return
+  _countReloadTimer = setTimeout(() => {
+    _countReloadTimer = null
+    loadTaskCount()
+  }, 800)
+}
+
+useTaskStream((t: any) => {
+  if (!t || !t.task_id) return
+  const prev = _taskLastStatus.get(t.task_id)
+  _taskLastStatus.set(t.task_id, t.status)
+  scheduleCountReload()
+  const label = TERMINAL_LABEL[t.status]
+  // prev 为空说明是连接建立时的首帧快照，不发提示
+  if (label && prev && prev !== t.status) {
+    showToast(`任务「${t.title || t.task_id}」${label}`)
+  }
+})
 
 // 判断是否在登录页面
 const isLoginPage = computed(() => route.path === '/login')
