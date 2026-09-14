@@ -380,6 +380,18 @@ def retry_task(task_id):
         bump_attempts(task_id)
         return jsonify({'success': True, 'message': message, 'task_id': task_id})
 
+    if kind == 'meta':
+        # 补齐缺失的时长/大小：无额外参数，直接再跑一次（已补齐的会被跳过）
+        try:
+            from backend.library_helpers import start_metadata_backfill
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'补齐模块不可用：{e}'}), 500
+        ok, message = start_metadata_backfill(owner_id=task.get('owner_id'))
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        bump_attempts(task_id)
+        return jsonify({'success': True, 'message': message, 'task_id': task_id})
+
     if kind == 'script':
         params = task.get('params') or {}
         script_id = params.get('script_id')
