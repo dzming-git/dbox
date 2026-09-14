@@ -6,6 +6,7 @@ import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { useUserStore } from '../stores/userStore'
 import { useVideoStore } from '../stores/videoStore'
 import { UserRole } from '../types'
+import { renderMarkdown } from '../utils/markdown'
 import VideoPlayer from '../components/VideoPlayer.vue'
 
 const route = useRoute()
@@ -512,7 +513,8 @@ const removePost = async () => {
 
       <div v-if="post.content" class="detail-content">
         <template v-for="(seg, i) in renderSegments(post.content, post.refs)" :key="i">
-          <template v-if="seg.type === 'text'">{{ seg.text }}</template>
+          <!-- 文本段走 Markdown；引用段仍是自研标记，单独渲染成链接 -->
+          <span v-if="seg.type === 'text'" class="md-body" v-html="renderMarkdown(seg.text)"></span>
           <a v-else class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
         </template>
       </div>
@@ -669,6 +671,14 @@ const removePost = async () => {
 .src-link { color: var(--accent); text-decoration: none; }
 .src-link:hover { color: #90caf9; text-decoration: underline; }
 .detail-content { color: var(--text-secondary); font-size: 15px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 4px; }
+/* Markdown 渲染结果（v-html）：只调整排版，不引入新配色 */
+.md-body :deep(h3), .md-body :deep(h4) { color: var(--text-primary); font-size: 17px; margin: 12px 0 6px; }
+.md-body :deep(p) { margin: 0 0 8px; white-space: pre-wrap; }
+.md-body :deep(ul) { margin: 6px 0 10px; padding-left: 22px; }
+.md-body :deep(li) { margin: 3px 0; }
+.md-body :deep(code) { background: var(--bg-surface-2); border-radius: 4px; padding: 1px 5px; font-size: 14px; }
+.md-body :deep(a) { color: var(--accent); text-decoration: none; }
+.md-body :deep(a):hover { text-decoration: underline; }
 .no-refs { color: var(--text-tertiary); font-size: 13px; }
 
 /* 统一媒体区 */

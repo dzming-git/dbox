@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onActivated, onDeactivated, onUnmounted } from 'vue'
+import { renderMarkdown } from '../utils/markdown'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { postApi, resourceApi } from '../api'
@@ -152,6 +153,10 @@ const loadCandidates = async () => {
 
 // 内联资源标记解析（与后端 parse_post_content_tokens 对应）
 const POST_TOKEN_RE = /\[([^\]]*)\]\(res:(\d+):(link|embed)\)/g
+
+// 正文支持极简 Markdown（标题/粗体/斜体/代码/列表/链接），
+// 资源标记 [文字](res:ID:mode) 由 renderSegments 单独处理，不交给 Markdown
+const md = (t: string) => renderMarkdown(t)
 
 function parseContentTokens(content: string) {
   const out: { resource_index_id: number; mode: string; label: string }[] = []
@@ -443,7 +448,8 @@ const formatDate = (s?: string) => {
         <!-- 正文文本（纯文字，不含内嵌媒体） -->
         <div v-if="d.content" class="post-content-text">
           <template v-for="(seg, i) in renderSegments(d.content, d.refs)" :key="i">
-            <template v-if="seg.type === 'text'">{{ seg.text }}</template>
+            <!-- 文本段走 Markdown；引用段仍是自研标记，单独渲染成链接 -->
+            <span v-if="seg.type === 'text'" class="md-body" v-html="md(seg.text)"></span>
             <a v-else class="ref-link" @click="openRefLink(seg.ref)">{{ seg.label }}</a>
           </template>
         </div>
@@ -638,6 +644,14 @@ const formatDate = (s?: string) => {
 .op-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
 /* 正文纯文字 */
 .post-content-text { color: var(--text-secondary); font-size: 14px; line-height: 1.65; margin: 10px 0 8px; white-space: pre-wrap; word-break: break-word; }
+/* Markdown 渲染结果（v-html）：只调整排版，不引入新配色 */
+.md-body :deep(h3), .md-body :deep(h4) { color: var(--text-primary); font-size: 15px; margin: 8px 0 4px; }
+.md-body :deep(p) { margin: 0 0 6px; white-space: pre-wrap; }
+.md-body :deep(ul) { margin: 4px 0 8px; padding-left: 20px; }
+.md-body :deep(li) { margin: 2px 0; }
+.md-body :deep(code) { background: var(--bg-surface-2); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+.md-body :deep(a) { color: var(--accent); text-decoration: none; }
+.md-body :deep(a):hover { text-decoration: underline; }
 .ref-link { color: var(--accent); cursor: pointer; text-decoration: none; }
 .ref-link:hover { text-decoration: underline; }
 
