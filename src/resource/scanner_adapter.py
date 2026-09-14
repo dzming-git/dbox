@@ -20,8 +20,11 @@ BusResourceAdapter - 资源管理服务的总线适配器
     RemoveLibrary(library_id)
       → {success: bool}
 
-    ScanLibrary(library_id)
+    ScanLibrary(library_id)          【已无调用方，待清理】
       → {success: bool, stats: {...}}
+
+    GetScanProgress(library_id)      【已无调用方，待清理】
+      → {success: bool, status: {...}}
 
     GetLibraryStatus(library_id)
       → {success: bool, library: {...}, stats: {...}}
@@ -387,7 +390,14 @@ class BusResourceAdapter(BaseDBusService):
     # ============ 扫描 ============
 
     def on_method_scan_library(self, params: Dict[str, Any]) -> Dict:
-        """扫描资源库（异步，立即返回，前端轮询进度）"""
+        """扫描资源库（异步，立即返回，前端轮询进度）
+
+        ⚠️ 已无调用方（2026-09-14 全仓核对）：web 侧的库扫描早已改为由
+        `library_watcher.scan_library` 直接驱动 Video 表，并登记进统一任务表；
+        本方法与 `GetScanProgress` / `ResetScan` 及其内存进度 `_scan_progress`
+        都是历史遗留，没有任何代码再调用。保留仅为避免破坏 resourced 服务，
+        后续可整体删除。**不要**再为它接入统一任务表或加新功能。
+        """
         try:
             library_id = params.get('library_id')
             if not library_id:
