@@ -74,17 +74,31 @@ function openLightbox(images: string[], index: number) {
   lightboxVisible.value = true
 }
 
+// 策展状态筛选：草稿是「攒素材中」的中间态，默认只看已发布
+const STATUS_TABS = [
+  { value: 'published', label: '已发布' },
+  { value: 'draft', label: '草稿' },
+  { value: 'all', label: '全部' },
+]
+const statusFilter = ref<'published' | 'draft' | 'all'>('published')
+
 const fetchPosts = async () => {
   loading.value = true
   error.value = ''
   try {
-    const res: any = await postApi.list()
+    const res: any = await postApi.list({ status: statusFilter.value })
     posts.value = res.posts || []
   } catch (e: any) {
     error.value = e?.message || '加载帖子失败'
   } finally {
     loading.value = false
   }
+}
+
+function switchStatus(v: 'published' | 'draft' | 'all') {
+  if (statusFilter.value === v) return
+  statusFilter.value = v
+  fetchPosts()
 }
 
 onMounted(fetchPosts)
@@ -106,6 +120,7 @@ defineExpose({ reload: fetchPosts })
 // ============ 新建 / 编辑 ============
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
+const formStatus = ref<'draft' | 'published'>('draft')
 const formTitle = ref('')
 const formContent = ref('')          // 正文：纯文本 + 内联资源标记 [文字](res:ID:mode)
 const saving = ref(false)
@@ -276,10 +291,26 @@ const beforeClose = () => {
   return window.confirm('内容未保存，确定放弃吗？')
 }
 
+// 编辑既有帖子：editingId 此前只被置 null，没有任何地方赋成帖子 id，
+// 于是 save() 里的更新分支永远走不到——等于「帖子只能建、不能改」。
+const openEdit = async (d: any) => {
+  editingId.value = d.id
+  formTitle.value = d.title || ''
+  formContent.value = d.content || ''
+  formStatus.value = d.status === 'published' ? 'published' : 'draft'
+  candidateTab.value = 'video_file'
+  candidates.value = []
+  candidateSearch.value = ''
+  candidatesLoaded.value = false
+  dialogVisible.value = true
+  await loadCandidates()
+}
+
 const openCreate = async () => {
   editingId.value = null
   formTitle.value = ''
   formContent.value = ''
+  formStatus.value = 'draft'   // 新建默认草稿，攒完再发布
   candidateTab.value = 'video_file'
   candidates.value = []
   candidateSearch.value = ''
@@ -335,6 +366,7 @@ const save = async () => {
     const payload = {
       title: formTitle.value,
       content: formContent.value,   // 引用通过正文内联标记表达，后端解析
+      status: formStatus.value,     // 草稿 / 已发布
     }
     if (editingId.value) {
       await postApi.update(editingId.value, payload)
@@ -376,10 +408,22 @@ const formatDate = (s?: string) => {
 
     <p class="hint">帖子通过「资源索引表」自由引用视频 / 图集 / 文本。一个资源可同时出现在多个帖子，也可「只属于帖子、不进视频/图集列表」（如下载脚本把图文+视频一体入库到帖子模式）。</p>
 
+    <!-- 策展状态切换：草稿只对自己可见，攒完素材再发布 -->
+    <div class="status-tabs">
+      <button
+        v-for="t in STATUS_TABS"
+        :key="t.value"
+        class="status-tab"
+        :class="{ active: statusFilter === t.value }"
+        @click="switchStatus(t.value as any)"
+      >{{ t.label }}</button>
+    </div>
+
     <div v-if="loading" class="loading-container"><div class="spinner"></div><p>加载中...</p></div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="posts.length === 0" class="empty-state">
-      <p>还没有帖子，点击「新建帖子」开始创作。</p>
+      <p v-if="statusFilter === 'draft'">没有草稿。在视频/图集/文本页点「引用到帖子」，攒完再回来整理。</p>
+      <p v-else>还没有帖子，点击「新建帖子」开始创作。</p>
     </div>
 
     <div v-else class="posts-list">
@@ -387,9 +431,11 @@ const formatDate = (s?: string) => {
         <div class="post-head">
           <div class="post-head-main">
             <h3 v-if="d.title" class="post-title">{{ d.title }}</h3>
+            <span v-if="d.status === 'draft'" class="draft-badge">草稿</span>
             <span class="post-date">{{ formatDate(d.created_at) }}</span>
           </div>
           <div class="post-ops" @click.stop>
+            <button class="op-btn" title="编辑这篇帖子" @click="openEdit(d)">编辑</button>
             <WatchLaterButton variant="compact" type="post" :id="String(d.id)" :title="d.title || '帖子'" />
           </div>
         </div>
@@ -436,6 +482,20 @@ const formatDate = (s?: string) => {
     >
       <label class="field-label">标题</label>
       <input class="text-input" v-model="formTitle" placeholder="给这条帖子起个标题" />
+
+      <label class="field-label">状态</label>
+      <div class="status-picker">
+        <button
+          class="status-pick"
+          :class="{ active: formStatus === 'draft' }"
+          @click="formStatus = 'draft'"
+        >草稿（仅自己可见）</button>
+        <button
+          class="status-pick"
+          :class="{ active: formStatus === 'published' }"
+          @click="formStatus = 'published'"
+        >已发布（进帖子流）</button>
+      </div>
 
       <label class="field-label">正文</label>
       <div class="content-toolbar">
@@ -519,6 +579,40 @@ const formatDate = (s?: string) => {
 }
 .create-btn:hover { background: var(--accent-active); }
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 16px; line-height: 1.5; }
+
+/* 策展状态切换 */
+.status-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.status-tab {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface-2);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.status-tab:hover { color: var(--text-primary); border-color: var(--border-default); }
+.status-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.draft-badge {
+  font-size: 11px;
+  color: var(--warning);
+  border: 1px solid var(--warning-soft);
+  background: var(--warning-soft);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.status-picker { display: flex; gap: 8px; margin: 6px 0 12px; }
+.status-pick {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.status-pick.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
 .spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }

@@ -332,6 +332,86 @@ function openDeleteCard() {
   deleteResourceIds.value = []
   showDeleteCard.value = true
 }
+
+// ============ 策展：状态与引用编排 ============
+const managing = ref(false)
+const busyRef = ref(false)
+
+const refList = computed(() => {
+  if (!post.value) return []
+  return (post.value.refs || [])
+    .slice()
+    .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+    .map((r: any) => ({
+      ref_id: r.ref_id,
+      resource_index_id: r.resource_index_id,
+      title:
+        r.video?.title ||
+        r.gallery?.title ||
+        r.presentation?.title ||
+        r.note ||
+        r.location ||
+        `资源 ${r.resource_index_id}`,
+      kind: r.kind || r.type,
+    }))
+})
+
+const isDraft = computed(() => (post.value?.status || 'draft') === 'draft')
+
+async function toggleStatus() {
+  await setStatus(isDraft.value ? 'published' : 'draft')
+}
+
+async function setStatus(status: 'draft' | 'published') {
+  if (!post.value) return
+  busyRef.value = true
+  try {
+    await postApi.update(post.value.id, { status })
+    await fetchPost()
+  } catch (e: any) {
+    alert(e?.message || '状态更新失败')
+  } finally {
+    busyRef.value = false
+  }
+}
+
+// 上移 / 下移：比引入拖拽库更轻，且与「正文内联引用顺序」解耦
+// （后端排序接口直接改 position，不会被正文 token 顺序覆盖）
+async function moveRef(index: number, dir: -1 | 1) {
+  if (!post.value) return
+  const list = refList.value
+  const target = index + dir
+  if (target < 0 || target >= list.length) return
+  const ordered = list.map((r) => r.ref_id)
+  const tmp = ordered[index]
+  ordered[index] = ordered[target]
+  ordered[target] = tmp
+  busyRef.value = true
+  try {
+    const res: any = await postApi.reorderRefs(post.value.id, ordered)
+    if (res?.refs) post.value.refs = res.refs
+    else await fetchPost()
+  } catch (e: any) {
+    alert(e?.message || '排序失败')
+    await fetchPost()
+  } finally {
+    busyRef.value = false
+  }
+}
+
+async function removeRef(refId: number) {
+  if (!post.value) return
+  if (!confirm('从这篇帖子中移除该引用？（资源本体不会被删除）')) return
+  busyRef.value = true
+  try {
+    await postApi.removeRef(post.value.id, refId)
+    await fetchPost()
+  } catch (e: any) {
+    alert(e?.message || '移除失败')
+  } finally {
+    busyRef.value = false
+  }
+}
 function closeDeleteCard() {
   if (deleting.value) return
   showDeleteCard.value = false
@@ -382,6 +462,18 @@ const removePost = async () => {
         </svg>
         <span>{{ isWatchLater ? '已加入稍后再看' : '稍后再看' }}</span>
       </button>
+      <button
+        v-if="canManage"
+        class="edit-detail-btn"
+        :disabled="busyRef"
+        @click="toggleStatus"
+        :title="isDraft ? '发布后进入帖子流，其他人也能看到' : '转为草稿，仅自己可见'"
+      >
+        <span>{{ isDraft ? '发布' : '转为草稿' }}</span>
+      </button>
+      <button v-if="canManage" class="edit-detail-btn" @click="managing = !managing" title="调整引用的顺序或移除引用">
+        <span>{{ managing ? '完成编排' : '编排引用' }}</span>
+      </button>
       <button v-if="canManage" class="delete-detail-btn" @click="openDeleteCard" title="删除帖子">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
         <span>删除</span>
@@ -398,6 +490,24 @@ const removePost = async () => {
         <a v-if="post.authorName" class="src-author" :href="post.authorUrl" target="_blank" rel="noopener">{{ post.authorName }}</a>
         <span v-if="post.authorName && post.sourceUrl" class="src-sep">·</span>
         <a v-if="post.sourceUrl" class="src-link" :href="post.sourceUrl" target="_blank" rel="noopener">查看原帖</a>
+      </div>
+
+      <!-- 策展编排：调整引用顺序 / 移除引用（与正文内联引用解耦，直接改 position） -->
+      <div v-if="canManage && managing" class="ref-manager">
+        <div class="rm-head">
+          <span>引用编排（{{ refList.length }} 项）</span>
+          <span class="rm-tip">上下移动会立即保存；只影响展示顺序，不改动资源本体</span>
+        </div>
+        <div v-if="!refList.length" class="rm-empty">还没有引用。去视频/图集/文本页点「引用到帖子」加进来。</div>
+        <div v-else class="rm-list">
+          <div v-for="(r, i) in refList" :key="r.ref_id" class="rm-item">
+            <span class="rm-idx">{{ i + 1 }}</span>
+            <span class="rm-title" :title="r.title">{{ r.title }}</span>
+            <button class="rm-btn" :disabled="busyRef || i === 0" @click="moveRef(i, -1)" title="上移">↑</button>
+            <button class="rm-btn" :disabled="busyRef || i === refList.length - 1" @click="moveRef(i, 1)" title="下移">↓</button>
+            <button class="rm-btn danger" :disabled="busyRef" @click="removeRef(r.ref_id)" title="移除该引用">✕</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="post.content" class="detail-content">
@@ -528,6 +638,22 @@ const removePost = async () => {
 .watchlater-detail-btn.active { color: #ffb300; border-color: rgba(255,179,0,0.4); background: rgba(255,179,0,0.12); }
 .delete-detail-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--danger-soft); background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
 .delete-detail-btn:hover { background: var(--danger-soft); color: var(--danger); }
+.edit-detail-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.edit-detail-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-border); }
+.edit-detail-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 引用编排 */
+.ref-manager { background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 10px; padding: 12px 14px; margin: 14px 0; }
+.rm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-primary); margin-bottom: 8px; }
+.rm-tip { font-size: 12px; color: var(--text-tertiary); }
+.rm-list { display: flex; flex-direction: column; gap: 6px; }
+.rm-item { display: flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 6px 10px; }
+.rm-idx { width: 20px; text-align: center; font-size: 12px; color: var(--text-tertiary); }
+.rm-title { flex: 1; min-width: 0; font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-btn { background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1; }
+.rm-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-border); }
+.rm-btn.danger:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.rm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.rm-empty { font-size: 12px; color: var(--text-tertiary); padding: 6px 0; }
 .loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); }
 .spinner { width: 36px; height: 36px; border: 3px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
