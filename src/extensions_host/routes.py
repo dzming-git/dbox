@@ -304,6 +304,9 @@ def list_extensions():
                 # 透传插件声明的自定义能力字段（框架不感知其含义，纯数据下发）
                 'standalone_route': standalone_route,
                 'busy_poll': ui.get('busy_poll'),
+                # 是否以卡片形式挂进后台仪表盘（管理向插件用；不填则不进）
+                'dashboard': ui.get('dashboard'),
+                'description': sc.get('description') or ui.get('description') or '',
             },
         })
     return jsonify({'success': True, 'extensions': out})
