@@ -18,6 +18,7 @@ import {
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
 import AdminConfig from '../admin/AdminConfig.vue'
+import AdminBackup from '../components/AdminBackup.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
 // 扩展管理与凭证保险库原为 /plugins、/vault 两个独立顶层入口，
 // 现收编为后台「应用」标签组，使「管理」只有一个权威入口。
@@ -36,7 +37,7 @@ const { toastMessage, showToastFlag, showToast } = useToast()
 const ADMIN_TAB_KEY = 'admin_active_tab'
 // 注：'trash' 原先漏在这份白名单外（导致从 sessionStorage 恢复回收站标签会被拒），一并补上；
 // 'extensions' / 'vault' 为收编进来的扩展管理与凭证保险库。
-const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'trash', 'users', 'config', 'power', 'cache', 'extensions', 'vault']
+const VALID_ADMIN_TABS = ['dashboard', 'services', 'thumbnail', 'libraries', 'resources', 'trash', 'users', 'config', 'power', 'cache', 'backup', 'extensions', 'vault']
 const _savedTab = sessionStorage.getItem(ADMIN_TAB_KEY)
 const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashboard')
 
@@ -2049,6 +2050,12 @@ onUnmounted(() => {
           @click="switchTab('cache')"
           v-if="userStore.isAdmin"
         >💾 缓存管理</button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'backup' }"
+          @click="switchTab('backup')"
+          v-if="userStore.isAdmin"
+        >📦 备份导出</button>
       </div>
 
       <div class="tab-group">
@@ -2463,6 +2470,9 @@ onUnmounted(() => {
 
       <!-- 系统配置标签页 -->
       <AdminConfig v-if="activeTab === 'config'" />
+
+      <!-- 备份导出标签页 -->
+      <AdminBackup v-if="activeTab === 'backup'" />
 
       <!-- 资源管理标签页（视频/图集/帖子/文本 按子标签切换，各自展示独有属性，管理员可编辑/删除任意资源） -->
       <div v-if="activeTab === 'resources'" class="tab-content">
