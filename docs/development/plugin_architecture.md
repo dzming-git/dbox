@@ -219,6 +219,37 @@ def _load_plugins(app):
 - 主服务网关（`src/web/main.py`）以通用前缀 `/api/ext` 代理所有插件后端，
   **不在 `_SCRIPT_PREFIXES` 中硬编码任何具体插件的路径**。
 
+### 6.1 主题变量与 UI Kit（面板直接可用）
+
+面板是独立 iframe 文档，拿不到宿主样式。框架在把 `panel.html` 交给 iframe 前，
+会往 `<head>` **最前面**注入两段（`src/webui/src/utils/extUiKit.ts`）：
+
+1. 宿主当前的主题变量，原样声明到面板的 `:root`（`--bg-surface`、`--text-primary`、
+   `--accent`、`--radius-md`、`--font-sans` …）；
+2. 一组 `.dbox-ui-*` 组件类：按钮 / 卡片 / 输入框 / 徽标 / 空态等。
+
+用法（无需引入任何文件）：
+
+```html
+<div class="dbox-ui-card">
+  <h3 class="dbox-ui-title">标题</h3>
+  <p class="dbox-ui-text">正文</p>
+  <div class="dbox-ui-row">
+    <button class="dbox-ui-btn primary">确定</button>
+    <button class="dbox-ui-btn ghost">取消</button>
+  </div>
+</div>
+```
+
+约定与注意：
+
+- 注入位置在插件自带 `<style>` **之前**，因此插件样式天然可以覆盖 UI Kit；
+- 框架**不设置任何元素级全局样式**（不碰 `body` / `button` 裸标签），
+  已有插件的观感不会因此改变；
+- 用户在设置里换主题时，宿主会向面板推 `postMessage { type:'DBOX_THEME', vars }`，
+  面板无需处理即可换肤；若要手动处理，监听该消息即可；
+- 直接写死颜色的旧面板不受影响，但建议逐步改用上面的变量。
+
 ---
 
 ## 7. 迁移检查清单（以任一插件为例，下文用 `<plugin_id>` 泛指）

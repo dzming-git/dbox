@@ -564,6 +564,13 @@ export function getPanelIframe(extId: string): HTMLIFrameElement | null {
   return panels.get(extId)?.iframe ?? null
 }
 
+/** 向所有已创建的面板广播消息（如主题变化）；不触发任何文档重建。 */
+export function broadcastToPanels(msg: any): void {
+  panels.forEach((entry) => {
+    if (entry.ready) post(entry, msg)
+  })
+}
+
 /** 订阅面板发来的消息（统一入口，替代各组件各自监听 window message） */
 export function onPanelMessage(handler: MessageHandler): () => void {
   handlers.add(handler)
