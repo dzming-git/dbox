@@ -40,9 +40,17 @@ export interface Task {
 /** 进行中（可请求取消） */
 export const ACTIVE_STATUSES: TaskStatus[] = ['pending', 'running', 'awaiting_input']
 
+/** 任务列表查询条件：状态/类型支持逗号分隔多选，active 表示进行中 */
+export interface TaskQuery {
+  status?: string
+  kind?: string
+  limit?: number
+  offset?: number
+}
+
 export const taskApi = {
-  // 当前用户可见的任务列表 + 红点计数
-  list: () => api.get('/api/tasks'),
+  // 当前用户可见的任务列表（可筛选分页）+ 红点计数
+  list: (params?: TaskQuery) => api.get('/api/tasks', { params }),
   // 轻量红点计数（导航栏轮询）
   actionCount: () => api.get('/api/tasks/action-count'),
   // 任务详情

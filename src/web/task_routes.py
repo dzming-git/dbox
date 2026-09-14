@@ -18,7 +18,7 @@ from flask import Blueprint, jsonify, request, g, Response, stream_with_context
 from backend.access import auth_required, admin_required, resolve_identity
 from core.models import UserRole
 from unified_tasks import (
-    init_task_manager, get_tasks, get_task, count_action_required,
+    init_task_manager, get_tasks, get_task, count_tasks, count_action_required,
     delete_task, create_task, request_cancel, bump_attempts,
     STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
 )
@@ -106,9 +106,20 @@ def _enrich_task_with_logs(task):
 @bp.route('/api/tasks', methods=['GET'])
 @auth_required
 def list_tasks():
-    """返回当前用户可见的任务列表与待处理红点计数。"""
+    """返回当前用户可见的任务列表与待处理红点计数。
+
+    查询参数：
+      status —— 状态筛选，逗号分隔多选；`active` 表示进行中（排队/运行/等待处理）
+      kind   —— 类型筛选，逗号分隔多选（scan / thumbnail / upload / gallery …）
+      limit  —— 每页条数（1~200，默认 50）
+      offset —— 偏移量（默认 0）
+
+    返回额外带上 total / has_more，供前端分页；total 与列表使用同一套筛选条件，
+    避免出现「显示有下一页但点开是空的」。
+    """
     user_id, role = resolve_identity()
     is_admin = _is_admin(role)
+    role_arg = 'admin' if is_admin else 'user'
 
     # 初始化（幂等），保证只读场景下表也存在
     try:
@@ -117,13 +128,26 @@ def list_tasks():
     except Exception:
         pass
 
-    tasks = get_tasks(role='admin' if is_admin else 'user', user_id=user_id, limit=100)
-    action_count = count_action_required(
-        role='admin' if is_admin else 'user', user_id=user_id
-    )
+    status = request.args.get('status') or None
+    kind = request.args.get('kind') or None
+    try:
+        limit = int(request.args.get('limit', 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = int(request.args.get('offset', 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    tasks = get_tasks(role=role_arg, user_id=user_id, limit=limit, offset=offset,
+                      status=status, kind=kind)
+    total = count_tasks(role=role_arg, user_id=user_id, status=status, kind=kind)
+    action_count = count_action_required(role=role_arg, user_id=user_id)
     return jsonify({
         'success': True,
         'tasks': tasks,
+        'total': total,
+        'has_more': offset + len(tasks) < total,
         'action_required_count': action_count,
     })
 
