@@ -30,6 +30,18 @@
           <span class="task-kind" :class="'kind-' + t.kind">{{ kindLabel(t.kind) }}</span>
           <span class="task-title">{{ t.title }}</span>
           <span class="task-status" :class="'st-' + t.status">{{ statusLabel(t.status) }}</span>
+          <!-- 已收到取消请求：任务仍在跑，只是会在下一个检查点停下 -->
+          <span v-if="isCancelling(t)" class="task-cancelling">停止中…</span>
+          <!-- 进行中的任务可请求取消（协作式，不是立刻终止） -->
+          <button
+            v-if="canCancel(t)"
+            class="task-cancel-btn"
+            :disabled="cancellingId === t.task_id"
+            :title="'请求停止任务：' + t.title"
+            @click="cancelOne(t)"
+          >
+            {{ cancellingId === t.task_id ? '请求中…' : '停止' }}
+          </button>
           <!-- 已结束的任务可单条删除（进行中不允许，避免误删） -->
           <button
             v-if="isFinished(t)"
@@ -59,6 +71,7 @@
           <span>{{ clampProgress(t.progress) }}%</span>
           <span v-if="t.stage">· {{ t.stage }}</span>
           <span v-if="t.detail" class="task-detail">· {{ t.detail }}</span>
+          <span v-if="(t.attempts || 0) > 1" class="task-detail">· 已重试 {{ t.attempts }} 次</span>
         </div>
 
         <!-- 任务关键参数：帮助用户在列表中区分不同任务（如脚本名/目标/文件名） -->
@@ -169,7 +182,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { taskApi, type Task } from '../api/task'
+import { taskApi, ACTIVE_STATUSES, type Task } from '../api/task'
 import { type PendingInput } from '../api/script'
 
 const router = useRouter()
@@ -181,6 +194,8 @@ const deletingId = ref<string | null>(null)
 const clearing = ref(false)
 // 重试状态：retryingId 标记正在重试中的任务
 const retryingId = ref<string | null>(null)
+// 取消状态：cancellingId 标记正在请求停止的任务
+const cancellingId = ref<string | null>(null)
 // 详情/日志展开：仅同时展开一个任务的日志面板，避免日志堆叠刷屏
 const expandedTaskId = ref<string | null>(null)
 const loadingLogs = ref<string | null>(null)
@@ -198,6 +213,7 @@ const submitting = ref(false)
 
 function kindLabel(k: string) {
   const map: Record<string, string> = {
+    scan: '资源库扫描',
     script: '脚本',
     upload: '上传',
     thumbnail: '缩略图',
@@ -256,6 +272,16 @@ function canRetry(t: Task): boolean {
   return t.status === 'failed' || t.status === 'cancelled'
 }
 
+// 进行中且尚未收到取消请求的任务可以请求停止。
+// 取消是协作式的：后端只置标记，任务在下一个检查点自行停下，
+// 所以请求成功后卡片会显示「停止中…」而不是立刻变成已取消。
+function canCancel(t: Task): boolean {
+  return ACTIVE_STATUSES.includes(t.status) && !t.cancel_requested
+}
+function isCancelling(t: Task): boolean {
+  return ACTIVE_STATUSES.includes(t.status) && !!t.cancel_requested
+}
+
 // 卡片上展示任务关键参数，帮助用户区分不同任务。
 // 脚本任务：展示脚本标识 + 关键运行参数；上传任务：展示文件名/标题/目标库。
 function taskParamPreview(t: Task): string[] {
@@ -276,6 +302,13 @@ function taskParamPreview(t: Task): string[] {
     if (p.filename) out.push(`文件:${p.filename}`)
     if (p.title) out.push(`标题:${p.title}`)
     if (p.library_id != null) out.push(`库:${p.library_id}`)
+  } else if (t.kind === 'scan' && p) {
+    const modeText: Record<string, string> = {
+      incremental: '增量', verify: '校验', full: '全量',
+    }
+    if (p.scope === 'all') out.push('范围:全部资源库')
+    else if (p.library_id != null) out.push(`资源库:#${p.library_id}`)
+    if (p.mode) out.push(`方式:${modeText[p.mode] || p.mode}`)
   } else if (p && typeof p === 'object') {
     for (const [k, v] of Object.entries(p)) {
       if (v !== undefined && v !== null && v !== '') out.push(`${k}:${v}`)
@@ -314,6 +347,26 @@ async function retryOne(t: Task) {
     alert('重试失败：' + (e?.message || e))
   } finally {
     retryingId.value = null
+  }
+}
+
+async function cancelOne(t: Task) {
+  if (!canCancel(t) || cancellingId.value) return
+  if (!confirm(`确定要停止任务「${t.title}」吗？已处理的部分会保留。`)) return
+  cancellingId.value = t.task_id
+  try {
+    const res: any = await taskApi.cancel(t.task_id)
+    if (res && res.success) {
+      // 立即把本地标记置上，避免 2.5s 轮询间隔内重复点击
+      const cur = tasks.value.find((x) => x.task_id === t.task_id)
+      if (cur) cur.cancel_requested = true
+    } else {
+      alert('请求停止失败：' + (res?.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('请求停止失败：' + (e?.message || e))
+  } finally {
+    cancellingId.value = null
   }
 }
 
@@ -524,6 +577,33 @@ onUnmounted(() => {
 .task-retry-btn:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+.task-cancel-btn {
+  background: transparent;
+  color: var(--warning);
+  border: 1px solid var(--warning-soft);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.task-cancel-btn:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+.task-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+/* 已请求停止、但任务尚未真正停下时的过渡提示 */
+.task-cancelling {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  white-space: nowrap;
 }
 /* 任务关键参数 chip：帮助区分不同任务 */
 .task-params {

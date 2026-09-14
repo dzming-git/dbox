@@ -8,7 +8,7 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled'
 
-export type TaskKind = 'script' | 'upload' | 'thumbnail'
+export type TaskKind = 'scan' | 'script' | 'upload' | 'thumbnail' | (string & {})
 
 export interface Task {
   task_id: string
@@ -26,9 +26,19 @@ export interface Task {
   action_hint?: string | null
   action_data?: any
   params?: any
+  /** 已收到取消请求：任务会在下一个检查点自行停止，此时状态仍可能是 running */
+  cancel_requested?: boolean
+  /** 已重试次数 */
+  attempts?: number
+  started_at?: number | null
+  finished_at?: number | null
+  error_code?: string | null
   created_at: number
   updated_at: number
 }
+
+/** 进行中（可请求取消） */
+export const ACTIVE_STATUSES: TaskStatus[] = ['pending', 'running', 'awaiting_input']
 
 export const taskApi = {
   // 当前用户可见的任务列表 + 红点计数
@@ -41,4 +51,6 @@ export const taskApi = {
   delete: (taskId: string) => api.delete(`/api/tasks/${taskId}`),
   // 重试一个失败/已取消的任务
   retry: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/retry`),
+  // 请求取消一个进行中的任务（协作式：任务会在下一个检查点停止）
+  cancel: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/cancel`),
 }
