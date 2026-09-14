@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { collectionSetApi, videoApi, galleryApi } from '../api'
+import { collectionSetApi, videoApi, galleryApi, backupApi } from '../api'
 import { useUserStore } from '../stores/userStore'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
@@ -235,6 +235,28 @@ const addResource = async (res: any) => {
   }
 }
 
+// 导出为 M3U：通用格式，换播放器/换设备都能直接用（只导出仍存在的本地视频）
+const exportM3u = async () => {
+  if (!activeId.value) return
+  try {
+    const res: any = await backupApi.exportCollectionM3u(activeId.value)
+    const blob = res instanceof Blob ? res : new Blob([res], { type: 'audio/x-mpegurl' })
+    const name = (collections.value.find((c: any) => c.id === activeId.value) || {}).name || 'collection'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name}.m3u`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toastMsg('已导出 M3U')
+  } catch (e) {
+    console.error(e)
+    toastMsg('导出失败')
+  }
+}
+
 onMounted(loadCollections)
 watch(
   () => route.query.c,
@@ -302,6 +324,12 @@ onDeactivated(() => ptr.clearHandler())
           <span class="ch-meta">{{ items.length }} 个资源 · 点击「播放全部」从第一个视频连播</span>
         </div>
         <button class="add-btn" @click="openAdd">+ 添加资源</button>
+        <button
+          class="export-btn"
+          @click="exportM3u"
+          :disabled="!items.length"
+          title="导出为 M3U 播放列表，任何播放器都能打开"
+        >⭳ 导出 M3U</button>
         <button class="playall-btn" @click="playAll" :disabled="!items.length">▶ 播放全部</button>
       </div>
       <div class="content-header" v-else>

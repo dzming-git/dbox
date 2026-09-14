@@ -10,7 +10,10 @@
 与 `/api/mode-collections`（模式内分组，服务于资源组织）是两套东西：
 那是「某次爬取的一批图文」，这是「用户想凑在一起看的清单」。
 """
-from flask import Blueprint, request, jsonify, g
+import os
+from urllib.parse import quote
+
+from flask import Blueprint, request, jsonify, Response
 
 from core.models import db, CollectionSet, CollectionSetItem, Video, Gallery, Post
 from backend.access import current_interaction_key
@@ -160,6 +163,49 @@ def delete_collection(collection_id):
         db.session.rollback()
         log.debug('ERROR', f'删除合集失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/collections/<int:collection_id>/m3u', methods=['GET'])
+def export_m3u(collection_id):
+    """把合集导出为 M3U 播放列表（通用格式，任何播放器都能打开）。
+
+    只写仍然存在的本地视频：导一份点不开的列表没有意义。
+    归属判定与读取一致——自己的、公开的合集可导出。
+    """
+    c = _owned(CollectionSet.query).filter(CollectionSet.id == collection_id).first()
+    if not c:
+        return jsonify({'success': False, 'message': '合集不存在或无权导出'}), 404
+    rows = (CollectionSetItem.query
+            .filter_by(collection_id=collection_id)
+            .order_by(CollectionSetItem.position, CollectionSetItem.id)
+            .all())
+    lines = ['#EXTM3U']
+    kept = 0
+    for it in rows:
+        if it.item_type != 'video':
+            continue  # M3U 只承载可播放的视频
+        v = Video.query.filter_by(hash=it.item_id).first()
+        path = (v.resource_index.location if (v and v.resource_index) else None)
+        if not path or not os.path.exists(path):
+            continue
+        lines.append(f'#EXTINF:-1,{v.title or os.path.splitext(os.path.basename(path))[0]}')
+        lines.append(path)
+        kept += 1
+
+    body = '\n'.join(lines) + '\n'
+    safe = ''.join(ch for ch in (c.name or '') if ch not in r'\/:*?"<>|').strip() or 'collection'
+    # ⚠️ 文件名必须百分号编码（RFC 5987）：直接把中文塞进 Content-Disposition
+    # 会产生非法响应头，表现为**请求永远挂着不返回**（实测中文名超时、ASCII 名 0.0s 正常）。
+    # 同时给出 ASCII 兜底名，老客户端也能存下文件。
+    encoded = quote(f'{safe}.m3u')
+    return Response(
+        body.encode('utf-8'),
+        mimetype='audio/x-mpegurl; charset=utf-8',
+        headers={
+            'Content-Disposition': f"attachment; filename=\"playlist.m3u\"; filename*=UTF-8''{encoded}",
+            'X-Export-Kept': str(kept),
+        },
+    )
 
 
 @bp.route('/api/collections/<int:collection_id>/items', methods=['GET'])
