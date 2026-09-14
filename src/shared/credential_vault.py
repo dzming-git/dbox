@@ -20,6 +20,7 @@ import json
 import base64
 import struct
 import hashlib
+import time
 from datetime import datetime, timezone
 
 try:
@@ -193,7 +194,24 @@ class CredentialVault:
         rec = self._cache['profiles'].get(pid)
         if not rec:
             return None
+        self._touch_used(pid)
         return self._decode(rec)
+
+    def _touch_used(self, pid: str) -> None:
+        """记录最近使用时间。
+
+        有了它才能判断「长期没被用过」——一个从没被取用的凭证，
+        很可能早已失效却没人发现（失效往往要等到某次任务失败才暴露）。
+        失败不影响取用本身。
+        """
+        try:
+            rec = self._cache['profiles'].get(pid)
+            if rec is None:
+                return
+            rec['last_used_at'] = _now_iso()
+            self._save()
+        except Exception:
+            pass
 
     def get_by_domain(self, domain: str, kind: str = None) -> dict:
         self._reload_if_changed()
@@ -212,6 +230,51 @@ class CredentialVault:
     def list_all(self) -> list:
         self._reload_if_changed()
         return [self._decode(rec) for rec in self._cache['profiles'].values()]
+
+    def health(self) -> dict:
+        """凭证健康度总览：按站点分组 + 每条给出状态。
+
+        为什么需要主动体检：凭证失效通常要等到某次任务失败才被发现，
+        那时排查成本很高。这里把「已过期 / 即将过期 / 从没用过」直接摆出来。
+
+        返回 { groups: [{domain, items:[...]}], summary: {ok, expiring, expired, unknown} }
+        items 只含元信息与状态，**不含任何明文**。
+        """
+        self._reload_if_changed()
+        groups = {}
+        summary = {'ok': 0, 'expiring': 0, 'expired': 0, 'unknown': 0}
+        for rec in self._cache['profiles'].values():
+            decoded = self._decode(rec)
+            status, message, expires_at = evaluate_health(decoded)
+            summary[status] = summary.get(status, 0) + 1
+            domain = rec.get('domain') or '未分类'
+            groups.setdefault(domain, []).append({
+                'id': rec.get('id'),
+                'name': rec.get('name'),
+                'kind': rec.get('kind'),
+                'note': rec.get('note'),
+                'updated_at': rec.get('updated_at'),
+                'last_used_at': rec.get('last_used_at'),
+                'has_value': bool(decoded.get('value') or decoded.get('cookies')),
+                'status': status,
+                'message': message,
+                'expires_at': expires_at,
+            })
+        out = []
+        for domain in sorted(groups.keys()):
+            items = sorted(groups[domain], key=lambda x: (x.get('name') or ''))
+            # 整组取最差状态，便于在分组标题上一眼看到问题
+            worst = 'ok'
+            for it in items:
+                if it['status'] == 'expired':
+                    worst = 'expired'
+                    break
+                if it['status'] == 'expiring':
+                    worst = 'expiring'
+                elif it['status'] == 'unknown' and worst == 'ok':
+                    worst = 'unknown'
+            out.append({'domain': domain, 'status': worst, 'items': items})
+        return {'groups': out, 'summary': summary}
 
     def delete(self, pid: str) -> bool:
         if pid in self._cache['profiles']:
@@ -325,6 +388,58 @@ class CredentialVault:
         name = c.get('name', '')
         val = c.get('value', '')
         return '\t'.join([domain, include_sub, path, secure, str(expires), name, val])
+
+
+def evaluate_health(decoded: dict):
+    """评估一条凭证的健康度（纯函数，便于单测）。
+
+    入参是**已解码**的凭证（含 value / cookies）。返回 (status, message, expires_at)：
+      ok       —— 有值且未过期
+      expiring —— 7 天内过期
+      expired  —— 已过期，或压根没有值
+      unknown  —— 无法判定（标量凭证没有过期时间，且从未被取用过）
+
+    说明：
+    - Cookie 里带 expirationDate（Unix 秒，可能是小数或字符串）；
+      会话 cookie 没有这个字段，按「未知」处理而不是误判为过期。
+    - token / apikey / password 自身没有过期信息：只有在「从未被取用过」
+      时才提示未知——用过就说明它此刻大概率是有效的。
+    """
+    now = time.time()
+    kind = decoded.get('kind')
+
+    if kind == KIND_COOKIE:
+        cookies = decoded.get('cookies') or []
+        if not cookies:
+            return 'expired', '没有存任何 Cookie', None
+        stamps = []
+        for c in cookies:
+            if not isinstance(c, dict):
+                continue
+            raw = c.get('expirationDate') or c.get('expires')
+            if raw in (None, '', 0):
+                continue
+            try:
+                stamps.append(float(raw))
+            except (TypeError, ValueError):
+                continue
+        if not stamps:
+            return 'unknown', '全是会话 Cookie，无法判断是否过期', None
+        earliest = min(stamps)
+        iso = datetime.fromtimestamp(earliest).isoformat() + 'Z'
+        if earliest <= now:
+            return 'expired', '已过期', iso
+        if earliest - now <= 7 * 86400:
+            days = int((earliest - now) // 86400) + 1
+            return 'expiring', f'{days} 天内过期', iso
+        return 'ok', '正常', iso
+
+    has_value = bool(decoded.get('value'))
+    if not has_value:
+        return 'expired', '没有存值', None
+    if not decoded.get('last_used_at'):
+        return 'unknown', '从未被使用过，无法确认是否仍然有效', None
+    return 'ok', '正常', None
 
 
 def data_dir_for(vault_subdir: str = '') -> str:

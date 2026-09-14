@@ -459,6 +459,116 @@ def vault_list():
     return jsonify({'success': True, 'cookies': [_vault_public(r) for r in vault.list_all()]})
 
 
+@script_bp.route('/api/admin/cookies/health', methods=['GET'])
+@admin_required
+def vault_health():
+    """凭证健康度：按站点分组，并标出已过期 / 即将过期 / 无法判定。
+
+    失效通常要等到某次任务失败才被发现，排查成本高；这里主动体检，
+    让人在出问题之前就看到。只返回元信息与状态，不含任何明文。
+    """
+    vault = _vault_or_404()
+    if vault is None:
+        return jsonify({'success': False, 'message': '凭证保险库未初始化'}), 500
+    try:
+        return jsonify({'success': True, **(vault.health() or {})})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@script_bp.route('/api/admin/cookies/relink', methods=['POST'])
+@admin_required
+def vault_relink():
+    """凭证重新登录：打开真实浏览器让人登录，完成后写回保险库。
+
+    body: { id?, domain, url?, match? }
+      - 传 id：完成后覆盖该凭证（换掉旧 cookie）
+      - 不传 id：以 domain 新建一条
+
+    返回 { success, sid }；前端轮询 /relink/<sid>/status，
+    done 后调 /relink/<sid>/commit 落库。
+    """
+    vault = _vault_or_404()
+    mgr_wl = getattr(mgr, 'weblogin', None)
+    if vault is None or mgr_wl is None:
+        return jsonify({'success': False, 'message': '凭证保险库或登录服务未初始化'}), 500
+    data = request.get_json(silent=True) or {}
+    domain = (data.get('domain') or '').strip()
+    if not domain:
+        return jsonify({'success': False, 'message': 'domain 不能为空'}), 400
+    url = (data.get('url') or '').strip() or (
+        domain if domain.startswith('http') else f'https://{domain}')
+    res = mgr_wl.start(url=url, domain=domain, match=data.get('match') or None)
+    if not res.get('ok'):
+        return jsonify({'success': False, 'message': res.get('error') or '无法打开登录页'}), 500
+    sid = res.get('sid')
+    # 记住这次登录要落到哪条凭证上（进程内即可，重启后会话本来也没意义）
+    _RELINK_SESSIONS[sid] = {'id': data.get('id'), 'domain': domain,
+                             'name': data.get('name') or domain}
+    return jsonify({'success': True, 'sid': sid})
+
+
+# sid -> 重新登录的落地目标（仅内存；浏览器登录会话本身也无法跨重启）
+_RELINK_SESSIONS = {}
+
+
+@script_bp.route('/api/admin/cookies/relink/<sid>/status', methods=['GET'])
+@admin_required
+def vault_relink_status(sid):
+    mgr_wl = getattr(mgr, 'weblogin', None)
+    if mgr_wl is None:
+        return jsonify({'success': False, 'message': '登录服务未初始化'}), 500
+    st = mgr_wl.status(sid)
+    st['success'] = bool(st.get('ok'))
+    # 只在 done 时回传 cookie 数量，避免明文在轮询中反复传输
+    if st.get('state') == 'done':
+        st['cookie_count'] = len(st.get('cookies') or [])
+        st.pop('cookies', None)
+    else:
+        st.pop('cookies', None)
+    return jsonify(st)
+
+
+@script_bp.route('/api/admin/cookies/relink/<sid>/cancel', methods=['POST'])
+@admin_required
+def vault_relink_cancel(sid):
+    mgr_wl = getattr(mgr, 'weblogin', None)
+    if mgr_wl is None:
+        return jsonify({'success': False, 'message': '登录服务未初始化'}), 500
+    res = mgr_wl.cancel(sid)
+    _RELINK_SESSIONS.pop(sid, None)
+    return jsonify({'success': bool(res.get('ok')), 'state': res.get('state')})
+
+
+@script_bp.route('/api/admin/cookies/relink/<sid>/commit', methods=['POST'])
+@admin_required
+def vault_relink_commit(sid):
+    """登录完成后把拿到的 cookie 写回保险库。"""
+    vault = _vault_or_404()
+    mgr_wl = getattr(mgr, 'weblogin', None)
+    if vault is None or mgr_wl is None:
+        return jsonify({'success': False, 'message': '凭证保险库或登录服务未初始化'}), 500
+    st = mgr_wl.status(sid)
+    if not st.get('ok'):
+        return jsonify({'success': False, 'message': st.get('error') or '会话不存在'}), 404
+    if st.get('state') != 'done':
+        return jsonify({'success': False, 'message': f"登录尚未完成（{st.get('state')}）"}), 400
+    cookies = st.get('cookies') or []
+    if not cookies:
+        return jsonify({'success': False, 'message': '没有拿到任何 Cookie'}), 400
+    body = request.get_json(silent=True) or {}
+    target = _RELINK_SESSIONS.pop(sid, {}) or {}
+    domain = target.get('domain') or (body.get('domain') or '').strip()
+    if not domain:
+        return jsonify({'success': False, 'message': '无法确定站点'}), 400
+    try:
+        pid = vault.add('cookie', target.get('name') or domain, domain, cookies,
+                        note='', fmt='netscape')
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True, 'id': pid, 'cookie_count': len(cookies)})
+
+
 @script_bp.route('/api/admin/cookies', methods=['POST'])
 @admin_required
 def vault_create():
