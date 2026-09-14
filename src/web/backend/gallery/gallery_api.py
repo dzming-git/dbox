@@ -35,8 +35,12 @@ gallery_bp = Blueprint('gallery', __name__, url_prefix='')
 
 JWT_SECRET_KEY = 'dbox-jwt-secret-key-change-in-production-2024'
 
-# 各库的图集扫描进度（内存态，重启即清空，不影响数据）
+# 各库的图集扫描进度（内存态，供既有 /gallery-scan-status 轮询接口读取，形状保持不变）。
+# 同时扫描会登记进统一任务表（task_id = `gallery:<library_id>`），从而具备历史与取消能力。
+# 一律原地更新，不用 `=` 重新绑定，避免其它模块 import 进来的引用指向旧对象。
 _gallery_scan_progress = {}
+
+GALLERY_TASK_PREFIX = 'gallery:'
 
 
 # ============ 鉴权 / 身份辅助 ============
@@ -691,16 +695,44 @@ def admin_scan_galleries(library_id):
     if not _is_admin():
         return jsonify({'success': False, 'message': '需要管理员权限', 'code': 403}), 403
     try:
+        from backend.task_helpers import (
+            register_task, finish_task_quiet, update_task_quiet, cancel_watcher,
+        )
         app = current_app._get_current_object()
+        task_id = f'{GALLERY_TASK_PREFIX}{library_id}'
+        owner_id, _owner_role = _resolve_identity()
+        register_task(
+            task_id, 'gallery', f'扫描图集（资源库 #{library_id}）',
+            owner_id=owner_id, library_id=library_id,
+            params={'scope': 'library', 'library_id': library_id},
+        )
 
         def _run():
+            should_stop = cancel_watcher(task_id)
+
+            def _on_progress(processed, current_dir):
+                # 目录总数要遍历完才知道，这里只把「已处理目录数」放进 stage，
+                # 百分比固定停在 50%（进行中），避免编造进度。
+                update_task_quiet(task_id, progress=50,
+                                  stage=f'已处理 {processed} 个目录',
+                                  detail=os.path.basename(current_dir) or current_dir)
+
             _gallery_scan_progress[library_id] = {
                 'status': 'scanning', 'added': 0, 'updated': 0,
                 'removed': 0, 'total': 0, 'message': '扫描中...'
             }
             try:
                 from backend.gallery.scanner import scan_library_galleries
-                res = scan_library_galleries(library_id, app)
+                res = scan_library_galleries(
+                    library_id, app, should_stop=should_stop, on_progress=_on_progress
+                )
+                if res.get('cancelled'):
+                    _gallery_scan_progress[library_id] = {
+                        'status': 'cancelled', 'message': '扫描已取消（已处理的部分保留）'
+                    }
+                    finish_task_quiet(task_id, 'cancelled',
+                                      detail='用户取消，已处理的部分保留')
+                    return
                 _gallery_scan_progress[library_id] = {
                     'status': 'done',
                     'added': res.get('added', 0),
@@ -709,13 +741,21 @@ def admin_scan_galleries(library_id):
                     'total': res.get('total', 0),
                     'message': '扫描完成',
                 }
+                finish_task_quiet(
+                    task_id, 'completed', progress=100, stage='完成',
+                    detail=f"新增 {res.get('added', 0)}，更新 {res.get('updated', 0)}，"
+                           f"清理 {res.get('removed', 0)}，现存 {res.get('total', 0)}",
+                )
             except Exception as e:
                 _gallery_scan_progress[library_id] = {
                     'status': 'error', 'message': str(e)
                 }
+                finish_task_quiet(task_id, 'failed', detail=f'扫描失败: {e}',
+                                  error_code='gallery_scan_failed')
 
-        threading.Thread(target=_run, daemon=True).start()
-        return jsonify({'success': True, 'started': True})
+        threading.Thread(target=_run, daemon=True,
+                         name=f'gallery-scan-{library_id}').start()
+        return jsonify({'success': True, 'started': True, 'task_id': task_id})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

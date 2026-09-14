@@ -129,7 +129,8 @@ def _sync_pages(gallery, pages):
                                    page_index=i, file_path=p))
 
 
-def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, specific_paths=None):
+def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None,
+                           specific_paths=None, should_stop=None, on_progress=None):
     """扫描单个资源库，识别其中的图集并写入 galleries 表。
 
     Args:
@@ -140,8 +141,11 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, 
         log: 可选日志对象（提供 .debug(level, msg)）
         specific_paths: 若提供，则直接把给定目录当作图集登记（脚本产出常用），
             不再依赖资源库磁盘监控根目录，且单图目录也会登记为图集。
+        should_stop: 可选回调，返回 True 表示外部请求中断（用户取消扫描）。
+            在遍历目录与清理孤儿两处循环内检查，命中即立即收尾。
+        on_progress: 可选回调，签名 (processed_dirs, current_dir)，用于上报进度。
     Returns:
-        dict: {success, added, updated, removed, total, message}
+        dict: {success, added, updated, removed, total, message, cancelled}
     """
     # 指定目录模式（脚本产出）：直接把给定目录作为图集登记。
     # 用于 X 等脚本把「一个 URL 的图片」放进同一目录、需聚合成一本图集的场景；
@@ -236,12 +240,30 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, 
 
     added = updated = removed = 0
     seen_hashes = set()
+    processed_dirs = 0
 
+    def _stopped():
+        return bool(should_stop and should_stop())
+
+    cancelled = False
     for root in targets:
+        if _stopped():
+            cancelled = True
+            break
         root = os.path.abspath(root)
         if not os.path.isdir(root):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            if _stopped():
+                cancelled = True
+                break
+            processed_dirs += 1
+            # 遍历前无法知道目录总数，这里只上报「已处理目录数 + 当前位置」
+            if on_progress:
+                try:
+                    on_progress(processed_dirs, dirpath)
+                except Exception:
+                    pass
             depth = dirpath[len(root):].count(os.sep)
             if depth > max_depth:
                 dirnames[:] = []
@@ -301,17 +323,30 @@ def scan_library_galleries(library_id, app, min_pages=2, max_depth=6, log=None, 
                         db.session.commit()
                         added += 1
 
-    # 清理：库中已不存在（或磁盘目录已删除）的图集
-    with app.app_context():
-        for c in Gallery.query.filter_by(library_id=library_id).all():
-            if c.hash not in seen_hashes or not (c.folder_path and os.path.isdir(c.folder_path)):
-                db.session.delete(c)
-                removed += 1
-        db.session.commit()
-        total = Gallery.query.filter_by(library_id=library_id).count()
+    # 清理：库中已不存在（或磁盘目录已删除）的图集。
+    # 被中断时跳过这一步——此时 seen_hashes 只覆盖已遍历的目录，
+    # 照常执行会误删「还没走到但确实存在」的图集。
+    if not cancelled:
+        with app.app_context():
+            for c in Gallery.query.filter_by(library_id=library_id).all():
+                if _stopped():
+                    cancelled = True
+                    break
+                if c.hash not in seen_hashes or not (c.folder_path and os.path.isdir(c.folder_path)):
+                    db.session.delete(c)
+                    removed += 1
+            db.session.commit()
+            total = Gallery.query.filter_by(library_id=library_id).count()
+    else:
+        with app.app_context():
+            db.session.rollback()
+            total = Gallery.query.filter_by(library_id=library_id).count()
 
-    debug('INFO', f'[GalleryScan] 库 {library_id}: 新增 {added}, 更新 {updated}, 清理 {removed}, 现存 {total}')
-    return {'success': True, 'added': added, 'updated': updated, 'removed': removed, 'total': total}
+    debug('INFO', f'[GalleryScan] 库 {library_id}: '
+                  f'{"中断" if cancelled else "完成"}，新增 {added}, 更新 {updated}, '
+                  f'清理 {removed}, 现存 {total}')
+    return {'success': True, 'added': added, 'updated': updated, 'removed': removed,
+            'total': total, 'cancelled': cancelled}
 
 
 def scan_all_galleries(app, log=None):
