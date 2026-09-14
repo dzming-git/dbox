@@ -1766,6 +1766,12 @@ class GalleryPlaylistItem(db.Model):
         return d
 
 
+# 帖子策展状态
+STATUS_DRAFT = 'draft'
+STATUS_PUBLISHED = 'published'
+POST_STATUSES = (STATUS_DRAFT, STATUS_PUBLISHED)
+
+
 class Post(db.Model):
     """帖子：通过资源索引表自由引用多个资源（视频 / 图片集 / 文本等）并编排顺序。
 
@@ -1791,6 +1797,11 @@ class Post(db.Model):
     # 下载来源分组键（如 X 的 tweet_id），用于重复下载时定位并更新同一条帖子
     group_key = db.Column(db.String(200), nullable=True, index=True)
 
+    # 策展状态：draft（草稿，仅自己可见）/ published（已发布）
+    # 默认 draft：用户从各处「引用到帖子」攒素材时，本就该先是可控的草稿，
+    # 而不是立刻出现在帖子流里。
+    status = db.Column(db.String(16), nullable=False, default=STATUS_DRAFT, index=True)
+
     refs = db.relationship('PostRef', back_populates='post',
                             cascade='all, delete-orphan', order_by='PostRef.position')
 
@@ -1802,6 +1813,7 @@ class Post(db.Model):
             'owner_id': self.owner_id,
             'library_id': self.library_id,
             'in_trash': self.in_trash,
+            'status': self.status or STATUS_DRAFT,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -2671,6 +2683,28 @@ def migrate_post_source_columns():
             conn.commit()
     except Exception as e:
         print(f'[WARN] post source 列迁移跳过: {e}')
+
+
+def migrate_post_status():
+    """为 posts 表补充 status 列（草稿/已发布），兼容历史库。幂等。
+
+    存量帖子一律视为**已发布**：它们本来就一直在帖子流里可见，
+    若按新建默认那样归为草稿，会出现「升级后帖子全不见了」。
+    """
+    try:
+        with db.engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(
+                db.text("PRAGMA table_info(posts)")).fetchall()]
+            if 'status' not in cols:
+                conn.execute(db.text(
+                    "ALTER TABLE posts ADD COLUMN status VARCHAR(16) "
+                    "NOT NULL DEFAULT 'published'"))
+                conn.execute(db.text(
+                    "CREATE INDEX IF NOT EXISTS ix_posts_status ON posts (status)"))
+                conn.commit()
+                print('[MIGRATE] posts.status 已新增（存量按已发布处理）')
+    except Exception as e:
+        print(f'[WARN] post status 列迁移跳过: {e}')
 
 
 def migrate_post_group_key():

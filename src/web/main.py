@@ -78,7 +78,7 @@ from core.models import db, Video, Tag, VideoTag, UserInteraction, UserPreferenc
 from core.models import FavoriteCollection, CollectionVideo, Gallery
 from core.models import ResourceLibrary, LibraryPermission, LibraryUserGroup, LibraryUserGroupMember, LibraryAuditLog
 from core.models import ResourceIndex, Post, PostRef, ResourceMode, ResourceModeMembership, Collection, Text, set_resource_modes as apply_resource_modes, User, parse_post_content_tokens
-from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index, migrate_post_title_nullable, migrate_post_source_columns, migrate_post_group_key, _migrate_gallery_playlists_col, migrate_main_library, migrate_watch_later_deleted_at, migrate_app_settings_to_user_state
+from core.models import migrate_collection_videos_schema, migrate_owner_columns, migrate_video_libraries_rename, migrate_trash_columns, migrate_tag_qualifiers, migrate_resource_index, migrate_post_title_nullable, migrate_post_source_columns, migrate_post_group_key, migrate_post_status, _migrate_gallery_playlists_col, migrate_main_library, migrate_watch_later_deleted_at, migrate_app_settings_to_user_state
 from auth_service import AuthService, init_root_user
 
 # 导入资源管理模块的数据库操作（用于库 ID 映射）
@@ -125,6 +125,7 @@ with app.app_context():
     migrate_post_title_nullable()
     migrate_post_source_columns()
     migrate_post_group_key()
+    migrate_post_status()
     migrate_main_library()
     # 收敛旧 AppSetting（整块 blob）到统一状态表 UserState，仅在全部数据
     # 校验就位后才会删除旧表；异常时保留旧表，不丢数据。
