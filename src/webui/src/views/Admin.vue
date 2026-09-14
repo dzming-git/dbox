@@ -10,6 +10,7 @@ import { serviceManageApi, systemApi } from '../api'
 import { resourceApi } from '../api'
 import { trashApi } from '../api'
 import { taskApi } from '../api'
+import { scriptApi } from '../api'
 import {
   formatDate,
   formatPath,
@@ -45,6 +46,32 @@ const activeTab = ref(VALID_ADMIN_TABS.includes(_savedTab) ? _savedTab : 'dashbo
 watch(activeTab, (val) => {
   sessionStorage.setItem(ADMIN_TAB_KEY, val)
 })
+
+// ============ 仪表盘：管理插件卡片 ============
+// 只收录在 manifest 的 ui 段声明了 dashboard 的插件；框架不硬编码任何插件 id。
+const dashExtensions = ref<any[]>([])
+
+async function loadDashExtensions() {
+  try {
+    const r: any = await scriptApi.listExtensions()
+    dashExtensions.value = (r?.extensions || []).filter((e: any) => e?.ui?.dashboard)
+  } catch {
+    dashExtensions.value = []
+  }
+}
+
+function isImageIcon(icon?: string) {
+  return !!icon && (icon.startsWith('data:') || icon.startsWith('http'))
+}
+function shortDesc(d?: string) {
+  if (!d) return ''
+  return d.length > 60 ? d.slice(0, 60) + '…' : d
+}
+// 打开插件面板：走插件的全屏独立路由。不把 iframe 搬进卡片——
+// 移动 iframe 会触发文档重载，面板内的现场（滚动位置/输入/播放进度）会丢失。
+function openExtPanel(e: any) {
+  router.push(e?.ui?.standalone_route || `/ext/${e.id}`)
+}
 
 // 系统信息
 const systemInfo = ref<any>(null)
@@ -1927,6 +1954,7 @@ onMounted(() => {
   fetchSystemPaths()
   loadHotStats()
   loadScanConfig()  // 加载自动扫描开关配置（始终加载，不依赖标签页）
+  loadDashExtensions()  // 仪表盘的管理插件卡片
   startHealthPolling()  // 总体健康灯轮询（看门狗）
   // 恢复上次的标签页数据（日志/监控/用户/配置由各子组件自行加载）
   const restoredTab = activeTab.value
@@ -2118,6 +2146,32 @@ onUnmounted(() => {
 
       <!-- 仪表板标签页 -->
       <div v-if="activeTab === 'dashboard'" class="tab-content">
+        <!-- 管理插件卡片：声明了 ui.dashboard 的插件挂在这里，避免各自为战的一级入口 -->
+        <div v-if="dashExtensions.length" class="dash-plugins">
+          <div class="section-header">
+            <h3>管理插件</h3>
+          </div>
+          <div class="dash-grid">
+            <button
+              v-for="e in dashExtensions"
+              :key="e.id"
+              class="dash-card"
+              :title="e.ui?.description || e.ui?.title"
+              @click="openExtPanel(e)"
+            >
+              <span class="dash-icon" v-if="isImageIcon(e.ui?.icon)">
+                <img :src="e.ui.icon" :alt="e.ui?.title" />
+              </span>
+              <span class="dash-icon" v-else v-html="e.ui?.icon || '🔧'"></span>
+              <span class="dash-body">
+                <span class="dash-title">{{ e.ui?.title || e.name }}</span>
+                <span class="dash-desc">{{ shortDesc(e.ui?.description) }}</span>
+              </span>
+              <span class="dash-open">打开 ›</span>
+            </button>
+          </div>
+        </div>
+
         <!-- 系统概览卡片 -->
         <div class="card-grid">
           <!-- 版本信息卡片 -->
@@ -3868,6 +3922,33 @@ onUnmounted(() => {
   max-width: 1400px;
   margin: 0 auto;
 }
+
+/* 管理插件卡片（可插拔仪表盘） */
+.dash-plugins { margin-bottom: 24px; }
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.dash-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.dash-card:hover { border-color: var(--accent-border); background: var(--bg-surface-hover); }
+.dash-icon { width: 28px; height: 28px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; color: var(--text-primary); }
+.dash-icon img { width: 22px; height: 22px; object-fit: contain; }
+.dash-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dash-title { font-size: 14px; color: var(--text-primary); }
+.dash-desc { font-size: 12px; color: var(--text-tertiary); line-height: 1.4; }
+.dash-open { font-size: 12px; color: var(--accent); flex-shrink: 0; }
 
 .card-grid {
   display: grid;
