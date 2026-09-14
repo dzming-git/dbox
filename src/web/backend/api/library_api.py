@@ -5,6 +5,7 @@ from core.models import LibraryUserGroupMember
 from backend.library_helpers import _INVALID_NAME_RE
 from backend.library_helpers import (
     _library_scan_progress, start_library_scan, start_scan_all,
+    start_metadata_backfill, count_missing_metadata, META_TASK_ID,
 )
 from backend.trash import get_trash_list
 from backend.access import resolve_identity
@@ -592,6 +593,35 @@ def get_scan_all_status():
     try:
         return jsonify({'success': True, **_library_scan_all_progress})
     except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/media-meta/missing-count', methods=['GET'])
+@admin_required
+def count_missing_media_meta():
+    """还有多少视频缺少时长/大小（用于提示「需要补齐」）。"""
+    try:
+        return jsonify({'success': True, 'count': count_missing_metadata()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/media-meta/backfill', methods=['POST'])
+@admin_required
+def backfill_media_meta():
+    """补齐缺失的时长与文件大小（异步，进度与停止走任务中心）。
+
+    历史扫描从不写这两项，存量数据全为 NULL：界面时长显示 0、「长/短视频」
+    等按时长筛选的视图完全失效。增量扫描不会回头修老记录，所以需要独立回填。
+    """
+    try:
+        owner_id = getattr(g, 'user_id', None)
+        ok, message = start_metadata_backfill(owner_id=owner_id)
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        return jsonify({'success': True, 'message': message, 'task_id': META_TASK_ID})
+    except Exception as e:
+        log.debug('ERROR', f'启动物理信息补齐失败: {e}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @bp.route('/api/admin/libraries/<int:library_id>/permissions', methods=['GET'])

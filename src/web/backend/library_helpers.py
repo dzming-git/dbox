@@ -21,6 +21,7 @@ from unified_tasks import (
 )
 from backend.task_helpers import (
     init_task_store as _init_task_store,
+    register_task as _register_task,
     finish_task_quiet as _finish_task_quiet,
     update_task_quiet as _update_task_quiet,
     cancel_watcher as _cancel_watcher,
@@ -189,6 +190,99 @@ def start_scan_all(mode='incremental', owner_id=None):
 
     threading.Thread(target=_run_all, daemon=True, name='scan-all').start()
     return True, f'{label}已启动'
+
+
+# 补齐缺失物理信息（时长 / 文件大小）的后台任务号
+META_TASK_ID = 'meta:backfill'
+
+
+def count_missing_metadata():
+    """统计缺少时长或文件大小的视频数（供界面决定是否提示回填）。"""
+    try:
+        from core.models import Video
+        with runtime.app.app_context():
+            return Video.query.filter(
+                (Video.duration.is_(None)) | (Video.file_size.is_(None))
+            ).count()
+    except Exception as e:
+        log.debug('WARN', f'统计缺失物理信息失败: {e}')
+        return 0
+
+
+def start_metadata_backfill(owner_id=None, task_id=META_TASK_ID):
+    """后台补齐缺失的时长与文件大小（异步，立即返回）。
+
+    为什么需要：扫描入库历史上从不写这两项，存量数据全为 NULL，导致界面时长显示 0、
+    「长视频 / 短视频」等按时长筛选的视图完全失效。而增量扫描只处理变化过的目录，
+    不会回头修这些老记录，必须有独立的一次性回填。
+
+    返回 (ok, message)。
+    """
+    if _library_scan_all_progress.get('status') == 'scanning':
+        return False, '同步正在进行中，请稍候...'
+
+    if _init_task_store():
+        _register_task(task_id, 'meta', '补齐缺失的时长与大小', owner_id=owner_id,
+                       params={'scope': 'missing_meta'})
+
+    def _run():
+        should_stop = _cancel_watcher(task_id)
+        try:
+            from core.models import Video, db
+            from backend.utils.media import extract_duration
+            with runtime.app.app_context():
+                q = Video.query.filter(
+                    (Video.duration.is_(None)) | (Video.file_size.is_(None))
+                )
+                total = q.count()
+                _update_task_quiet(task_id, progress=0, stage=f'0/{total}',
+                                   detail=f'待补齐 {total} 个视频')
+                done = fixed = skipped = 0
+                # 分批取 id，避免一次性把上千条 ORM 对象挂在会话里
+                ids = [r[0] for r in q.with_entities(Video.id).all()]
+                for i, vid in enumerate(ids, 1):
+                    if should_stop():
+                        db.session.commit()
+                        _finish_task_quiet(
+                            task_id, STATUS_CANCELLED,
+                            detail=f'已停止：已处理 {done}/{total}，补齐 {fixed}')
+                        return
+                    v = Video.query.get(vid)
+                    if not v:
+                        continue
+                    path = v.local_path
+                    done += 1
+                    if not path or not os.path.isfile(path):
+                        skipped += 1
+                        continue
+                    try:
+                        if v.file_size is None:
+                            v.file_size = os.path.getsize(path)
+                        if not v.duration:
+                            v.duration = extract_duration(path)
+                        fixed += 1
+                    except Exception as e:
+                        log.debug('WARN', f'补齐物理信息失败 {path}: {e}')
+                    # 分批提交：既能让进度可见，也避免长事务锁库
+                    if i % 20 == 0:
+                        db.session.commit()
+                        _update_task_quiet(
+                            task_id,
+                            progress=int(i / max(1, total) * 100),
+                            stage=f'{i}/{total}',
+                            detail=f'已处理 {i}/{total}，文件缺失 {skipped}')
+                db.session.commit()
+            _finish_task_quiet(
+                task_id, STATUS_COMPLETED, progress=100, stage='完成',
+                detail=f'补齐 {fixed} 个（文件缺失 {skipped}，共 {total} 个待处理）')
+        except Exception as e:
+            msg = f'补齐失败: {e}'
+            log.debug('ERROR', msg)
+            _finish_task_quiet(task_id, STATUS_FAILED, detail=msg,
+                               error_code='meta_backfill_failed')
+
+    threading.Thread(target=_run, daemon=True, name='meta-backfill').start()
+    return True, '已启动补齐，可在任务中心查看进度或停止'
 
 
 def restart_scan_from_params(params, owner_id=None):

@@ -623,8 +623,8 @@ class ResourceLibraryWatcher:
                     pass
                 if not existing.duration:
                     try:
-                        from backend.utils.media import extract_mp4_duration
-                        existing.duration = extract_mp4_duration(path)
+                        from backend.utils.media import extract_duration
+                        existing.duration = extract_duration(path)
                     except Exception:
                         pass
 
