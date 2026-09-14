@@ -301,6 +301,64 @@ class Collection(db.Model):
         }
 
 
+class CollectionSet(db.Model):
+    """用户自建合集（跨类型：video / gallery / post / text）。
+
+    与 `Collection`（模式内分组，服务于资源组织）不同，这是**用户视角的收藏清单**：
+    想把任意几条内容凑在一起看，就建一个合集。
+
+    身份与「稍后再看 / 交互记录」一致：登录用户为 `u{user_id}`（跨设备一致），
+    游客为随机会话键，因此 `owner_key` 是唯一的归属维度。
+    """
+    __tablename__ = 'collection_sets'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    is_public = db.Column(db.Boolean, nullable=False, default=False)
+    owner_key = db.Column(db.String(100), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    items = db.relationship(
+        'CollectionSetItem', backref='collection', lazy='dynamic',
+        cascade='all, delete-orphan',
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'is_public': bool(self.is_public),
+            'owner_key': self.owner_key,
+            'item_count': self.items.count() if self.items is not None else 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class CollectionSetItem(db.Model):
+    """合集内的一条内容。
+
+    只存「类型 + 标识」，标题/封面等展示信息在读取时回源富化实体，
+    避免重命名或换封面后合集里还留着旧快照。
+    """
+    __tablename__ = 'collection_set_items'
+    id = db.Column(db.Integer, primary_key=True)
+    collection_id = db.Column(
+        db.Integer, db.ForeignKey('collection_sets.id'), nullable=False, index=True)
+    item_type = db.Column(db.String(20), nullable=False)   # video/gallery/post/text
+    item_id = db.Column(db.String(255), nullable=False)    # 视频/图集用 hash，帖子/文本用 id
+    position = db.Column(db.Integer, nullable=False, default=0)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('collection_id', 'item_type', 'item_id',
+                            name='uq_collection_item'),
+    )
+
+
 class Text(db.Model):
     """文本模式富化实体（未来的文本内容管理）。
 
