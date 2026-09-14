@@ -243,6 +243,14 @@ const closeUserDropdown = (event: MouseEvent) => {
             <span>任务</span>
           </RouterLink>
 
+          <!-- 整理审阅：问题数据按类型聚成清单，管理员照着处理 -->
+          <RouterLink to="/review" class="nav-link nav-icon-link" title="整理审阅" v-if="canShow('/review')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+            </svg>
+            <span>整理</span>
+          </RouterLink>
+
           <!-- 管理后台入口：头像下拉菜单已瘦身、不再承载系统入口，
                这里作为「管理」维度的唯一顶层入口（与「应用」维度的入口并列）。 -->
           <RouterLink to="/admin" class="nav-link nav-icon-link" title="管理后台" v-if="canShow('/admin')">

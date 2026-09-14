@@ -135,6 +135,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '任务管理器', requiresAuth: true }
   },
   {
+    path: '/review',
+    name: 'Review',
+    component: () => import('../views/Review.vue'),
+    meta: { title: '整理审阅', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/guide',
     name: 'Guide',
     component: () => import('../views/Guide.vue'),
