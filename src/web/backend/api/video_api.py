@@ -85,9 +85,51 @@ def get_videos():
                 # 无权限访问该库，返回空结果（使用一个不可能匹配的 id）
                 query = query.filter(Video.library_id == -1)
 
-        # 搜索功能
+        # 搜索功能：支持 tag: / library: / type: / date: / duration: 等筛选语法，
+        # 剩下未被识别的部分按标题匹配（解析见 backend/search_query.py）。
         if search:
-            query = query.filter(Video.title.ilike(f'%{search}%'))
+            from backend.search_query import parse_query
+            cond = parse_query(search)
+
+            if cond['text']:
+                query = query.filter(Video.title.ilike(f"%{cond['text']}%"))
+
+            # type: 限定资源类型——本接口只出视频，指定了别的类型就应为空，
+            # 否则搜索页会出现「明明搜的是图集，视频结果却一堆」。
+            if cond['kind'] and cond['kind'] not in ('video', 'videos', '影片'):
+                query = query.filter(Video.id == -1)
+
+            if cond['library']:
+                _lib = ResourceLibrary.query.filter(
+                    ResourceLibrary.name.ilike(f"%{cond['library']}%")
+                ).all()
+                if _lib:
+                    query = query.filter(Video.library_id.in_([l.id for l in _lib]))
+                else:
+                    query = query.filter(Video.id == -1)
+
+            if cond['date']:
+                _start, _end = cond['date']
+                query = query.filter(Video.created_at >= _start, Video.created_at < _end)
+
+            if cond['duration_min'] is not None:
+                query = query.filter(Video.duration.isnot(None),
+                                     Video.duration >= cond['duration_min'])
+            if cond['duration_max'] is not None:
+                query = query.filter(Video.duration.isnot(None),
+                                     Video.duration <= cond['duration_max'])
+
+            for tname in cond['tags']:
+                # 标签名部分匹配，且沿用父子标签继承：命中的父标签也应带出子标签
+                matched = Tag.query.filter(Tag.name.ilike(f'%{tname}%')).all()
+                if not matched:
+                    query = query.filter(Video.id == -1)
+                    break
+                ids = set()
+                for t in matched:
+                    ids.update(t.get_all_child_ids())
+                sub = db.session.query(VideoTag.video_id).filter(VideoTag.tag_id.in_(ids))
+                query = query.filter(Video.id.in_(sub))
 
         # 标签筛选 - 支持父子标签继承（选择父标签时同时显示子标签的视频）
         if tag_id:

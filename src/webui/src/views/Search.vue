@@ -2,7 +2,7 @@
 defineOptions({ name: 'Search' })
 import { ref, onMounted, watch, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { videoApi, galleryApi, postApi, textApi } from '../api'
+import { videoApi, galleryApi, postApi, textApi, userStateApi } from '../api'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { MediaItem } from '../utils/media'
 import MediaCard from '../components/MediaCard.vue'
@@ -25,6 +25,33 @@ const tabs: { key: Tab; label: string }[] = [
   { key: 'text', label: '文本' },
 ]
 
+// 搜索历史：存于跨设备用户状态，与「保存的视图」同一套机制
+const history = ref<string[]>([])
+async function loadHistory() {
+  try {
+    const res: any = await userStateApi.get('core', 'search-history')
+    const v = res?.value
+    history.value = Array.isArray(v) ? v.filter((x: any) => typeof x === 'string').slice(0, 10) : []
+  } catch {
+    history.value = []
+  }
+}
+async function rememberHistory(text: string) {
+  const t = (text || '').trim()
+  if (!t) return
+  const next = [t, ...history.value.filter((x) => x !== t)].slice(0, 10)
+  history.value = next
+  try {
+    await userStateApi.put('core', 'search-history', next, { strategy: 'lww', scope: 'user' })
+  } catch {
+    /* 历史丢失不影响搜索本身 */
+  }
+}
+function clearHistory() {
+  history.value = []
+  userStateApi.put('core', 'search-history', [], { strategy: 'lww', scope: 'user' }).catch(() => {})
+}
+
 const search = async () => {
   const query = q.value.trim()
   if (!query) {
@@ -36,11 +63,15 @@ const search = async () => {
   }
   loading.value = true
   try {
+    // type:xxx 时只查对应类型：其余接口不认这套语法（会把整串当标题搜），
+    // 一起并发等于给每个类型都发了一次「必然为空」的请求。
+    const kind = (query.match(/(?:type|kind):(\S+)/i) || [])[1]?.toLowerCase() || ''
+    const want = (k: string) => !kind || kind.startsWith(k)
     const [v, c, p, t] = await Promise.all([
-      videoApi.getVideos({ search: query, limit: 60 }) as any,
-      galleryApi.getGallerys({ search: query, limit: 60 }) as any,
-      postApi.list({ search: query }) as any,
-      textApi.list({ search: query }) as any,
+      want('video') ? (videoApi.getVideos({ search: query, limit: 60 }) as any) : Promise.resolve(null),
+      want('gallery') ? (galleryApi.getGallerys({ search: query, limit: 60 }) as any) : Promise.resolve(null),
+      want('post') ? (postApi.list({ search: query }) as any) : Promise.resolve(null),
+      want('text') ? (textApi.list({ search: query }) as any) : Promise.resolve(null),
     ])
     videoResults.value = (v?.videos || []).map((x: any) => ({
       type: 'video', hash: x.hash, title: x.title,
@@ -58,6 +89,7 @@ const search = async () => {
       type: 'text', hash: String(x.id), title: x.title || x.body?.slice(0, 20) || '文本',
       cover: x.cover || '', raw: x
     }))
+    await rememberHistory(query)
   } catch (e) {
     console.error('搜索失败:', e)
   } finally {
@@ -103,7 +135,23 @@ watch(q, () => {
 })
 watch(activeTab, () => {})
 
-onMounted(search)
+onMounted(() => {
+  loadHistory()
+  search()
+})
+
+// 语法提示：把可写的条件摆出来，否则没人知道搜索框支持什么
+const SYNTAX_HINTS = [
+  { code: 'tag:名称', desc: '带某个标签' },
+  { code: 'library:名称', desc: '属于某资源库' },
+  { code: 'type:video', desc: '限定类型' },
+  { code: 'date:2026-09', desc: '某段时间加入' },
+  { code: 'duration:>20min', desc: '时长条件' },
+]
+function applyHint(code: string) {
+  const cur = q.value.trim()
+  q.value = cur ? `${cur} ${code}` : code
+}
 
 // 顶部下拉刷新：按当前关键词重新搜索
 const ptr = usePullToRefresh()
@@ -128,6 +176,36 @@ onDeactivated(() => ptr.clearHandler())
       <p v-if="q.trim()" class="result-summary">
         找到 {{ totalCount }} 条结果
       </p>
+    </div>
+
+    <!-- 语法提示与搜索历史：只在还没输入时出现，避免干扰结果 -->
+    <div v-if="!q.trim()" class="search-assist">
+      <div class="assist-block">
+        <div class="assist-title">可以直接写条件</div>
+        <div class="hint-chips">
+          <button
+            v-for="h in SYNTAX_HINTS"
+            :key="h.code"
+            class="hint-chip"
+            :title="h.desc"
+            @click="applyHint(h.code)"
+          >{{ h.code }}</button>
+        </div>
+      </div>
+      <div v-if="history.length" class="assist-block">
+        <div class="assist-title">
+          最近搜索
+          <button class="assist-clear" @click="clearHistory">清空</button>
+        </div>
+        <div class="hint-chips">
+          <button
+            v-for="h in history"
+            :key="h"
+            class="hint-chip history-chip"
+            @click="q = h"
+          >{{ h }}</button>
+        </div>
+      </div>
     </div>
 
     <div class="search-tabs" v-if="q.trim() && totalCount > 0">
@@ -181,6 +259,24 @@ onDeactivated(() => ptr.clearHandler())
 .search-input { width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); color: var(--text-primary); font-size: 15px; }
 .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(33,150,243,0.1); }
 .result-summary { margin: 12px 0 0; color: var(--text-secondary); font-size: 14px; }
+.search-assist { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 14px; }
+.assist-block { max-width: 680px; }
+.assist-title { font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.assist-clear { background: transparent; border: none; color: var(--text-tertiary); font-size: 12px; cursor: pointer; }
+.assist-clear:hover { color: var(--accent); }
+.hint-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.hint-chip {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.hint-chip:hover { color: var(--accent); border-color: var(--accent-border); }
+.history-chip { font-family: inherit; }
 .search-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
 .search-tab {
   display: inline-flex; align-items: center; gap: 6px;
