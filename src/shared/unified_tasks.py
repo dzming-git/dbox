@@ -28,16 +28,21 @@ STATUS_AWAITING = 'awaiting_input'
 STATUS_COMPLETED = 'completed'
 STATUS_FAILED = 'failed'
 STATUS_CANCELLED = 'cancelled'
+# 被中断：进程重启 / 崩溃导致任务没跑完，但**不是业务失败**。
+# 单独一个状态（而不是并入 failed）是为了让界面能区分「跑挂了」与「被打断」，
+# 并据此给「继续 / 重试」而不是只显示一个红色的失败。
+STATUS_INTERRUPTED = 'interrupted'
 
 _VALID_STATUS = {
     STATUS_PENDING, STATUS_RUNNING, STATUS_AWAITING,
-    STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
+    STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED, STATUS_INTERRUPTED,
 }
 
 # 进行中（可请求取消、参与「任务结束后关机」的活跃计数）
 _ACTIVE_STATUSES = frozenset({STATUS_PENDING, STATUS_RUNNING, STATUS_AWAITING})
 # 终态（不可取消、可删除、可被清理）
-_TERMINAL_STATUSES = frozenset({STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED})
+_TERMINAL_STATUSES = frozenset({
+    STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED, STATUS_INTERRUPTED})
 
 _ACTION_KIND_SCRIPT_INTERACTIVE = 'script_interactive'  # 需到脚本交互接口处理
 _ACTION_KIND_NAVIGATE = 'navigate'                       # 需跳转到某页面处理
@@ -83,6 +88,7 @@ def init_task_manager(data_dir):
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_action ON tasks(action_required, action_role)')
         # 兼容旧库：逐列补充（已存在的列会抛 OperationalError，忽略即可）
         for _ddl in (
+            'ALTER TABLE tasks ADD COLUMN owner_service TEXT',
             'ALTER TABLE tasks ADD COLUMN params TEXT',
             'ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0',
             'ALTER TABLE tasks ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0',
@@ -138,8 +144,13 @@ def _row_to_dict(row):
 
 
 def create_task(task_id, kind, title, owner_id=None, library_id=None,
-                status=STATUS_RUNNING, progress=0, stage=None, detail=None, params=None):
-    """登记一个新任务，返回任务 dict。"""
+                status=STATUS_RUNNING, progress=0, stage=None, detail=None,
+                params=None, service=None):
+    """登记一个新任务，返回任务 dict。
+
+    service：归属的服务（如 'web' / 'extensions' / 'downloader'）。
+    进程重启后据此回收「属于自己、却还在 running」的僵尸任务（见 reclaim_interrupted）。
+    """
     params_str = json.dumps(params, ensure_ascii=False) if params is not None else None
     with _lock:
         with _conn() as conn:
@@ -148,10 +159,10 @@ def create_task(task_id, kind, title, owner_id=None, library_id=None,
                 '''INSERT OR REPLACE INTO tasks
                    (task_id, kind, title, status, progress, stage, detail,
                     owner_id, library_id, action_required, action_role, action_kind,
-                    action_hint, action_data, params, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,0,NULL,NULL,NULL,NULL,?,?,?)''',
+                    action_hint, action_data, params, owner_service, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,0,NULL,NULL,NULL,NULL,?,?,?,?)''',
                 (task_id, kind, title, status, progress, stage, detail,
-                 owner_id, library_id, params_str, now, now),
+                 owner_id, library_id, params_str, service, now, now),
             )
     return get_task(task_id)
 
@@ -185,6 +196,55 @@ def update_task(task_id, status=None, progress=None, stage=None, detail=None,
                  new_params, _now(), task_id),
             )
     return get_task(task_id)
+
+
+def reclaim_interrupted(service, include_legacy=True):
+    """服务启动时回收「属于自己的僵尸任务」。
+
+    背景：任务执行在进程内的线程里，进程一重启，线程没了，但 tasks.db 里那条记录
+    还停在 running —— 于是界面上永远显示「进行中 37%」，既不前进也不失败，
+    用户除了干等没有任何办法（重启电脑后回来看到的就是这个）。
+
+    判定依据：**本服务刚启动，它自己此刻不可能有任何任务在跑**，
+    所以凡是标记为归属本服务、且处于进行中的任务，都是上一代进程留下的残骸。
+    按服务名区分是为了不越界——web 重启不该误伤 downloader 正在跑的任务。
+
+    include_legacy：是否一并回收「没有归属标记」的旧任务。升级前创建的任务没有
+    owner_service，若不回收，它们会永远卡着；而回收它们最多误伤一次（升级后
+    新建的任务都带标记了），因此默认开启。
+
+    返回被回收的任务 id 列表。
+    """
+    if not service:
+        return []
+    if include_legacy:
+        where = '(owner_service=? OR owner_service IS NULL)'
+        args = (service,)
+    else:
+        where = 'owner_service=?'
+        args = (service,)
+    marks = ','.join('?' * len(_ACTIVE_STATUSES))
+    with _lock:
+        with _conn() as conn:
+            rows = conn.execute(
+                f'SELECT task_id, progress, detail FROM tasks '
+                f'WHERE {where} AND status IN ({marks})',
+                args + tuple(_ACTIVE_STATUSES),
+            ).fetchall()
+            now = _now()
+            for r in rows:
+                try:
+                    prev = int(r['progress'] or 0)
+                except (TypeError, ValueError):
+                    prev = 0
+                conn.execute(
+                    '''UPDATE tasks SET status=?, error_code=?, detail=?,
+                       finished_at=?, updated_at=? WHERE task_id=?''',
+                    (STATUS_INTERRUPTED, 'interrupted',
+                     f'服务重启导致中断（停在 {prev}%）：可重试或从中断处继续',
+                     now, now, r['task_id']),
+                )
+    return [r['task_id'] for r in rows]
 
 
 def mark_started(task_id):
