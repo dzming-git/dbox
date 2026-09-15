@@ -366,9 +366,11 @@ function isFinished(t: Task): boolean {
   return FINISHED_STATUSES.has(t.status as any)
 }
 
-// 失败 / 已取消 / 被中断的任务可在任务列表手动重试
+// 能否重试同样由**框架按能力注册表**判定并下发（can_retry）：
+// 任务类型注册了重试实现才为 true（上传这类无法无感重放的类型会明确注册为不可重试）。
 function canRetry(t: Task): boolean {
-  return t.status === 'failed' || t.status === 'cancelled' || t.status === 'interrupted'
+  if (!['failed', 'cancelled', 'interrupted'].includes(t.status)) return false
+  return t.can_retry === true
 }
 
 // 「继续」：能否续跑由**框架按能力注册表**判定并随任务下发（can_resume）。

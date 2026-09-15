@@ -22,11 +22,20 @@ from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_tasks, count_action_required,
     delete_task, create_task, request_cancel, bump_attempts,
     STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
-    CAPABILITY_RESUME, get_capability, get_resume_handler,
-    list_capabilities, resumable_kinds,
+    CAPABILITY_RESUME, CAPABILITY_RETRY, get_capability,
+    get_resume_handler, get_retry_handler,
+    list_capabilities, resumable_kinds, retryable_kinds,
 )
 
 bp = Blueprint('task', __name__)
+
+# 内置任务（扫描/缩略图/补齐/脚本/上传）向框架注册自己的重试实现。
+# 框架路由里不再出现 `if kind == ...`：谁能重试归谁声明。
+try:
+    from backend.task_actions import register_builtin_actions
+    register_builtin_actions()
+except Exception as e:  # 注册失败只损失「重试」入口，不影响任务本身
+    print('[WARN] 内置任务动作注册失败: %s' % e)
 
 # 资源下载器服务地址（脚本任务真正执行的进程）。主服务作为网关将 /api/scripts
 # 转发过去；重试脚本任务时本蓝图直接向内网地址发起 run 请求。
@@ -352,6 +361,80 @@ def cancel_task(task_id):
     })
 
 
+def _dispatch_action(kind, capability, handler_getter, task):
+    """按能力注册表把某个动作（继续 / 重试）转交给实现方。
+
+    返回 (ok, message, extra, http_status)；**None 表示没注册该能力**。
+    框架在这里只做查表与转发，不认识任何具体任务类型。
+    """
+    task_id = task.get('task_id')
+
+    # 1) 同进程内登记的实现优先：省一次跨进程转发
+    fn = handler_getter(kind)
+    if fn:
+        try:
+            r = fn(task)
+        except Exception as e:
+            return False, f'执行失败: {e}', {}, 500
+        if isinstance(r, (tuple, list)):
+            ok = bool(r[0])
+            message = r[1] if len(r) > 1 else ''
+            extra = dict(r[2]) if len(r) > 2 and isinstance(r[2], dict) else {}
+        else:
+            ok, message, extra = bool(r), '', {}
+        # extra 里的 status 用于表达 503 等特定状态码，不回传给前端
+        status = int(extra.pop('status', 0) or 0) or (200 if ok else 400)
+        return ok, message, extra, status
+
+    # 2) 否则查注册表，由登记该能力的服务执行
+    cap = get_capability(kind, capability)
+    if not cap:
+        return None
+
+    endpoint = cap.get('endpoint')
+    base = _SERVICE_BASE_URLS.get(cap.get('service'))
+    if not endpoint or not base:
+        return False, f'该类型任务的「{capability}」实现注册不完整', \
+            {'not_supported': True}, 500
+
+    try:
+        import requests as _rq
+        headers = {'Content-Type': 'application/json'}
+        auth = request.headers.get('Authorization')
+        if auth:
+            headers['Authorization'] = auth
+        device = request.headers.get('X-Dbox-Device-Id')
+        if device:
+            headers['X-Dbox-Device-Id'] = device
+        r = _rq.post(f'{base}{endpoint}', json={'task_id': task_id},
+                     headers=headers, timeout=30)
+    except Exception as e:
+        return False, f'转发失败: {e}', {}, 502
+
+    try:
+        payload = r.json()
+    except Exception:
+        payload = {'message': (r.text or '')[:200]}
+    if not isinstance(payload, dict):
+        payload = {}
+    ok = bool(payload.get('success', r.status_code < 400))
+    extra = {k: v for k, v in payload.items() if k not in ('success', 'message')}
+    return ok, payload.get('message', ''), extra, r.status_code
+
+
+def _action_response(result, task_id):
+    """把分派结果转成统一响应；result 为 None 即「未注册，不支持」。"""
+    if result is None:
+        return None
+    ok, message, extra, http_status = result
+    payload = {'success': bool(ok), 'message': message}
+    if ok:
+        payload['task_id'] = task_id
+    payload.update(extra or {})
+    bump_attempts(task_id)
+    return jsonify(payload), (200 if ok else http_status)
+
+
 @bp.route('/api/tasks/<path:task_id>/resume', methods=['POST'])
 @auth_required
 def resume_task(task_id):
@@ -376,22 +459,8 @@ def resume_task(task_id):
         return jsonify({'success': False, 'message': '无权继续该任务'}), 403
 
     kind = task.get('kind')
-
-    # 同进程内登记的继续实现优先：省一次跨进程转发
-    handler = get_resume_handler(kind)
-    if handler:
-        try:
-            ok, message = handler(task)
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'继续失败: {e}'}), 500
-        if not ok:
-            return jsonify({'success': False, 'message': message}), 400
-        bump_attempts(task_id)
-        return jsonify({'success': True, 'message': message, 'task_id': task_id})
-
-    # 否则查注册表：由登记该能力的服务执行
-    cap = get_capability(kind, CAPABILITY_RESUME)
-    if not cap:
+    result = _dispatch_action(kind, CAPABILITY_RESUME, get_resume_handler, task)
+    if result is None:
         # 框架感知到「没人注册继续函数」——这是正常情况，不是错误：
         # 多数任务本就无法断点续跑，界面据此不展示「继续」入口。
         return jsonify({
@@ -399,38 +468,7 @@ def resume_task(task_id):
             'message': f'该类型任务（{kind}）未注册继续实现，不支持从中断处继续',
             'not_supported': True,
         }), 400
-
-    service = cap.get('service')
-    endpoint = cap.get('endpoint')
-    base = _SERVICE_BASE_URLS.get(service)
-    if not endpoint or not base:
-        return jsonify({
-            'success': False,
-            'message': f'该类型任务的继续实现注册不完整（service={service}）',
-            'not_supported': True,
-        }), 500
-
-    # 转发给实现方：带上用户鉴权，避免越权续跑别人的任务
-    try:
-        import requests as _rq
-        headers = {'Content-Type': 'application/json'}
-        auth = request.headers.get('Authorization')
-        if auth:
-            headers['Authorization'] = auth
-        device = request.headers.get('X-Dbox-Device-Id')
-        if device:
-            headers['X-Dbox-Device-Id'] = device
-        r = _rq.post(f'{base}{endpoint}', json={'task_id': task_id},
-                     headers=headers, timeout=30)
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'转发继续请求失败: {e}'}), 502
-
-    try:
-        payload = r.json()
-    except Exception:
-        payload = {'success': False, 'message': (r.text or '')[:200]}
-    bump_attempts(task_id)
-    return jsonify(payload if isinstance(payload, dict) else {'success': True}), r.status_code
+    return _action_response(result, task_id)
 
 
 @bp.route('/api/tasks/capabilities', methods=['GET'])
@@ -444,6 +482,7 @@ def task_capabilities():
         'success': True,
         'capabilities': list_capabilities(),
         'resumable': sorted(resumable_kinds()),
+        'retryable': sorted(retryable_kinds()),
     })
 
 
@@ -472,92 +511,22 @@ def retry_task(task_id):
 
     kind = task.get('kind')
     status = task.get('status')
-    if status not in ('failed', 'cancelled'):
-        return jsonify({'success': False, 'message': '仅失败/已取消的任务可重试'}), 400
+    if status not in ('failed', 'cancelled', 'interrupted'):
+        return jsonify({'success': False, 'message': '仅失败/已取消/已中断的任务可重试'}), 400
 
-    if kind == 'scan':
-        # 扫描任务自带完整可重放参数（scope / library_id / mode），直接重放即可
-        try:
-            from backend.library_helpers import restart_scan_from_params
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'扫描模块不可用：{e}'}), 500
-        ok, message = restart_scan_from_params(task.get('params'), owner_id=task.get('owner_id'))
-        if not ok:
-            return jsonify({'success': False, 'message': message}), 400
-        bump_attempts(task_id)
-        return jsonify({'success': True, 'message': message, 'task_id': task_id})
-
-    if kind == 'thumbnail':
-        # 批量生成缺失缩略图：参数可重放（重新扫一遍缺失项即可），直接再跑一次
-        try:
-            from backend.thumbnail_helpers import start_thumbnail_batch
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'缩略图模块不可用：{e}'}), 500
-        ok, message = start_thumbnail_batch(owner_id=task.get('owner_id'))
-        if not ok:
-            return jsonify({'success': False, 'message': message}), 400
-        bump_attempts(task_id)
-        return jsonify({'success': True, 'message': message, 'task_id': task_id})
-
-    if kind == 'meta':
-        # 补齐缺失的时长/大小：无额外参数，直接再跑一次（已补齐的会被跳过）
-        try:
-            from backend.library_helpers import start_metadata_backfill
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'补齐模块不可用：{e}'}), 500
-        ok, message = start_metadata_backfill(owner_id=task.get('owner_id'))
-        if not ok:
-            return jsonify({'success': False, 'message': message}), 400
-        bump_attempts(task_id)
-        return jsonify({'success': True, 'message': message, 'task_id': task_id})
-
-    if kind == 'script':
-        params = task.get('params') or {}
-        script_id = params.get('script_id')
-        run_params = params.get('params') or {}
-        if not script_id:
-            return jsonify({'success': False, 'message': '该任务缺少脚本标识，无法重试'}), 400
-        try:
-            import requests
-            fwd = {'host', 'content-length', 'connection', 'transfer-encoding'}
-            fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in fwd}
-            try:
-                resp = requests.post(
-                    f'{_DOWNLOADER_BASE_URL}/api/scripts/{script_id}/run',
-                    json=run_params,
-                    headers=fwd_headers,
-                    cookies=request.cookies,
-                    timeout=30,
-                )
-                data = resp.json() if resp.content else {}
-            except Exception as e:
-                return jsonify({
-                    'success': False,
-                    'message': f'资源下载器服务不可用，请检查下载器进程是否运行：{e}',
-                    'code': 503,
-                }), 503
-            if data.get('success'):
-                return jsonify({
-                    'success': True,
-                    'message': '已重新提交，请在任务列表查看新任务',
-                    'job_id': data.get('job_id'),
-                })
-            return jsonify({
-                'success': False,
-                'message': data.get('error') or data.get('message') or '重新提交失败',
-            }), (resp.status_code if 'status_code' in dir(resp) else 400)
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'重试失败：{e}'}), 500
-
-    if kind == 'upload':
+    # 与「继续」同一套路：谁能重试、怎么重试，由任务实现方在注册表登记，
+    # 框架只查表。查不到就是「不支持自动重试」，不再逐类型硬编码。
+    result = _dispatch_action(kind, CAPABILITY_RETRY, get_retry_handler, task)
+    if result is None:
         return jsonify({
             'success': False,
-            'message': '上传任务需重新选择文件发起，无法自动重试',
-            'need_reupload': True,
+            'message': f'该类型任务（{kind}）未注册重试实现，不支持自动重试',
+            'not_supported': True,
         }), 400
-
-    # thumbnail 等其他类型：无可靠重放参数
-    return jsonify({
-        'success': False,
-        'message': '该类型任务无法自动重试，请重新发起',
-    }), 400
+    ok, message, extra, http_status = result
+    payload = {'success': bool(ok), 'message': message}
+    if ok:
+        payload['task_id'] = task_id
+    payload.update(extra or {})
+    bump_attempts(task_id)
+    return jsonify(payload), (200 if ok else http_status)

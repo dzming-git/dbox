@@ -27,7 +27,7 @@ from shared.unified_tasks import (
     init_task_manager as _ut_init,
     create_task, update_task, delete_task, get_task, get_tasks,
     reclaim_interrupted, register_capability, clear_service_capabilities,
-    CAPABILITY_RESUME,
+    CAPABILITY_RESUME, CAPABILITY_RETRY,
 )
 
 # 本进程（扩展宿主）在统一任务表里的归属标记，用于重启后回收自己的僵尸任务
@@ -126,19 +126,27 @@ class _TasksProxy:
     def update(self, task_id, **kwargs):
         return update_task(task_id, **kwargs)
 
-    def register_resume(self, path, capability=CAPABILITY_RESUME):
-        """登记本插件的「继续」端点，让框架知道这类任务可以从中断处继续。
+    def register_action(self, path, capability):
+        """登记本插件的某个任务动作端点（继续 / 重试……）。
 
         path 是相对插件根的路径（如 '/search/resume'），完整 URL 由框架按
         ext_urls 统一推导——插件不得自己拼完整地址。
 
-        为什么必须由插件主动声明：是否支持断点续跑、续跑要调哪个接口，只有
-        插件自己知道。框架查到声明才提供入口；查不到就判定「不支持继续」。
+        为什么必须由插件主动声明：是否支持该动作、要调哪个接口，只有插件自己
+        知道。框架查到声明才提供入口；查不到就判定「不支持」。
         """
         prefix = ext_api_path(self._kind)
         endpoint = '%s%s' % (prefix, path if path.startswith('/') else '/' + path)
         register_capability(self._kind, capability, TASK_SERVICE, endpoint=endpoint)
         return endpoint
+
+    def register_resume(self, path):
+        """登记「从中断处继续」的端点。"""
+        return self.register_action(path, CAPABILITY_RESUME)
+
+    def register_retry(self, path):
+        """登记「失败后重跑」的端点。"""
+        return self.register_action(path, CAPABILITY_RETRY)
 
     def delete(self, task_id):
         return delete_task(task_id, is_admin=True)

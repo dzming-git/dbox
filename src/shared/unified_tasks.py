@@ -57,10 +57,12 @@ _ACTION_KIND_NAVIGATE = 'navigate'                       # 需跳转到某页面
 #   - 查得到 → 转发/调用；
 #   - 查不到 → 明确判定「该类型任务不支持此能力」，而不是硬编码一份白名单。
 CAPABILITY_RESUME = 'resume'   # 断点续跑：从中断处继续，而非从头重来
+CAPABILITY_RETRY = 'retry'     # 失败/取消后重跑一次
 
-# 同一进程内登记的「继续」实现：kind -> callable(task_dict) -> (ok, message)
+# 同一进程内登记的动作实现：kind -> callable(task_dict) -> (ok, message[, extra])
 # 跨进程的任务（如插件）则通过 endpoint 由框架转发调用。
 _RESUME_HANDLERS = {}
+_RETRY_HANDLERS = {}
 
 _lock = threading.Lock()
 _db_path = None
@@ -164,8 +166,8 @@ def _row_to_dict(row):
         d['params'] = json.loads(d['params']) if d.get('params') else None
     except (ValueError, TypeError):
         d['params'] = None
-    # can_resume：框架按注册表判定，**调用方不必知道任何具体任务类型**。
-    # 没注册继续实现的类型一律为 False，界面据此不展示「继续」入口。
+    # can_resume / can_retry：框架按注册表判定，**调用方不必知道任何具体任务类型**。
+    # 没注册实现的类型一律为 False，界面据此不展示对应入口。
     try:
         d['can_resume'] = bool(
             (d.get('kind') in _RESUME_HANDLERS)
@@ -173,6 +175,13 @@ def _row_to_dict(row):
         )
     except Exception:
         d['can_resume'] = False
+    try:
+        d['can_retry'] = bool(
+            (d.get('kind') in _RETRY_HANDLERS)
+            or get_capability(d.get('kind'), CAPABILITY_RETRY)
+        )
+    except Exception:
+        d['can_retry'] = False
     return d
 
 
@@ -334,7 +343,14 @@ def get_capability(kind, capability):
 
 
 def list_capabilities(capability=None):
-    """列出已注册的能力：{kind: {service, endpoint}}（可按能力名过滤）。"""
+    """列出已注册的能力。
+
+    指定 capability → {kind: {service, endpoint}}（扁平，便于按能力查）
+    不指定         → {kind: {capability: {service, endpoint}}}
+
+    为什么全量查询要嵌套：同一种任务可以同时具备多个能力（如既能继续又能重试），
+    若一律用 kind 做键，后写的能力会把先写的覆盖掉，看起来就像只剩一个能力。
+    """
     try:
         with _lock:
             with _conn() as conn:
@@ -343,11 +359,19 @@ def list_capabilities(capability=None):
                         'SELECT kind, service, endpoint FROM task_capabilities WHERE capability=?',
                         (capability,),
                     ).fetchall()
-                else:
-                    rows = conn.execute(
-                        'SELECT kind, service, endpoint FROM task_capabilities'
-                    ).fetchall()
-        return {r['kind']: {'service': r['service'], 'endpoint': r['endpoint']} for r in rows}
+                    return {
+                        r['kind']: {'service': r['service'], 'endpoint': r['endpoint']}
+                        for r in rows
+                    }
+                rows = conn.execute(
+                    'SELECT kind, capability, service, endpoint FROM task_capabilities'
+                ).fetchall()
+        out = {}
+        for r in rows:
+            out.setdefault(r['kind'], {})[r['capability']] = {
+                'service': r['service'], 'endpoint': r['endpoint'],
+            }
+        return out
     except Exception:
         return {}
 
@@ -369,22 +393,35 @@ def clear_service_capabilities(service):
     return n
 
 
+def _register_local_handler(table, kind, fn, capability):
+    if not kind or not callable(fn):
+        return False
+    table[kind] = fn
+    register_capability(kind, capability, _handler_service(), endpoint=None)
+    return True
+
+
 def register_resume_handler(kind, fn):
     """在本进程内登记「继续」实现（无需跨进程转发）。
 
-    fn(task_dict) -> (ok: bool, message: str)
+    fn(task_dict) -> (ok, message) 或 (ok, message, extra)
     与 register_capability 的区别：handler 只在**当前进程**有效，
     跨进程（插件）必须靠 endpoint；两者可并存，优先用同进程 handler。
     """
-    if not kind or not callable(fn):
-        return False
-    _RESUME_HANDLERS[kind] = fn
-    register_capability(kind, CAPABILITY_RESUME, _handler_service(), endpoint=None)
-    return True
+    return _register_local_handler(_RESUME_HANDLERS, kind, fn, CAPABILITY_RESUME)
+
+
+def register_retry_handler(kind, fn):
+    """在本进程内登记「重试」实现，签名同 register_resume_handler。"""
+    return _register_local_handler(_RETRY_HANDLERS, kind, fn, CAPABILITY_RETRY)
 
 
 def get_resume_handler(kind):
     return _RESUME_HANDLERS.get(kind)
+
+
+def get_retry_handler(kind):
+    return _RETRY_HANDLERS.get(kind)
 
 
 def _handler_service():
@@ -406,6 +443,14 @@ def resumable_kinds():
     kinds = set(list_capabilities(CAPABILITY_RESUME).keys())
     kinds.update(_RESUME_HANDLERS.keys())
     return kinds
+
+
+def retryable_kinds():
+    """当前**支持重试**的任务类型集合。"""
+    kinds = set(list_capabilities(CAPABILITY_RETRY).keys())
+    kinds.update(_RETRY_HANDLERS.keys())
+    return kinds
+
 
 
 def mark_started(task_id):
