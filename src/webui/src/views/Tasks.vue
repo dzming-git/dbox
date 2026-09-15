@@ -222,7 +222,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, ACTIVE_STATUSES, type Task } from '../api/task'
-import { api } from '../api'
 import { useTaskStream } from '../composables/useTaskStream'
 import { type PendingInput } from '../api/script'
 
@@ -372,11 +371,11 @@ function canRetry(t: Task): boolean {
   return t.status === 'failed' || t.status === 'cancelled' || t.status === 'interrupted'
 }
 
-// 「继续」：只给**明确支持断点续跑**的任务。
-// 各插件的续跑入口不同，这里按 kind 分派；不支持的插件只显示「重试」。
+// 「继续」：能否续跑由**框架按能力注册表**判定并随任务下发（can_resume）。
+// 界面不认识任何具体任务类型——那是实现方的知识，硬编码成 `kind === 'x'`
+// 会让每接入一种可续跑任务都要改前端。
 function canResume(t: Task): boolean {
-  if (t.status !== 'interrupted') return false
-  return t.kind === 'x'
+  return t.status === 'interrupted' && t.can_resume === true
 }
 
 const resumingId = ref<string | null>(null)
@@ -385,10 +384,8 @@ async function resumeOne(t: Task) {
   if (!canResume(t) || resumingId.value) return
   resumingId.value = t.task_id
   try {
-    let res: any = null
-    if (t.kind === 'x') {
-      res = await api.post('/api/ext/x/search/resume', { task_id: t.task_id })
-    }
+    // 统一入口：框架查注册表后转交给实现方，前端不需要知道调谁
+    const res: any = await taskApi.resume(t.task_id)
     if (res && res.success) {
       await refresh()
     } else {

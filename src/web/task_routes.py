@@ -22,6 +22,8 @@ from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_tasks, count_action_required,
     delete_task, create_task, request_cancel, bump_attempts,
     STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
+    CAPABILITY_RESUME, get_capability, get_resume_handler,
+    list_capabilities, resumable_kinds,
 )
 
 bp = Blueprint('task', __name__)
@@ -29,6 +31,14 @@ bp = Blueprint('task', __name__)
 # 资源下载器服务地址（脚本任务真正执行的进程）。主服务作为网关将 /api/scripts
 # 转发过去；重试脚本任务时本蓝图直接向内网地址发起 run 请求。
 _DOWNLOADER_BASE_URL = 'http://127.0.0.1:8092'
+
+# 各服务的内网地址：框架按能力注册表里登记的 service 把「继续」请求转发过去。
+# 这里只描述**基础设施拓扑**（哪个服务在哪个端口），不涉及任何具体任务类型。
+_SERVICE_BASE_URLS = {
+    'web': '',                              # 本进程：走同进程 handler
+    'extensions': 'http://127.0.0.1:8093',  # 扩展管理宿主
+    'downloader': _DOWNLOADER_BASE_URL,
+}
 
 # 任务详情接口单次返回的最大日志条数（避免长任务把接口拉爆）
 _TASK_LOG_LIMIT = 500
@@ -339,6 +349,101 @@ def cancel_task(task_id):
         'success': True,
         'task': updated,
         'message': '已请求取消，任务会在下一个检查点停止',
+    })
+
+
+@bp.route('/api/tasks/<path:task_id>/resume', methods=['POST'])
+@auth_required
+def resume_task(task_id):
+    """从中断处继续一个任务（框架统一入口）。
+
+    框架**不认识任何具体任务类型**：谁能继续、怎么继续，由任务实现方在注册表中
+    声明（同进程内登记 handler，或跨进程登记 endpoint）。本函数只做三件事：
+      1. 查注册表确认这个 kind 有没有注册「继续」；
+      2. 有 → 转交实现方（同进程直接调，跨进程转发）；
+      3. 没有 → 明确返回「该类型任务不支持继续」，而不是猜一个接口去调。
+
+    这样新增一种可续跑的任务，只需实现方自己注册，框架零改动。
+    """
+    user_id = getattr(g, 'user_id', None)
+    is_admin = _is_admin(getattr(g, 'role', None))
+
+    task = get_task(task_id)
+    if not task:
+        return jsonify({'success': False, 'message': '任务不存在'}), 404
+
+    if not is_admin and task.get('owner_id') not in (None, user_id):
+        return jsonify({'success': False, 'message': '无权继续该任务'}), 403
+
+    kind = task.get('kind')
+
+    # 同进程内登记的继续实现优先：省一次跨进程转发
+    handler = get_resume_handler(kind)
+    if handler:
+        try:
+            ok, message = handler(task)
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'继续失败: {e}'}), 500
+        if not ok:
+            return jsonify({'success': False, 'message': message}), 400
+        bump_attempts(task_id)
+        return jsonify({'success': True, 'message': message, 'task_id': task_id})
+
+    # 否则查注册表：由登记该能力的服务执行
+    cap = get_capability(kind, CAPABILITY_RESUME)
+    if not cap:
+        # 框架感知到「没人注册继续函数」——这是正常情况，不是错误：
+        # 多数任务本就无法断点续跑，界面据此不展示「继续」入口。
+        return jsonify({
+            'success': False,
+            'message': f'该类型任务（{kind}）未注册继续实现，不支持从中断处继续',
+            'not_supported': True,
+        }), 400
+
+    service = cap.get('service')
+    endpoint = cap.get('endpoint')
+    base = _SERVICE_BASE_URLS.get(service)
+    if not endpoint or not base:
+        return jsonify({
+            'success': False,
+            'message': f'该类型任务的继续实现注册不完整（service={service}）',
+            'not_supported': True,
+        }), 500
+
+    # 转发给实现方：带上用户鉴权，避免越权续跑别人的任务
+    try:
+        import requests as _rq
+        headers = {'Content-Type': 'application/json'}
+        auth = request.headers.get('Authorization')
+        if auth:
+            headers['Authorization'] = auth
+        device = request.headers.get('X-Dbox-Device-Id')
+        if device:
+            headers['X-Dbox-Device-Id'] = device
+        r = _rq.post(f'{base}{endpoint}', json={'task_id': task_id},
+                     headers=headers, timeout=30)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'转发继续请求失败: {e}'}), 502
+
+    try:
+        payload = r.json()
+    except Exception:
+        payload = {'success': False, 'message': (r.text or '')[:200]}
+    bump_attempts(task_id)
+    return jsonify(payload if isinstance(payload, dict) else {'success': True}), r.status_code
+
+
+@bp.route('/api/tasks/capabilities', methods=['GET'])
+@auth_required
+def task_capabilities():
+    """列出各任务类型已注册的能力（前端据此决定展示哪些操作）。
+
+    界面不该硬编码「哪种任务能继续」——那份知识属于实现方，这里统一查表返回。
+    """
+    return jsonify({
+        'success': True,
+        'capabilities': list_capabilities(),
+        'resumable': sorted(resumable_kinds()),
     })
 
 

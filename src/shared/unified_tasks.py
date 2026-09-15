@@ -47,6 +47,21 @@ _TERMINAL_STATUSES = frozenset({
 _ACTION_KIND_SCRIPT_INTERACTIVE = 'script_interactive'  # 需到脚本交互接口处理
 _ACTION_KIND_NAVIGATE = 'navigate'                       # 需跳转到某页面处理
 
+# ============ 任务能力注册（capability registry） ============
+# 任务类型（kind）向框架声明自己**支持哪些后续动作**以及**怎么调用**。
+#
+# 设计动机：像「继续（断点续跑）」这种能力，是否支持、怎么执行，只有任务的
+# 实现方（插件或内置模块）知道。若框架里写 `if kind == 'x': ...`，每接入一种
+# 任务就要改一次框架，插件知识还会泄漏进框架。
+# 因此改为**注册制**：实现方自己登记，框架只负责查表：
+#   - 查得到 → 转发/调用；
+#   - 查不到 → 明确判定「该类型任务不支持此能力」，而不是硬编码一份白名单。
+CAPABILITY_RESUME = 'resume'   # 断点续跑：从中断处继续，而非从头重来
+
+# 同一进程内登记的「继续」实现：kind -> callable(task_dict) -> (ok, message)
+# 跨进程的任务（如插件）则通过 endpoint 由框架转发调用。
+_RESUME_HANDLERS = {}
+
 _lock = threading.Lock()
 _db_path = None
 _initialized = False
@@ -86,6 +101,15 @@ def init_task_manager(data_dir):
         )''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_action ON tasks(action_required, action_role)')
+        # 能力注册表：某类任务支持哪些后续动作、由哪个服务执行、怎么调用
+        conn.execute('''CREATE TABLE IF NOT EXISTS task_capabilities (
+            kind TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            service TEXT NOT NULL,
+            endpoint TEXT,
+            updated_at REAL,
+            PRIMARY KEY (kind, capability)
+        )''')
         # 兼容旧库：逐列补充（已存在的列会抛 OperationalError，忽略即可）
         for _ddl in (
             'ALTER TABLE tasks ADD COLUMN owner_service TEXT',
@@ -140,6 +164,15 @@ def _row_to_dict(row):
         d['params'] = json.loads(d['params']) if d.get('params') else None
     except (ValueError, TypeError):
         d['params'] = None
+    # can_resume：框架按注册表判定，**调用方不必知道任何具体任务类型**。
+    # 没注册继续实现的类型一律为 False，界面据此不展示「继续」入口。
+    try:
+        d['can_resume'] = bool(
+            (d.get('kind') in _RESUME_HANDLERS)
+            or get_capability(d.get('kind'), CAPABILITY_RESUME)
+        )
+    except Exception:
+        d['can_resume'] = False
     return d
 
 
@@ -245,6 +278,134 @@ def reclaim_interrupted(service, include_legacy=True):
                      now, now, r['task_id']),
                 )
     return [r['task_id'] for r in rows]
+
+
+# ---------------------------------------------------------------- 能力注册
+
+def register_capability(kind, capability, service, endpoint=None):
+    """声明「某类任务支持某项能力」。
+
+    kind        任务类型（如 'x' / 'scan'）
+    capability  能力名（见 CAPABILITY_* 常量）
+    service     由哪个服务执行（决定框架把请求转发到哪）
+    endpoint    跨进程调用时的端点路径；同进程内有 handler 的可不填
+
+    幂等：重复注册只更新。这样插件热重载、服务重启动都能安全重新登记。
+    """
+    if not kind or not capability or not service:
+        return False
+    with _lock:
+        with _conn() as conn:
+            conn.execute(
+                '''INSERT INTO task_capabilities (kind, capability, service, endpoint, updated_at)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(kind, capability) DO UPDATE SET
+                     service=excluded.service, endpoint=excluded.endpoint,
+                     updated_at=excluded.updated_at''',
+                (kind, capability, service, endpoint, _now()),
+            )
+    return True
+
+
+def unregister_capability(kind, capability):
+    """撤销某项能力声明（插件卸载 / 模块停用时）。"""
+    with _lock:
+        with _conn() as conn:
+            conn.execute(
+                'DELETE FROM task_capabilities WHERE kind=? AND capability=?',
+                (kind, capability),
+            )
+
+
+def get_capability(kind, capability):
+    """查询某类任务的某项能力，返回 {service, endpoint}；未注册返回 None。"""
+    if not kind or not capability:
+        return None
+    try:
+        with _lock:
+            with _conn() as conn:
+                row = conn.execute(
+                    'SELECT service, endpoint FROM task_capabilities WHERE kind=? AND capability=?',
+                    (kind, capability),
+                ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def list_capabilities(capability=None):
+    """列出已注册的能力：{kind: {service, endpoint}}（可按能力名过滤）。"""
+    try:
+        with _lock:
+            with _conn() as conn:
+                if capability:
+                    rows = conn.execute(
+                        'SELECT kind, service, endpoint FROM task_capabilities WHERE capability=?',
+                        (capability,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        'SELECT kind, service, endpoint FROM task_capabilities'
+                    ).fetchall()
+        return {r['kind']: {'service': r['service'], 'endpoint': r['endpoint']} for r in rows}
+    except Exception:
+        return {}
+
+
+def clear_service_capabilities(service):
+    """清除某服务登记的全部能力（服务启动时调用）。
+
+    目的：避免**僵尸能力**——插件被卸载/改名后，旧的声明还留在表里，
+    框架会以为「支持继续」，转发到一个已不存在的端点。
+    服务每次启动先清空自己名下的声明，再由当前加载的模块重新登记。
+    """
+    if not service:
+        return 0
+    with _lock:
+        with _conn() as conn:
+            cur = conn.execute(
+                'DELETE FROM task_capabilities WHERE service=?', (service,))
+            n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    return n
+
+
+def register_resume_handler(kind, fn):
+    """在本进程内登记「继续」实现（无需跨进程转发）。
+
+    fn(task_dict) -> (ok: bool, message: str)
+    与 register_capability 的区别：handler 只在**当前进程**有效，
+    跨进程（插件）必须靠 endpoint；两者可并存，优先用同进程 handler。
+    """
+    if not kind or not callable(fn):
+        return False
+    _RESUME_HANDLERS[kind] = fn
+    register_capability(kind, CAPABILITY_RESUME, _handler_service(), endpoint=None)
+    return True
+
+
+def get_resume_handler(kind):
+    return _RESUME_HANDLERS.get(kind)
+
+
+def _handler_service():
+    """当前进程在能力表里使用的服务名（供同进程 handler 登记用）。"""
+    return _LOCAL_SERVICE or 'web'
+
+
+def set_local_service(service):
+    """设置本进程的服务名（各服务启动时调用一次）。"""
+    global _LOCAL_SERVICE
+    _LOCAL_SERVICE = service
+
+
+_LOCAL_SERVICE = None
+
+
+def resumable_kinds():
+    """当前**支持继续**的任务类型集合（含同进程 handler 与跨进程 endpoint）。"""
+    kinds = set(list_capabilities(CAPABILITY_RESUME).keys())
+    kinds.update(_RESUME_HANDLERS.keys())
+    return kinds
 
 
 def mark_started(task_id):
