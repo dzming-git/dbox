@@ -224,6 +224,14 @@ def _proxy_to_extensions_host(path):
             finally:
                 _conn.close()
 
+        # 同 SSE：长连接不结束 → 鉴权借出的数据库连接不会归还，会占满连接池。
+        # 这里在返回流之前归还（generate 只是转发上游字节，不再查库）。
+        try:
+            from backend.db_guard import release_db
+            release_db()
+        except Exception:
+            pass
+
         return _FlaskResponse(
             generate(),
             status=_resp.status,
