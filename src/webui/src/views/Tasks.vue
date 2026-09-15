@@ -1107,4 +1107,15 @@ onUnmounted(() => {
   border-color: #4a8cff;
   color: var(--text-on-accent);
 }
+
+/* 移动端：任务页此前没有任何断点，卡片一行的信息在窄屏会挤成多行并溢出 */
+@media (max-width: 768px) {
+  .tasks-page { padding: 12px 10px; }
+  .task-card { padding: 12px; }
+  .task-top { flex-wrap: wrap; gap: 6px; }
+  .task-filters { gap: 8px; }
+  .filter-group { flex: 1; }
+  .filter-select { flex: 1; }
+  .task-pager { flex-wrap: wrap; }
+}
 </style>

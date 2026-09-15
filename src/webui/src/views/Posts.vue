@@ -576,6 +576,24 @@ const formatDate = (s?: string) => {
 
 <style scoped>
 .posts-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+
+/* 移动端：帖子流此前完全没有断点，卡片内边距与 3 列九宫格在窄屏上很挤 */
+@media (max-width: 768px) {
+  .posts-container { padding: 12px 10px; }
+  .posts-header { flex-wrap: wrap; gap: 10px; }
+  .section-title { font-size: 18px; }
+  .post-card { padding: 12px; border-radius: 12px; }
+  .post-title { font-size: 15px; }
+  /* 九宫格在窄屏统一降到 2 列，避免每张图小到看不清 */
+  .moments-grid.g-3,
+  .moments-grid.g-5,
+  .moments-grid.g-6,
+  .moments-grid.g-7,
+  .moments-grid.g-8,
+  .moments-grid.g-9 { grid-template-columns: repeat(2, 1fr); }
+  .post-ops { gap: 6px; }
+  .status-tabs { overflow-x: auto; }
+}
 .posts-header { display: flex; align-items: center; justify-content: space-between; }
 .section-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .create-btn {
