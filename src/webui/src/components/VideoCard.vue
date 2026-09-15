@@ -64,9 +64,11 @@ loadThumbnail()
 // 格式化时长
 const formatDuration = (seconds?: number): string => {
   if (!seconds) return '00:00'
+  // 库里的 duration 是 ffprobe 给的浮点秒（如 754.3181818181819），
+  // 秒必须取整后再拼字符串，否则会把一长串小数直接显示出来。
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
+  const s = Math.floor(seconds % 60)
   if (h > 0) {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
