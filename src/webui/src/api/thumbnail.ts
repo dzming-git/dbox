@@ -11,7 +11,11 @@ export const thumbnailApi = {
 
   // 重新生成缩略图（管理后台使用）
   regenerate: (hash: string) =>
-    axios.post(`${API_BASE}/api/thumbnail/regenerate/${hash}`)
+    axios.post(`${API_BASE}/api/thumbnail/regenerate/${hash}`),
+
+  // 封面选帧：把某一秒的画面设为封面
+  setCover: (hash: string, t: number) =>
+    axios.post(`${API_BASE}/api/thumbnail/cover`, { hash, t }),
 }
 
 export const healthApi = {

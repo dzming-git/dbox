@@ -22,7 +22,8 @@ from backend.task_helpers import (
 )
 import os
 import json
-from backend.access import admin_required
+import time
+from backend.access import admin_required, auth_required
 from backend.paths import DATA_DIR
 from backend.runtime import runtime
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, session, g, abort, Response, current_app
@@ -378,6 +379,85 @@ def regenerate_thumbnail(video_hash):
             return jsonify({'success': False, 'message': str(e)}), 500
     else:
         return jsonify({'success': False, 'message': '缩略图服务不可用'}), 503
+
+@bp.route('/api/thumbnail/frame')
+@auth_required
+def get_video_frame():
+    """按时间点抽一帧（供「封面选帧」预览）。
+
+    query: hash, t（秒）。直接返回 JPEG 图片流，不落盘到正式位置。
+    """
+    vhash = request.args.get('hash', '').strip()
+    try:
+        t = float(request.args.get('t', 0) or 0)
+    except (TypeError, ValueError):
+        t = 0.0
+    video = Video.query.filter_by(hash=vhash).first()
+    if not is_video_visible(video, allow_hidden=request.args.get('post', '0') == '1'):
+        abort(404)
+    path = video.local_path if video else None
+    if not path or not os.path.exists(path):
+        return jsonify({'success': False, 'message': '视频文件不存在'}), 404
+
+    tmp_dir = os.path.join(DATA_DIR, 'thumbnails', '.frames')
+    os.makedirs(tmp_dir, exist_ok=True)
+    out = os.path.join(tmp_dir, f'{vhash}_{int(t * 1000)}.jpg')
+    if not os.path.exists(out):
+        from backend.utils.media import extract_frame
+        ok, err = extract_frame(path, t, out)
+        if not ok:
+            return jsonify({'success': False, 'message': err or '抽帧失败'}), 500
+    resp = send_file(out, mimetype='image/jpeg')
+    resp.cache_control.max_age = 3600
+    return resp
+
+
+@bp.route('/api/thumbnail/cover', methods=['POST'])
+@auth_required
+def set_video_cover():
+    """把某一帧设为封面（封面选帧）。
+
+    body: { hash, t }。抽帧后写入 thumbnails/<hash>.cover.jpg，
+    并把资源索引的缩略图路径指向它——索引才是封面位置的权威来源，
+    只写文件不更新索引的话，改完可能仍然显示旧图。
+    """
+    data = request.get_json(silent=True) or {}
+    vhash = (data.get('hash') or '').strip()
+    try:
+        t = float(data.get('t', 0) or 0)
+    except (TypeError, ValueError):
+        t = 0.0
+    video = Video.query.filter_by(hash=vhash).first()
+    if not video:
+        return jsonify({'success': False, 'message': '视频不存在'}), 404
+    if not is_video_visible(video):
+        return jsonify({'success': False, 'message': '无权修改该视频'}), 403
+    path = video.local_path
+    if not path or not os.path.exists(path):
+        return jsonify({'success': False, 'message': '视频文件不存在'}), 404
+
+    thumb_dir = os.path.join(DATA_DIR, 'thumbnails')
+    os.makedirs(thumb_dir, exist_ok=True)
+    out = os.path.join(thumb_dir, f'{vhash}.cover.jpg')
+    from backend.utils.media import extract_frame
+    ok, err = extract_frame(path, t, out)
+    if not ok:
+        return jsonify({'success': False, 'message': err or '抽帧失败'}), 500
+
+    # 更新索引：封面位置的权威来源
+    ri = getattr(video, 'resource_index', None)
+    if ri is not None:
+        try:
+            meta = ri.get_meta() or {}
+            meta['thumbnail'] = out
+            ri.set_meta(meta)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            log.debug('ERROR', f'更新索引封面路径失败: {e}')
+    return jsonify({'success': True, 'hash': vhash, 't': t,
+                    'url': f'/thumbnail/{vhash}?v={int(time.time())}'})
+
 
 @bp.route('/api/admin/thumbnail/config', methods=['GET'])
 @admin_required

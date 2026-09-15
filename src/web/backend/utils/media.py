@@ -7,36 +7,36 @@ import os
 import struct
 
 
-_FFPROBE_CACHE = {'path': None, 'checked': False}
+_FFMPEG_CACHE = {}
 
 
-def _find_ffprobe():
-    """定位 ffprobe 可执行文件，找不到返回 None（结果缓存）。
+def _find_ffmpeg_tool(name: str):
+    """定位 ffmpeg / ffprobe 可执行文件，找不到返回 None（结果缓存）。
 
-    为什么不能直接 `shutil.which('ffprobe')`：Web 服务以 Windows 服务方式运行，
-    其 PATH **不包含**安装者的用户目录，而 WinGet 装的 ffprobe 就在
+    为什么不能直接 `shutil.which(name)`：Web 服务以 Windows 服务方式运行，
+    其 PATH **不包含**安装者的用户目录，而 WinGet 装的 ffmpeg 就在
     `%LOCALAPPDATA%\\Microsoft\\WinGet\\Links` 下。结果就是「命令行里能跑、
-    服务里一律找不到」——时长探测在服务端静默失效，只能靠 MP4 兜底。
-    因此按 环境变量 → PATH → 常见安装位置 逐级找，并允许用 FFPROBE 显式指定。
+    服务里一律找不到」——时长探测、抽帧在服务端静默失效。
+    因此按 环境变量 → PATH → 常见安装位置 逐级找，并允许用 FFMPEG/FFPROBE 显式指定。
     """
-    if _FFPROBE_CACHE['checked']:
-        return _FFPROBE_CACHE['path']
+    if name in _FFMPEG_CACHE:
+        return _FFMPEG_CACHE[name]
     found = None
     try:
         import shutil
-        env = os.environ.get('FFPROBE')
+        import glob
+        env = os.environ.get(name.upper())
         if env and os.path.isfile(env):
             found = env
         if not found:
-            found = shutil.which('ffprobe')
+            found = shutil.which(name)
         if not found:
-            import glob
             patterns = [
                 os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft',
-                             'WinGet', 'Links', 'ffprobe.exe'),
-                r'C:\Users\*\AppData\Local\Microsoft\WinGet\Links\ffprobe.exe',
-                r'C:\ProgramData\chocolatey\bin\ffprobe.exe',
-                '/usr/bin/ffprobe',
+                             'WinGet', 'Links', f'{name}.exe'),
+                rf'C:\Users\*\AppData\Local\Microsoft\WinGet\Links\{name}.exe',
+                rf'C:\ProgramData\chocolatey\bin\{name}.exe',
+                f'/usr/bin/{name}',
             ]
             for pat in patterns:
                 for cand in glob.glob(pat):
@@ -47,8 +47,32 @@ def _find_ffprobe():
                     break
     except Exception:
         found = None
-    _FFPROBE_CACHE.update({'path': found, 'checked': True})
+    _FFMPEG_CACHE[name] = found
     return found
+
+
+def _find_ffprobe():
+    return _find_ffmpeg_tool('ffprobe')
+
+
+def extract_frame(video_path: str, at_second: float, out_path: str):
+    """用 ffmpeg 从视频里抽一帧存成 JPEG。返回 (是否成功, 错误信息)。
+
+    -ss 放在 -i 之前：先 seek 再解码，抽远处的帧才不会慢到几秒。
+    """
+    exe = _find_ffmpeg_tool('ffmpeg')
+    if not exe:
+        return False, '未找到 ffmpeg'
+    try:
+        import subprocess
+        cmd = [exe, '-y', '-ss', str(max(0.0, float(at_second))), '-i', video_path,
+               '-frames:v', '1', '-q:v', '3', out_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode == 0 and os.path.exists(out_path):
+            return True, None
+        return False, (r.stderr or '').strip()[-200:] or '抽帧失败'
+    except Exception as e:
+        return False, str(e)
 
 
 def extract_duration(file_path):
