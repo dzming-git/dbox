@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { videoApi, galleryApi } from '../api'
+import { videoApi, galleryApi, thumbnailApi } from '../api'
 import { useVideoStore } from '../stores/videoStore'
 import { useGalleryStore } from '../stores/galleryStore'
 
@@ -49,6 +49,57 @@ watch(
   },
   { immediate: true }
 )
+
+// ============ 封面选帧 ============
+const frameTime = ref<number | null>(null)
+const coverBusy = ref(false)
+const coverMsg = ref('')
+
+const coverMax = computed(() => {
+  const d = Number(props.item?.duration) || 0
+  return d > 0 ? Math.floor(d * 10) / 10 : 30
+})
+
+// 拖动时只更新数值；真正抽帧由 <img> 发请求（浏览器自带缓存 + 后端按秒落盘）
+const frameUrl = computed(() => {
+  if (frameTime.value == null) return ''
+  return `/api/thumbnail/frame?hash=${props.item?.hash}&t=${frameTime.value}`
+})
+
+function onFrameInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value)
+  frameTime.value = isFinite(v) ? Math.round(v * 10) / 10 : 0
+}
+
+function fmtTime(sec: number) {
+  const s = Math.floor(sec)
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+async function applyCover() {
+  if (frameTime.value == null || coverBusy.value) return
+  coverBusy.value = true
+  coverMsg.value = ''
+  try {
+    const res: any = await thumbnailApi.setCover(props.item.hash, frameTime.value)
+    if (res?.success) {
+      coverMsg.value = '已设为封面'
+      // 让列表/详情立即换图（同 hash 会被缓存，加时间戳破缓存）
+      const stamp = Date.now()
+      if (props.item) {
+        props.item.thumbnail = `${res.url}&_=${stamp}`
+        props.item.cover_url = props.item.thumbnail
+      }
+    } else {
+      coverMsg.value = res?.message || '设置失败'
+    }
+  } catch (e: any) {
+    coverMsg.value = e?.response?.data?.message || e?.message || '设置失败'
+  } finally {
+    coverBusy.value = false
+  }
+}
 
 const normalizeTag = (s: string): string => {
   s = s.trim()
@@ -137,6 +188,36 @@ const save = async () => {
             <span class="field-label">简介</span>
             <textarea v-model="form.description" class="field-textarea" rows="3" placeholder="简介"></textarea>
           </label>
+
+          <!-- 封面选帧：默认封面常是片头黑帧或水印，能自己挑一帧很有用 -->
+          <div v-if="isVideo && props.item?.hash" class="field">
+            <span class="field-label">封面（拖动滑杆挑一帧）</span>
+            <div class="cover-picker">
+              <img
+                v-if="frameTime != null"
+                class="cover-preview"
+                :src="frameUrl"
+                alt="封面预览"
+              />
+              <div v-else class="cover-preview placeholder">拖动下方滑杆开始选帧</div>
+              <input
+                class="cover-range"
+                type="range"
+                :min="0"
+                :max="String(coverMax)"
+                step="0.1"
+                :value="String(frameTime ?? 0)"
+                @input="onFrameInput"
+              />
+              <div class="cover-actions">
+                <span class="cover-time">{{ fmtTime(frameTime ?? 0) }}</span>
+                <button type="button" class="pick-btn" :disabled="coverBusy" @click="applyCover">
+                  {{ coverBusy ? '设置中…' : '用这一帧做封面' }}
+                </button>
+              </div>
+              <span v-if="coverMsg" class="cover-msg">{{ coverMsg }}</span>
+            </div>
+          </div>
 
           <label class="field">
             <span class="field-label">所属资源库</span>
@@ -238,6 +319,38 @@ const save = async () => {
   color: var(--text-secondary);
   font-size: 13px;
 }
+/* 封面选帧 */
+.cover-picker { display: flex; flex-direction: column; gap: 8px; }
+.cover-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+.cover-preview.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.cover-range { width: 100%; accent-color: var(--accent); }
+.cover-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cover-time { font-size: 12px; color: var(--text-tertiary); }
+.pick-btn {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pick-btn:disabled { opacity: 0.6; cursor: progress; }
+.cover-msg { font-size: 12px; color: var(--text-tertiary); }
 .field-input {
   height: 40px;
   padding: 0 12px;
