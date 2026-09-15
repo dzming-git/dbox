@@ -28,6 +28,20 @@ from routes import script_bp, init_script_engine
 from plugin_loader import load_all_plugins
 
 
+def _reset_task_capabilities():
+    """清空本服务（扩展宿主）登记的任务能力，供插件重新注册。"""
+    try:
+        from shared.unified_tasks import (
+            init_task_manager, clear_service_capabilities, set_local_service,
+        )
+        from shared.credential_vault import data_dir_for
+        init_task_manager(data_dir_for())
+        set_local_service('extensions')
+        clear_service_capabilities('extensions')
+    except Exception:
+        logger.exception('清空任务能力声明失败（不影响主流程）')
+
+
 def create_app():
     app = Flask('extensions_host')
 
@@ -49,6 +63,10 @@ def create_app():
 
     app.register_blueprint(script_bp)
     init_script_engine(app)
+    # 清空本服务上次登记的任务能力（如「继续」），再由当前加载的插件重新注册。
+    # 不做这一步，卸载/改名的插件会留下僵尸声明：框架以为支持继续，
+    # 转发到一个已不存在的端点。必须在加载插件**之前**清。
+    _reset_task_capabilities()
     load_all_plugins(app)
     # 启动插件文件变动热重载监控：改 backend/*.py 或 manifest.json 后自动 reload，
     # 受插件 __ext_busy__ 钩子保护（有活跃任务时延迟重载，避免打断正在跑的任务）。

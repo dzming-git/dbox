@@ -35,6 +35,11 @@ export interface Task {
   error_code?: string | null
   created_at: number
   updated_at: number
+  /**
+   * 是否支持「从中断处继续」。由**框架按能力注册表**判定后下发：
+   * 任务类型注册了继续实现才为 true。界面不应自己列举哪些 kind 可继续。
+   */
+  can_resume?: boolean
 }
 
 /** 进行中（可请求取消） */
@@ -59,6 +64,8 @@ export const taskApi = {
   delete: (taskId: string) => api.delete(`/api/tasks/${taskId}`),
   // 重试一个失败/已取消的任务
   retry: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/retry`),
+  // 从中断处继续：统一入口，由框架查能力注册表后转交实现方
+  resume: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/resume`),
   // 请求取消一个进行中的任务（协作式：任务会在下一个检查点停止）
   cancel: (taskId: string) => api.post(`/api/tasks/${encodeURIComponent(taskId)}/cancel`),
 }
