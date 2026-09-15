@@ -14,6 +14,7 @@ import time
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 
 from backend.access import admin_required
+from backend.db_guard import release_db
 from backend import service_ops_core as _core
 
 # 启动与核心同源的后台扫描线程，保证 /services 始终有最新缓存
@@ -163,4 +164,7 @@ def logs_stream():
                 payload = {'ts': pl['timestamp'], 'level': pl['level'] or 'INFO',
                            'module': pl['service'], 'msg': pl['content']}
                 yield 'data: ' + json.dumps(payload, ensure_ascii=False) + '\n\n'
+    # 长连接不结束 → 鉴权时借出的数据库连接不会被 teardown 归还，
+    # 占满连接池会让全站请求排队超时。这里先归还（gen 只读日志文件，不再查库）。
+    release_db()
     return Response(stream_with_context(gen()), mimetype='text/event-stream')

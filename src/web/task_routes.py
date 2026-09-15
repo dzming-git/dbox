@@ -16,6 +16,7 @@ import time
 
 from flask import Blueprint, jsonify, request, g, Response, stream_with_context
 from backend.access import auth_required, admin_required, resolve_identity
+from backend.db_guard import release_db
 from core.models import UserRole
 from unified_tasks import (
     init_task_manager, get_tasks, get_task, count_tasks, count_action_required,
@@ -31,6 +32,10 @@ _DOWNLOADER_BASE_URL = 'http://127.0.0.1:8092'
 
 # 任务详情接口单次返回的最大日志条数（避免长任务把接口拉爆）
 _TASK_LOG_LIMIT = 500
+
+# SSE 单条连接的最长存活时间：到点主动结束，由浏览器按 retry 重连。
+# 目的是避免长连接无限期存在（前端异常未关闭时会越积越多）。
+STREAM_MAX_SECONDS = 1800
 
 
 def _is_admin(role):
@@ -179,7 +184,10 @@ def task_stream():
     def _gen():
         last = {}
         yield 'retry: 5000\n\n'
-        while True:
+        # 给连接一个上限：到点主动结束，让浏览器重连。
+        # 长连接若无限期存在，一旦前端没关干净就会越积越多。
+        deadline = time.time() + STREAM_MAX_SECONDS
+        while time.time() < deadline:
             events = []
             try:
                 current = get_tasks(role=role_arg, user_id=user_id, limit=200)
@@ -208,6 +216,12 @@ def task_stream():
                 yield ': ping\n\n'
 
             time.sleep(2)
+
+    # ⚠️ 长连接绝不能持有数据库连接（详见 backend/db_guard.py）：
+    # resolve_identity() 里的 User.query 会借出连接，而流式响应不结束就不会归还，
+    # 连接池被占满后全站请求都会排队超时。这里在进入流之前主动归还；
+    # _gen() 内部只用统一任务表的独立 sqlite 连接，不再触碰 SQLAlchemy。
+    release_db()
 
     return Response(
         stream_with_context(_gen()),
