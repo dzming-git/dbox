@@ -87,6 +87,24 @@ const noLibraries = computed(() => !loading.value && libraries.value.length === 
 // 标签区域折叠状态
 const showTagsSection = ref(false)
 
+// 详细筛选面板：默认收起。
+// 排序/资源库/合集/关键词/标签/视图这一整套平铺在顶栏会长期占据首屏，
+// 收进面板后顶栏只留「媒体类型 + 一个入口」，需要时再展开。
+const filterPanelOpen = ref(false)
+// 面板收起时也要能看出「筛选正在生效」，否则用户会以为列表莫名变少了
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (videoStore.selectedTagId.value) n++
+  if (videoStore.selectedUntagged.value) n++
+  if (videoStore.selectedLibraryId.value) n++
+  if (videoStore.selectedCollectionId.value) n++
+  if (videoStore.minDuration.value != null) n++
+  if (videoStore.maxDuration.value != null) n++
+  if (videoStore.unwatchedDays.value) n++
+  if ((videoStore.searchQuery.value || '').trim()) n++
+  return n
+})
+
 // 标签树导航
 const allTagsTree = ref<any[]>([])
 const currentTagLevel = ref<any[]>([])
@@ -487,22 +505,6 @@ const openEdit = (video: any) => {
   editDrawerVisible.value = true
 }
 
-// 更多操作（低频：编辑 / 撤回）收进溢出菜单，保持工具栏紧凑、标签筛选按钮不独占整行
-const toolMoreOpen = ref(false)
-const toolMoreRef = ref<HTMLElement | null>(null)
-const onToolMoreDocClick = (e: Event) => {
-  if (toolMoreOpen.value && toolMoreRef.value && !toolMoreRef.value.contains(e.target as Node)) {
-    toolMoreOpen.value = false
-  }
-}
-onMounted(() => document.addEventListener('click', onToolMoreDocClick))
-onUnmounted(() => document.removeEventListener('click', onToolMoreDocClick))
-
-// 更多菜单视口感知定位：始终落在视口内，靠近屏幕底部时改为向上展开，避免被裁切看不到
-const toggleToolMore = () => {
-  toolMoreOpen.value = !toolMoreOpen.value
-}
-
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选视频
 const onTagClick = (tag: any) => {
   if (editMode.value) return
@@ -722,7 +724,8 @@ const listThumbUrl = (video: Video): string => {
       </div>
     </div>
 
-    <!-- 顶部工具条：媒体类型 + 排序/资源库/撤回/编辑/显示方式/标签筛选，合并为单条可换行 -->
+    <!-- 顶部工具条：默认只保留「媒体类型 + 筛选入口」一行，
+         详细条件收进下方筛选面板，避免长期占据首屏。 -->
     <div class="topbar tool-strip">
       <div class="media-tabs">
         <button
@@ -746,176 +749,186 @@ const listThumbUrl = (video: Video): string => {
           @click="mediaTab = 'mixed'"
         >帖子</button>
       </div>
-      <!-- 更多：低频操作收进溢出菜单，绝对定位在筛选框右侧外面 -->
-      <div class="tool-more" ref="toolMoreRef">
-        <button class="tool-more-btn" :class="{ active: toolMoreOpen }" @click="toggleToolMore" title="更多操作">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-          </svg>
-          <span>更多</span>
-        </button>
-        <div v-if="toolMoreOpen" class="tool-more-menu" @click.self="toolMoreOpen = false">
-          <button
-            v-if="hasPreviousVideos && currentSort === 'recommended'"
-            class="tool-more-item"
-            :disabled="shuffling"
-            @click="handleUndo(); toolMoreOpen = false"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 10h10c4.4 0 8 3.6 8 8v2"/>
-              <path d="M7 6L3 10l4 4"/>
-            </svg>
-            <span>撤回</span>
-          </button>
-          <button
-            class="tool-more-item"
-            :class="{ active: editMode }"
-            @click="toggleEditMode(); toolMoreOpen = false"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
-            </svg>
-            <span>{{ editMode ? '退出编辑' : '编辑' }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="tool-controls" v-if="mediaTab === 'video'">
-        <select class="sort-select" :value="currentSort" @change="handleSortChange">
-          <option v-for="option in sortOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <select class="sort-order-select" :value="currentOrder" @change="handleOrderChange">
-          <option value="desc">倒序</option>
-          <option value="asc">正序</option>
-        </select>
-        <!-- 资源库筛选 -->
-        <select class="library-select" :value="selectedLibraryId || ''" @change="handleLibraryChange">
-          <option value="">全部资源库</option>
-          <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
-            {{ lib.name }}
-          </option>
-        </select>
-        <!-- 显示模式切换：缩略图 / 列表 -->
-        <div class="view-toggle">
-          <button
-            class="view-toggle-btn"
-            :class="{ active: videoStore.viewMode === 'grid' }"
-            @click="videoStore.setViewMode('grid')"
-            title="缩略图"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="3" y="14" width="7" height="7" rx="1"/>
-              <rect x="14" y="14" width="7" height="7" rx="1"/>
-            </svg>
-            <span class="view-toggle-text">缩略图</span>
-          </button>
-          <button
-            class="view-toggle-btn"
-            :class="{ active: videoStore.viewMode === 'list' }"
-            @click="videoStore.setViewMode('list')"
-            title="列表"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="8" y1="6" x2="21" y2="6"/>
-              <line x1="8" y1="12" x2="21" y2="12"/>
-              <line x1="8" y1="18" x2="21" y2="18"/>
-              <line x1="3" y1="6" x2="3.01" y2="6"/>
-              <line x1="3" y1="12" x2="3.01" y2="12"/>
-              <line x1="3" y1="18" x2="3.01" y2="18"/>
-            </svg>
-            <span class="view-toggle-text">列表</span>
-          </button>
-        </div>
-        <!-- 合集筛选：与资源库同级，同属"归属"维度 -->
-        <select
-          class="collection-select"
-          :value="videoStore.selectedCollectionId || ''"
-          @change="handleCollectionChange"
-          title="按模式内合集筛选"
-        >
-          <option value="">全部合集</option>
-          <option v-for="c in videoStore.collections" :key="c.id" :value="c.id">
-            {{ c.name }}
-          </option>
-        </select>
-        <!-- 关键词搜索：首页此前没有搜索框，只能去全局搜索页 -->
-        <div class="filter-search">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
-          </svg>
-          <input
-            v-model="filterKeyword"
-            type="text"
-            placeholder="在当前结果中搜索"
-            @keyup.enter="applyKeyword"
-          />
-          <button v-if="filterKeyword" class="search-clear" @click="clearKeyword" title="清除关键词">×</button>
-        </div>
-        <!-- 保存的视图：把当前这组条件存下来，下次一键套用 -->
-        <select
-          v-if="savedViews.length"
-          class="views-select"
-          :value="activeViewId"
-          @change="handleApplyView"
-          title="套用已保存的视图"
-        >
-          <option value="">保存的视图</option>
-          <option v-for="v in savedViews" :key="v.id" :value="v.id">{{ v.name }}</option>
-        </select>
-        <button
-          class="filter-save-btn"
-          :disabled="!videoStore.hasActiveFilters"
-          @click="handleSaveView"
-          :title="videoStore.hasActiveFilters ? '把当前筛选条件存为视图' : '先选择筛选条件'"
-        >另存为视图</button>
-        <button
-          v-if="activeViewId"
-          class="filter-clear-btn"
-          @click="handleDeleteView"
-          title="删除当前视图"
-        >删除视图</button>
-        <!-- 一键清空：条件多了以后逐个改回来很麻烦 -->
-        <button
-          v-if="videoStore.hasActiveFilters"
-          class="filter-clear-btn"
-          @click="handleClearFilters"
-          title="清空所有筛选条件"
-        >清空筛选</button>
-      </div>
-      <!-- PC 端刷新/换一批按钮：移动端用下拉刷新即可，此处仅在桌面端（非触屏）显示 -->
       <button
-        class="pc-refresh-btn"
-        :disabled="shuffling"
-        @click="handlePcRefresh"
-        :title="currentSort === 'recommended' ? '换一批推荐内容' : '刷新列表'"
+        class="filter-toggle-btn"
+        :class="{ active: filterPanelOpen, has: activeFilterCount > 0 }"
+        @click="filterPanelOpen = !filterPanelOpen"
+        :title="filterPanelOpen ? '收起筛选' : '展开筛选'"
+        data-testid="filter-toggle"
       >
-        <svg class="pc-refresh-icon" :class="{ spinning: shuffling }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
-          <path d="M21 3v6h-6"/>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/>
         </svg>
-        {{ currentSort === 'recommended' ? '换一批' : '刷新' }}
+        <span>筛选</span>
+        <span v-if="activeFilterCount > 0" class="filter-badge">{{ activeFilterCount }}</span>
+        <svg class="ft-chev" :class="{ open: filterPanelOpen }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
       </button>
-      <!-- 标签筛选按钮：与排序/显示方式同处一行，不独占整行 -->
-      <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-            <line x1="7" y1="7" x2="7.01" y2="7"/>
-          </svg>
-          {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
-          <span v-if="selectedUntagged" class="selected-tag-name">
-            (未标记)
-          </span>
-          <span v-else-if="selectedTagId" class="selected-tag-name">
-            ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
-          </span>
-        </button>
     </div>
 
-    <!-- 标签区域 - 可折叠 -->
-    <div v-if="showTagsSection && mediaTab === 'video'" class="tags-section">
+    <!-- 详细筛选面板：默认收起 -->
+    <div v-if="filterPanelOpen" class="filter-panel" data-testid="filter-panel">
+      <template v-if="mediaTab === 'video'">
+        <!-- 关键词搜索：首页此前没有搜索框，只能去全局搜索页 -->
+        <div class="fp-row">
+          <span class="fp-label">搜索</span>
+          <div class="filter-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
+            </svg>
+            <input
+              v-model="filterKeyword"
+              type="text"
+              placeholder="在当前结果中搜索"
+              @keyup.enter="applyKeyword"
+            />
+            <button v-if="filterKeyword" class="search-clear" @click="clearKeyword" title="清除关键词">×</button>
+          </div>
+        </div>
+        <div class="fp-row">
+          <span class="fp-label">排序</span>
+          <select class="sort-select" :value="currentSort" @change="handleSortChange">
+            <option v-for="option in sortOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+          <select class="sort-order-select" :value="currentOrder" @change="handleOrderChange">
+            <option value="desc">倒序</option>
+            <option value="asc">正序</option>
+          </select>
+        </div>
+        <!-- 资源库 / 合集：同属「归属」维度 -->
+        <div class="fp-row">
+          <span class="fp-label">范围</span>
+          <select class="library-select" :value="selectedLibraryId || ''" @change="handleLibraryChange">
+            <option value="">全部资源库</option>
+            <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
+              {{ lib.name }}
+            </option>
+          </select>
+          <select
+            class="collection-select"
+            :value="videoStore.selectedCollectionId || ''"
+            @change="handleCollectionChange"
+            title="按模式内合集筛选"
+          >
+            <option value="">全部合集</option>
+            <option v-for="c in videoStore.collections" :key="c.id" :value="c.id">
+              {{ c.name }}
+            </option>
+          </select>
+        </div>
+        <!-- 显示模式切换：缩略图 / 列表 -->
+        <div class="fp-row">
+          <span class="fp-label">显示</span>
+          <div class="view-toggle">
+            <button
+              class="view-toggle-btn"
+              :class="{ active: videoStore.viewMode === 'grid' }"
+              @click="videoStore.setViewMode('grid')"
+              title="缩略图"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              <span class="view-toggle-text">缩略图</span>
+            </button>
+            <button
+              class="view-toggle-btn"
+              :class="{ active: videoStore.viewMode === 'list' }"
+              @click="videoStore.setViewMode('list')"
+              title="列表"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6"/>
+                <line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/>
+                <line x1="3" y1="12" x2="3.01" y2="12"/>
+                <line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+              <span class="view-toggle-text">列表</span>
+            </button>
+          </div>
+        </div>
+        <!-- 保存的视图：把当前这组条件存下来，下次一键套用 -->
+        <div class="fp-row">
+          <span class="fp-label">视图</span>
+          <select
+            v-if="savedViews.length"
+            class="views-select"
+            :value="activeViewId"
+            @change="handleApplyView"
+            title="套用已保存的视图"
+          >
+            <option value="">保存的视图</option>
+            <option v-for="v in savedViews" :key="v.id" :value="v.id">{{ v.name }}</option>
+          </select>
+          <button
+            class="filter-save-btn"
+            :disabled="!videoStore.hasActiveFilters"
+            @click="handleSaveView"
+            :title="videoStore.hasActiveFilters ? '把当前筛选条件存为视图' : '先选择筛选条件'"
+          >另存为视图</button>
+          <button
+            v-if="activeViewId"
+            class="filter-clear-btn"
+            @click="handleDeleteView"
+            title="删除当前视图"
+          >删除视图</button>
+          <!-- 一键清空：条件多了以后逐个改回来很麻烦 -->
+          <button
+            v-if="videoStore.hasActiveFilters"
+            class="filter-clear-btn"
+            @click="handleClearFilters"
+            title="清空所有筛选条件"
+          >清空筛选</button>
+        </div>
+        <!-- 标签：数量可能很多，在面板内再折叠一次 -->
+        <div class="fp-row fp-row-block">
+          <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+              <line x1="7" y1="7" x2="7.01" y2="7"/>
+            </svg>
+            {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
+            <span v-if="selectedUntagged" class="selected-tag-name">(未标记)</span>
+            <span v-else-if="selectedTagId" class="selected-tag-name">
+              ({{ tags.find(t => t.id === selectedTagId)?.name || '已选标签' }})
+            </span>
+          </button>
+        </div>
+      </template>
+      <!-- 操作：与筛选条件分开，避免和条件混在一起 -->
+      <div class="fp-row fp-actions">
+        <button
+          v-if="hasPreviousVideos && currentSort === 'recommended'"
+          class="filter-clear-btn"
+          :disabled="shuffling"
+          @click="handleUndo"
+          title="回到上一批推荐"
+        >撤回</button>
+        <button
+          class="filter-clear-btn"
+          :disabled="shuffling"
+          @click="handlePcRefresh"
+          :title="currentSort === 'recommended' ? '换一批推荐内容' : '刷新列表'"
+        >{{ currentSort === 'recommended' ? '换一批' : '刷新' }}</button>
+        <button
+          class="filter-clear-btn"
+          :class="{ active: editMode }"
+          @click="toggleEditMode"
+        >{{ editMode ? '退出编辑' : '编辑' }}</button>
+        <button class="filter-clear-btn" @click="filterPanelOpen = false">收起</button>
+      </div>
+    </div>
+
+    <!-- 标签区域 - 可折叠（现在收在筛选面板内） -->
+    <div v-if="filterPanelOpen && showTagsSection && mediaTab === 'video'" class="tags-section">
       <!-- 面包屑导航 -->
       <div class="tag-tree-nav">
         <div class="tag-breadcrumb" v-if="tagBreadcrumbs.length > 0">
@@ -1322,6 +1335,64 @@ const listThumbUrl = (video: Video): string => {
 }
 
 /* 标签区域 */
+/* 筛选入口：顶栏只保留这一个按钮，详细条件收进下方面板 */
+.filter-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.filter-toggle-btn:hover { color: var(--accent); }
+.filter-toggle-btn.active { background: var(--bg-surface-hover); color: var(--text-primary); }
+/* 有筛选生效时高亮：面板收起后也要能看出「列表被筛过」 */
+.filter-toggle-btn.has { color: var(--accent); border-color: var(--accent); }
+.filter-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.ft-chev { transition: transform 0.2s; }
+.ft-chev.open { transform: rotate(180deg); }
+
+/* 筛选面板：默认收起，展开后按「条件 / 操作」分组排列 */
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.fp-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.fp-row-block { flex-direction: column; align-items: stretch; }
+/* 固定宽度的行标签，让各行的控件左边缘对齐 */
+.fp-label { flex: 0 0 38px; font-size: 12px; color: var(--text-tertiary); }
+.fp-actions { border-top: 1px dashed var(--border-default); padding-top: 10px; }
+/* 换一批/撤回在刷新期间禁用，需要明确的视觉反馈 */
+.fp-actions .filter-clear-btn:disabled { opacity: 0.5; cursor: default; }
+.filter-panel .filter-search { flex: 1; min-width: 180px; }
+.filter-panel .sort-select,
+.filter-panel .sort-order-select,
+.filter-panel .library-select,
+.filter-panel .collection-select,
+.filter-panel .views-select { flex: 0 1 auto; max-width: 100%; }
+
 .tags-section {
   margin-bottom: 16px;
   background: var(--bg-surface);
@@ -1524,37 +1595,6 @@ const listThumbUrl = (video: Video): string => {
 .selected-tag-name {
   color: var(--accent);
   font-weight: 500;
-}
-
-/* PC 端刷新/换一批按钮，风格与标签筛选按钮一致 */
-.pc-refresh-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 16px;
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.pc-refresh-btn:hover:not(:disabled) {
-  background: var(--bg-surface-2);
-  color: var(--accent);
-  border-color: var(--border-strong);
-}
-.pc-refresh-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.pc-refresh-icon { transition: transform 0.2s; }
-.pc-refresh-icon.spinning { animation: spin 0.8s linear infinite; }
-/* 移动端使用下拉刷新，桌面端（非触屏）才显示该按钮，避免重复入口 */
-@media (pointer: coarse), (hover: none) {
-  .pc-refresh-btn { display: none; }
 }
 
 /* 排序选择器 */
@@ -1937,79 +1977,6 @@ const listThumbUrl = (video: Video): string => {
   margin-left: 12px;
 }
 
-/* 更多操作：与筛选框同行居右，不占flex位置、不独占行 */
-.tool-more {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-.tool-more-btn {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface-hover);
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.tool-more-btn:hover,
-.tool-more-btn.active {
-  color: var(--accent);
-  border-color: var(--border-strong);
-  background: var(--bg-surface-2);
-}
-.tool-more-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  min-width: 160px;
-  max-height: 60vh;
-  overflow-y: auto;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  padding: 6px;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-.tool-more-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
-  text-align: left;
-}
-.tool-more-item:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
-  color: var(--accent);
-}
-.tool-more-item.active {
-  color: var(--accent);
-}
-.tool-more-item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* 继续观看 */
 .continue-section {
   margin-bottom: 32px;
@@ -2258,16 +2225,6 @@ const listThumbUrl = (video: Video): string => {
     padding: 5px 12px;
     font-size: 13px;
     flex: 0 0 auto;
-  }
-
-  .tool-more {
-    flex: 0 0 auto;
-  }
-
-  .tool-more-btn {
-    padding: 0 10px;
-    font-size: 12px;
-    height: 34px;
   }
 
   .view-toggle-btn {
