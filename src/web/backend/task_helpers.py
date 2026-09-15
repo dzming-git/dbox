@@ -15,6 +15,10 @@ from liblog import get_service_logger
 log = get_service_logger('dbox-web')
 
 
+# 本进程在统一任务表里的归属标记：进程重启后据此回收自己留下的僵尸任务
+TASK_SERVICE = 'web'
+
+
 def init_task_store():
     """初始化统一任务表（幂等）。失败不影响业务本身，只损失任务可见性。"""
     try:
@@ -25,6 +29,26 @@ def init_task_store():
     except Exception as e:
         log.debug('WARN', f'统一任务表初始化失败，本次任务不登记: {e}')
         return False
+
+
+def reclaim_orphans():
+    """启动时回收本服务上次运行留下的僵尸任务。
+
+    主服务重启后，进程内的任务线程全没了，但任务表里还停在 running；
+    不回收的话界面会一直显示「进行中 xx%」，既不前进也不失败。
+    只回收归属本服务的任务，避免误伤下载器/扩展宿主正在跑的。
+    """
+    if not init_task_store():
+        return []
+    try:
+        from unified_tasks import reclaim_interrupted
+        dead = reclaim_interrupted(TASK_SERVICE)
+    except Exception as e:
+        log.debug('WARN', f'回收僵尸任务失败: {e}')
+        return []
+    if dead:
+        log.debug('WARN', f'重启后回收中断的任务 {len(dead)} 个: {", ".join(dead[:5])}')
+    return dead
 
 
 def update_task_quiet(task_id, **kwargs):
@@ -84,7 +108,7 @@ def register_task(task_id, kind, title, owner_id=None, library_id=None, params=N
         create_task(
             task_id, kind, title, owner_id=owner_id, library_id=library_id,
             status=STATUS_RUNNING, progress=0, stage='准备中',
-            detail='任务已排队，正在准备', params=params,
+            detail='任务已排队，正在准备', params=params, service=TASK_SERVICE,
         )
         mark_started(task_id)
         return True

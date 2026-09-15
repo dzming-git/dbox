@@ -26,7 +26,11 @@ from shared.credential_vault import CredentialVault, data_dir_for
 from shared.unified_tasks import (
     init_task_manager as _ut_init,
     create_task, update_task, delete_task, get_task, get_tasks,
+    reclaim_interrupted,
 )
+
+# 本进程（扩展宿主）在统一任务表里的归属标记，用于重启后回收自己的僵尸任务
+TASK_SERVICE = 'extensions'
 from registry import (
     register_extension as _reg_register_extension,
     db_path as _reg_db_path,
@@ -87,10 +91,21 @@ class _VaultProxy:
 class _TasksProxy:
     """统一任务表代理。插件以 kind='<plugin_id>' 注册自身任务。"""
 
+    _reclaimed = False   # 回收只做一次（宿主进程内单例语义）
+
     def __init__(self, plugin_id):
         self._kind = plugin_id
         try:
             _ut_init(data_dir_for())
+            # 回收上次运行留下的僵尸任务（插件的任务跑在宿主进程的线程里，
+            # 宿主一重启线程就没了，但任务记录还停在 running）。
+            # 放在这里做：每创建第一个任务代理时执行一次，覆盖所有插件。
+            if not _TasksProxy._reclaimed:
+                _TasksProxy._reclaimed = True
+                try:
+                    reclaim_interrupted(TASK_SERVICE)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -104,7 +119,8 @@ class _TasksProxy:
         task_id = 'ext:' + self._kind + ':' + uuid.uuid4().hex
         return create_task(task_id, self._kind, title, owner_id=owner_id,
                            library_id=library_id, status=status, progress=progress,
-                           stage=stage, detail=detail, params=params)
+                           stage=stage, detail=detail, params=params,
+                           service=TASK_SERVICE)
 
     def update(self, task_id, **kwargs):
         return update_task(task_id, **kwargs)

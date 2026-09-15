@@ -69,7 +69,18 @@
           >
             {{ deletingId === t.task_id ? '删除中…' : '删除' }}
           </button>
-          <!-- 失败/已取消的任务可手动重试 -->
+          <!-- 被中断的任务优先给「继续」：它比重试更贴近意图
+               （中断不是业务失败，重头再来既慢又浪费接口配额） -->
+          <button
+            v-if="canResume(t)"
+            class="task-resume-btn"
+            :disabled="resumingId === t.task_id"
+            :title="'从中断处继续：已完成的步骤会跳过'"
+            @click="resumeOne(t)"
+          >
+            {{ resumingId === t.task_id ? '继续中…' : '继续' }}
+          </button>
+          <!-- 失败/已取消/已中断的任务可手动重试 -->
           <button
             v-if="canRetry(t)"
             class="task-retry-btn"
@@ -211,6 +222,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, ACTIVE_STATUSES, type Task } from '../api/task'
+import { api } from '../api'
 import { useTaskStream } from '../composables/useTaskStream'
 import { type PendingInput } from '../api/script'
 
@@ -263,6 +275,7 @@ function statusLabel(s: string) {
       completed: '已完成',
       failed: '失败',
       cancelled: '已取消',
+      interrupted: '已中断',
     } as any
   )[s] || s
 }
@@ -284,7 +297,7 @@ const STATUS_FILTERS = [
   { value: '', label: '全部' },
   { value: 'active', label: '进行中' },
   { value: 'completed', label: '已完成' },
-  { value: 'failed,cancelled', label: '失败/已停止' },
+  { value: 'failed,cancelled,interrupted', label: '失败/已停止' },
 ]
 const statusFilter = ref('')
 const kindFilter = ref('')
@@ -348,14 +361,44 @@ async function refresh() {
 }
 
 // 是否处于「已结束」终态：仅这些状态可被删除
-const FINISHED_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+// interrupted（被中断）同样算完结：它不会再继续跑，可被清理
+const FINISHED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
 function isFinished(t: Task): boolean {
   return FINISHED_STATUSES.has(t.status as any)
 }
 
-// 失败/已取消的任务可在任务列表手动重试
+// 失败 / 已取消 / 被中断的任务可在任务列表手动重试
 function canRetry(t: Task): boolean {
-  return t.status === 'failed' || t.status === 'cancelled'
+  return t.status === 'failed' || t.status === 'cancelled' || t.status === 'interrupted'
+}
+
+// 「继续」：只给**明确支持断点续跑**的任务。
+// 各插件的续跑入口不同，这里按 kind 分派；不支持的插件只显示「重试」。
+function canResume(t: Task): boolean {
+  if (t.status !== 'interrupted') return false
+  return t.kind === 'x'
+}
+
+const resumingId = ref<string | null>(null)
+
+async function resumeOne(t: Task) {
+  if (!canResume(t) || resumingId.value) return
+  resumingId.value = t.task_id
+  try {
+    let res: any = null
+    if (t.kind === 'x') {
+      res = await api.post('/api/ext/x/search/resume', { task_id: t.task_id })
+    }
+    if (res && res.success) {
+      await refresh()
+    } else {
+      alert('继续失败：' + (res?.message || '未知错误'))
+    }
+  } catch (e: any) {
+    alert('继续失败：' + (e?.response?.data?.message || e?.message || e))
+  } finally {
+    resumingId.value = null
+  }
 }
 
 // 进行中且尚未收到取消请求的任务可以请求停止。
@@ -672,6 +715,19 @@ onUnmounted(() => {
   cursor: pointer;
   transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
+/* 「继续」：比重试更贴合「被中断」的语义，用强调色区别于重试 */
+.task-resume-btn {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--success);
+  border: 1px solid var(--success);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.task-resume-btn:hover:not(:disabled) { background: rgba(74, 222, 128, 0.2); }
+.task-resume-btn:disabled { opacity: 0.6; cursor: progress; }
 .task-retry-btn:hover:not(:disabled) {
   color: #b3e0ff;
   border-color: #8fd0ff;
@@ -872,6 +928,11 @@ onUnmounted(() => {
 .st-cancelled {
   background: rgba(150, 150, 150, 0.15);
   color: var(--text-secondary);
+}
+/* 已中断：用警告色——它不是业务失败，但也确实没跑完 */
+.st-interrupted {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
 }
 .task-progress {
   height: 6px;

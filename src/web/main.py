@@ -589,6 +589,14 @@ except Exception as e:
 # 延迟导入与注册逻辑收敛至 backend.blueprints.register_domain_blueprints
 register_domain_blueprints(app)
 
+# 回收上次运行留下的僵尸任务：进程重启后任务线程已消失，但任务表里还停在 running，
+# 不处理的话界面会一直显示「进行中 xx%」，既不前进也不失败。
+try:
+    from backend.task_helpers import reclaim_orphans
+    reclaim_orphans()
+except Exception as e:
+    print('[WARN] 回收中断任务失败: %s' % e)
+
 # 启动时若缩略图配置开启了自动生成，则自动恢复后台批量生成线程，
 # 避免服务重启后需管理员手动重新打开开关才能继续生成缩略图。
 try:
