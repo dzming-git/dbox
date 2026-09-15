@@ -40,6 +40,8 @@ export interface Task {
    * 任务类型注册了继续实现才为 true。界面不应自己列举哪些 kind 可继续。
    */
   can_resume?: boolean
+  /** 是否支持「重试」，同理由框架按注册表判定后下发 */
+  can_retry?: boolean
 }
 
 /** 进行中（可请求取消） */
