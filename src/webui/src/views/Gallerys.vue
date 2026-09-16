@@ -7,6 +7,7 @@ import { useUserStore } from '../stores/userStore'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import GalleryCard from '../components/GalleryCard.vue'
 import ResourceListRow from '../components/ResourceListRow.vue'
+import ResourceFilterBar from '../components/ResourceFilterBar.vue'
 import type { Gallery } from '../types'
 import { galleryApi } from '../api'
 import { withThumbToken } from '../utils/media'
@@ -57,6 +58,16 @@ const loading = computed(() => galleryStore.loading)
 const galleries = computed(() => galleryStore.galleries)
 const libraries = computed(() => galleryStore.libraries)
 
+// 筛选面板开合 + 生效条件数（通用件的状态由父级持有，便于联动）
+const filterOpen = ref(false)
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (galleryStore.selectedLibraryId) n++
+  if (galleryStore.selectedTagId) n++
+  if ((galleryStore.searchQuery || '').trim()) n++
+  return n
+})
+
 // 返回顶部：把上次在详情页查看过的图集置顶到随机推荐第一个
 const displayGallerys = computed(() => {
   const list = [...galleries.value]
@@ -96,13 +107,17 @@ const loadContinue = async () => {
   }
 }
 
-const handleSortChange = (e: Event) => { galleryStore.setSortBy((e.target as HTMLSelectElement).value); updateUrl() }
-const handleOrderChange = (e: Event) => { galleryStore.setSortOrder((e.target as HTMLSelectElement).value); updateUrl() }
-const handleLibraryChange = (e: Event) => {
-  const v = (e.target as HTMLSelectElement).value
-  galleryStore.filterByLibrary(v === '' ? null : parseInt(v))
+const handleSortChange = (value: string) => { galleryStore.setSortBy(value); updateUrl() }
+const handleOrderChange = (value: string) => { galleryStore.setSortOrder(value); updateUrl() }
+const handleLibraryChange = (val: any) => {
+  galleryStore.filterByLibrary(val === '' || val == null ? null : parseInt(String(val)))
   updateUrl()
 }
+
+// 搜索：通用件内部维护 draft，提交时才抛出关键词
+const handleSearch = (kw: string) => { galleryStore.searchGallerys(kw); updateUrl() }
+const handleClearSearch = () => { galleryStore.clearSearch(); updateUrl() }
+const handleViewChange = (mode: 'grid' | 'list') => { galleryStore.setViewMode(mode) }
 const handleGalleryClick = (c: Gallery) => router.push({ name: 'Gallery', params: { hash: c.hash } })
 
 // 正常模式下点击卡片上的 tag → 按该 tag 筛选图集
@@ -189,33 +204,42 @@ watch(() => route.query, async (newQuery) => {
 
 <template>
   <div class="galleries-container">
-    <div class="action-bar">
-      <select class="sort-select" :value="galleryStore.sortBy" @change="handleSortChange">
-        <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-      </select>
-      <select class="sort-order-select" :value="galleryStore.sortOrder" @change="handleOrderChange">
-        <option value="desc">倒序</option>
-        <option value="asc">正序</option>
-      </select>
-      <select class="library-select" :value="galleryStore.selectedLibraryId || ''" @change="handleLibraryChange">
-        <option value="">全部资源库</option>
-        <option v-for="lib in libraries" :key="lib.id" :value="lib.id">{{ lib.name }}</option>
-      </select>
-      <select class="library-select tag-select" :value="galleryStore.selectedTagId || ''" @change="handleTagChange">
-        <option value="">全部标签</option>
-        <option v-for="t in allTags" :key="t.id" :value="t.id">{{ t.name }} ({{ t.gallery_count }})</option>
-      </select>
-      <div class="view-toggle">
-        <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'grid' }" @click="galleryStore.setViewMode('grid')" title="缩略图">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <span>缩略图</span>
-        </button>
-        <button class="view-toggle-btn" :class="{ active: galleryStore.viewMode === 'list' }" @click="galleryStore.setViewMode('list')" title="列表">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-          <span>列表</span>
-        </button>
-      </div>
-    </div>
+    <!-- 筛选栏：与视频视图共用同一套通用件（排序/范围/显示等维度只维护一份），
+         图集特有的「标签」用 extra 插槽注入。 -->
+    <ResourceFilterBar
+      v-model:open="filterOpen"
+      :sorts="sortOptions"
+      :sort="galleryStore.sortBy"
+      :order="galleryStore.sortOrder"
+      :libraries="libraries"
+      :library-id="galleryStore.selectedLibraryId"
+      :keyword="galleryStore.searchQuery"
+      :view-mode="galleryStore.viewMode"
+      :active-count="activeFilterCount"
+      @sort-change="handleSortChange"
+      @order-change="handleOrderChange"
+      @library-change="handleLibraryChange"
+      @search="handleSearch"
+      @clear-search="handleClearSearch"
+      @view-change="handleViewChange"
+    >
+      <template #extra>
+        <!-- 标签：图集这里是平铺下拉（视频那边是层级标签树），因此不进通用件 -->
+        <div class="rf-row">
+          <span class="rf-label">标签</span>
+          <select
+            class="rf-select"
+            :value="galleryStore.selectedTagId || ''"
+            @change="handleTagChange"
+          >
+            <option value="">全部标签</option>
+            <option v-for="t in allTags" :key="t.id" :value="t.id">
+              {{ t.name }} ({{ t.gallery_count }})
+            </option>
+          </select>
+        </div>
+      </template>
+    </ResourceFilterBar>
 
     <!-- 继续阅读（默认收起，可点击展开；数量受控） -->
     <div v-if="continueGallerys.length > 0" class="continue-section">
@@ -292,11 +316,6 @@ watch(() => route.query, async (newQuery) => {
 
 <style scoped>
 .galleries-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-.action-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
-.sort-select, .sort-order-select, .library-select { height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); font-size: 14px; cursor: pointer; }
-.view-toggle { display: flex; gap: 4px; background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 8px; padding: 3px; margin-left: auto; }
-.view-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; border-radius: 6px; cursor: pointer; }
-.view-toggle-btn.active { background: var(--accent); color: var(--text-on-accent); }
 .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .gallery-list { display: flex; flex-direction: column; gap: 8px; }
 .list-actions { display: flex; gap: 6px; }
@@ -328,13 +347,10 @@ watch(() => route.query, async (newQuery) => {
 .page-ellipsis { color: var(--text-tertiary); padding: 0 4px; }
 .page-info { color: var(--text-secondary); font-size: 13px; margin-left: 12px; }
 @media (max-width: 1200px) { .gallery-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 900px) { .gallery-grid { grid-template-columns: repeat(2, 1fr); } .view-toggle { margin-left: 0; } }
+@media (max-width: 900px) { .gallery-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) {
   .galleries-container { padding: 12px; }
   .gallery-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-  .action-bar { flex-direction: column; align-items: stretch; }
-  .view-toggle { margin-left: 0; width: 100%; }
-  .view-toggle-btn { flex: 1; justify-content: center; }
   .gallery-section { padding-bottom: 76px; }
   /* 移动端只保留底部悬浮的单手翻页，隐藏桌面分页，避免两个翻页器重叠 */
   .pagination { display: none; }
