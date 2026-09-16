@@ -104,24 +104,30 @@ const hasTabs = computed(() => props.tabs.length > 0)
           @click="emit('tab-change', t.key)"
         >{{ t.label }}</button>
       </div>
-      <button
-        v-if="showFilter"
-        class="rf-toggle"
-        :class="{ active: open, has: activeCount > 0 }"
-        :title="open ? '收起筛选' : '展开筛选'"
-        data-testid="filter-toggle"
-        @click="open = !open"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/>
-        </svg>
-        <span>筛选</span>
-        <span v-if="activeCount > 0" class="rf-badge">{{ activeCount }}</span>
-        <svg class="rf-chev" :class="{ open }" width="14" height="14" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
-      </button>
+      <!-- 筛选入口：**独立于类型选择**的布局块。
+           它的位置不再跟随「有没有 tabs / tabs 多宽」漂移 —— 首页视频、图集
+           （有 tabs）与独立页 /galleries、/texts（无 tabs）都固定停在这一行的右端。
+           此前它是 tabs 后面的普通流式元素，没有 tabs 的页面就会把它顶到最左边，
+           同一个按钮在不同页面出现两个位置。 -->
+      <div v-if="showFilter" class="rf-side">
+        <button
+          class="rf-toggle"
+          :class="{ active: open, has: activeCount > 0 }"
+          :title="open ? '收起筛选' : '展开筛选'"
+          data-testid="filter-toggle"
+          @click="open = !open"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/>
+          </svg>
+          <span>筛选</span>
+          <span v-if="activeCount > 0" class="rf-badge">{{ activeCount }}</span>
+          <svg class="rf-chev" :class="{ open }" width="14" height="14" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 6l6 6-6 6"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- 筛选项面板：默认收起 -->
@@ -219,6 +225,17 @@ const hasTabs = computed(() => props.tabs.length > 0)
   padding: 4px 6px;
   flex-shrink: 0;
 }
+
+/* 筛选入口的独立布局块：固定在行尾，不参与类型选择（tabs）的排布。
+   margin-left:auto 让它在有/无 tabs、tabs 多宽的情况下都停在同一位置。
+   以后若要再加「视图切换」等与类型无关的控件，也放这里。 */
+.rf-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .rf-tab {
   display: inline-flex;
   align-items: center;
@@ -249,6 +266,9 @@ const hasTabs = computed(() => props.tabs.length > 0)
   font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;
+  /* 与 tabs 药丸等高（tabs 内容行高 14×1.2 + 内边距 8 + 边框 2 ≈ 37），
+     否则同一行内两个控件的上下边缘对不齐，看起来像错位。 */
+  min-height: 37px;
   transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 .rf-toggle:hover { color: var(--accent); }
