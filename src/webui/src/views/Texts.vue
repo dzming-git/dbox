@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onActivated, onDeactivated, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { textApi } from '../api'
@@ -7,6 +7,12 @@ import { usePullToRefresh } from '../composables/usePullToRefresh'
 import type { TextResource } from '../types'
 import PlainListRow from '../components/PlainListRow.vue'
 import BaseModal from '../components/BaseModal.vue'
+import ResourceFilterBar from '../components/ResourceFilterBar.vue'
+import { MEDIA_TABS, type MediaTab } from '../constants/mediaTabs'
+
+// 嵌入首页时由 Home 传入当前 tab，并把切换请求抛回去（独立页 /texts 用不到）
+const props = defineProps<{ mediaTab?: MediaTab }>()
+const emit = defineEmits<{ (e: 'tab-change', v: string): void }>()
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -36,6 +42,8 @@ onMounted(fetchTexts)
 
 // 顶部下拉刷新：仅作为独立路由（/texts）时注册，嵌入首页时不接管手势
 const route = useRoute()
+// 是否由首页内嵌渲染：只有内嵌时才需要 tabs 条（独立页靠自己路由切走）
+const isEmbedded = computed(() => route.name === 'Home')
 const ptr = usePullToRefresh()
 function registerPtr() {
   if (route.name !== 'Texts') return
@@ -109,6 +117,18 @@ const formatDate = (s?: string) => {
 </script>
 
 <template>
+  <!-- 媒体类型 tabs：只在被首页内嵌时渲染（独立页不需要切换媒体类型）。
+       文本自身已有搜索框，故不给筛选入口，避免重复。
+       它是**独立根节点**、刻意放在 .texts-container 之外：那个容器是 1000px 的
+       阅读宽度，而工具条要与其它 tab（1400px）对齐，否则切到文本页时整条会横向错位。 -->
+  <div v-if="isEmbedded" class="texts-toolbar">
+    <ResourceFilterBar
+      :tabs="MEDIA_TABS"
+      :tab="props.mediaTab"
+      :show-filter="false"
+      @tab-change="emit('tab-change', $event)"
+    />
+  </div>
   <div class="texts-container">
     <div class="texts-header">
       <h2 class="section-title">文本</h2>
@@ -166,6 +186,9 @@ const formatDate = (s?: string) => {
 
 <style scoped>
 .texts-container { padding: 20px; max-width: 1000px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+/* 工具条与其它 tab 的容器几何保持一致（1400px + 20px），
+   否则切到文本页时整条 tabs 会横向错位；正文仍保持 1000px 的阅读宽度。 */
+.texts-toolbar { max-width: 1400px; margin: 0 auto; padding: 20px 20px 0; width: 100%; box-sizing: border-box; }
 .texts-header { display: flex; align-items: center; justify-content: space-between; }
 .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px; }
 .search-icon { color: var(--text-tertiary); flex-shrink: 0; }

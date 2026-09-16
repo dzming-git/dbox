@@ -20,6 +20,7 @@ import Texts from './Texts.vue'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { withThumbToken } from '../utils/media'
 import type { Video, Tag } from '../types'
+import { MEDIA_TABS, type MediaTab } from '../constants/mediaTabs'
 
 const router = useRouter()
 const route = useRoute()
@@ -280,14 +281,9 @@ const handleLibraryChange = (val: any) => {
 }
 
 // 关键词：本地输入，回车或清除时才应用，避免每敲一个字就打一次接口
-// 媒体类型 tab：交给通用筛选栏渲染，避免每个视图各写一遍
-const MEDIA_TABS = [
-  { key: 'video', label: '视频' },
-  { key: 'gallery', label: '图集' },
-  { key: 'text', label: '文本' },
-  { key: 'mixed', label: '帖子' },
-]
-const onTabChange = (key: string) => { mediaTab.value = key as any }
+// tabs 条由各资源视图自己渲染（见 constants/mediaTabs.ts 的说明），
+// Home 只负责把切换请求落到 mediaTab 上。
+const onTabChange = (key: string) => { mediaTab.value = key as MediaTab }
 const onViewChange = (mode: 'grid' | 'list') => { videoStore.setViewMode(mode) }
 
 const filterKeyword = ref(videoStore.searchQuery || '')
@@ -738,9 +734,11 @@ const listThumbUrl = (video: Video): string => {
       </div>
     </div>
 
-    <!-- 顶部工具条 + 筛选面板：统一用 ResourceFilterBar（与图集等其它资源共用一套，
-         不再各写一份筛选 UI）。视频专有的维度（合集 / 视图 / 标签 / 操作）用插槽注入。 -->
+    <!-- 视频工具条：只在本 tab 渲染。
+         其它资源（图集/文本/帖子）各自渲染自己的工具条——筛选面板的内容属于
+         资源自身，若这里再统一渲染一份，图集页就会出现两个「筛选」按钮。 -->
     <ResourceFilterBar
+      v-if="mediaTab === 'video'"
       v-model:open="filterPanelOpen"
       :tabs="MEDIA_TABS"
       :tab="mediaTab"
@@ -1025,11 +1023,25 @@ const listThumbUrl = (video: Video): string => {
     </template>
     </div>
     <!-- 图集内容（仅图集 tab 显示） -->
-    <Gallerys v-else-if="mediaTab === 'gallery'" />
+    <Gallerys
+      v-else-if="mediaTab === 'gallery'"
+      :media-tab="mediaTab"
+      @tab-change="onTabChange"
+    />
     <!-- 帖子（Post）：通过资源索引表自由引用视频 / 图片集的策展信息流 -->
-    <Posts v-else-if="mediaTab === 'mixed'" ref="postsRef" />
+    <Posts
+      v-else-if="mediaTab === 'mixed'"
+      ref="postsRef"
+      :media-tab="mediaTab"
+      @tab-change="onTabChange"
+    />
     <!-- 文本模式（未来内容管理，复用同一套资源索引机制） -->
-    <Texts v-else-if="mediaTab === 'text'" ref="textsRef" />
+    <Texts
+      v-else-if="mediaTab === 'text'"
+      ref="textsRef"
+      :media-tab="mediaTab"
+      @tab-change="onTabChange"
+    />
 
     <!-- 编辑抽屉（视频/图集通用） -->
     <ItemEditDrawer

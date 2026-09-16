@@ -11,6 +11,12 @@ import ResourceFilterBar from '../components/ResourceFilterBar.vue'
 import type { Gallery } from '../types'
 import { galleryApi } from '../api'
 import { withThumbToken } from '../utils/media'
+import { MEDIA_TABS, type MediaTab } from '../constants/mediaTabs'
+
+// 嵌入首页时由 Home 传入当前 tab，并把「切到别的资源」的请求抛回去。
+// 独立页（/galleries）不渲染 tabs，这两个都用不到，故均可选。
+const props = defineProps<{ mediaTab?: MediaTab }>()
+const emit = defineEmits<{ (e: 'tab-change', v: string): void }>()
 
 const router = useRouter()
 const route = useRoute()
@@ -204,10 +210,13 @@ watch(() => route.query, async (newQuery) => {
 
 <template>
   <div class="galleries-container">
-    <!-- 筛选栏：与视频视图共用同一套通用件（排序/范围/显示等维度只维护一份），
-         图集特有的「标签」用 extra 插槽注入。 -->
+    <!-- 工具条：tabs + 筛选，与视频视图共用同一套通用件（排序/范围/显示等维度
+         只维护一份），图集特有的「标签」用 extra 插槽注入。
+         tabs 只在嵌入首页时渲染——独立页（/galleries）不需要切换媒体类型。 -->
     <ResourceFilterBar
       v-model:open="filterOpen"
+      :tabs="isEmbedded ? MEDIA_TABS : []"
+      :tab="props.mediaTab"
       :sorts="sortOptions"
       :sort="galleryStore.sortBy"
       :order="galleryStore.sortOrder"
@@ -216,6 +225,7 @@ watch(() => route.query, async (newQuery) => {
       :keyword="galleryStore.searchQuery"
       :view-mode="galleryStore.viewMode"
       :active-count="activeFilterCount"
+      @tab-change="emit('tab-change', $event)"
       @sort-change="handleSortChange"
       @order-change="handleOrderChange"
       @library-change="handleLibraryChange"
