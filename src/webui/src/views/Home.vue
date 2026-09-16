@@ -13,6 +13,7 @@ import VideoCard from '../components/VideoCard.vue'
 import TagBadge from '../components/TagBadge.vue'
 import ItemEditDrawer from '../components/ItemEditDrawer.vue'
 import ResourceListRow from '../components/ResourceListRow.vue'
+import ResourceFilterBar from '../components/ResourceFilterBar.vue'
 import Gallerys from './Gallerys.vue'
 import Posts from './Posts.vue'
 import Texts from './Texts.vue'
@@ -261,29 +262,42 @@ const sortOptions = [
 const currentSort = computed(() => videoStore.sortBy)
 const currentOrder = computed(() => videoStore.sortOrder)
 
-const handleSortChange = (event: Event) => {
-  const target = event.target as HTMLSelectElement
-  videoStore.setSortBy(target.value)
+// 通用筛选栏抛出的是「值」而非 DOM 事件（组件不制造伪事件）
+const handleSortChange = (value: string) => {
+  videoStore.setSortBy(value)
   updateUrl()
 }
 
-const handleOrderChange = (event: Event) => {
-  const target = event.target as HTMLSelectElement
-  videoStore.setSortOrder(target.value)
+const handleOrderChange = (value: string) => {
+  videoStore.setSortOrder(value)
   updateUrl()
 }
 
 // 按资源库筛选
-const handleLibraryChange = (event: Event) => {
-  const target = event.target as HTMLSelectElement
-  const val = target.value
-  videoStore.filterByLibrary(val === '' ? null : parseInt(val))
+const handleLibraryChange = (val: any) => {
+  videoStore.filterByLibrary(val === '' || val == null ? null : parseInt(String(val)))
   updateUrl()
 }
 
 // 关键词：本地输入，回车或清除时才应用，避免每敲一个字就打一次接口
+// 媒体类型 tab：交给通用筛选栏渲染，避免每个视图各写一遍
+const MEDIA_TABS = [
+  { key: 'video', label: '视频' },
+  { key: 'gallery', label: '图集' },
+  { key: 'text', label: '文本' },
+  { key: 'mixed', label: '帖子' },
+]
+const onTabChange = (key: string) => { mediaTab.value = key as any }
+const onViewChange = (mode: 'grid' | 'list') => { videoStore.setViewMode(mode) }
+
 const filterKeyword = ref(videoStore.searchQuery || '')
 watch(() => videoStore.searchQuery, (v) => { filterKeyword.value = v || '' })
+
+// 通用筛选栏提交搜索时直接把关键词抛出（内部维护 draft，回车才生效）
+function onFilterSearch(kw: string) {
+  filterKeyword.value = kw
+  applyKeyword()
+}
 
 function applyKeyword() {
   videoStore.searchVideos(filterKeyword.value.trim())
@@ -724,143 +738,47 @@ const listThumbUrl = (video: Video): string => {
       </div>
     </div>
 
-    <!-- 顶部工具条：默认只保留「媒体类型 + 筛选入口」一行，
-         详细条件收进下方筛选面板，避免长期占据首屏。 -->
-    <div class="topbar tool-strip">
-      <div class="media-tabs">
-        <button
-          class="media-tab"
-          :class="{ active: mediaTab === 'video' }"
-          @click="mediaTab = 'video'"
-        >视频</button>
-        <button
-          class="media-tab"
-          :class="{ active: mediaTab === 'gallery' }"
-          @click="mediaTab = 'gallery'"
-        >图集</button>
-        <button
-          class="media-tab"
-          :class="{ active: mediaTab === 'text' }"
-          @click="mediaTab = 'text'"
-        >文本</button>
-        <button
-          class="media-tab"
-          :class="{ active: mediaTab === 'mixed' }"
-          @click="mediaTab = 'mixed'"
-        >帖子</button>
-      </div>
-      <button
-        class="filter-toggle-btn"
-        :class="{ active: filterPanelOpen, has: activeFilterCount > 0 }"
-        @click="filterPanelOpen = !filterPanelOpen"
-        :title="filterPanelOpen ? '收起筛选' : '展开筛选'"
-        data-testid="filter-toggle"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/>
-        </svg>
-        <span>筛选</span>
-        <span v-if="activeFilterCount > 0" class="filter-badge">{{ activeFilterCount }}</span>
-        <svg class="ft-chev" :class="{ open: filterPanelOpen }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 6l6 6-6 6"/>
-        </svg>
-      </button>
-    </div>
-
-    <!-- 详细筛选面板：默认收起 -->
-    <div v-if="filterPanelOpen" class="filter-panel" data-testid="filter-panel">
-      <template v-if="mediaTab === 'video'">
-        <!-- 关键词搜索：首页此前没有搜索框，只能去全局搜索页 -->
-        <div class="fp-row">
-          <span class="fp-label">搜索</span>
-          <div class="filter-search">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
-            </svg>
-            <input
-              v-model="filterKeyword"
-              type="text"
-              placeholder="在当前结果中搜索"
-              @keyup.enter="applyKeyword"
-            />
-            <button v-if="filterKeyword" class="search-clear" @click="clearKeyword" title="清除关键词">×</button>
-          </div>
-        </div>
-        <div class="fp-row">
-          <span class="fp-label">排序</span>
-          <select class="sort-select" :value="currentSort" @change="handleSortChange">
-            <option v-for="option in sortOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-          <select class="sort-order-select" :value="currentOrder" @change="handleOrderChange">
-            <option value="desc">倒序</option>
-            <option value="asc">正序</option>
-          </select>
-        </div>
-        <!-- 资源库 / 合集：同属「归属」维度 -->
-        <div class="fp-row">
-          <span class="fp-label">范围</span>
-          <select class="library-select" :value="selectedLibraryId || ''" @change="handleLibraryChange">
-            <option value="">全部资源库</option>
-            <option v-for="lib in libraries" :key="lib.id" :value="lib.id">
-              {{ lib.name }}
-            </option>
-          </select>
-          <select
-            class="collection-select"
-            :value="videoStore.selectedCollectionId || ''"
-            @change="handleCollectionChange"
-            title="按模式内合集筛选"
-          >
-            <option value="">全部合集</option>
-            <option v-for="c in videoStore.collections" :key="c.id" :value="c.id">
-              {{ c.name }}
-            </option>
-          </select>
-        </div>
-        <!-- 显示模式切换：缩略图 / 列表 -->
-        <div class="fp-row">
-          <span class="fp-label">显示</span>
-          <div class="view-toggle">
-            <button
-              class="view-toggle-btn"
-              :class="{ active: videoStore.viewMode === 'grid' }"
-              @click="videoStore.setViewMode('grid')"
-              title="缩略图"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="7" height="7" rx="1"/>
-                <rect x="14" y="3" width="7" height="7" rx="1"/>
-                <rect x="3" y="14" width="7" height="7" rx="1"/>
-                <rect x="14" y="14" width="7" height="7" rx="1"/>
-              </svg>
-              <span class="view-toggle-text">缩略图</span>
-            </button>
-            <button
-              class="view-toggle-btn"
-              :class="{ active: videoStore.viewMode === 'list' }"
-              @click="videoStore.setViewMode('list')"
-              title="列表"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="8" y1="6" x2="21" y2="6"/>
-                <line x1="8" y1="12" x2="21" y2="12"/>
-                <line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/>
-                <line x1="3" y1="12" x2="3.01" y2="12"/>
-                <line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-              <span class="view-toggle-text">列表</span>
-            </button>
-          </div>
-        </div>
+    <!-- 顶部工具条 + 筛选面板：统一用 ResourceFilterBar（与图集等其它资源共用一套，
+         不再各写一份筛选 UI）。视频专有的维度（合集 / 视图 / 标签 / 操作）用插槽注入。 -->
+    <ResourceFilterBar
+      v-model:open="filterPanelOpen"
+      :tabs="MEDIA_TABS"
+      :tab="mediaTab"
+      :sorts="sortOptions"
+      :sort="currentSort"
+      :order="currentOrder"
+      :libraries="libraries"
+      :library-id="selectedLibraryId"
+      :keyword="filterKeyword"
+      :view-mode="videoStore.viewMode"
+      :active-count="activeFilterCount"
+      @tab-change="onTabChange"
+      @sort-change="handleSortChange"
+      @order-change="handleOrderChange"
+      @library-change="handleLibraryChange"
+      @search="onFilterSearch"
+      @clear-search="clearKeyword"
+      @view-change="onViewChange"
+    >
+      <template #scope>
+        <!-- 合集：与资源库同属「归属」维度 -->
+        <select
+          class="rf-select"
+          :value="videoStore.selectedCollectionId || ''"
+          @change="handleCollectionChange"
+          title="按模式内合集筛选"
+        >
+          <option value="">全部合集</option>
+          <option v-for="c in videoStore.collections" :key="c.id" :value="c.id">{{ c.name }}</option>
+        </select>
+      </template>
+      <template #extra>
         <!-- 保存的视图：把当前这组条件存下来，下次一键套用 -->
-        <div class="fp-row">
-          <span class="fp-label">视图</span>
+        <div class="rf-row">
+          <span class="rf-label">视图</span>
           <select
             v-if="savedViews.length"
-            class="views-select"
+            class="rf-select"
             :value="activeViewId"
             @change="handleApplyView"
             title="套用已保存的视图"
@@ -869,32 +787,22 @@ const listThumbUrl = (video: Video): string => {
             <option v-for="v in savedViews" :key="v.id" :value="v.id">{{ v.name }}</option>
           </select>
           <button
-            class="filter-save-btn"
+            class="rf-btn"
             :disabled="!videoStore.hasActiveFilters"
             @click="handleSaveView"
             :title="videoStore.hasActiveFilters ? '把当前筛选条件存为视图' : '先选择筛选条件'"
           >另存为视图</button>
-          <button
-            v-if="activeViewId"
-            class="filter-clear-btn"
-            @click="handleDeleteView"
-            title="删除当前视图"
-          >删除视图</button>
-          <!-- 一键清空：条件多了以后逐个改回来很麻烦 -->
+          <button v-if="activeViewId" class="rf-btn" @click="handleDeleteView" title="删除当前视图">删除视图</button>
           <button
             v-if="videoStore.hasActiveFilters"
-            class="filter-clear-btn"
+            class="rf-btn"
             @click="handleClearFilters"
             title="清空所有筛选条件"
           >清空筛选</button>
         </div>
-        <!-- 标签：数量可能很多，在面板内再折叠一次 -->
-        <div class="fp-row fp-row-block">
-          <button class="tags-toggle-btn" @click="showTagsSection = !showTagsSection">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-              <line x1="7" y1="7" x2="7.01" y2="7"/>
-            </svg>
+        <!-- 标签：数量可能很多，面板内再折叠一次；标签树本身渲染在面板下方 -->
+        <div class="rf-row">
+          <button class="rf-btn" @click="showTagsSection = !showTagsSection">
             {{ showTagsSection ? '收起标签' : '展开标签筛选' }}
             <span v-if="selectedUntagged" class="selected-tag-name">(未标记)</span>
             <span v-else-if="selectedTagId" class="selected-tag-name">
@@ -903,29 +811,27 @@ const listThumbUrl = (video: Video): string => {
           </button>
         </div>
       </template>
-      <!-- 操作：与筛选条件分开，避免和条件混在一起 -->
-      <div class="fp-row fp-actions">
+      <template #actions>
         <button
           v-if="hasPreviousVideos && currentSort === 'recommended'"
-          class="filter-clear-btn"
+          class="rf-btn"
           :disabled="shuffling"
           @click="handleUndo"
           title="回到上一批推荐"
         >撤回</button>
         <button
-          class="filter-clear-btn"
+          class="rf-btn"
           :disabled="shuffling"
           @click="handlePcRefresh"
           :title="currentSort === 'recommended' ? '换一批推荐内容' : '刷新列表'"
         >{{ currentSort === 'recommended' ? '换一批' : '刷新' }}</button>
         <button
-          class="filter-clear-btn"
+          class="rf-btn"
           :class="{ active: editMode }"
           @click="toggleEditMode"
         >{{ editMode ? '退出编辑' : '编辑' }}</button>
-        <button class="filter-clear-btn" @click="filterPanelOpen = false">收起</button>
-      </div>
-    </div>
+      </template>
+    </ResourceFilterBar>
 
     <!-- 标签区域 - 可折叠（现在收在筛选面板内） -->
     <div v-if="filterPanelOpen && showTagsSection && mediaTab === 'video'" class="tags-section">
@@ -1263,62 +1169,9 @@ const listThumbUrl = (video: Video): string => {
 }
 
 /* 首页媒体类型切换：视频 / 图集 对等 */
-.media-tabs {
-  display: inline-flex; /* 不用 flex:1 防止被 topbar 压缩导致按钮重叠 */
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  padding: 4px 6px;
-  margin-bottom: 10px;
-  flex-shrink: 0; /* PC 端不允许整体收缩 */
-}
-
-.media-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.2;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.media-tab:hover {
-  color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.media-tab.active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
 
 /* 顶部工具条：媒体切换 + 排序/资源库/编辑/显示方式/标签筛选，单条可换行 */
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.topbar .media-tabs { margin-bottom: 0; }
 /* 各控件内联成一条，空间不足时整体折行，避免每个控件单独占一行 */
-.tool-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
 
 .wl-badge {
   min-width: 18px;
@@ -1336,63 +1189,6 @@ const listThumbUrl = (video: Video): string => {
 
 /* 标签区域 */
 /* 筛选入口：顶栏只保留这一个按钮，详细条件收进下方面板 */
-.filter-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
-}
-.filter-toggle-btn:hover { color: var(--accent); }
-.filter-toggle-btn.active { background: var(--bg-surface-hover); color: var(--text-primary); }
-/* 有筛选生效时高亮：面板收起后也要能看出「列表被筛过」 */
-.filter-toggle-btn.has { color: var(--accent); border-color: var(--accent); }
-.filter-badge {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-size: 11px;
-  line-height: 16px;
-  text-align: center;
-}
-.ft-chev { transition: transform 0.2s; }
-.ft-chev.open { transform: rotate(180deg); }
-
-/* 筛选面板：默认收起，展开后按「条件 / 操作」分组排列 */
-.filter-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-}
-.fp-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.fp-row-block { flex-direction: column; align-items: stretch; }
-/* 固定宽度的行标签，让各行的控件左边缘对齐 */
-.fp-label { flex: 0 0 38px; font-size: 12px; color: var(--text-tertiary); }
-.fp-actions { border-top: 1px dashed var(--border-default); padding-top: 10px; }
-/* 换一批/撤回在刷新期间禁用，需要明确的视觉反馈 */
-.fp-actions .filter-clear-btn:disabled { opacity: 0.5; cursor: default; }
-.filter-panel .filter-search { flex: 1; min-width: 180px; }
-.filter-panel .sort-select,
-.filter-panel .sort-order-select,
-.filter-panel .library-select,
-.filter-panel .collection-select,
-.filter-panel .views-select { flex: 0 1 auto; max-width: 100%; }
-
 .tags-section {
   margin-bottom: 16px;
   background: var(--bg-surface);
@@ -1586,12 +1382,6 @@ const listThumbUrl = (video: Video): string => {
   transition: all 0.2s;
 }
 
-.tags-toggle-btn:hover {
-  background: var(--bg-surface-2);
-  color: var(--accent);
-  border-color: var(--border-strong);
-}
-
 .selected-tag-name {
   color: var(--accent);
   font-weight: 500;
@@ -1601,197 +1391,6 @@ const listThumbUrl = (video: Video): string => {
 .sort-label {
   color: var(--text-secondary);
   font-size: 14px;
-}
-
-.sort-select {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.sort-select:hover {
-  border-color: var(--accent-border);
-}
-
-.sort-select:focus {
-  outline: none;
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
-}
-
-.sort-order-select {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: border-color 0.2s;
-  margin-left: 8px;
-}
-
-.sort-order-select:hover {
-  border-color: var(--accent-border);
-}
-
-.sort-order-select:focus {
-  outline: none;
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
-}
-
-/* 资源库筛选下拉，风格与排序下拉一致 */
-.library-select {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: border-color 0.2s;
-  margin-left: 8px;
-}
-
-.library-select:hover {
-  border-color: var(--accent-border);
-}
-
-.library-select:focus {
-  outline: none;
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
-}
-
-/* 合集下拉：与资源库下拉同规格（同一"归属"维度） */
-.collection-select {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: border-color 0.2s;
-  margin-left: 8px;
-}
-
-.collection-select:hover,
-.collection-select:focus {
-  outline: none;
-  border-color: var(--accent-border);
-}
-
-/* 过滤条内的关键词搜索 */
-.filter-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 10px;
-  margin-left: 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-tertiary);
-  transition: border-color 0.2s;
-}
-
-.filter-search:focus-within {
-  border-color: var(--accent-border);
-}
-
-.filter-search input {
-  width: 160px;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.filter-search .search-clear {
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 2px;
-}
-
-/* 已保存视图下拉 */
-.views-select {
-  height: 40px;
-  padding: 0 12px;
-  margin-left: 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.views-select:hover,
-.views-select:focus {
-  outline: none;
-  border-color: var(--accent-border);
-}
-
-/* 另存为视图 */
-.filter-save-btn {
-  height: 40px;
-  margin-left: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--accent-border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.filter-save-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
-}
-
-.filter-save-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  border-color: var(--border-default);
-  color: var(--text-tertiary);
-}
-
-/* 清空筛选：仅在有条件生效时出现 */
-.filter-clear-btn {
-  height: 40px;
-  margin-left: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
-}
-
-.filter-clear-btn:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--danger-soft);
 }
 
 @keyframes spin {
@@ -1837,41 +1436,6 @@ const listThumbUrl = (video: Video): string => {
 }
 
 /* 显示模式切换 */
-.view-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 3px;
-  flex-shrink: 0;
-}
-
-.view-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.view-toggle-btn:hover {
-  color: var(--accent);
-  background: var(--bg-surface-2);
-}
-
-.view-toggle-btn.active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
 
 /* 列表模式 */
 .video-list {
@@ -1894,7 +1458,6 @@ const listThumbUrl = (video: Video): string => {
   margin-top: 16px;
   font-size: 16px;
 }
-
 
 /* 滚动自动加载提示 */
 .loading-more {
@@ -2140,23 +1703,9 @@ const listThumbUrl = (video: Video): string => {
   }
   
   /* 移动端：工具条整体占满宽度，控件自动换行，避免溢出又不再各自独占一行 */
-  .tool-controls {
-    width: 100%;
-    gap: 8px;
-  }
 
   .sort-label {
     display: none;
-  }
-
-  .sort-select,
-  .sort-order-select,
-  .library-select {
-    flex: 1 1 30%;
-    min-width: 0;
-    height: 38px;
-    font-size: 13px;
-    margin-left: 0;
   }
 
   /* 移动端：底部悬浮单手翻页栏 */
@@ -2198,10 +1747,6 @@ const listThumbUrl = (video: Video): string => {
 
   /* 移动端显示模式切换占满整行 */
   /* 移动端显示方式切换与控件同行，不再独占整行 */
-  .view-toggle {
-    flex: 0 0 auto;
-    justify-content: center;
-  }
 
   /* 移动端：标签筛选与"更多"均为内容宽度、与排序/显示方式同排，不独占整行 */
   .tags-toggle-btn {
@@ -2209,28 +1754,6 @@ const listThumbUrl = (video: Video): string => {
   }
 
   /* 移动端：筛选框与更多按钮同行，框内 tab 可横向滚动不挤占更多 */
-  .media-tabs {
-    flex: 1;
-    min-width: 0;
-    width: auto;
-    gap: 6px;
-    padding: 4px 8px;
-    justify-content: space-between;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .media-tabs::-webkit-scrollbar { display: none; }
-
-  .media-tab {
-    padding: 5px 12px;
-    font-size: 13px;
-    flex: 0 0 auto;
-  }
-
-  .view-toggle-btn {
-    flex: 1 1 0;
-    justify-content: center;
-  }
 
   /* 移动端列表模式：缩略图收窄让位标题，操作按钮不再霸占右侧空间 */
   .video-list-row {
