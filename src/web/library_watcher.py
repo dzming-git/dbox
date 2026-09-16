@@ -42,6 +42,63 @@ _IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif')
 _GALLERY_COOLDOWN = 8.0  # 图集重扫去抖时间（秒，重于视频，避免大批量复制期间反复全扫）
 
 
+def _plan_orphan_deletions(roots_norm, disk, video_paths, exists_fn=None,
+                           min_abs=20, max_ratio=0.1):
+    """规划「孤儿清理」：本次到底该从库里删掉哪些记录。
+
+    为什么单独抽成纯函数：扫描同步里最容易出事的一步就是删库记录。
+    此前的判定是「本次没枚举到 == 磁盘上不存在」，但**枚举可能是不完整的**——
+    增量扫描会剪枝掉 mtime 未变化的目录（_collect_disk_videos 的 since_epoch），
+    verify 模式更是完全不枚举磁盘。于是大量正常记录被当成已删除的文件，
+    被一条条硬删（db.session.delete，不进回收站，日志还是 debug 级，用户无感），
+    一次就能清空整个扫描根的索引，且只能靠重新扫描补回。
+
+    正确判据：**只以磁盘实际状态为准**（没枚举到 ≠ 不存在），
+    并对「成片消失」保持警惕（整块盘/目录暂时不可访问时，exists() 同样全 False）。
+
+    参数：
+      roots_norm   扫描根（已 normcase + abspath）
+      disk         本次枚举到的磁盘路径集合（可为空 / 不完整）
+      video_paths  [(norm_path, real_path), ...] 库内记录的当前路径
+      exists_fn    存在性判断函数（便于测试注入）
+      min_abs / max_ratio
+                   安全阈值：某根下判定缺失数超过 max(min_abs, max_ratio × 该根总数)
+                   时整根放弃删除，宁可漏删也不误删。
+
+    返回 (to_delete, aborted)：to_delete 为确定要删的真实路径列表；
+    aborted 为 {root: (缺失数, 该根记录总数)}，表示因超阈值而放弃的根。
+    """
+    exists = exists_fn or os.path.exists
+    total_by_root = {}
+    cand_by_root = {}
+
+    for np, real in video_paths:
+        hit = None
+        for rn in roots_norm:
+            if np == rn or np.startswith(rn + os.sep):
+                hit = rn
+                break
+        if hit is None:
+            continue                     # 不在任何扫描根下：不属于本次清理范围
+        total_by_root[hit] = total_by_root.get(hit, 0) + 1
+        if np in disk:
+            continue                     # 本次枚举到了：文件还在
+        cand_by_root.setdefault(hit, []).append((np, real))
+
+    to_delete = []
+    aborted = {}
+    for rn, cands in cand_by_root.items():
+        missing = [real for np, real in cands if not exists(np)]
+        if not missing:
+            continue                     # 只是没枚举到，文件其实还在 —— 绝不能删
+        total = total_by_root.get(rn, len(cands))
+        if len(missing) > max(min_abs, max_ratio * total):
+            aborted[rn] = (len(missing), total)
+            continue
+        to_delete.extend(missing)
+    return to_delete, aborted
+
+
 if WATCHDOG_AVAILABLE:
     class _VideoEventHandler(FileSystemEventHandler):
         """watchdog 事件处理器：把事件转发给 watcher，并标注所属资源库"""
@@ -442,18 +499,27 @@ class ResourceLibraryWatcher:
                         else:
                             self.upsert_video(p, lib_id)
 
-            # 删除：DB 中 local_path 位于任一监控 root 下，但磁盘已不存在
+            # 删除：DB 中 local_path 位于任一监控 root 下，且**磁盘上确实不存在**
             roots_norm = [os.path.normcase(os.path.abspath(r)) for r, _ in targets]
             with self._app.app_context():
+                video_paths = []
                 for v in Video.query.filter(Video.resource_index_id.isnot(None)).all():
                     if _stopped():
                         self._debug('INFO', f'[LibWatcher] diff({mode}) 收到中断请求，停止清理孤儿')
                         return False
-                    np = os.path.normcase(os.path.abspath(v.local_path))
-                    if not verify_only and np in disk:
-                        continue
-                    if any(np == rn or np.startswith(rn + os.sep) for rn in roots_norm):
-                        self.remove_video(v.local_path)
+                    video_paths.append(
+                        (os.path.normcase(os.path.abspath(v.local_path)), v.local_path))
+
+            to_delete, aborted = _plan_orphan_deletions(roots_norm, disk, video_paths)
+            for rn, (miss_n, total_n) in aborted.items():
+                self._debug(
+                    'ERROR',
+                    f'[LibWatcher] {rn} 下有 {miss_n}/{total_n} 条记录判为缺失，超过安全阈值；'
+                    f'疑似该盘/目录当前不可访问，本次跳过删除（防止整库索引被清空）')
+            for p in to_delete:
+                self.remove_video(p)
+            if to_delete:
+                self._debug('WARN', f'[LibWatcher] diff({mode}) 清理孤儿 {len(to_delete)} 条')
 
             # 记录成功扫描时间，供后续增量剪枝使用
             if mode != 'verify':
