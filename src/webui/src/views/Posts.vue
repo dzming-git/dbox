@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onActivated, onDeactivated, onUnmounted } from 'vue'
+import { ref, computed, onMounted, nextTick, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
@@ -9,6 +9,12 @@ import type { Post, PostRef, ResourceIndex } from '../types'
 import MediaCard from '../components/MediaCard.vue'
 import WatchLaterButton from '../components/WatchLaterButton.vue'
 import BaseModal from '../components/BaseModal.vue'
+import ResourceFilterBar from '../components/ResourceFilterBar.vue'
+import { MEDIA_TABS, type MediaTab } from '../constants/mediaTabs'
+
+// 嵌入首页时由 Home 传入当前 tab，并把切换请求抛回去（独立页用不到）
+const props = defineProps<{ mediaTab?: MediaTab }>()
+const emit = defineEmits<{ (e: 'tab-change', v: string): void }>()
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -106,6 +112,8 @@ onMounted(fetchPosts)
 
 // 顶部下拉刷新：仅作为独立路由（/posts）时注册，嵌入首页时不接管手势
 const route = useRoute()
+// 是否由首页内嵌渲染：只有内嵌时才需要 tabs 条
+const isEmbedded = computed(() => route.name === 'Home')
 const ptr = usePullToRefresh()
 function registerPtr() {
   if (route.name !== 'Posts') return
@@ -401,6 +409,15 @@ const formatDate = (s?: string) => {
 
 <template>
   <div class="posts-container">
+    <!-- 媒体类型 tabs：只在被首页内嵌时渲染（独立页不需要切换媒体类型）。
+         帖子暂无筛选维度，故不给筛选入口（避免点开一个空面板）。 -->
+    <ResourceFilterBar
+      v-if="isEmbedded"
+      :tabs="MEDIA_TABS"
+      :tab="props.mediaTab"
+      :show-filter="false"
+      @tab-change="emit('tab-change', $event)"
+    />
     <div class="posts-header">
       <h2 class="section-title">帖子</h2>
       <button class="create-btn" @click="openCreate">

@@ -42,6 +42,11 @@ const props = withDefaults(defineProps<{
   showView?: boolean
   /** 生效中的筛选条件数：收起时也要能看出「列表被筛过」 */
   activeCount?: number
+  /**
+   * 是否渲染筛选入口与面板。资源本身没有可筛维度时传 false，
+   * 只留 tabs 条——总比给一个点开空空的面板强。
+   */
+  showFilter?: boolean
 }>(), {
   open: false,
   tabs: () => [],
@@ -51,6 +56,7 @@ const props = withDefaults(defineProps<{
   showSearch: true,
   showView: true,
   activeCount: 0,
+  showFilter: true,
 })
 
 const emit = defineEmits<{
@@ -99,6 +105,7 @@ const hasTabs = computed(() => props.tabs.length > 0)
         >{{ t.label }}</button>
       </div>
       <button
+        v-if="showFilter"
         class="rf-toggle"
         :class="{ active: open, has: activeCount > 0 }"
         :title="open ? '收起筛选' : '展开筛选'"
@@ -118,7 +125,7 @@ const hasTabs = computed(() => props.tabs.length > 0)
     </div>
 
     <!-- 筛选项面板：默认收起 -->
-    <div v-if="open" class="rf-panel" data-testid="filter-panel">
+    <div v-if="showFilter && open" class="rf-panel" data-testid="filter-panel">
       <div v-if="showSearch" class="rf-row">
         <span class="rf-label">搜索</span>
         <div class="rf-search">
