@@ -209,7 +209,7 @@ watch(() => route.query, async (newQuery) => {
 </script>
 
 <template>
-  <div class="galleries-container">
+  <div class="galleries-container" :class="{ embedded: isEmbedded }">
     <!-- 工具条：tabs + 筛选，与视频视图共用同一套通用件（排序/范围/显示等维度
          只维护一份），图集特有的「标签」用 extra 插槽注入。
          tabs 只在嵌入首页时渲染——独立页（/galleries）不需要切换媒体类型。 -->
@@ -326,6 +326,10 @@ watch(() => route.query, async (newQuery) => {
 
 <style scoped>
 .galleries-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+/* 嵌入首页时，内边距与宽度由首页容器（.home-container）统一提供；
+   这里再来一层会把整块（含工具条）推右、推下 20px —— 于是同一个工具条
+   在视频 tab 与图集 tab 落到两个位置。独立页（/galleries）保留自己的。 */
+.galleries-container.embedded { padding: 0; max-width: none; }
 .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .gallery-list { display: flex; flex-direction: column; gap: 8px; }
 .list-actions { display: flex; gap: 6px; }

@@ -129,7 +129,7 @@ const formatDate = (s?: string) => {
       @tab-change="emit('tab-change', $event)"
     />
   </div>
-  <div class="texts-container">
+  <div class="texts-container" :class="{ embedded: isEmbedded }">
     <div class="texts-header">
       <h2 class="section-title">文本</h2>
       <button class="create-btn" @click="openCreate">新建文本</button>
@@ -186,9 +186,11 @@ const formatDate = (s?: string) => {
 
 <style scoped>
 .texts-container { padding: 20px; max-width: 1000px; margin: 0 auto; width: 100%; box-sizing: border-box; }
-/* 工具条与其它 tab 的容器几何保持一致（1400px + 20px），
-   否则切到文本页时整条 tabs 会横向错位；正文仍保持 1000px 的阅读宽度。 */
-.texts-toolbar { max-width: 1400px; margin: 0 auto; padding: 20px 20px 0; width: 100%; box-sizing: border-box; }
+/* 嵌入首页时不再叠加一层水平内边距：那层会把正文推右 20px、与视频 tab 对不齐 */
+.texts-container.embedded { padding: 20px 0; }
+/* 工具条是独立根节点，位置由首页容器决定：它**不能再自带**内边距/宽度限制，
+   否则就比其它 tab 多缩进一层（此前 20px，正是各 tab 位置不一致的原因）。 */
+.texts-toolbar { display: block; }
 .texts-header { display: flex; align-items: center; justify-content: space-between; }
 .search-box { display: flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; margin: 12px 0 16px; }
 .search-icon { color: var(--text-tertiary); flex-shrink: 0; }

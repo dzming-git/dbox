@@ -408,7 +408,7 @@ const formatDate = (s?: string) => {
 </script>
 
 <template>
-  <div class="posts-container">
+  <div class="posts-container" :class="{ embedded: isEmbedded }">
     <!-- 媒体类型 tabs：只在被首页内嵌时渲染（独立页不需要切换媒体类型）。
          帖子暂无筛选维度，故不给筛选入口（避免点开一个空面板）。 -->
     <ResourceFilterBar
@@ -593,6 +593,8 @@ const formatDate = (s?: string) => {
 
 <style scoped>
 .posts-container { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+/* 同图集：嵌入首页时不再叠加一层内边距/宽度限制，避免工具条位置随 tab 变化 */
+.posts-container.embedded { padding: 0; max-width: none; }
 
 /* 移动端：帖子流此前完全没有断点，卡片内边距与 3 列九宫格在窄屏上很挤 */
 @media (max-width: 768px) {
