@@ -2403,26 +2403,59 @@ def migrate_resource_index():
                 db.session.commit()
 
         # 2) 视频：local_path -> resource_index(kind='video_file')
-        rows = db.session.execute(db.text(
-            "SELECT id, local_path, library_id FROM videos "
-            "WHERE local_path IS NOT NULL AND local_path != '' AND resource_index_id IS NULL")).fetchall()
-        for vid, lp, lib in rows:
-            ri = ResourceIndex(kind='video_file', location=lp, library_id=lib)
-            db.session.add(ri)
-            db.session.flush()
-            db.session.execute(db.text("UPDATE videos SET resource_index_id=:rid WHERE id=:vid"),
-                               {'rid': ri.id, 'vid': vid})
+        #
+        # ⚠️ videos.local_path 这一列在后续重构中已被移除（路径统一存到
+        # resource_index.location）。若照旧直接查它，会抛
+        # "no such column: local_path"，而第 2~4 步同在一个 try 里、
+        # 只有末尾一次 commit —— 异常会让**整段回滚**，连第 4 步
+        # 「模式归属（membership）回填」一起失效，视频因此永远拿不到归属行
+        # （表现为帖子引用选择器里一个视频都选不到）。
+        # 所以先探测列是否还在，不在就跳过：此时路径本就在索引表里，无需回填。
+        _v_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(videos)")).fetchall()]
+        if 'local_path' in _v_cols:
+            rows = db.session.execute(db.text(
+                "SELECT id, local_path, library_id FROM videos "
+                "WHERE local_path IS NOT NULL AND local_path != '' AND resource_index_id IS NULL")).fetchall()
+            for vid, lp, lib in rows:
+                ri = ResourceIndex(kind='video_file', location=lp, library_id=lib)
+                db.session.add(ri)
+                db.session.flush()
+                db.session.execute(db.text("UPDATE videos SET resource_index_id=:rid WHERE id=:vid"),
+                                   {'rid': ri.id, 'vid': vid})
+        else:
+            print('[MIGRATE] videos.local_path 已不在表结构中，跳过视频索引回填')
 
-        # 3) 图集：folder_path -> resource_index(kind='gallery_folder')
-        rows = db.session.execute(db.text(
-            "SELECT id, folder_path, library_id FROM galleries "
-            "WHERE folder_path IS NOT NULL AND folder_path != '' AND resource_index_id IS NULL")).fetchall()
-        for cid, fp, lib in rows:
-            ri = ResourceIndex(kind='gallery_folder', location=fp, library_id=lib)
-            db.session.add(ri)
-            db.session.flush()
-            db.session.execute(db.text("UPDATE galleries SET resource_index_id=:rid WHERE id=:cid"),
-                               {'rid': ri.id, 'cid': cid})
+        # 3) 图集：folder_path -> resource_index(kind='gallery_folder')（同 2，先探测列）
+        _g_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(galleries)")).fetchall()]
+        if 'folder_path' in _g_cols:
+            rows = db.session.execute(db.text(
+                "SELECT id, folder_path, library_id FROM galleries "
+                "WHERE folder_path IS NOT NULL AND folder_path != '' AND resource_index_id IS NULL")).fetchall()
+            for cid, fp, lib in rows:
+                ri = ResourceIndex(kind='gallery_folder', location=fp, library_id=lib)
+                db.session.add(ri)
+                db.session.flush()
+                db.session.execute(db.text("UPDATE galleries SET resource_index_id=:rid WHERE id=:cid"),
+                                   {'rid': ri.id, 'cid': cid})
+        else:
+            print('[MIGRATE] galleries.folder_path 已不在表结构中，跳过图集索引回填')
+
+        # 3.5) 归属库对齐：索引行的 library_id 为 NULL 时，从所属实体同步回来。
+        #      资源池（帖子引用选择器）按资源库鉴权，NULL 会被 `library_id IN (...)`
+        #      直接排除 —— 于是这些资源永远选不到。实体表（videos/galleries）
+        #      是有库归属的，补回即可。
+        db.session.execute(db.text(
+            "UPDATE resource_index SET library_id = "
+            "  (SELECT v.library_id FROM videos v WHERE v.resource_index_id = resource_index.id) "
+            "WHERE kind = 'video_file' AND library_id IS NULL "
+            "  AND EXISTS (SELECT 1 FROM videos v "
+            "              WHERE v.resource_index_id = resource_index.id AND v.library_id IS NOT NULL)"))
+        db.session.execute(db.text(
+            "UPDATE resource_index SET library_id = "
+            "  (SELECT g.library_id FROM galleries g WHERE g.resource_index_id = resource_index.id) "
+            "WHERE kind = 'gallery_folder' AND library_id IS NULL "
+            "  AND EXISTS (SELECT 1 FROM galleries g "
+            "              WHERE g.resource_index_id = resource_index.id AND g.library_id IS NOT NULL)"))
 
         # 4) 模式归属回填：单资源模式可见性 = membership 行
         #    video_file 资源被 Video 引用 -> mode='video'；gallery_folder 被 Gallery 引用 -> mode='gallery'
