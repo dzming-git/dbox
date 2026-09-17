@@ -1658,3 +1658,43 @@ def admin_trash_empty():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/libraries/scan/preview', methods=['GET', 'POST'])
+@admin_required
+def admin_scan_preview():
+    """扫描预演（只读）：给出每个监控目录将新增 / 将剔除多少条。
+
+    剔除量异常时 need_confirm=True —— 大多意味着某个盘/目录此刻不可见，
+    此时应先排查再执行，否则一次同步就会整批剔掉索引。
+    """
+    try:
+        from backend import scan_preview as sp
+        data = request.get_json(silent=True) or {}
+        lib_id = data.get('library_id') or request.args.get('library_id')
+        plan = sp.preview(library_id=(int(lib_id) if lib_id else None))
+        if plan is None:
+            return jsonify({'success': False, 'message': '资源库监控器未初始化'}), 503
+        return jsonify({'success': True, **plan})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/libraries/scan/undo', methods=['POST'])
+@admin_required
+def admin_scan_undo():
+    """撤销最近被隔离（进回收站）的记录。
+
+    默认只撤「文件确实还在」的：真正丢失的文件不该被复活，否则列表里
+    会出现打不开的条目。传 require_file=false 可强制全部撤回。
+    """
+    try:
+        from backend import scan_preview as sp
+        data = request.get_json(force=True, silent=True) or {}
+        minutes = int(data.get('minutes') or 60)
+        require_file = data.get('require_file', True) is not False
+        res = sp.undo_recent(minutes=minutes, require_file=require_file)
+        log_operation('undo scan quarantine', target=f'{minutes}分钟内', success=True)
+        return jsonify({'success': True, **res})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
