@@ -36,7 +36,9 @@ jobs:
             tests.test_runtime_injection \
             tests.test_app_import \
             tests.test_db_snapshot \
-            tests.test_library_watcher_contract
+            tests.test_library_watcher_contract \
+            tests.test_migration_runner \
+            tests.test_consistency
 
       # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
       - name: Run ServiceBus integration tests

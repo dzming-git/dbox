@@ -459,3 +459,71 @@ def set_user_library_permissions(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/migrations', methods=['GET'])
+@admin_required
+def api_migration_status():
+    """迁移步骤的执行记录：成功过的步骤会跳过，失败的步骤留痕可查。
+
+    用来替代「日志里只有一行不起眼的 WARN」：哪一步没跑成、为什么，可查询。
+    """
+    try:
+        from backend import migration_runner as mr
+        items = mr.status()
+        return jsonify({'success': True, 'items': items,
+                        'failed': [i for i in items if not i['ok']]})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/consistency', methods=['GET'])
+@admin_required
+def api_consistency_check():
+    """资源索引一致性巡检（只读）。
+
+    实体（videos / galleries）与 resource_index / memberships 是双写，可能漂移；
+    这里把它量化，便于定位「某类资源莫名其妙选不到」这类间接症状。
+    """
+    try:
+        from backend import consistency as cons
+        rep = cons.check()
+        issues = {k: v for k, v in rep.items() if v and v > 0}
+        return jsonify({'success': True, 'report': rep, 'issues': issues,
+                        'healthy': not issues})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/consistency/repair', methods=['POST'])
+@admin_required
+def api_consistency_repair():
+    """补齐缺失的关联行：缺失的归属行补上，孤儿索引只报告、不自动清理。"""
+    try:
+        from backend import consistency as cons
+        before = cons.check()
+        fixed = cons.repair()
+        after = cons.check()
+        log.maintenance('INFO', '一致性修复: ' + cons.summary_text(fixed))
+        return jsonify({'success': True, 'fixed': fixed, 'before': before, 'after': after})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/consistency/purge', methods=['POST'])
+@admin_required
+def api_consistency_purge():
+    """清理孤儿索引（没有任何实体、也没有帖子引用它）。
+
+    默认**只试运行**并返回将要删除的数量；传 {"confirm": true} 才真正执行，
+    且执行前会自动创建一份数据库快照以便回滚。
+    """
+    try:
+        from backend import consistency as cons
+        data = request.get_json(force=True, silent=True) or {}
+        mode = (data.get('mode') or 'all').strip()
+        confirm = bool(data.get('confirm'))
+        res = cons.purge_orphans(confirm=confirm, mode=mode)
+        return jsonify({'success': True, **res})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
