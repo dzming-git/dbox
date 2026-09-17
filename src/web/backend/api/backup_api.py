@@ -233,3 +233,61 @@ def remap_prefix():
         'missing_target': missing_target,
         'samples': samples,
     })
+
+
+# ---------------- 数据库快照（可回滚的底线能力） ----------------
+# 导出是「带得走」，快照是「回得来」。索引可能被扫描/迁移/误操作批量改写
+# （真实事故见 backend/db_snapshot.py 的模块说明），只有能恢复到出事前，
+# 才谈得上数据安全。因此这里补齐：查看 / 立即创建 / 恢复。
+
+@bp.route('/api/admin/backup/snapshots', methods=['GET'])
+@admin_required
+def snapshot_list():
+    """列出数据库快照（按时间倒序）。"""
+    try:
+        from backend import db_snapshot
+        items = db_snapshot.list_snapshots()
+        return jsonify({'success': True, 'items': items, 'total': len(items)})
+    except Exception as e:
+        log.debug('ERROR', f'列出快照失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/backup/snapshot', methods=['POST'])
+@admin_required
+def snapshot_create():
+    """立即创建一份数据库快照。
+
+    在**任何批量/破坏性操作之前**都应先做一份（扫描、迁移、库配置变更）。
+    """
+    try:
+        from backend import db_snapshot
+        data = request.get_json(force=True, silent=True) or {}
+        info = db_snapshot.snapshot((data.get('reason') or 'manual').strip() or 'manual')
+        if not info:
+            return jsonify({'success': False, 'message': '创建快照失败（主库不可读？）'}), 500
+        return jsonify({'success': True, **info})
+    except Exception as e:
+        log.debug('ERROR', f'创建快照失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/backup/restore', methods=['POST'])
+@admin_required
+def snapshot_restore():
+    """从快照恢复主库。
+
+    恢复前会先把当前库另存为回滚点，失败还能再退回。
+    **恢复后必须重启服务**（进程持有数据库连接，换文件不会自动生效）。
+    """
+    try:
+        from backend import db_snapshot
+        data = request.get_json(force=True, silent=True) or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': '缺少快照名'}), 400
+        ok, msg = db_snapshot.restore(name)
+        return jsonify({'success': ok, 'message': msg}), (200 if ok else 400)
+    except Exception as e:
+        log.debug('ERROR', f'恢复快照失败: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
