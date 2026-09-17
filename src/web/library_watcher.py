@@ -654,6 +654,14 @@ class ResourceLibraryWatcher:
                     existing.hash = vhash
                     existing.url = f'/local_video/{quote(path.replace(chr(92), "/"), safe=":/")}'
                     existing.updated_at = datetime.utcnow()
+                    # 文件重新出现：此前若因「文件缺失」被移入回收站，这里自动恢复。
+                    # 只清标记、不搬文件 —— 文件本来就在原位置，无需移动。
+                    # （"稍后再看"的墓碑保持不变，避免"删了又回来"。）
+                    if getattr(existing, 'in_trash', False):
+                        existing.in_trash = False
+                        existing.trashed_at = None
+                        self._debug('WARN',
+                                    f'[LibWatcher] 文件已重新出现，自动从回收站恢复: {path}')
                 else:
                     title = os.path.splitext(os.path.basename(path))[0]
                     existing = Video(
@@ -715,18 +723,36 @@ class ResourceLibraryWatcher:
             self._debug('ERROR', f'[LibWatcher] 同步视频失败 {path}: {e}')
 
     def remove_video(self, path):
+        """文件在磁盘上不见了 —— **绝不硬删**，移入回收站（可恢复）。
+
+        为什么改成软删除：索引是用户数年积累的唯一载体，而「文件暂时扫描不到」
+        的成因很多（盘未就绪 / 目录被临时移走 / 权限 / 扫描漏枚举）。此前这里
+        是 db.session.delete 直接硬删，一旦误判就是**不可逆的数据丢失**
+        （真实事故：一次增量扫描把 218 条视频误判为缺失并硬删，只能靠重新扫描
+        补回，历史/标签/合集关联随之失效）。
+
+        现在的行为：进回收站 → 列表不可见但数据仍在 → 文件回来时自动恢复
+        （见 upsert_video）→ 确认无用再由用户在回收站里永久删除。
+
+        另加一道兜底：只要文件还在盘上，就绝不改动记录 —— 因为 move_to_trash
+        会移动文件，这一步必须绝对安全。
+        """
         if not self._is_video(path):
             return
         try:
-            from core.models import db, Video, ResourceIndex
+            from core.models import Video, ResourceIndex
             with self._app.app_context():
                 v = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
-                if v:
-                    db.session.delete(v)
-                    db.session.commit()
-                    self._debug('INFO', f'[LibWatcher] 删除视频: {path}')
+                if not v:
+                    return
+                if os.path.exists(path):
+                    self._debug('WARN', f'[LibWatcher] 跳过删除（文件仍在磁盘上）: {path}')
+                    return
+                from backend.trash import move_to_trash
+                move_to_trash(v, 'video')
+                self._debug('WARN', f'[LibWatcher] 文件缺失，已移入回收站（可恢复）: {path}')
         except Exception as e:
-            self._debug('ERROR', f'[LibWatcher] 删除视频失败 {path}: {e}')
+            self._debug('ERROR', f'[LibWatcher] 移入回收站失败 {path}: {e}')
 
     def _reconcile_fields(self, v, path, new_name):
         """磁盘文件名与 DB 不一致时，仅对齐 file_name / url / 内容指纹等物理信息。
