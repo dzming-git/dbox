@@ -113,24 +113,44 @@ log.maintenance('INFO', 'Dbox Web 服务日志系统初始化完成')
 # ============ 数据库初始化 ============
 db.init_app(app)
 with app.app_context():
-    migrate_video_libraries_rename()
-    migrate_trash_columns()
-    migrate_watch_later_deleted_at()
-    db.create_all()
-    migrate_resource_index()
-    _migrate_gallery_playlists_col()
-    migrate_collection_videos_schema()
-    migrate_owner_columns()
-    migrate_tag_qualifiers()
-    migrate_post_title_nullable()
-    migrate_post_source_columns()
-    migrate_post_group_key()
-    migrate_post_status()
-    migrate_main_library()
-    # 收敛旧 AppSetting（整块 blob）到统一状态表 UserState，仅在全部数据
-    # 校验就位后才会删除旧表；异常时保留旧表，不丢数据。
-    migrate_app_settings_to_user_state()
+    # 迁移交给执行器：每步独立事务 + 记录执行结果。
+    # 此前是一整段 try 包顺序执行、末尾才 commit —— 前面任何一步抛异常都会
+    # 让整段回滚，后面的步骤一次都没跑过，日志里却只有一行不起眼的 WARN
+    # （真实案例：某步骤查了已删除的列，导致「模式归属回填」长期未生效）。
+    from backend import migration_runner as _mr
+    _mr.ensure_table()
+    _mig = _mr.run_all([
+        ('video_libraries_rename', migrate_video_libraries_rename),
+        ('trash_columns', migrate_trash_columns),
+        ('watch_later_deleted_at', migrate_watch_later_deleted_at),
+        ('create_all', db.create_all),
+        ('resource_index', migrate_resource_index),
+        ('gallery_playlists_col', _migrate_gallery_playlists_col),
+        ('collection_videos_schema', migrate_collection_videos_schema),
+        ('owner_columns', migrate_owner_columns),
+        ('tag_qualifiers', migrate_tag_qualifiers),
+        ('post_title_nullable', migrate_post_title_nullable),
+        ('post_source_columns', migrate_post_source_columns),
+        ('post_group_key', migrate_post_group_key),
+        ('post_status', migrate_post_status),
+        ('main_library', migrate_main_library),
+        # 收敛旧 AppSetting（整块 blob）到统一状态表 UserState，仅在全部数据
+        # 校验就位后才会删除旧表；异常时保留旧表，不丢数据。
+        ('app_settings_to_user_state', migrate_app_settings_to_user_state),
+    ])
+    if _mig['failed']:
+        log.maintenance('WARN', '迁移未完成步骤：' + ', '.join(
+            '%s(%s)' % (k, v) for k, v in _mig['failed'].items()))
     init_root_user()
+    # 索引一致性巡检：实体与资源索引/归属是双写，可能漂移。只报告、不删数据
+    try:
+        from backend import consistency as _cons
+        _rep = _cons.check()
+        _bad = {k: v for k, v in _rep.items() if v and v > 0}
+        if _bad:
+            log.maintenance('WARN', '索引一致性巡检发现问题：' + _cons.summary_text(_bad))
+    except Exception as e:
+        log.maintenance('WARN', f'索引一致性巡检未执行: {e}')
     # 数据库快照：每天自动一份（后台线程），任何批量/破坏性操作前也可手动创建。
     # 索引可能被扫描/迁移/误操作批量改写，只有能恢复到出事前才算数据安全。
     try:
