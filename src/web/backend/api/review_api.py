@@ -30,8 +30,6 @@ log = get_service_logger('dbox-web')
 
 bp = Blueprint('review', __name__)
 
-BACKFILL_TASK_ID = 'review:backfill'
-
 # 缩略图扩展名（与 thumbnail_helpers 保持一致）
 _THUMB_EXTS = ('gif', 'jpg', 'png', 'sprite.jpg', 'vtt')
 
@@ -262,13 +260,13 @@ def review_backfill():
     # 两份实现迟早行为漂移（例如时长探测方式不一致），而且任务中心会出现两个入口。
     owner_id = getattr(g, 'user_id', None)
     try:
-        from backend.library_helpers import start_metadata_backfill
+        from backend.library_helpers import start_metadata_backfill, META_TASK_ID
         ok, message = start_metadata_backfill(owner_id=owner_id)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
     if not ok:
         return jsonify({'success': False, 'message': message}), 400
-    return jsonify({'success': True, 'message': message, 'task_id': BACKFILL_TASK_ID})
+    return jsonify({'success': True, 'message': message, 'task_id': META_TASK_ID})
 
 
 
