@@ -17,4 +17,9 @@ export const trashApi = {
     api.post('/api/admin/trash/purge', { type, hash }),
   // 清空整个回收站
   emptyTrash: () => api.post('/api/admin/trash/empty'),
+  // 列出超过保留期、即将被自动清理的资源（健康页清单）
+  getPendingCleanup: () => api.get('/api/admin/trash/pending-cleanup'),
+  // 立即清理超期资源（body 可选 { dry_run?: boolean, retention_days?: number }）
+  purgeExpired: (payload: { dry_run?: boolean; retention_days?: number } = {}) =>
+    api.post('/api/admin/trash/purge-expired', payload),
 }

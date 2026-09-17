@@ -39,7 +39,8 @@ jobs:
             tests.test_library_watcher_contract \
             tests.test_migration_runner \
             tests.test_consistency \
-            tests.test_scan_preview
+            tests.test_scan_preview \
+            tests.test_trash_cleanup
 
       # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
       - name: Run ServiceBus integration tests
