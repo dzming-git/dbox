@@ -131,6 +131,13 @@ with app.app_context():
     # 校验就位后才会删除旧表；异常时保留旧表，不丢数据。
     migrate_app_settings_to_user_state()
     init_root_user()
+    # 数据库快照：每天自动一份（后台线程），任何批量/破坏性操作前也可手动创建。
+    # 索引可能被扫描/迁移/误操作批量改写，只有能恢复到出事前才算数据安全。
+    try:
+        from backend import db_snapshot
+        db_snapshot.start_scheduler()
+    except Exception as e:
+        log.maintenance('WARN', f'数据库自动快照未启用: {e}')
 
 # ============ 注册蓝图 ============
 # 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变
