@@ -1660,6 +1660,49 @@ def admin_trash_empty():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@bp.route('/api/admin/trash/pending-cleanup', methods=['GET'])
+@admin_required
+def admin_trash_pending_cleanup():
+    """列出超过保留期、即将被自动清理的回收站资源（健康页清单）。"""
+    try:
+        from backend import trash as trash_mod
+        items = trash_mod.pending_cleanup()
+        return jsonify({
+            'success': True,
+            'retention_days': trash_mod.TRASH_RETENTION_DAYS,
+            'items': items,
+            'total': len(items),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@bp.route('/api/admin/trash/purge-expired', methods=['POST'])
+@admin_required
+def admin_trash_purge_expired():
+    """立即清理超过保留期的回收站资源（永久删除）。
+
+    body 可选：{ dry_run: bool, retention_days: int }。默认按 TRASH_RETENTION_DAYS 执行。
+    """
+    try:
+        from backend import trash as trash_mod
+        data = request.get_json(silent=True) or {}
+        dry_run = bool(data.get('dry_run'))
+        rd = data.get('retention_days')
+        rd = rd if isinstance(rd, int) and rd > 0 else trash_mod.TRASH_RETENTION_DAYS
+        result = trash_mod.purge_expired_trash(retention_days=rd, dry_run=dry_run)
+        return jsonify({
+            'success': True,
+            'dry_run': dry_run,
+            'purged': result['purged'],
+            'count': result['count'],
+            'items': result['items'],
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @bp.route('/api/admin/libraries/scan/preview', methods=['GET', 'POST'])
 @admin_required
 def admin_scan_preview():

@@ -1831,6 +1831,9 @@ const toggleSelectAll = () => {
 // ============ 回收站 ============
 const trashItems = ref<any[]>([])
 const trashLoading = ref(false)
+const pendingCleanup = ref<any[]>([])
+const pendingLoading = ref(false)
+const retentionDays = ref(30)
 
 const loadTrash = async () => {
   trashLoading.value = true
@@ -1846,6 +1849,7 @@ const loadTrash = async () => {
   } finally {
     trashLoading.value = false
   }
+  loadPendingCleanup()  // 待清理清单独立加载，失败不影响主列表
 }
 
 const restoreTrashItem = async (item: any) => {
@@ -1890,6 +1894,37 @@ const emptyTrash = async () => {
     }
   } catch (e: any) {
     showToast(e?.response?.data?.message || '清空失败')
+  }
+}
+
+const loadPendingCleanup = async () => {
+  pendingLoading.value = true
+  try {
+    const res = await trashApi.getPendingCleanup()
+    if (res.success) {
+      pendingCleanup.value = res.items || []
+      retentionDays.value = res.retention_days ?? 30
+    }
+  } catch (e: any) {
+    // 非关键：静默失败
+  } finally {
+    pendingLoading.value = false
+  }
+}
+
+const purgeExpiredTrash = async () => {
+  if (pendingCleanup.value.length === 0) return
+  if (!window.confirm(`确定要执行「二次清理」、永久删除这 ${pendingCleanup.value.length} 项超期（>${retentionDays.value}天）回收站资源吗？此操作不可恢复。`)) return
+  try {
+    const res = await trashApi.purgeExpired({})
+    if (res.success) {
+      showToast(`已清理 ${res.purged} 项`)
+      loadTrash()
+    } else {
+      showToast(res.data?.message || '清理失败')
+    }
+  } catch (e: any) {
+    showToast(e?.response?.data?.message || '清理失败')
   }
 }
 
@@ -2137,6 +2172,40 @@ onUnmounted(() => {
                 <div class="trash-actions">
                   <button class="btn btn-primary btn-sm" @click="restoreTrashItem(item)">恢复</button>
                   <button class="btn btn-danger btn-sm" @click="purgeTrashItem(item)">永久删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 待自动清理（超过保留期） -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-header">
+            <h3>待二次清理（超过 {{ retentionDays }} 天）</h3>
+            <div class="header-actions">
+              <button class="btn btn-primary btn-sm" @click="loadPendingCleanup" :disabled="pendingLoading">刷新</button>
+              <button class="btn btn-danger btn-sm" @click="purgeExpiredTrash" :disabled="pendingCleanup.length === 0">二次清理</button>
+            </div>
+          </div>
+          <p class="empty-sub" style="padding: 0 16px;">
+            这些资源已在回收站超过 {{ retentionDays }} 天、文件也未重新出现，可由「二次清理」彻底删除（默认不自动）。
+          </p>
+          <div v-if="pendingLoading" class="empty-tip">加载中…</div>
+          <div v-else-if="pendingCleanup.length === 0" class="empty-state">
+            <p>暂无超期资源</p>
+          </div>
+          <div v-else class="trash-grid">
+            <div v-for="item in pendingCleanup" :key="'pc-' + item.type + item.hash" class="trash-card pending">
+              <div class="trash-card-header">
+                <span class="trash-type-badge" :class="item.type === 'video' ? 'type-video' : 'type-gallery'">
+                  {{ item.type === 'video' ? '视频' : '图集' }}
+                </span>
+                <span class="trash-time">已滞留 {{ item.days_in_trash }} 天</span>
+              </div>
+              <div class="trash-card-body">
+                <h4 class="trash-title">{{ item.title || '(无标题)' }}</h4>
+                <div class="trash-meta">
+                  <span class="meta-line">{{ item.owner || '—' }}</span>
+                  <span class="meta-line">{{ formatSize(item.size) }}</span>
                 </div>
               </div>
             </div>

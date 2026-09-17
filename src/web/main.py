@@ -158,6 +158,15 @@ with app.app_context():
         db_snapshot.start_scheduler()
     except Exception as e:
         log.maintenance('WARN', f'数据库自动快照未启用: {e}')
+    # 回收站「彻底删除」默认保守：不自动清理，仅由管理页「二次清理」显式触发，
+    # 把误删风险锁死在人工操作上。如需开启自动清理，设置环境变量 DBOX_TRASH_AUTOPURGE=1
+    # （保留期见 trash.TRASH_RETENTION_DAYS，默认 30 天）。
+    if os.environ.get('DBOX_TRASH_AUTOPURGE') == '1':
+        try:
+            from backend import trash as _trash
+            _trash.start_trash_scheduler(app=app)
+        except Exception as e:
+            log.maintenance('WARN', f'回收站自动清理未启用: {e}')
 
 # ============ 注册蓝图 ============
 # 蓝图注册逻辑收敛至 backend.blueprints，保持注册时机与顺序不变

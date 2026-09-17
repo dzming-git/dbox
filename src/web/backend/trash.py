@@ -6,7 +6,7 @@
 """
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.models import (
     db, User, Video, Gallery, ResourceLibrary,
@@ -20,6 +20,11 @@ _THIS = os.path.dirname(os.path.abspath(__file__))
 # src/web/backend/trash.py -> 上三级即项目根
 PROJECT_ROOT = os.path.abspath(os.path.join(_THIS, '..', '..', '..'))
 TRASH_ROOT = os.path.join(PROJECT_ROOT, 'data', 'trash')
+
+# 回收站资源超过此保留期（天）后，由后台调度器自动永久清理。
+# 文件若重新出现（被扫描恢复），in_trash 会被清零，不会进清理清单，
+# 因此只在确认「长期缺失」后才删除 —— 把误删风险锁死在保留期窗口内。
+TRASH_RETENTION_DAYS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -250,3 +255,104 @@ def get_trash_list(only_active_library=True):
 
     items.sort(key=lambda x: x['trashed_at'] or '', reverse=True)
     return items
+
+
+# ---------------------------------------------------------------------------
+# 自动清理（超过保留期才真正删除；文件重新出现会被扫描恢复，不进清单）
+# ---------------------------------------------------------------------------
+def pending_cleanup(retention_days=TRASH_RETENTION_DAYS):
+    """返回「超过保留期、即将被自动清理」的回收站资源清单（供健康页展示）。
+
+    判定：in_trash=True 且 trashed_at 已设置且早于 now - retention_days。
+    文件若重新出现（被扫描恢复），in_trash 会被清零，不会进此清单。
+    """
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    items = []
+
+    for v in Video.query.filter_by(in_trash=True).all():
+        if v.trashed_at and v.trashed_at < cutoff:
+            owner = None
+            if v.owner_id:
+                u = db.session.get(User, v.owner_id)
+                owner = u.username if u else None
+            items.append({
+                'type': 'video',
+                'hash': v.hash,
+                'title': v.title,
+                'owner': owner,
+                'trashed_at': v.trashed_at.isoformat() if v.trashed_at else None,
+                'days_in_trash': (datetime.utcnow() - v.trashed_at).days if v.trashed_at else None,
+                'size': _trash_size(v, 'video'),
+            })
+
+    for c in Gallery.query.filter_by(in_trash=True).all():
+        if c.trashed_at and c.trashed_at < cutoff:
+            owner = None
+            if c.owner_id:
+                u = db.session.get(User, c.owner_id)
+                owner = u.username if u else None
+            items.append({
+                'type': 'gallery',
+                'hash': c.hash,
+                'title': c.title,
+                'owner': owner,
+                'trashed_at': c.trashed_at.isoformat() if c.trashed_at else None,
+                'days_in_trash': (datetime.utcnow() - c.trashed_at).days if c.trashed_at else None,
+                'size': _trash_size(c, 'gallery'),
+            })
+
+    items.sort(key=lambda x: (x['trashed_at'] or ''))   # 最老的排在前
+    return items
+
+
+def purge_expired_trash(retention_days=TRASH_RETENTION_DAYS, dry_run=False):
+    """清理超过保留期的回收站资源（永久删除文件与记录）。
+
+    dry_run=True 时只返回将清理的清单、不真正删除。
+    每次真正清理记 WARN 级日志（stdout），保证可观测。
+    """
+    items = pending_cleanup(retention_days)
+    done = 0
+    for it in items:
+        if dry_run:
+            continue
+        obj = get_trash_obj(it['type'], it['hash'])
+        if not obj:
+            continue
+        try:
+            purge_trash(obj, it['type'])
+            done += 1
+        except Exception as e:  # 单项失败不应阻断其余
+            print('[TRASH-PURGE] 清理失败 %s:%s: %s' % (it['type'], it['hash'], e))
+    if not dry_run and done:
+        print('[TRASH-PURGE] 已自动清理超期回收站资源 %d 项（保留期 %d 天）'
+              % (done, retention_days))
+    return {'purged': done, 'count': len(items), 'items': items}
+
+
+def start_trash_scheduler(interval_sec=86400, retention_days=TRASH_RETENTION_DAYS, app=None):
+    """后台线程：每隔 interval_sec（默认每天）自动清理超期回收站资源。
+
+    文件若被扫描重新发现，in_trash 已被清零，不会进清理清单；因此只在
+    确认「长期缺失」后才真正删除 —— 把误删风险锁死在保留期窗口内。
+    需要传入 app，以便在后台线程中正确拿到应用上下文来访问数据库。
+    """
+    import threading
+    import time
+
+    def loop():
+        time.sleep(120)  # 避开服务启动高峰
+        while True:
+            try:
+                if app is not None:
+                    with app.app_context():
+                        purge_expired_trash(retention_days=retention_days)
+                else:
+                    purge_expired_trash(retention_days=retention_days)
+            except Exception as e:
+                print('[TRASH-PURGE] 调度器异常: %s' % e)
+            time.sleep(interval_sec)
+
+    t = threading.Thread(target=loop, daemon=True, name='trash-purge')
+    t.start()
+    return t
