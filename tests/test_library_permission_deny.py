@@ -17,9 +17,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-# 必须在导入任何 src/web 模块前，把数据区指到一个临时目录，避免触碰真实运行库
+# 必须在导入任何 src/web 模块前，把数据区指到一个临时目录，避免触碰真实运行库。
+# ⚠️ 必须用 DBOX_DATA_DIR（完整 data 目录，优先级最高）：此前只设 DBOX_DATA_ROOT
+# 在单独跑时看似有效，但同进程里 main 可能已被别的模块先导入并绑到真实库，
+# 这时再设就晚了 —— 曾因此把生产库的 videos/索引/归属行整表删空。
+# 更根本的保障在 tests/__init__.py（包级隔离，早于一切 src 导入）。
 _TMP = tempfile.mkdtemp(prefix='dbox_perm_test_')
-os.environ['DBOX_DATA_ROOT'] = _TMP
+os.environ['DBOX_DATA_DIR'] = os.path.join(_TMP, 'data')
 os.environ['DBOX_USER_CONFIG_DIR'] = os.path.join(_TMP, 'config')
 
 SRC_WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'web'))
