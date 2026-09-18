@@ -19,6 +19,7 @@ import Posts from './Posts.vue'
 import Texts from './Texts.vue'
 import { useWatchLaterStore } from '../stores/watchLaterStore'
 import { withThumbToken } from '../utils/media'
+import { formatDuration } from '../utils/format'
 import type { Video, Tag } from '../types'
 import { MEDIA_TABS, type MediaTab } from '../constants/mediaTabs'
 
@@ -664,18 +665,6 @@ async function handlePcRefresh() {
   } finally {
     shuffling.value = false
   }
-}
-
-const formatDuration = (seconds?: number): string => {
-  if (!seconds) return '00:00'
-  // 同 VideoCard：duration 是浮点秒，秒必须取整，否则显示成一长串小数
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`
 }
 
 const videoListMeta = (video: Video): string[] => {

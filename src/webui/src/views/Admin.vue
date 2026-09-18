@@ -18,6 +18,7 @@ import {
 } from '../utils/adminCommon'
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
+import { formatDuration } from '../utils/format'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminBackup from '../components/AdminBackup.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
@@ -713,15 +714,6 @@ const libraryName = (libId: any) => {
 }
 const resourceTypeLabel = (t: string) => ({ video: '视频', gallery: '图集', post: '帖子', text: '文本' }[t] || t)
 
-const formatDuration = (sec: any) => {
-  if (sec === null || sec === undefined || isNaN(Number(sec))) return '-'
-  const s = Math.round(Number(sec))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = s % 60
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`
-}
 const formatResolution = (w: any, h: any) => {
   if (!w || !h) return '-'
   return `${w}×${h}`
