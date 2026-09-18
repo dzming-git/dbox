@@ -998,22 +998,16 @@ def upload_video():
         else:
             library_id = None
 
-        # 创建视频记录
-        video = Video(
-            hash=video_hash,
+        # 创建视频记录（收敛到唯一入库服务：索引 + 实体 + 归属行同一事务）
+        from backend.resource_ingest import ingest_video_file
+        video = ingest_video_file(
+            file_path, library_id,
             title=title,
             description=description,
-            url=f'/local_video/{quote(file_path.replace(chr(92), "/"), safe=":/")}',
-            local_path=file_path,
             file_size=file_size,
             duration=extract_mp4_duration(file_path),
-            thumbnail=f'/thumbnail/{video_hash}',
-            library_id=library_id,
-            owner_id=user_id  # 归属上传者
-        )
-
-        db.session.add(video)
-        db.session.commit()
+            owner_id=user_id,   # 归属上传者
+        )['video']
         log.maintenance('INFO', f"上传视频: {title} (hash: {video_hash}, 大小: {file_size}, 路径: {file_path})")
 
         # 更新上传任务进度（入库完成）
@@ -1285,28 +1279,14 @@ def scan_videos():
                             continue
                         
                         title = os.path.splitext(f)[0]
-                        video = Video(
-                            hash=video_hash,
+                        # 收敛到唯一入库服务：索引 + 实体 + 归属行同一事务
+                        from backend.resource_ingest import ingest_video_file
+                        ingest_video_file(
+                            video_path, None,
                             title=title,
-                            description=f'本地视频: {f}',
-                            url=f'/local_video/{quote(video_path.replace(chr(92), "/"), safe=":/")}',
-                            thumbnail=f'/thumbnail/{video_hash}',
-                            is_downloaded=True,
-                            local_path=video_path,
-                            owner_id=root_id
+                            owner_id=root_id,
+                            tags=runtime.app_config.get('default_tags', []),
                         )
-                        db.session.add(video)
-                        db.session.flush()
-                        
-                        for tag_name in runtime.app_config.get('default_tags', []):
-                            tag = Tag.query.filter_by(name=tag_name).first()
-                            if not tag:
-                                tag = Tag(name=tag_name, category='类型')
-                                tag.path = f'/{tag_name}'  # 计算完整路径
-                                db.session.add(tag)
-                                db.session.flush()
-                            db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
-                        
                         total_added += 1
         
         db.session.commit()

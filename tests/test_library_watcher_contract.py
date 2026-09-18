@@ -23,6 +23,9 @@ if _SRC_WEB not in sys.path:
 
 FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', 'src', 'web', 'library_watcher.py'))
+# 入库已收敛到唯一服务，回收站恢复等语义也随之落在服务里
+INGEST_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'src', 'web', 'backend', 'resource_ingest.py'))
 
 
 def _func_body(src, name, indent=4):
@@ -79,9 +82,17 @@ class TestDeleteContract(unittest.TestCase):
                       '删除前必须确认文件确实不在（move_to_trash 会移动文件，必须绝对安全）')
 
     def test_upsert_releases_quarantine(self):
+        # 入库已收敛：upsert_video 改为调用唯一入库服务，回收站恢复语义随之落在服务里。
+        # 因此断言分两层——watcher 必须走该服务，服务本身必须处理 in_trash。
         body = _func_body(self.src, 'upsert_video')
         self.assertIsNotNone(body)
-        self.assertIn('in_trash', body, '文件重新出现时应自动从回收站恢复')
+        self.assertIn('ingest_video_file', body,
+                      'upsert_video 必须走唯一入库服务（否则又会漏写索引/归属行）')
+        with open(INGEST_FILE, encoding='utf-8') as f:
+            isrc = f.read()
+        ibody = _func_body(isrc, 'ingest_video_file', indent=0)
+        self.assertIsNotNone(ibody, '未找到 ingest_video_file')
+        self.assertIn('in_trash', ibody, '文件重新出现时应自动从回收站恢复')
 
     def test_orphan_plan_confirms_on_disk(self):
         body = _func_body(self.src, '_plan_orphan_deletions', indent=0)
