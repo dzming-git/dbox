@@ -23,6 +23,51 @@ import sys
 import shutil
 
 
+# 测试隔离的强制覆盖目录（模块级，不依赖环境变量持久性——否则会被别的测试
+# 模块层 os.environ.pop('DBOX_DATA_DIR') 之类操作扒掉，导致隔离失效）。
+_DATA_DIR_OVERRIDE = None
+_CONFIG_DIR_OVERRIDE = None
+
+
+def _ensure_test_isolation():
+    """测试隔离：在测试上下文下运行，强制把数据区指到临时目录。
+
+    ⚠️ 为什么（2026-09-18 事故）：某测试 `import main` 后 `db.drop_all()` 曾把生产库
+    整表删空。包级 `tests/__init__.py` 只对 `python -m unittest tests.xxx` 生效
+    （先导入包）；直接 `python tests/xxx.py` 会绕过它。此处在 paths 解析数据目录前、
+    依据通用信号强制隔离，覆盖两种跑法：
+      - `unittest` 在 sys.modules（两种跑法里测试文件都先 import unittest）；
+      - 环境变量 DBOX_TEST_MODE（tests/__init__.py 已设，冗余兜底）；
+      - sys.argv[0] 落在 tests/ 下（即使测试文件未先 import unittest 也能兜住）。
+    只在测试上下文触发；正常启动（服务/NSSM）三个信号皆无，绝不影响生产数据区。
+    """
+    in_test = (
+        'unittest' in sys.modules
+        or os.environ.get('DBOX_TEST_MODE') == '1'
+        or any('tests' in a for a in sys.argv)
+    )
+    global _DATA_DIR_OVERRIDE, _CONFIG_DIR_OVERRIDE
+    if not in_test:
+        return
+    # 测试上下文：强制临时目录。即便 tests/__init__.py 已预设了临时目录，也捕获到
+    # 模块级覆盖里，避免被别的测试模块层 os.environ.pop('DBOX_DATA_DIR') 扒掉。
+    env_dir = os.environ.get('DBOX_DATA_DIR')
+    if env_dir and 'dbox_tests_' in env_dir:
+        _DATA_DIR_OVERRIDE = env_dir
+        _CONFIG_DIR_OVERRIDE = (os.environ.get('DBOX_USER_CONFIG_DIR')
+                                or env_dir.rsplit('data', 1)[0] + 'config')
+        return
+    import tempfile
+    _tmp = tempfile.mkdtemp(prefix='dbox_tests_')
+    _DATA_DIR_OVERRIDE = os.path.join(_tmp, 'data')
+    _CONFIG_DIR_OVERRIDE = os.path.join(_tmp, 'config')
+    os.environ.setdefault('DBOX_DATA_DIR', _DATA_DIR_OVERRIDE)
+    os.environ.setdefault('DBOX_USER_CONFIG_DIR', _CONFIG_DIR_OVERRIDE)
+
+
+_ensure_test_isolation()
+
+
 # _THIS_DIR: src/web/backend/
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # WEB_DIR: src/web/
@@ -73,6 +118,8 @@ def get_user_data_dir():
     3. 平台系统数据区下的 Dbox/data（兜底，仅当公共区不可写）
     首次启动做一次从项目根 data/ 的迁移（仅当系统区为空且项目 data 存在）。
     """
+    if _DATA_DIR_OVERRIDE:
+        return _DATA_DIR_OVERRIDE
     env = os.environ.get('DBOX_DATA_DIR')
     if env:
         return env
@@ -90,6 +137,8 @@ def get_user_config_dir():
     2. 公共数据区下的 Dbox/config（DBOX_DATA_ROOT 可覆盖根）
     3. 平台系统数据区下的 Dbox/config（兜底）
     """
+    if _CONFIG_DIR_OVERRIDE:
+        return _CONFIG_DIR_OVERRIDE
     env = os.environ.get('DBOX_USER_CONFIG_DIR')
     if env:
         return env

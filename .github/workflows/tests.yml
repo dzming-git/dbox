@@ -49,7 +49,8 @@ jobs:
             tests.test_platform_feedback_spool \
             tests.test_suggestion_delete \
             tests.test_thumbnaild \
-            tests.test_watch_later
+            tests.test_watch_later \
+            tests.test_path_isolation
 
       # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
       - name: Run ServiceBus integration tests
