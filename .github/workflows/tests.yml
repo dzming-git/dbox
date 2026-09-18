@@ -41,7 +41,15 @@ jobs:
             tests.test_consistency \
             tests.test_scan_preview \
             tests.test_trash_cleanup \
-            tests.test_resource_ingest
+            tests.test_resource_ingest \
+            tests.test_api_tags \
+            tests.test_backend_helpers_contract \
+            tests.test_library_permission_deny \
+            tests.test_platform_feedback_comment \
+            tests.test_platform_feedback_spool \
+            tests.test_suggestion_delete \
+            tests.test_thumbnaild \
+            tests.test_watch_later
 
       # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
       - name: Run ServiceBus integration tests
