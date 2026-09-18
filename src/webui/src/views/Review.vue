@@ -100,6 +100,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { reviewApi, type ReviewKind, type ReviewItem } from '../api/review'
 import { useToast } from '../composables/useToast'
+import { formatDuration } from '../utils/format'
 
 const { showToast } = useToast()
 
@@ -270,16 +271,6 @@ async function runBackfill() {
   } finally {
     busy.value = false
   }
-}
-
-function formatDuration(sec: number) {
-  const s = Math.floor(sec)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const r = s % 60
-  return h > 0
-    ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
-    : `${m}:${String(r).padStart(2, '0')}`
 }
 
 function formatSize(n: number) {

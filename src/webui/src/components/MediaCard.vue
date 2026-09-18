@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { withThumbToken, type MediaItem } from '../utils/media'
+import { formatDuration } from '../utils/format'
 import VideoPreview from './VideoPreview.vue'
 
 const props = withDefaults(defineProps<{
@@ -36,15 +37,6 @@ const subBadge = computed(() => {
   }
   return props.item.pageCount ? `${props.item.pageCount}P` : ''
 })
-
-const formatDuration = (seconds: number): string => {
-  if (!seconds || isNaN(seconds)) return '00:00'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-}
 
 const formatDate = (dateStr?: string): string => {
   if (!dateStr) return ''
