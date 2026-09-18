@@ -44,11 +44,9 @@ class TestAppImport(unittest.TestCase):
         import main
         paths = {r.rule for r in main.app.url_map.iter_rules()}
         required = [
-            '/api/system/info',
-            '/api/system/stats',
-            '/api/system/paths',
-            '/api/system/sync-status',
-            '/api/system/metrics',
+            # 系统信息已收敛为核心的管理端接口；原 /api/system/* 那一组随
+            # 「系统监控迁插件」一并移除，继续断言它们只会让测试长期伪红。
+            '/api/admin/system-info',
             '/api/suggestion',
             '/api/suggestion/<issue_id>',
             '/api/suggestion/<issue_id>/comment',

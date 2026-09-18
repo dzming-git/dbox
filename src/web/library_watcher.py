@@ -638,76 +638,17 @@ class ResourceLibraryWatcher:
         if not self._is_video(path):
             return
         try:
-            from core.models import db, Video, Tag, VideoTag, ResourceIndex
+            from backend.resource_ingest import ingest_video_file
             with self._app.app_context():
-                vhash = Video.generate_hash(path)
-                existing = Video.query.join(ResourceIndex).filter(ResourceIndex.location == path).first()
-                if existing is None:
-                    existing = Video.query.filter_by(hash=vhash).first()
-                is_new = existing is None
-
-                if existing:
-                    # 内容或路径变化：仅刷新指纹与路径等物理信息，不修改 title
-                    # （标题与文件名解耦，由管理员在编辑界面维护）。
-                    existing.local_path = path
-                    existing.file_name = os.path.basename(path)
-                    existing.hash = vhash
-                    existing.url = f'/local_video/{quote(path.replace(chr(92), "/"), safe=":/")}'
-                    existing.updated_at = datetime.utcnow()
-                    # 文件重新出现：此前若因「文件缺失」被移入回收站，这里自动恢复。
-                    # 只清标记、不搬文件 —— 文件本来就在原位置，无需移动。
-                    # （"稍后再看"的墓碑保持不变，避免"删了又回来"。）
-                    if getattr(existing, 'in_trash', False):
-                        existing.in_trash = False
-                        existing.trashed_at = None
-                        self._debug('WARN',
-                                    f'[LibWatcher] 文件已重新出现，自动从回收站恢复: {path}')
-                else:
-                    title = os.path.splitext(os.path.basename(path))[0]
-                    existing = Video(
-                        hash=vhash,
-                        title=title,
-                        description=f'本地视频: {os.path.basename(path)}',
-                        url=f'/local_video/{quote(path.replace(chr(92), "/"), safe=":/")}',
-                        thumbnail=f'/thumbnail/{vhash}',
-                        is_downloaded=True,
-                        local_path=path,
-                        file_name=os.path.basename(path),
-                        library_id=library_id,
-                        priority=self._app_config.get('default_priority', 0),
-                    )
-                    db.session.add(existing)
-                    db.session.flush()
-                    # 默认标签（与扫描逻辑一致）
-                    for tag_name in self._app_config.get('default_tags', []):
-                        tag = Tag.query.filter_by(name=tag_name).first()
-                        if not tag:
-                            tag = Tag(name=tag_name, category='类型')
-                            tag.path = f'/{tag_name}'
-                            db.session.add(tag)
-                            db.session.flush()
-                        db.session.add(VideoTag(video_id=existing.id, tag_id=tag.id))
-
-                # 物理信息：文件大小与时长。
-                # 此前扫描入库从不写这两项，导致界面时长显示为 0、
-                # 「长视频 / 短视频」这类按时长筛选的视图完全失效。
-                try:
-                    existing.file_size = os.path.getsize(path)
-                except OSError:
-                    pass
-                if not existing.duration:
-                    try:
-                        from backend.utils.media import extract_duration
-                        existing.duration = extract_duration(path)
-                    except Exception:
-                        pass
-
-                db.session.commit()
-
-                # 统一封面入口：确保资源索引封面与视频缩略图一致（首次启动后 resource_index 已存在）
-                if existing.resource_index and not existing.resource_index.cover:
-                    existing.resource_index.cover = existing.thumbnail or f'/thumbnail/{vhash}'
-                    db.session.commit()
+                # 收敛到唯一入库服务：索引 + 实体 + 归属行同一事务写入。
+                # 此前这里直接 `Video(local_path=...)`：索引是 local_path setter 顺带
+                # 建的（可能缺 library_id），而归属行根本没人写 —— 即「有实体无归属」。
+                res = ingest_video_file(
+                    path, library_id,
+                    tags=self._app_config.get('default_tags', []),
+                    priority=self._app_config.get('default_priority', 0),
+                )
+                is_new, vhash = res['is_new'], res['hash']
 
                 if is_new and self._thumbnail_bus:
                     try:

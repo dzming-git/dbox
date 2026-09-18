@@ -950,34 +950,17 @@ def import_videos():
                 description = video_data.get('description', f'本地视频: {os.path.basename(video_path)}')
                 file_size = os.path.getsize(video_path)
                 
-                # 创建视频记录（必须指定 library_id）
-                video = Video(
-                    hash=video_hash,
+                # 创建视频记录（收敛到唯一入库服务：索引 + 实体 + 归属行同一事务）
+                from backend.resource_ingest import ingest_video_file
+                ingest_video_file(
+                    video_path, library_id,   # 绑定到指定的资源库
                     title=title,
                     description=description,
-                    url=f'/local_video/{quote(video_path.replace(chr(92), "/"), safe=":/")}',
-                    thumbnail=f'/thumbnail/{video_hash}',
                     file_size=file_size,
-                    is_downloaded=True,
-                    local_path=video_path,
                     priority=0,
-                    library_id=library_id,  # 绑定到指定的资源库
-                    owner_id=root_id
+                    owner_id=root_id,
+                    tags=video_data.get('tags', default_tags),
                 )
-                db.session.add(video)
-                db.session.flush()
-                
-                # 添加标签
-                tags = video_data.get('tags', default_tags)
-                for tag_name in tags:
-                    tag = Tag.query.filter_by(name=tag_name).first()
-                    if not tag:
-                        tag = Tag(name=tag_name, category='类型')
-                        tag.path = f'/{tag_name}'  # 计算完整路径
-                        db.session.add(tag)
-                        db.session.flush()
-                    db.session.add(VideoTag(video_id=video.id, tag_id=tag.id))
-                
                 imported += 1
                 
             except Exception as e:

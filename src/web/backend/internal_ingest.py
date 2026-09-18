@@ -88,18 +88,12 @@ _KIND_TO_RI = {'video': 'video_file', 'gallery': 'gallery_folder', 'image': 'gal
 
 
 def _get_or_create_resource_index(library_id, path, ri_kind, meta):
-    """在调用方已有的 app_context 内获取/创建 ResourceIndex（不打开新 context）。"""
-    ri = ResourceIndex.query.filter_by(location=path, kind=ri_kind).first()
-    if not ri:
-        ri = ResourceIndex(kind=ri_kind, location=path, library_id=library_id)
-        if meta:
-            ri.set_meta(meta)
-        db.session.add(ri)
-        db.session.flush()
-    elif meta:
-        ri.set_meta(meta)
-        db.session.flush()
-    return ri
+    """在调用方已有的 app_context 内获取/创建 ResourceIndex（不打开新 context）。
+
+    复用 resource_ingest 的共用实现，避免「取/建索引」出现第二份语义。
+    """
+    from backend.resource_ingest import get_or_create_resource_index
+    return get_or_create_resource_index(library_id, path, ri_kind, meta)
 
 
 def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_id=None,
