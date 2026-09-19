@@ -124,6 +124,10 @@ with app.app_context():
         ('trash_columns', migrate_trash_columns),
         ('watch_later_deleted_at', migrate_watch_later_deleted_at),
         ('create_all', db.create_all),
+        # 新表（user_notifications / subscriptions）随模型加入，但原始 create_all
+        # 步骤早已执行并记录为成功，后续启动会被跳过。用唯一名字的步骤重跑一次
+        # db.create_all（幂等），确保新表在已部署实例上也建立。
+        ('subscription_notification_tables', db.create_all),
         ('resource_index', migrate_resource_index),
         ('gallery_playlists_col', _migrate_gallery_playlists_col),
         ('collection_videos_schema', migrate_collection_videos_schema),

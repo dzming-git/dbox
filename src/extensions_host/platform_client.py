@@ -337,3 +337,20 @@ def add_feedback_comment(issue_id, content) -> bool:
     logger.warning('反馈单追加留言失败（issue=%s）: %s', issue_id,
                    (r.get('message') if isinstance(r, dict) else r))
     return False
+
+
+def notify_user(title, body, *, source=None, category='subscription',
+                user_id=None, payload=None) -> dict:
+    """向核心推送一条用户通知（订阅事件 / 下载完成等）。
+
+    供 X / pixiv 等扩展在拉到新内容、或发生需要提醒用户的事件时调用，
+    通知会进入核心「用户通知」表，由前端通知中心统一展示。
+    """
+    return _post('/notify', {
+        'title': title,
+        'body': body,
+        'source': source,
+        'category': category,
+        'user_id': user_id,
+        'payload': payload,
+    })

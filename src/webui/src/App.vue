@@ -13,6 +13,8 @@ import { canShow } from './utils/routeAccess'
 import { taskApi } from './api/task'
 import ExtensionHost from './components/ExtensionHost.vue'
 import PullToRefresh from './components/PullToRefresh.vue'
+import NotificationBell from './components/NotificationBell.vue'
+import { useNotificationStore } from './stores/notificationStore'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
 const cachedViews = routes
@@ -23,6 +25,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const watchLaterStore = useWatchLaterStore()
+const notificationStore = useNotificationStore()
 const taskActionCount = ref(0)
 const { toastMessage, showToastFlag, showToast } = useToast()
 
@@ -253,6 +256,8 @@ const closeUserDropdown = (event: MouseEvent) => {
             </svg>
             <span>整理</span>
           </RouterLink>
+
+          <NotificationBell />
 
           <!-- 管理后台入口：头像下拉菜单已瘦身、不再承载系统入口，
                这里作为「管理」维度的唯一顶层入口（与「应用」维度的入口并列）。 -->

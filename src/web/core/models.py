@@ -2814,5 +2814,100 @@ def migrate_main_library():
         print(f'[WARN] 主资源库迁移跳过: {e}')
 
 
+class UserNotification(db.Model):
+    """用户通知/提醒：订阅事件、下载完成、系统消息等的统一落点。
+
+    这是「订阅事件通知」的地基——扩展（X/pixiv 等）经 /internal/notify 把事件
+    推到这里，前端通知中心统一拉取与展示，后端为唯一数据源（取代散落的 localStorage）。
+    """
+
+    __tablename__ = 'user_notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    category = db.Column(db.String(40), nullable=False, default='system')  # subscription/download/system
+    title = db.Column(db.String(500), nullable=False)
+    body = db.Column(db.Text)
+    source = db.Column(db.String(60))          # 来源扩展 id，如 'x' / 'pixiv'
+    payload = db.Column(db.Text)               # JSON：跳转链接/原始数据等
+    read = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self):
+        _payload = {}
+        if self.payload:
+            try:
+                _payload = json.loads(self.payload)
+            except Exception:
+                _payload = {}
+        return {
+            'id': self.id,
+            'category': self.category,
+            'title': self.title,
+            'body': self.body,
+            'source': self.source,
+            'payload': _payload,
+            'read': bool(self.read),
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<UserNotification {self.id} u{self.user_id} {self.category}>'
+
+
+class Subscription(db.Model):
+    """订阅：用户关注的来源（X 账号 / pixiv 画师等），由对应扩展轮询拉新。
+
+    source_type 标识哪个扩展负责轮询（'x'/'pixiv'/...）；source_id 为被关注对象的
+    平台内标识（handle / artist id）；新内容经扩展入库后由扩展调 /internal/notify
+    通知用户。本表只存订阅配置，轮询动作由扩展自行实现。
+    """
+
+    __tablename__ = 'subscriptions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    source_type = db.Column(db.String(40), nullable=False, index=True)  # x / pixiv
+    source_id = db.Column(db.String(255), nullable=False)               # handle / artist id
+    source_name = db.Column(db.String(255))                             # 展示名
+    target_mode = db.Column(db.String(40), default='video')             # 新内容归属模式
+    library_id = db.Column(db.Integer)                                  # 入库目标库
+    filters = db.Column(db.Text)                                        # JSON：媒体类型等过滤
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    last_checked_at = db.Column(db.DateTime)
+    last_item_at = db.Column(db.DateTime)
+    error = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source_type', 'source_id', name='_subscription_uc'),
+    )
+
+    def to_dict(self):
+        _filters = {}
+        if self.filters:
+            try:
+                _filters = json.loads(self.filters)
+            except Exception:
+                _filters = {}
+        return {
+            'id': self.id,
+            'sourceType': self.source_type,
+            'sourceId': self.source_id,
+            'sourceName': self.source_name,
+            'targetMode': self.target_mode,
+            'libraryId': self.library_id,
+            'filters': _filters,
+            'enabled': bool(self.enabled),
+            'lastCheckedAt': self.last_checked_at.isoformat() if self.last_checked_at else None,
+            'lastItemAt': self.last_item_at.isoformat() if self.last_item_at else None,
+            'error': self.error,
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self):
+        return f'<Subscription {self.id} u{self.user_id} {self.source_type}:{self.source_id}>'
+
+
 
 

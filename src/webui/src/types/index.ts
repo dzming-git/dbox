@@ -354,3 +354,29 @@ export interface Post {
   refs: PostRef[]
 }
 
+export interface UserNotification {
+  id: number
+  category: string
+  title: string
+  body: string | null
+  source: string | null
+  payload: Record<string, any>
+  read: boolean
+  createdAt: string | null
+}
+
+export interface Subscription {
+  id: number
+  sourceType: string
+  sourceId: string
+  sourceName: string | null
+  targetMode: string
+  libraryId: number | null
+  filters: Record<string, any>
+  enabled: boolean
+  lastCheckedAt: string | null
+  lastItemAt: string | null
+  error: string | null
+  createdAt: string | null
+}
+

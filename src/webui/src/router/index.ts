@@ -111,6 +111,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '稍后再看', requiresAuth: true }
   },
   {
+    path: '/subscriptions',
+    name: 'Subscriptions',
+    component: () => import('../views/Subscriptions.vue'),
+    meta: { title: '订阅管理', requiresAuth: true }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/Settings.vue'),
