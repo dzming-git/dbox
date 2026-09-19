@@ -415,3 +415,61 @@ def notify():
     db.session.add(n)
     db.session.commit()
     return jsonify({'success': True, 'id': n.id})
+
+
+@internal_bp.route('/internal/subscription-cache', methods=['POST'])
+def subscription_cache_add():
+    """扩展（X/pixiv）把轮询到的新内容写入订阅缓存（不入库）。
+
+    鉴权由 before_request 的内部密钥保障（仅本机扩展宿主可调用）。
+    user_id 缺省回落首个管理员；同一 (user_id, source_type, post_id) 幂等去重。
+    """
+    from core.models import db, SubscriptionCache, User, UserRole
+    data = request.get_json(force=True, silent=True) or {}
+    posts = data.get('posts')
+    if isinstance(posts, dict):
+        posts = [posts]
+    if not isinstance(posts, list):
+        posts = []
+    uid = data.get('user_id')
+    if not uid:
+        owner = User.query.filter(User.role <= UserRole.ADMIN).order_by(User.id).first()
+        uid = owner.id if owner else None
+    if not uid:
+        return jsonify({'success': False, 'message': '无法确定目标用户'}), 400
+    created = 0
+    for p in posts:
+        if not isinstance(p, dict):
+            continue
+        source_type = (p.get('source_type') or '').strip()
+        post_id = str(p.get('post_id') or '').strip()
+        source_id = (p.get('source_id') or '').strip()
+        if not source_type or not post_id or not source_id:
+            continue
+        exists = SubscriptionCache.query.filter_by(
+            user_id=int(uid), source_type=source_type, post_id=post_id).first()
+        if exists:
+            continue
+        media = p.get('media')
+        if isinstance(media, (list, dict)):
+            media = json.dumps(media, ensure_ascii=False)
+        elif media is None:
+            media = ''
+        row = SubscriptionCache(
+            user_id=int(uid),
+            subscription_id=p.get('subscription_id'),
+            source_type=source_type,
+            source_id=source_id,
+            post_id=post_id,
+            author=p.get('author'),
+            text=p.get('text'),
+            media=media,
+            url=p.get('url'),
+            target_mode=(p.get('target_mode') or 'video'),
+            library_id=p.get('library_id'),
+        )
+        db.session.add(row)
+        created += 1
+    if created:
+        db.session.commit()
+    return jsonify({'success': True, 'created': created})

@@ -17,4 +17,12 @@ export const subscriptionApi = {
   update: (id: number, data: Partial<SubscriptionInput>) =>
     api.put(`/api/subscriptions/${id}`, data),
   remove: (id: number) => api.delete(`/api/subscriptions/${id}`),
+  // 订阅缓存（轮询到的新内容，先缓存、再按需入库）
+  cacheList: (params?: { source_type?: string; ingested?: string }) =>
+    api.get('/api/subscription-cache', { params }),
+  cacheIngest: (id: number) => api.post(`/api/subscription-cache/${id}/ingest`),
+  cacheDismiss: (id: number) => api.delete(`/api/subscription-cache/${id}`),
+  // 经扩展代理触发对应扩展下载（携带用户凭证，复用各扩展 /run 管线）
+  runDownload: (sourceType: string, payload: any) =>
+    api.post(`/api/ext/${sourceType}/run`, payload),
 }

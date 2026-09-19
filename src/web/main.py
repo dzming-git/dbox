@@ -128,6 +128,8 @@ with app.app_context():
         # 步骤早已执行并记录为成功，后续启动会被跳过。用唯一名字的步骤重跑一次
         # db.create_all（幂等），确保新表在已部署实例上也建立。
         ('subscription_notification_tables', db.create_all),
+        # 订阅缓存表（轮询到的新内容先缓存、再按需入库），幂等建表
+        ('subscription_cache_table', db.create_all),
         ('resource_index', migrate_resource_index),
         ('gallery_playlists_col', _migrate_gallery_playlists_col),
         ('collection_videos_schema', migrate_collection_videos_schema),
