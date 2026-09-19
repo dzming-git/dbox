@@ -13,7 +13,6 @@ import { canShow } from './utils/routeAccess'
 import { taskApi } from './api/task'
 import ExtensionHost from './components/ExtensionHost.vue'
 import PullToRefresh from './components/PullToRefresh.vue'
-import NotificationBell from './components/NotificationBell.vue'
 import { useNotificationStore } from './stores/notificationStore'
 
 // 需要缓存（浏览器前进/后退时保持界面与滚动位置）的列表页组件名
@@ -257,8 +256,6 @@ const closeUserDropdown = (event: MouseEvent) => {
             <span>整理</span>
           </RouterLink>
 
-          <NotificationBell />
-
           <!-- 管理后台入口：头像下拉菜单已瘦身、不再承载系统入口，
                这里作为「管理」维度的唯一顶层入口（与「应用」维度的入口并列）。 -->
           <RouterLink to="/admin" class="nav-link nav-icon-link" title="管理后台" v-if="canShow('/admin')">
@@ -275,7 +272,7 @@ const closeUserDropdown = (event: MouseEvent) => {
           <!-- 用户头像下拉菜单 -->
           <div class="user-avatar-wrapper">
             <div class="user-avatar-trigger" @click.stop="showUserDropdown = !showUserDropdown">
-            <div class="user-avatar">
+            <div class="user-avatar" :class="{ 'has-unread': notificationStore.unread > 0 }">
               {{ userStore.user?.username?.charAt(0)?.toUpperCase() || 'U' }}
             </div>
             <span class="username">{{ userStore.user?.username }}</span>
@@ -293,6 +290,13 @@ const closeUserDropdown = (event: MouseEvent) => {
               </span>
             </div>
             <div class="dropdown-divider"></div>
+            <RouterLink to="/notifications" class="dropdown-item" @click="showUserDropdown = false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+              </svg>
+              通知
+              <span v-if="notificationStore.unread > 0" class="notif-count">{{ notificationStore.unread > 99 ? '99+' : notificationStore.unread }}</span>
+            </RouterLink>
             <RouterLink to="/settings" class="dropdown-item" @click="showUserDropdown = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.49l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
@@ -659,6 +663,7 @@ body {
 }
 
 .user-avatar {
+  position: relative;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -669,6 +674,19 @@ body {
   font-weight: 600;
   font-size: 14px;
   color: var(--text-on-accent);
+}
+
+/* 未读通知指示：头像右上角的红点，使「有未读」不必展开菜单也能看见 */
+.user-avatar.has-unread::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+  border: 2px solid var(--bg-elevated, #1f2937);
 }
 
 .username {
@@ -755,6 +773,21 @@ body {
 .dropdown-item.logout:hover {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* 下拉菜单内「通知」项的未读计数徽标 */
+.notif-count {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger, #ef4444);
+  color: var(--text-on-accent, #fff);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 600;
 }
 
 .role-badge {

@@ -135,6 +135,13 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '反馈中心', requiresAuth: true }
   },
   {
+    // 用户通知（用户消息）入口收编进头像下拉菜单，这里是其落地页。
+    path: '/notifications',
+    name: 'Notifications',
+    component: () => import('../views/Notifications.vue'),
+    meta: { title: '通知', requiresAuth: true }
+  },
+  {
     path: '/tasks',
     name: 'Tasks',
     component: () => import('../views/Tasks.vue'),
