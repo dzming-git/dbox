@@ -12,13 +12,14 @@
 策略是可插拔的：新增语义只需在此注册一个函数，无需改动 API 与存储层。
 """
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 # 列表合并封顶条数
 DEFAULT_CAP = 400
 
 # union_by_id 的规范记录契约：每条记录必须是 dict，且带
 #   id    : 字符串，去重主键（不同设备/来源的同一条目用同一个 id）
-#   order : 可排序值（数字或 ISO 时间串），用于「同 id 取较新一份」与整体倒序
+#   order : 可排序值（数字 / ISO 时间串 / RFC 822 时间串），用于「同 id 取较新一份」与整体倒序
 # 任意其它字段都是载荷，合并层不关心其含义——因此通用状态层彻底与插件
 # 的字段命名解耦（不会再有 tweet_id / illustId / create_date 这类名字
 # 泄漏进核心）。字段映射（domain -> {id, order}）由各入口边界负责。
@@ -26,7 +27,7 @@ DEFAULT_CAP = 400
 
 
 def _sortable_ts(value):
-    """把可排序值（数字或 ISO 时间串）转成可比较数值；无法解析时返回负无穷。"""
+    """把可排序值（数字 / ISO 时间串 / RFC 822 时间串）转成可比较数值；无法解析时返回负无穷。"""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     if isinstance(value, str):
@@ -43,7 +44,18 @@ def _sortable_ts(value):
         try:
             dt = datetime.fromisoformat(candidate)
         except ValueError:
-            return float('-inf')
+            # RFC 822/1123 风格日期串（形如「星期 月 日 时:分:秒 时区 年」，
+            # 常见于信息流类数据的时间字段）。必须解析成功：一旦返回负无穷，
+            # 整批条目的排序键全部相等，「倒序封顶」退化成按插入序截断——
+            # 留下的永远是最旧的一批、新条目被截掉，且每次合并都把这份只含旧
+            # 内容的快照写回，覆盖掉客户端刚拿到的新数据（前端表现为列表长期
+            # 停在很久以前、最新内容永远补不进来）。
+            try:
+                dt = parsedate_to_datetime(raw)
+            except (TypeError, ValueError):
+                return float('-inf')
+            if dt is None:
+                return float('-inf')
         return dt.timestamp()
     return float('-inf')
 
@@ -66,7 +78,7 @@ def merge_max(old, new, **_kw):
 def merge_union_by_id(old, new, cap=DEFAULT_CAP, **_kw):
     """列表并集：按 id 去重（同 id 保留 order 较新的一份），按 order 倒序后封顶。
 
-    记录约定为 { id: str, order: 可排序值(数字/ISO时间), ...任意载荷 }。
+    记录约定为 { id: str, order: 可排序值(数字/ISO/RFC822 时间), ...任意载荷 }。
     合并层只看 id / order，不关心载荷里是什么字段——这样通用状态层与
     各插件的字段命名完全解耦（瀑布流缓存、历史、最近使用都复用同一逻辑）。
 

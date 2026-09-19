@@ -530,10 +530,17 @@
       return ok;
     }
 
+    // 自动锚点采集开关：插件在「整表重置、列表里还只是占位内容」的空窗期内可暂时关掉。
+    // 占位行的高度与真实内容完全不符，此时画面看起来像卡住，用户随手滑一下属于误操作；
+    // 若不关，onScroll 会把占位列表的顶部当成阅读进度写回本机与服务端，真实锚点被就地
+    // 覆盖，随后的恢复/补偿定位全按这个被污染的值走（表现为刷新后一滑动就直接跳到最新、
+    // 上次位置丢失）。真实内容渲染并定位落地后，插件必须再调用一次解除。
+    var _autoAnchorOff = false;
+
     function onScroll() {
       if (_restoring) return;   // 程序化定位引发的滚动事件不能算作「用户滚动」
       _userScrolled = true;
-      scheduleSave();
+      if (!_autoAnchorOff) scheduleSave();
     }
 
     var api = {
@@ -567,6 +574,12 @@
             out[pos[id]] = it;   // order 较新，覆盖
           }
         }
+        // 按 order 倒序封顶（与服务端 union_by_id 语义对齐：保留最新 N 条）。
+        // 此前直接 slice(0, cap)：cap 满后新条目被追加到数组末尾、随即被截掉，
+        // 于是本地与服务端内容缓存双双永久冻结在「首次填满」那一刻的旧内容
+        // （实测冻结在半月前），刷新时缓存预览取不到最近内容 → 卡片渲染成骨架、
+        // 锚点位置先闪空白再跳回。排序后新条目才留得住，缓存随浏览滚动前进。
+        out.sort(function (a, b) { return _tsOf(b) - _tsOf(a); });
         if (out.length > cap) out = out.slice(0, cap);
         SDK.set(K.items, out, { strategy: 'union_by_id', cap: cap });
         return out;
@@ -579,6 +592,13 @@
       restore: restore,
       // 取消尚未执行的补偿定位（用户已接管 / 插件主动放弃定位）
       cancelRestore: cancelRestore,
+      // 暂停/恢复「滚动即自动采集锚点」。供插件在占位渲染的空窗期内调用，
+      // 避免把占位内容的位置误当成用户阅读进度写回（见 _autoAnchorOff 注释）。
+      suspendAutoAnchor: function (on) {
+        _autoAnchorOff = !!on;
+        if (on && _saveTimer) { global.clearTimeout(_saveTimer); _saveTimer = null; }
+        return api;
+      },
       clearAnchor: function () { SDK.remove(K.anchor); },
 
       /* ---- 已读边界 ---- */
