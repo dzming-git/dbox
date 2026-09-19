@@ -11,9 +11,10 @@ import CollectionPanel from '../components/CollectionPanel.vue'
 import AddToPostButton from '../components/AddToPostButton.vue'
 import BaseModal from '../components/BaseModal.vue'
 import VideoPlayer from '../components/VideoPlayer.vue'
-import type { Video, Tag, VideoTagRef, VideoMarker } from '../types'
+import type { Video, Tag, VideoTagRef } from '../types'
 import { withThumbToken } from '../utils/media'
 import { formatDuration } from '../utils/format'
+import { useMarkers } from '../composables/useMarkers'
 
 const route = useRoute()
 const router = useRouter()
@@ -59,10 +60,7 @@ const updateFullscreenState = () => {
 }
 
 
-// 精彩片段标记（用户个人时间戳）——业务层，依赖底层 <video> 的 currentTime/duration
-const markers = ref<VideoMarker[]>([])
-const showMarkerForm = ref(false)
-const markerNote = ref('')
+// 精彩片段标记（用户个人时间戳）——抽为 useMarkers composable（见 composables/useMarkers.ts）
 const currentTime = ref(0)
 // 优先用 <video> 元素自身的 duration（元信息加载后最准确），回退到后端返回的 video.duration
 const videoDuration = computed(() => {
@@ -71,33 +69,17 @@ const videoDuration = computed(() => {
   if (el && isFinite(el.duration) && el.duration > 0) return el.duration
   return Number(video.value?.duration) || 0
 })
-const markerTrack = computed(() => {
-  if (!videoDuration.value) return []
-  return markers.value
-    .filter((m) => m.time_seconds >= 0 && m.time_seconds <= videoDuration.value)
-    .map((m) => ({
-      id: m.id,
-      time: m.time_seconds,
-      note: m.note || '精彩片段',
-      left: (m.time_seconds / videoDuration.value) * 100,
-    }))
+const markersApi = useMarkers({
+  currentTime,
+  videoDuration,
+  getHash: () => video.value?.hash,
+  getPlayer: () => videoPlayer.value,
 })
-const seekTo = (time: number) => {
-  const player = videoPlayer.value
-  if (player) {
-    player.currentTime = time
-    player.play().catch(() => {})
-  }
-}
-const formatTime = (sec: number) => {
-  const s = Math.max(0, Math.floor(sec || 0))
-  const m = Math.floor(s / 60)
-  const r = s % 60
-  const h = Math.floor(m / 60)
-  const mm = h > 0 ? String(m % 60).padStart(2, '0') : String(m)
-  const ss = String(r).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
+const {
+  markers, showMarkerForm, markerNote, markerTrack,
+  seekTo, formatTime, formatMarkerTime,
+  loadMarkers, startAddMarker, cancelAddMarker, submitMarker, jumpToMarker, deleteMarker,
+} = markersApi
 
 const videoHash = computed(() => route.params.hash as string)
 
@@ -985,74 +967,8 @@ async function toggleHidden() {
 }
 
 // ============ 精彩片段标记 ============
-const formatMarkerTime = (sec: number) => {
-  const s = Math.max(0, Math.floor(sec))
-  const m = Math.floor(s / 60)
-  const r = s % 60
-  return `${m}:${r.toString().padStart(2, '0')}`
-}
-
-const loadMarkers = async () => {
-  if (!video.value) return
-  try {
-    const token = localStorage.getItem('token')
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(`/api/video/${video.value.hash}/markers`, { headers })
-    if (res.ok) markers.value = await res.json()
-  } catch (e) {
-    console.error('加载精彩片段标记失败', e)
-  }
-}
-
-const startAddMarker = () => {
-  markerNote.value = ''
-  showMarkerForm.value = true
-}
-
-const cancelAddMarker = () => {
-  showMarkerForm.value = false
-  markerNote.value = ''
-}
-
-const submitMarker = async () => {
-  if (!video.value) return
-  const time = videoPlayer.value?.currentTime ?? 0
-  try {
-    const token = localStorage.getItem('token')
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(`/api/video/${video.value.hash}/markers`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ time, note: markerNote.value.trim() }),
-    })
-    if (res.ok) {
-      await loadMarkers()
-      cancelAddMarker()
-    }
-  } catch (e) {
-    console.error('添加精彩片段标记失败', e)
-  }
-}
-
-const jumpToMarker = (time: number) => seekTo(time)
-
-const deleteMarker = async (id: number) => {
-  if (!video.value) return
-  try {
-    const token = localStorage.getItem('token')
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(`/api/video/${video.value.hash}/markers/${id}`, {
-      method: 'DELETE',
-      headers,
-    })
-    if (res.ok) markers.value = markers.value.filter(m => m.id !== id)
-  } catch (e) {
-    console.error('删除精彩片段标记失败', e)
-  }
-}
+// （formatMarkerTime / loadMarkers / startAddMarker / cancelAddMarker / submitMarker /
+//  jumpToMarker / deleteMarker / markerTrack / seekTo 已抽至 composables/useMarkers.ts）
 
 let lastReportTime = 0
 const durationLoaded = ref(0)
