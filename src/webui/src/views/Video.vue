@@ -2608,6 +2608,17 @@ const handleDelete = async () => {
   background: #000;
   isolation: isolate;
   z-index: 1;
+  /* 横屏/矮视口兜底：16:9 播放器可能比可视高度还高，把上限约束到「视口高 − 固定导航 − 返回栏」，
+     视频按比例 letterbox，避免底部控制栏（含全屏按钮）被推出视口；窄屏导航换行变高由全局 --nav-height 提供。 */
+  max-height: calc(100vh - var(--nav-height, 60px) - 64px);
+  max-height: calc(100dvh - var(--nav-height, 60px) - 64px);
+}
+/* 让播放器与容器等高、视频按比例铺满（letterbox）：避免非 16:9 视频把播放器撑高后，
+   被外层 .player-section 的 overflow:hidden 裁掉底部控制栏（表现即“全屏按钮只露出上半截”）。 */
+.video-player-container .video-player { height: 100%; }
+.video-player-container :deep(.video-el) {
+  height: 100%;
+  object-fit: contain;
 }
 
 /* PC 端竖屏全屏入口按钮 */
