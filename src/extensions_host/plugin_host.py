@@ -23,7 +23,7 @@ from routes import _JWT_SECRETS, ADMIN_ROLE, _resolve_jwt_secrets
 
 # 以下为框架能力，通过 host 暴露给插件（插件不再直接 import 这些内部模块）。
 from shared.credential_vault import CredentialVault, data_dir_for
-from shared.http_client import get_bytes, request, request_raw
+from shared.http_client import get_bytes, request as http_request, request_raw
 from shared.unified_tasks import (
     init_task_manager as _ut_init,
     create_task, update_task, delete_task, get_task, get_tasks,
@@ -209,8 +209,8 @@ class _StateProxy:
 
     def _json(self, method, url, body=None, timeout=10):
         try:
-            return request(method, url, json_body=body,
-                           headers=self._headers(), timeout=timeout)
+            return http_request(method, url, json_body=body,
+                                headers=self._headers(), timeout=timeout)
         except Exception as e:
             return {'success': False, 'raw': str(e)}
 
