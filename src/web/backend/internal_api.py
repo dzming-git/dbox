@@ -16,6 +16,7 @@ HTTP 接口形式暴露给 extensions_host，实现「拓展管理」与主模�
 读取同一文件，从而实现跨进程共享。
 """
 import os
+import json
 import secrets
 from flask import Blueprint, request, jsonify, g
 
@@ -310,3 +311,38 @@ def feedback_comment():
     if not ok:
         return jsonify({'success': False, 'message': '反馈单不存在或写入失败'}), 404
     return jsonify({'success': True})
+
+
+@internal_bp.route('/internal/notify', methods=['POST'])
+def notify():
+    """扩展（X/pixiv 等）把订阅/下载等事件推为「用户通知」。
+
+    鉴权由 before_request 的 X-Dbox-Internal 密钥保障（仅本机扩展宿主可调用）。
+    user_id 缺省时回落到首个管理员（库主），保证单用户部署也能收到通知。
+    """
+    from core.models import db, UserNotification, User, UserRole
+    data = request.get_json(force=True, silent=True) or {}
+    title = (data.get('title') or '').strip()
+    body = (data.get('body') or '').strip()
+    if not title and not body:
+        return jsonify({'success': False, 'message': 'title 与 body 不能同时为空'}), 400
+    uid = data.get('user_id')
+    if not uid:
+        owner = User.query.filter(User.role <= UserRole.ADMIN).order_by(User.id).first()
+        uid = owner.id if owner else None
+    if not uid:
+        return jsonify({'success': False, 'message': '无法确定通知目标用户'}), 400
+    payload = data.get('payload')
+    if isinstance(payload, (dict, list)):
+        payload = json.dumps(payload, ensure_ascii=False)
+    n = UserNotification(
+        user_id=int(uid),
+        category=(data.get('category') or 'subscription').strip() or 'subscription',
+        title=title,
+        body=body,
+        source=(data.get('source') or '').strip() or None,
+        payload=payload,
+    )
+    db.session.add(n)
+    db.session.commit()
+    return jsonify({'success': True, 'id': n.id})
