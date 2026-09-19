@@ -12,9 +12,9 @@ import json
 import time
 import uuid
 import logging
-import urllib.request
 from datetime import datetime
-from urllib.parse import urlencode
+
+from shared.http_client import HttpClientError, request
 
 logger = logging.getLogger('dbox-ext-platform')
 
@@ -78,25 +78,19 @@ def _internal_secret() -> str:
 
 def _post(path: str, payload: dict) -> dict:
     url = f'http://{_PLATFORM_HOST}:{_PLATFORM_PORT}/internal{path}'
-    data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-    req = urllib.request.Request(
-        url, data=data, method='POST',
-        headers={
-            'Content-Type': 'application/json; charset=utf-8',
-            'X-Dbox-Internal': _internal_secret(),
-        },
-    )
+    headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-Dbox-Internal': _internal_secret(),
+    }
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read().decode('utf-8')
-            return json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        # 服务端已返回响应（401/403/4xx/5xx）：属于鉴权/业务错误，非网络层故障，
-        # 重试无意义、也不应落 spool 无限重试，交由调用方按“硬失败”处理。
-        return {'success': False,
-                'message': f'平台调用失败: HTTP Error {e.code}: {e.reason}',
-                'network_error': False}
-    except Exception as e:
+        return request('POST', url, json_body=payload, headers=headers, timeout=60)
+    except HttpClientError as e:
+        if e.status is not None:
+            # 服务端已返回响应（401/403/4xx/5xx）：属于鉴权/业务错误，非网络层故障，
+            # 重试无意义、也不应落 spool 无限重试，交由调用方按“硬失败”处理。
+            return {'success': False,
+                    'message': f'平台调用失败: HTTP {e.status}',
+                    'network_error': False}
         # 连接被拒 / 超时 / 解析失败等网络层错误：瞬时可达性问题，可重试或落 spool。
         logger.error('调用主服务 IPlatformAPI 失败 %s: %s', path, e)
         return {'success': False, 'message': f'平台调用失败: {e}',
@@ -105,17 +99,10 @@ def _post(path: str, payload: dict) -> dict:
 
 def _get(path: str, params: dict = None) -> dict:
     url = f'http://{_PLATFORM_HOST}:{_PLATFORM_PORT}/internal{path}'
-    if params:
-        url += '?' + urlencode(params)
-    req = urllib.request.Request(
-        url, method='GET',
-        headers={'X-Dbox-Internal': _internal_secret()},
-    )
+    headers = {'X-Dbox-Internal': _internal_secret()}
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read().decode('utf-8')
-            return json.loads(body) if body else {}
-    except Exception as e:
+        return request('GET', url, params=params, headers=headers, timeout=60)
+    except HttpClientError as e:
         logger.error('调用主服务 IPlatformAPI 失败 %s: %s', path, e)
         return {'success': False, 'message': f'平台调用失败: {e}'}
 

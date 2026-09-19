@@ -23,6 +23,7 @@ from routes import _JWT_SECRETS, ADMIN_ROLE, _resolve_jwt_secrets
 
 # 以下为框架能力，通过 host 暴露给插件（插件不再直接 import 这些内部模块）。
 from shared.credential_vault import CredentialVault, data_dir_for
+from shared.http_client import get_bytes, request, request_raw
 from shared.unified_tasks import (
     init_task_manager as _ut_init,
     create_task, update_task, delete_task, get_task, get_tasks,
@@ -162,17 +163,11 @@ class _HttpProxy:
     """外部 HTTP 客户端（带鉴权）。后续可接入 framework token 注入。"""
 
     def get(self, url, headers=None, **kw):
-        import urllib.request
-        req = urllib.request.Request(url, headers=headers or {})
-        return urllib.request.urlopen(req, timeout=kw.get('timeout', 10)).read()
+        return get_bytes(url, headers=headers, timeout=kw.get('timeout', 10))
 
     def post(self, url, **kw):
-        import urllib.request
-        import json as _json
-        data = _json.dumps(kw.get('json', {})).encode('utf-8')
-        req = urllib.request.Request(url, data=data,
-                                     headers={'Content-Type': 'application/json'})
-        return urllib.request.urlopen(req, timeout=kw.get('timeout', 10)).read()
+        return request_raw('POST', url, json_body=kw.get('json'),
+                           timeout=kw.get('timeout', 10))
 
 
 class _StateProxy:
@@ -213,15 +208,11 @@ class _StateProxy:
         return h
 
     def _json(self, method, url, body=None, timeout=10):
-        import json as _json
-        import urllib.request
-        data = _json.dumps(body).encode('utf-8') if body is not None else None
-        req = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
-        raw = urllib.request.urlopen(req, timeout=timeout).read()
         try:
-            return _json.loads(raw.decode('utf-8'))
-        except Exception:
-            return {'success': False, 'raw': raw[:200].decode('utf-8', 'ignore')}
+            return request(method, url, json_body=body,
+                           headers=self._headers(), timeout=timeout)
+        except Exception as e:
+            return {'success': False, 'raw': str(e)}
 
     # ---- 对外契约 ----
     def get(self, key, default=None):
