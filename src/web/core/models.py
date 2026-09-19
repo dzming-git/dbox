@@ -2909,5 +2909,62 @@ class Subscription(db.Model):
         return f'<Subscription {self.id} u{self.user_id} {self.source_type}:{self.source_id}>'
 
 
+class SubscriptionCache(db.Model):
+    """订阅缓存：扩展轮询到的新内容先落这里（不入库），由用户决定何时入库。
+
+    与 subscriptions 表解耦——subscription 是订阅配置，cache 是拉到的具体内容。
+    用户在前端「订阅动态」浏览，点「入库」才触发对应扩展下载进资源库，
+    实现「先缓存、是否入库用户说了算」。
+    """
+
+    __tablename__ = 'subscription_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    subscription_id = db.Column(db.Integer)                 # 关联 subscriptions.id
+    source_type = db.Column(db.String(40), nullable=False, index=True)  # x / pixiv
+    source_id = db.Column(db.String(255), nullable=False)   # handle / artist id
+    post_id = db.Column(db.String(255), nullable=False)     # 平台帖子 id
+    author = db.Column(db.String(255))                      # 作者展示名 / handle
+    text = db.Column(db.Text)
+    media = db.Column(db.Text)                              # JSON: [{thumbnail, url}]
+    url = db.Column(db.Text)                                # 原帖地址
+    target_mode = db.Column(db.String(40), default='video')  # 入库目标模式
+    library_id = db.Column(db.Integer)                      # 入库目标库
+    ingested = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    cached_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source_type', 'post_id', name='_subcache_uc'),
+    )
+
+    def to_dict(self):
+        _media = []
+        if self.media:
+            try:
+                _media = json.loads(self.media)
+            except Exception:
+                _media = []
+        return {
+            'id': self.id,
+            'subscriptionId': self.subscription_id,
+            'sourceType': self.source_type,
+            'sourceId': self.source_id,
+            'postId': self.post_id,
+            'author': self.author,
+            'text': self.text,
+            'media': _media,
+            'url': self.url,
+            'targetMode': self.target_mode,
+            'libraryId': self.library_id,
+            'ingested': bool(self.ingested),
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+            'cachedAt': self.cached_at.isoformat() if self.cached_at else None,
+        }
+
+    def __repr__(self):
+        return f'<SubscriptionCache {self.id} u{self.user_id} {self.source_type}:{self.post_id}>'
+
 
 

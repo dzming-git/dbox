@@ -72,6 +72,7 @@ def register_domain_blueprints(app: Flask) -> None:
     from backend.api.collection_set_api import bp as collection_set_api_bp
     from task_routes import bp as task_bp
     from backend.api.subscription_api import bp as subscription_api_bp
+    from backend.api.subscription_cache_api import bp as subscription_cache_api_bp
 
     app.register_blueprint(video_api_bp)
     app.register_blueprint(tag_api_bp)
@@ -89,3 +90,4 @@ def register_domain_blueprints(app: Flask) -> None:
     app.register_blueprint(collection_set_api_bp)
     app.register_blueprint(task_bp)
     app.register_blueprint(subscription_api_bp)
+    app.register_blueprint(subscription_cache_api_bp)

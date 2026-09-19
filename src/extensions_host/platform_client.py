@@ -389,3 +389,19 @@ def update_subscription(sid: int, **fields) -> dict:
     """回写订阅运行态（最后检查时间 / 新内容时间 / 错误 / 启用）。"""
     clean = {k: v for k, v in fields.items() if v is not None}
     return _put('/subscriptions/%d' % int(sid), clean)
+
+
+def cache_subscription_post(posts: list) -> dict:
+    """把轮询到的新内容写入 dbox 级订阅缓存（不入库）。
+
+    posts: 每条含 source_type / source_id / post_id / author / text / media /
+    url / target_mode / library_id 等字段。同一 (user_id, source_type, post_id)
+    由主服务幂等去重。
+    """
+    if not isinstance(posts, list) or not posts:
+        return {'success': True, 'created': 0}
+    try:
+        return _post('/subscription-cache', {'posts': posts})
+    except HttpClientError as e:
+        logger.error('写入订阅缓存失败: %s', e)
+        return {'success': False, 'message': str(e), 'network_error': True}

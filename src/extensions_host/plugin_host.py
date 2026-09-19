@@ -528,6 +528,15 @@ class Host:
             self.logger.error('update_subscription 失败: %s', e)
             return {'success': False, 'message': str(e)}
 
+    def cache_subscription_post(self, posts):
+        """把轮询到的新内容写入 dbox 级订阅缓存（不入库），由用户决定何时入库。"""
+        try:
+            from platform_client import cache_subscription_post as _cs
+            return _cs(posts)
+        except Exception as e:
+            self.logger.error('cache_subscription_post 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
 
 def build_host(manifest, app):
     return Host(manifest, app)

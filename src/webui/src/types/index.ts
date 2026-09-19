@@ -380,3 +380,20 @@ export interface Subscription {
   createdAt: string | null
 }
 
+export interface SubscriptionCache {
+  id: number
+  subscriptionId: number | null
+  sourceType: string
+  sourceId: string
+  postId: string
+  author: string | null
+  text: string | null
+  media: { thumbnail?: string; url?: string }[]
+  url: string | null
+  targetMode: string
+  libraryId: number | null
+  ingested: boolean
+  createdAt: string | null
+  cachedAt: string | null
+}
+
