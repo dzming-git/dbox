@@ -354,3 +354,38 @@ def notify_user(title, body, *, source=None, category='subscription',
         'user_id': user_id,
         'payload': payload,
     })
+
+
+def _put(path: str, payload: dict) -> dict:
+    url = f'http://{_PLATFORM_HOST}:{_PLATFORM_PORT}/internal{path}'
+    headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-Dbox-Internal': _internal_secret(),
+    }
+    try:
+        return request('PUT', url, json_body=payload, headers=headers, timeout=60)
+    except HttpClientError as e:
+        if e.status is not None:
+            return {'success': False,
+                    'message': f'平台调用失败: HTTP {e.status}',
+                    'network_error': False}
+        logger.error('调用主服务 IPlatformAPI 失败 %s: %s', path, e)
+        return {'success': False, 'message': f'平台调用失败: {e}',
+                'network_error': True}
+
+
+def get_subscriptions(source_type: str = None) -> dict:
+    """读取 dbox 级订阅（按 source_type 过滤），作为扩展轮询的唯一订阅源。
+
+    扩展（X/pixiv）据此只盯这些来源，不读取平台自身关注列表。
+    """
+    params = {}
+    if source_type:
+        params['source_type'] = source_type
+    return _get('/subscriptions', params)
+
+
+def update_subscription(sid: int, **fields) -> dict:
+    """回写订阅运行态（最后检查时间 / 新内容时间 / 错误 / 启用）。"""
+    clean = {k: v for k, v in fields.items() if v is not None}
+    return _put('/subscriptions/%d' % int(sid), clean)

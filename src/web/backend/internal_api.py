@@ -18,6 +18,7 @@ HTTP 接口形式暴露给 extensions_host，实现「拓展管理」与主模�
 import os
 import json
 import secrets
+from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 
 internal_bp = Blueprint('internal_api', __name__)
@@ -257,6 +258,74 @@ def library_targets():
         return jsonify({'success': True, 'targets': []})
     targets = w.library_disk_targets(library_id) if library_id else []
     return jsonify({'success': True, 'targets': targets})
+
+
+@internal_bp.route('/internal/subscriptions', methods=['GET'])
+def get_subscriptions():
+    """扩展（X/pixiv）读取 dbox 级订阅，作为各自轮询的唯一订阅源。
+
+    按 source_type 过滤（如 'x'）；返回全部用户的订阅（单用户部署即当前用户）。
+    扩展据此只盯这些来源，绝不读取平台自身的关注列表。
+    """
+    from core.models import Subscription
+    source_type = request.args.get('source_type') or None
+    q = Subscription.query
+    if source_type:
+        q = q.filter_by(source_type=source_type)
+    rows = q.order_by(Subscription.id).all()
+    return jsonify({'success': True, 'items': [r.to_dict() for r in rows]})
+
+
+def _parse_dt(v):
+    """把内部接口传入的时间解析为 datetime：支持 ISO 字符串或 epoch 秒。"""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        try:
+            return datetime.utcfromtimestamp(float(v))
+        except Exception:
+            return None
+    if isinstance(v, str):
+        s = v.strip()
+        if s.replace('.', '', 1).isdigit():
+            try:
+                return datetime.utcfromtimestamp(float(s))
+            except Exception:
+                return None
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+    return None
+
+
+@internal_bp.route('/internal/subscriptions/<int:sid>', methods=['PUT'])
+def update_subscription(sid):
+    """扩展回写订阅的运行态：最后检查时间 / 最后新内容时间 / 错误。
+
+    供轮询任务在每轮结束后调用，便于前端展示与排障；不修改订阅的业务字段。
+    """
+    from core.models import db, Subscription
+    sub = Subscription.query.get(sid)
+    if not sub:
+        return jsonify({'success': False, 'message': '订阅不存在'}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    if 'last_checked_at' in data:
+        dt = _parse_dt(data['last_checked_at'])
+        if dt is not None:
+            sub.last_checked_at = dt
+    if 'last_item_at' in data:
+        dt = _parse_dt(data['last_item_at'])
+        if dt is not None:
+            sub.last_item_at = dt
+    if 'error' in data:
+        err = data['error']
+        sub.error = (err[:200] if isinstance(err, str) else None)
+    if 'enabled' in data:
+        sub.enabled = bool(data['enabled'])
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @internal_bp.route('/internal/feedback', methods=['POST'])

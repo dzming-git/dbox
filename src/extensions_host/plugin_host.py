@@ -495,6 +495,39 @@ class Host:
             self.logger.error('upsert_post_by_group 失败: %s', e)
             return {'success': False, 'message': str(e)}
 
+    def notify_user(self, title, body, *, source=None, category='subscription',
+                    user_id=None, payload=None):
+        """向核心推送一条用户通知（订阅事件 / 下载完成等）。
+
+        供插件在拉到新内容、或发生需要提醒用户的事件时调用，
+        通知进入核心「用户通知」表，由前端通知中心统一展示。
+        """
+        try:
+            from platform_client import notify_user as _notify
+            return _notify(title, body, source=source, category=category,
+                          user_id=user_id, payload=payload)
+        except Exception as e:
+            self.logger.error('notify_user 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
+    def get_subscriptions(self, source_type=None):
+        """读取 dbox 级订阅（按 source_type 过滤），作为插件轮询的唯一订阅源。"""
+        try:
+            from platform_client import get_subscriptions as _gs
+            return _gs(source_type=source_type)
+        except Exception as e:
+            self.logger.error('get_subscriptions 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
+    def update_subscription(self, sid, **fields):
+        """回写订阅运行态（最后检查时间 / 新内容时间 / 错误 / 启用）。"""
+        try:
+            from platform_client import update_subscription as _us
+            return _us(sid, **fields)
+        except Exception as e:
+            self.logger.error('update_subscription 失败: %s', e)
+            return {'success': False, 'message': str(e)}
+
 
 def build_host(manifest, app):
     return Host(manifest, app)

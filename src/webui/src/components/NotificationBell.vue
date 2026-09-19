@@ -17,13 +17,23 @@
       </div>
       <div class="notif-list">
         <div v-if="!store.items.length" class="notif-empty">暂无通知</div>
+        <!-- 通用富卡片：图片/摘要/跳转/操作均由插件在 payload 中提供，框架只做渲染 -->
         <div v-for="n in store.items" :key="n.id" class="notif-item"
-             :class="{ unread: !n.read }" @click="onItemClick(n)">
-          <div class="notif-title">{{ n.title }}</div>
-          <div v-if="n.body" class="notif-body">{{ n.body }}</div>
-          <div class="notif-meta">
-            <span v-if="n.source" class="notif-source">{{ n.source }}</span>
-            <span class="notif-time">{{ formatTime(n.createdAt) }}</span>
+             :class="{ unread: !n.read }" @click="openItem(n)">
+          <img v-if="n.payload && n.payload.image" class="notif-thumb"
+               :src="n.payload.image" alt="" loading="lazy" />
+          <div class="notif-body-col">
+            <div class="notif-title">{{ n.title }}</div>
+            <div v-if="summary(n)" class="notif-summary">{{ summary(n) }}</div>
+            <div class="notif-meta">
+              <span v-if="n.source" class="notif-source">{{ n.source }}</span>
+              <span class="notif-time">{{ formatTime(n.createdAt) }}</span>
+            </div>
+            <div v-if="n.payload && n.payload.actions && n.payload.actions.length"
+                 class="notif-actions" @click.stop>
+              <button v-for="(a, i) in n.payload.actions" :key="i"
+                      class="notif-action" @click="openAction(a)">{{ a.label }}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -33,10 +43,12 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useNotificationStore } from '../stores/notificationStore'
 import type { UserNotification } from '../types'
 
 const store = useNotificationStore()
+const router = useRouter()
 const open = ref(false)
 
 function toggle() {
@@ -46,10 +58,26 @@ function toggle() {
 function close() {
   open.value = false
 }
-function onItemClick(n: UserNotification) {
+function summary(n: UserNotification): string {
+  const p = (n.payload || {}) as Record<string, any>
+  if (p.summary) return String(p.summary)
+  return n.body || ''
+}
+function isInternal(url: string): boolean {
+  return url.startsWith('/')
+}
+function navigate(url: string) {
+  if (!url) return
+  if (isInternal(url)) router.push(url)
+  else window.open(url, '_blank', 'noopener')
+}
+function openItem(n: UserNotification) {
+  const url = (n.payload && (n.payload as Record<string, any>).url) as string | undefined
+  if (url) navigate(url)
   if (!n.read) store.markRead(n.id)
-  const link = n.payload && n.payload.link
-  if (link) window.location.href = link
+}
+function openAction(a: { label: string; url: string }) {
+  if (a && a.url) navigate(a.url)
 }
 function formatTime(iso: string | null) {
   if (!iso) return ''
@@ -89,8 +117,8 @@ onMounted(() => store.load())
   position: absolute;
   top: 48px;
   right: 0;
-  width: 320px;
-  max-height: 70vh;
+  width: 360px;
+  max-height: 72vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -124,6 +152,8 @@ onMounted(() => store.load())
   color: var(--text-muted, #9ca3af);
 }
 .notif-item {
+  display: flex;
+  gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border, #2a2a2a);
   cursor: pointer;
@@ -131,15 +161,30 @@ onMounted(() => store.load())
 .notif-item.unread {
   background: rgba(249, 115, 22, .08);
 }
+.notif-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  background: #111;
+}
+.notif-body-col {
+  flex: 1;
+  min-width: 0;
+}
 .notif-title {
   font-size: 14px;
   font-weight: 600;
 }
-.notif-body {
+.notif-summary {
   margin-top: 4px;
   font-size: 13px;
   color: var(--text-muted, #9ca3af);
-  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .notif-meta {
   margin-top: 6px;
@@ -147,5 +192,20 @@ onMounted(() => store.load())
   gap: 10px;
   font-size: 11px;
   color: var(--text-muted, #6b7280);
+}
+.notif-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.notif-action {
+  background: var(--accent, #f97316);
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
 }
 </style>
