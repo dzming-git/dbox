@@ -273,12 +273,6 @@ async function runBackfill() {
   }
 }
 
-function formatSize(n: number) {
-  if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
-  if (n > 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`
-  return `${Math.round(n / 1024)} KB`
-}
-
 onMounted(loadAll)
 </script>
 
