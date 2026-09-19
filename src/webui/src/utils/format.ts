@@ -9,3 +9,14 @@ export function formatDuration(seconds?: number | null): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
+
+// 字节数 -> 人类可读（B/KB/MB/GB/TB，1 位小数，B 取整）。统一此前散落在
+// Disliked / Admin / Review 的内联实现；非法/缺失值返回 "0 B"。
+export function formatSize(bytes?: number | null): string {
+  if (bytes == null || !isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}

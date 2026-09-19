@@ -18,7 +18,7 @@ import {
 } from '../utils/adminCommon'
 import { useToast } from '../composables/useToast'
 import { withThumbToken } from '../utils/media'
-import { formatDuration } from '../utils/format'
+import { formatDuration, formatSize } from '../utils/format'
 import AdminConfig from '../admin/AdminConfig.vue'
 import AdminBackup from '../components/AdminBackup.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
@@ -1926,15 +1926,6 @@ const formatTrashTime = (iso: string | null) => {
   if (isNaN(d.getTime())) return '—'
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const formatSize = (bytes: number) => {
-  if (bytes === null || bytes === undefined || isNaN(Number(bytes)) || Number(bytes) <= 0) return '-'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let n = bytes
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
-  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
 

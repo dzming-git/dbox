@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { videoApi, galleryApi } from '../api'
 import { fetchDisliked, type MediaItem } from '../utils/media'
+import { formatSize } from '../utils/format'
 import { usePullToRefresh } from '../composables/usePullToRefresh'
 import MediaCard from '../components/MediaCard.vue'
 import { useUserStore } from '../stores/userStore'
@@ -38,19 +39,6 @@ onDeactivated(() => ptr.clearHandler())
 
 // 管理员可见的操作：删除（永久删除资源）+ 普通用户的取消屏蔽
 const cardActions = computed(() => (isAdmin.value ? ['restore', 'delete'] : ['restore']))
-
-// 格式化文件大小
-const formatSize = (bytes?: number) => {
-  if (!bytes || bytes <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let v = bytes
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
 
 // 截断磁盘路径，仅显示末尾
 const shortPath = (p?: string) => {
