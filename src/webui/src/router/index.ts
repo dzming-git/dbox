@@ -265,6 +265,7 @@ export const registerExtensionRoutes = ensureExtensionRoutes
 // 路由守卫 - 全局认证拦截
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
+  console.log('[DBG-GUARD] enter to=' + to.fullPath + ' from=' + (from.fullPath || '(none)') + ' loggedIn=' + userStore.isLoggedIn + ' isAdmin=' + userStore.isAdmin + ' canManage=' + userStore.canManageResources)
   
   // 设置页面标题
   document.title = `${to.meta.title || 'DBox'} - DBox`
@@ -274,9 +275,11 @@ router.beforeEach(async (to, from, next) => {
     // 如果已登录且访问登录页，跳转到首页
     if (to.name === 'Login' && userStore.isLoggedIn) {
       const redirect = to.query.redirect as string
+      console.log('[DBG-GUARD] public+loggedIn -> next(' + (redirect || '/') + ')')
       next(redirect || '/')
       return
     }
+    console.log('[DBG-GUARD] public -> next()')
     next()
     return
   }
@@ -284,6 +287,7 @@ router.beforeEach(async (to, from, next) => {
   // 2. 默认所有页面都需要登录（除非明确标记 public: true）
   if (!userStore.isLoggedIn) {
     // 未登录，重定向到登录页，并记录原目标地址
+    console.log('[DBG-GUARD] NOT loggedIn -> Login redirect=' + to.fullPath)
     next({ 
       name: 'Login', 
       query: { redirect: to.fullPath }
@@ -293,16 +297,20 @@ router.beforeEach(async (to, from, next) => {
   
   // 3. 检查是否需要管理员权限（全局管理员 或 资源库管理员均可进入）
   if (to.meta.requiresAdmin && !userStore.isAdmin) {
+    console.log('[DBG-GUARD] requiresAdmin && !isAdmin')
     if (userStore.isLoggedIn) {
       // 资源库管理员：拉取可管理库后再放行；否则导向首页
       if (!userStore.canManageResources) {
+        console.log('[DBG-GUARD] await fetchManageableLibraries')
         await userStore.fetchManageableLibraries()
       }
       if (userStore.canManageResources) {
+        console.log('[DBG-GUARD] canManage -> next()')
         next()
         return
       }
     }
+    console.log('[DBG-GUARD] -> Home')
     next({ name: 'Home' })
     return
   }
@@ -311,16 +319,24 @@ router.beforeEach(async (to, from, next) => {
   // 解决「直接刷新 /xxx-standalone 这类扩展独立页时，因异步注册尚未完成而 404」的框架 bug。
   // （main.ts 已把 ensureExtensionRoutes 移到 app.use(router) 之前，此兜底为双保险）
   const resolved = router.resolve(to.fullPath)
+  console.log('[DBG-GUARD] step4 resolved.name=' + String(resolved.name) + ' matched=' + resolved.matched.length)
   if (resolved.matched.length === 0 || resolved.name === 'NotFound') {
+    console.log('[DBG-GUARD] ensureExtensionRoutes + retry')
     await ensureExtensionRoutes()
     const re = router.resolve(to.fullPath)
     if (re.matched.length > 0 && re.name !== 'NotFound') {
+      console.log('[DBG-GUARD] redirect -> ' + re.fullPath)
       next(re.fullPath)
       return
     }
   }
 
+  console.log('[DBG-GUARD] final next()')
   next()
+})
+
+router.afterEach((to, from) => {
+  console.log('[DBG-AFTER] to=' + to.fullPath + ' from=' + (from.fullPath || '(none)'))
 })
 
 // 最近一次停留的「非扩展全屏页」路由（扩展全屏页收起/返回时的落点）。

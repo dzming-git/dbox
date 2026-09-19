@@ -34,6 +34,7 @@ let offMsg: (() => void) | null = null
 async function load() {
   loading.value = true
   error.value = ''
+  console.log('[DBG-EXT] load start path=' + route.path + ' hash=' + (route.hash || ''))
   try {
     const exts: any = await scriptApi.listExtensions()
     const ext = (exts.extensions || []).find((e: any) => e.id === extId)
@@ -84,6 +85,7 @@ function subPathOf(): string {
 /** 向面板补注入 token/模式/路由 query（每次都读最新 token，避免 401） */
 function pushRuntime() {
   if (!getPanelIframe(extId)) return
+  console.log('[DBG-EXT] pushRuntime hash=' + (route.hash || '') + ' path=' + route.path)
   const fresh = readToken()
   if (fresh) postToPanel(extId, { type: 'DBOX_TOKEN', token: fresh })
   postToPanel(extId, { type: 'DBOX_MODE', fullscreen: true })
@@ -108,6 +110,7 @@ function pushRuntime() {
  */
 function syncHash(hash: string, replace: boolean) {
   const h = hash.startsWith('#') ? hash : '#' + hash
+  console.log('[DBG-EXT] syncHash in=' + hash + ' replace=' + replace + ' route.hash=' + route.hash)
   if (route.hash === h) return
   // 面板给的 hash 已由面板自己 encodeURIComponent 过（中文/空格等）。
   // 若交给 router.replace({ hash })，Vue Router 的 encodeHash 会再套一层
@@ -128,6 +131,7 @@ function syncHash(hash: string, replace: boolean) {
 
 function handleMsg(data: any, id: string) {
   if (!data || id !== extId) return
+  console.log('[DBG-EXT] msg ' + data.type + (data.hash !== undefined ? ' hash=' + data.hash : '') + (data.path ? ' path=' + data.path : ''))
   if (data.type === 'DBOX_REQUEST_TOKEN') pushRuntime()
   // 面板内跳转：全屏页本身就是「界面」，直接路由跳转即可（面板实例不动）。
   if (data.type === 'DBOX_NAVIGATE' && data.path) {
@@ -147,6 +151,7 @@ function handleMsg(data: any, id: string) {
 // 让面板内部路由跟着走。面板比对自身 hash 后会忽略与自己发出的重复事件。
 watch(() => route.hash, (h) => {
   if (!getPanelIframe(extId)) return
+  console.log('[DBG-EXT] watch hash=' + h)
   postToPanel(extId, { type: 'DBOX_ROUTE', hash: h || '' })
 })
 
@@ -154,6 +159,7 @@ watch(() => route.hash, (h) => {
 // 回推给面板，让面板内部视图跟着走（面板会自行忽略与自己当前位置相同的回推）。
 watch(() => route.path, () => {
   if (!getPanelIframe(extId)) return
+  console.log('[DBG-EXT] watch path=' + route.path)
   postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf() })
 })
 

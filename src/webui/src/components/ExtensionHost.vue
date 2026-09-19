@@ -277,6 +277,9 @@ function onKeydown(e: KeyboardEvent) {
 function onRequestFullscreen(e: Event) {
   const d = (e as CustomEvent).detail || {}
   if (!d.route) return
+  // 由小窗升级为全屏：通知面板「已升级」，使其把当前视图补写进顶层 URL
+  // （直接刷新 /ext/x 不会带此信号，从而不会改写地址栏）。
+  if (d.extId) postToPanel(d.extId, { type: 'DBOX_EXT_INFO', standalone_route: d.route, promoted: true })
   router.push(d.route).then(() => {
     openId.value = null
   }).catch(() => {
