@@ -289,15 +289,13 @@ def _free_port():
 
 def cdp_ready(port, timeout=45):
     """等浏览器的调试端口可用。"""
-    import urllib.request
+    from shared.http_client import get_bytes, HttpClientError
     end = time.time() + timeout
     while time.time() < end:
         try:
-            with urllib.request.urlopen('http://127.0.0.1:%d/json/version' % port,
-                                        timeout=1.5) as r:
-                if r.status == 200:
-                    return True
-        except Exception:
+            get_bytes('http://127.0.0.1:%d/json/version' % port, timeout=1.5)
+            return True
+        except HttpClientError:
             time.sleep(0.6)
     return False
 

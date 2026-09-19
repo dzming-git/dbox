@@ -376,8 +376,7 @@ def get_ext_sdk(filename):
 # 与「插件后端代理核心路由」的既有范式一致，面板无需知道核心地址。
 @script_bp.route('/api/user-state/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def proxy_user_state(subpath):
-    import urllib.request
-    import urllib.error
+    from shared.http_client import HttpClientError, proxy_request
 
     core = (os.environ.get('DBOX_WEB_BASE') or 'http://127.0.0.1:8080').rstrip('/')
     url = '%s/api/user-state/%s' % (core, subpath)
@@ -391,13 +390,10 @@ def proxy_user_state(subpath):
     if dev:
         headers['X-Dbox-Device-Id'] = dev
     data = request.get_data() or None
-    req = urllib.request.Request(url, data=data, headers=headers, method=request.method)
     try:
-        raw = urllib.request.urlopen(req, timeout=15).read()
-        status = 200
-    except urllib.error.HTTPError as e:
-        raw, status = e.read(), e.code
-    except Exception as e:
+        status, raw = proxy_request(request.method, url, headers=headers,
+                                    data=data, timeout=15)
+    except HttpClientError as e:
         return jsonify({'success': False, 'message': '状态服务不可达: %s' % e}), 502
     return Response(raw, status=status, mimetype='application/json; charset=utf-8')
 

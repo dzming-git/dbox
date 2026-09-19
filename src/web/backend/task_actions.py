@@ -15,6 +15,8 @@
 extra 可携带响应细节（如 need_reupload 让前端引导用户重新上传、
 status 指定 HTTP 状态码、job_id 等）。
 """
+import json
+
 from liblog import get_service_logger
 
 log = get_service_logger('dbox-web')
@@ -58,26 +60,27 @@ def _retry_script(task):
     if not script_id:
         return False, '该任务缺少脚本标识，无法重试'
 
-    import requests
     from flask import request as _req
+    from shared.http_client import HttpClientError, proxy_request
 
     base = 'http://127.0.0.1:8092'
     # 透传鉴权头：下载器按用户身份判定脚本权限
     skip = {'host', 'content-length', 'connection', 'transfer-encoding'}
     headers = {k: v for k, v in _req.headers.items() if k.lower() not in skip}
     try:
-        resp = requests.post(
-            f'{base}/api/scripts/{script_id}/run',
-            json=run_params, headers=headers, cookies=_req.cookies, timeout=30,
+        status, raw = proxy_request(
+            'POST', f'{base}/api/scripts/{script_id}/run',
+            json_body=run_params, headers=headers,
+            cookies=dict(_req.cookies), timeout=30,
         )
-        data = resp.json() if resp.content else {}
-    except Exception as e:
+        data = json.loads(raw.decode('utf-8')) if raw else {}
+    except HttpClientError as e:
         return False, f'资源下载器服务不可用，请检查下载器进程是否运行：{e}', \
             {'status': 503, 'code': 503}
     if data.get('success'):
         return True, '已重新提交，请在任务列表查看新任务', {'job_id': data.get('job_id')}
     return False, (data.get('error') or data.get('message') or '重新提交失败'), \
-        {'status': resp.status_code or 400}
+        {'status': status or 400}
 
 
 def _retry_upload(task):

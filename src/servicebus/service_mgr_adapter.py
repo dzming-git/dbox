@@ -389,18 +389,15 @@ class BusServiceMgrAdapter(BaseDBusService):
 
     def _check_http_health(self, url: str) -> tuple:
         """HTTP 健康检查"""
-        import requests
-        try:
-            start = time.time()
-            resp = requests.get(url, timeout=1.5)  # 1.5秒超时，加快降级
-            latency = (time.time() - start) * 1000
-            if resp.status_code == 200:
-                return ('healthy', round(latency, 1))
-            return ('unhealthy', round(latency, 1))
-        except requests.exceptions.Timeout:
+        from shared.http_client import http_health_timed
+        st, latency = http_health_timed(url, timeout=1.5, reachable=(200,))
+        if st == 'timeout':
             return ('timeout', None)
-        except Exception:
+        if st == 'offline':
             return ('offline', None)
+        if st == 'healthy':
+            return ('healthy', round(latency, 1) if latency is not None else None)
+        return ('unhealthy', round(latency, 1) if latency is not None else None)
 
     # ============ 总线方法 ============
 

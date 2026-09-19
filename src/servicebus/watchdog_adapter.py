@@ -468,16 +468,8 @@ class WatchdogService(BaseDBusService):
           - 404：进程在、只是该路径无路由，同样视为可达（服务活着）；
           - 仅连接失败/超时才判为不可达，避免「进程在但端口没监听」被误判为健康。
         """
-        import requests
-        try:
-            resp = requests.get(url, timeout=1.5)
-            if resp.status_code in (200, 401, 403, 404):
-                return 'healthy'
-            return 'unhealthy'
-        except requests.exceptions.Timeout:
-            return 'timeout'
-        except Exception:
-            return 'offline'
+        from shared.http_client import http_health_timed
+        return http_health_timed(url, timeout=1.5)[0]
 
     def _ping_bus(self, client, bus_name: str):
         """
