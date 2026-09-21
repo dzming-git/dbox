@@ -242,11 +242,22 @@
     }).catch(function () { return null; });   // 失败静默，退化为本地
   };
 
+  // 单飞：并发 / 同一拍的多个 pull 共享同一次请求。
+  // 实测面板首屏会并发打出 5 个完全相同的 GET /user-state/<ns>（boot pull + 形态通报里的
+  // ledger.refresh ×3 + acquireMaster 的 resync pull），单次 265ms~1.1s，排队后整段对账
+  // 拖到 ~1.2s——这是「打开要等 1~2 秒」的最大头。只在「请求在途」期间合并；一旦落地，
+  // 下一次 pull 照常发新请求，语义（以服务端为权威整体替换本地）不变。
+  var _pullInflight = null;
   SDK.pull = function () {
-    return SDK._send('GET', '', null, false).then(function (d) {
+    if (_pullInflight) return _pullInflight;
+    _pullInflight = SDK._send('GET', '', null, false).then(function (d) {
       _applyServerData(d && d.data);
       return SDK.all();
-    }).catch(function () { return SDK.all(); });
+    }).catch(function () { return SDK.all(); }).then(function (r) {
+      _pullInflight = null;   // 成功/失败都释放，避免失败被永久钉住
+      return r;
+    });
+    return _pullInflight;
   };
 
   // 卸载/隐藏时立即落盘：keepalive 保证请求不被浏览器掐断
