@@ -99,13 +99,44 @@ export interface ScriptJob {
   logs: JobLog[]
 }
 
+// ── listExtensions 短 TTL + 单飞缓存 ────────────────────────────────────────
+// 首屏会从三个互不相干的地方各调一次 listExtensions：router 的 ensureExtensionRoutes
+// （注册 /ext/<id> 路由）、ExtensionHost（面板启动器取入口）、ExtensionStandalone
+// （全屏页取 manifest）。实测同一秒内对 /api/ui-extensions 打出 3 个请求。
+// 这里做短 TTL + 单飞缓存：TTL 内重复调用共享同一次请求；每次返回浅拷贝，
+// 避免调用方（组件里会对数组做赋值/过滤）互相改坏缓存对象。
+// 任何改变扩展集合或启用状态的操作（enable/disable/reload）立即失效缓存。
+const EXT_LIST_TTL = 2000
+let _extListCache: { at: number; p: Promise<any> } | null = null
+export function invalidateExtensionsCache() {
+  _extListCache = null
+}
+function listExtensionsCached(): Promise<any> {
+  const now = Date.now()
+  if (!_extListCache || now - _extListCache.at >= EXT_LIST_TTL) {
+    const p = api.get('/api/ui-extensions')
+    _extListCache = { at: now, p }
+    // 失败不缓存：否则 TTL 内会把同一个错误复用给所有调用方
+    p.catch(() => {
+      if (_extListCache && _extListCache.p === p) _extListCache = null
+    })
+  }
+  return _extListCache.p.then((r: any) =>
+    r && Array.isArray(r.extensions) ? { ...r, extensions: r.extensions.slice() } : r
+  )
+}
+
 export const scriptApi = {
   // 脚本管理（管理员）
   listScripts: (all = true) =>
     api.get('/api/admin/scripts', { params: all ? { all: 1 } : {} }),
-  enable: (id: string) => api.post(`/api/admin/scripts/${id}/enable`),
-  disable: (id: string) => api.post(`/api/admin/scripts/${id}/disable`),
-  reload: () => api.post('/api/admin/scripts/reload'),
+  // enable/disable/reload 会改变扩展集合或启用状态 → 立刻失效 listExtensions 缓存
+  enable: (id: string) =>
+    api.post(`/api/admin/scripts/${id}/enable`).then((r) => { invalidateExtensionsCache(); return r }),
+  disable: (id: string) =>
+    api.post(`/api/admin/scripts/${id}/disable`).then((r) => { invalidateExtensionsCache(); return r }),
+  reload: () =>
+    api.post('/api/admin/scripts/reload').then((r) => { invalidateExtensionsCache(); return r }),
 
   // 凭证保险库（管理员）
   listCookies: () => api.get('/api/admin/cookies'),
@@ -136,6 +167,7 @@ export const scriptApi = {
   // 扩展 UI 注入（仅管理员可见）：返回已启用且声明 ui 段的脚本。
   // standalone_route 由后端从插件 id（= 文件夹名）推导为 /ext/<id>，
   // 前端原样使用，不做任何加工。
-  listExtensions: () => api.get('/api/ui-extensions'),
+  // ⚠️ 走短 TTL 单飞缓存（见上），避免首屏三处调用打出三个重复请求。
+  listExtensions: () => listExtensionsCached(),
   getPanel: (id: string) => api.get(`/api/ui-panel/${id}`),
 }
