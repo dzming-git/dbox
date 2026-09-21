@@ -54,6 +54,13 @@ async function load() {
     })
     if (!existed) setPanelTitle(extId, title)
     setPanelMode(extId, 'fullscreen')
+    // 首条 DBOX_ROUTE/DBOX_MODE 在 ensurePanel 设完 srcdoc 后同步发出，但 srcdoc
+    // 脚本异步加载、面板 message 监听器尚未就绪，首条常被丢弃；恢复又完全依赖面板
+    // 随后回发的 DBOX_REQUEST_TOKEN，存在竞态窗口。这里额外在 iframe load 事件里
+    // 补发一次 runtime，确保面板就绪后必然收到，消除「点了用户/推文详情，浏览器
+    // 地址栏却不变」的竞态（urlSyncEnabled 卡在 false 导致 DBOX_URL_SYNC 不发）。
+    const pf = getPanelIframe(extId)
+    if (pf) pf.addEventListener('load', () => pushRuntime(), { once: true })
     pushRuntime()
   } catch (e: any) {
     error.value = '面板加载失败：' + (e?.message || e)
