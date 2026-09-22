@@ -164,6 +164,12 @@ function handleMsg(data: any, id: string) {
 watch(() => route.hash, (h) => {
   if (!getPanelIframe(extId)) return
   console.log('[DBG-EXT] watch hash=' + h)
+  // 独立全屏路由 ⇒ 面板必须是 fullscreen 形态，这里补一次保证性。
+  // 只靠 load() 里的 setPanelMode 不够：宿主本来就停在 /ext/x 时（同一路径再 push
+  // 不会重新挂载本组件），或面板是从停靠条/小窗被带进来的，就不会再执行 load()，
+  // iframe 会保持原来的矮尺寸（实测 1251x249）——表现为「已在独立页，推文详情却只
+  // 占一条细带，看起来没打开」。幂等，重复调用无害。
+  setPanelMode(extId, 'fullscreen')
   postToPanel(extId, { type: 'DBOX_ROUTE', hash: h || '' })
 })
 
@@ -172,6 +178,7 @@ watch(() => route.hash, (h) => {
 watch(() => route.path, () => {
   if (!getPanelIframe(extId)) return
   console.log('[DBG-EXT] watch path=' + route.path)
+  setPanelMode(extId, 'fullscreen')   // 同上：独立页路径下必须是全屏形态
   postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf() })
 })
 
