@@ -223,6 +223,38 @@
     SDK._timer = global.setTimeout(function () { SDK._timer = null; SDK.push(); }, SDK.debounce);
   }
 
+  /* ---------------- 对账瘦身：heavyKeys ----------------
+   * 把「体积大、只需留在本地」的键位登记进来，此后：
+   *   · GET /api/user-state/<ns>?exclude=... 与 POST /sync 的 body.exclude 都带上它们，
+   *     服务端在查询层就裁掉——不再序列化、不再传输、客户端也不再 JSON.parse；
+   *   · 对账改为「部分应用」：服务端没返回 ≠ 已删除，本地这些键原样保留。
+   * 只影响**跨设备对账**；本地读写（SDK.get/set）、落盘、推送照旧。
+   * 为什么需要：X 面板曾把内容镜像/搜索缓存放进 user 层，整包 4.4MB，而一次打开要
+   * 来回传 2~3 遍（单次 300ms+；后端又是串行处理，会连带拖慢同期所有请求）。
+   * ------------------------------------------------------ */
+  SDK.heavyKeys = [];
+  SDK.setHeavyKeys = function (list) {
+    SDK.heavyKeys = (list || []).map(function (x) {
+      return String(x || '').trim();
+    }).filter(function (x) { return !!x; });
+    return SDK;
+  };
+  function _heavyQuery() {
+    var hk = SDK.heavyKeys || [];
+    return hk.length ? ('?exclude=' + encodeURIComponent(hk.join(','))) : '';
+  }
+  // 某个键是否属于本次被排除的重键（支持 'xxx:*' 前缀写法），与后端 exclude 语义一致
+  function _isHeavyKey(key, list) {
+    for (var i = 0; i < (list || []).length; i++) {
+      var p = list[i];
+      if (!p) continue;
+      if (p.charAt(p.length - 1) === '*') {
+        if (key.indexOf(p.slice(0, -1)) === 0) return true;
+      } else if (key === p) return true;
+    }
+    return false;
+  }
+
   /* ---------------- 网络：推送 / 拉取 ---------------- */
 
   SDK.push = function () {
@@ -235,8 +267,10 @@
     }
     SDK._pending = {};
     if (!has) return Promise.resolve(null);
-    return SDK._send('POST', '/sync', { put: put, delete: del }, false).then(function (d) {
-      _applyServerData(d && d.data);
+    var body = { put: put, delete: del };
+    if ((SDK.heavyKeys || []).length) body.exclude = SDK.heavyKeys;   // 回包同样不带大缓存
+    return SDK._send('POST', '/sync', body, false).then(function (d) {
+      _applyServerData(d && d.data, (SDK.heavyKeys || []).length > 0);
       _fireStale(d && d.pushed);
       return d;
     }).catch(function () { return null; });   // 失败静默，退化为本地
@@ -250,8 +284,8 @@
   var _pullInflight = null;
   SDK.pull = function () {
     if (_pullInflight) return _pullInflight;
-    _pullInflight = SDK._send('GET', '', null, false).then(function (d) {
-      _applyServerData(d && d.data);
+    _pullInflight = SDK._send('GET', _heavyQuery(), null, false).then(function (d) {
+      _applyServerData(d && d.data, (SDK.heavyKeys || []).length > 0);
       return SDK.all();
     }).catch(function () { return SDK.all(); }).then(function (r) {
       _pullInflight = null;   // 成功/失败都释放，避免失败被永久钉住
@@ -273,10 +307,12 @@
     }
     if (!has) return;
     SDK._pending = {};
-    SDK._send('POST', '/sync', { put: put, delete: del }, true).catch(function () {});
+    var body = { put: put, delete: del };
+    if ((SDK.heavyKeys || []).length) body.exclude = SDK.heavyKeys;   // 卸载时的回包同样瘦身
+    SDK._send('POST', '/sync', body, true).catch(function () {});
   };
 
-  function _applyServerData(data) {
+  function _applyServerData(data, partial) {
     if (!data) return;
     var keys = [];
     for (var k0 in data) {
@@ -287,7 +323,18 @@
     // 以服务端快照为准整体替换：服务端不返回某个键，意味着它对当前身份
     // 不可见（如 device 作用域属于别的设备）或已在别处被删除。若只是"有则更新"，
     // 本地会永久残留脏值，表现为设备间串台、已删状态复活。
+    //
+    // partial（登记了 heavyKeys 时）：这次对账**刻意没取回**大体量数据缓存，
+    // 所以对它们而言"没返回"不代表"已删除"——只把这批被排除的键从本地继承过来。
+    // 其余键仍走上面的"以服务端为准"语义（含服务端已删除的清理），不受影响。
     var next = {};
+    if (partial) {
+      var hk = SDK.heavyKeys || [];
+      for (var kc in SDK._cache) {
+        if (!Object.prototype.hasOwnProperty.call(SDK._cache, kc)) continue;
+        if (_isHeavyKey(kc, hk)) next[kc] = SDK._cache[kc];
+      }
+    }
     keys.forEach(function (k) {
       var it = data[k] || {};
       next[k] = { value: it.value, rev: it.rev || 0, v: it.v || 1 };
