@@ -9,14 +9,13 @@ const pinia = createPinia()
 
 app.use(pinia)
 
-// 关键修复：必须在 app.use(router) 之前完成扩展独立路由注册。
-// Vue Router 在 app.use(router) 时会触发初始导航（基于当时的 matcher 快照）；
-// 若此时扩展路由尚未 addRoute，刷新 /xxx-standalone 会匹配到 404 catch-all，
-// 且后续 addRoute 不会重放已完成/进行中的初始导航（框架 bug）。
-// 因此把 ensureExtensionRoutes() 的 await 放在 app.use(router) 之前，
-// 路由守卫 also 提供兜底重放（ensureExtensionRoutes），双保险根除竞态。
-;(async () => {
-  await ensureExtensionRoutes()
-  app.use(router)
-  app.mount('#app')
-})()
+// 不再 await ensureExtensionRoutes() 后才挂载。
+// 理由：路由表里已有通用记录 path='/ext/:extId/:pathMatch(.*)*'（name='ext-standalone'），
+// 任意 /ext/<id> 无需动态 addRoute 就能直接匹配；而 ensureExtensionRoutes() 只是一次
+// /api/ui-extensions 往返（实测 185→217ms），却挡在 app.use(router) 之前——等于把整条
+// 首屏链（面板 HTML → SDK → 首屏数据 → 定位）全都排在它后面。
+// 改为后台补注册「带各自标题的精确路由」：只影响后续导航的 title，不影响本次进入独立页。
+// 直接刷新非 /ext/ 前缀的插件路由（若有）仍由守卫 step4 的兜底重放覆盖。
+ensureExtensionRoutes().catch(() => {})
+app.use(router)
+app.mount('#app')
