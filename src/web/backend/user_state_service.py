@@ -8,6 +8,7 @@
 且任何一层都不会因整块覆盖而丢数据。
 """
 from flask import request
+from sqlalchemy import or_
 
 from core.models import db, UserState
 from core import state_merge
@@ -34,8 +35,15 @@ def _row(ns, scope, owner, device_id, key):
         ns=ns, scope=scope, owner=owner, device_id=device_id, key=key).first()
 
 
-def merge_read(ns, owner, device_id='', only_keys=None):
-    """按 global < user < device 合并读取某命名空间下的状态。"""
+def merge_read(ns, owner, device_id='', only_keys=None, exclude_keys=None):
+    """按 global < user < device 合并读取某命名空间下的状态。
+
+    only_keys / exclude_keys 支持在**查询层**裁剪键位：插件的数据缓存（内容镜像、
+    搜索结果缓存等）可能有数 MB，而跨设备对账真正需要的只是锚点、游标、租约这类
+    控制键。不带裁剪时每次 GET /sync 都要把整包序列化 + 传输 + 客户端 JSON 解析
+    （实测 ns=x 有 4.4MB，单次要 300ms+，后端又串行处理会拖慢同期所有请求）。
+    exclude_keys 里以 '*' 结尾的项按前缀匹配（如 'search:kw:*'）。
+    """
     device_id = device_id or ''
     layers = (
         ('global', '', ''),
@@ -49,6 +57,18 @@ def merge_read(ns, owner, device_id='', only_keys=None):
         q = UserState.query.filter_by(ns=ns, scope=scope, owner=own, device_id=dev)
         if only_keys:
             q = q.filter(UserState.key.in_(list(only_keys)))
+        if exclude_keys:
+            conds = []
+            for k in exclude_keys:
+                k = str(k or '')
+                if not k:
+                    continue
+                if k.endswith('*'):
+                    conds.append(UserState.key.like(k[:-1].replace('%', r'\%').replace('_', r'\_') + '%'))
+                else:
+                    conds.append(UserState.key == k)
+            if conds:
+                q = q.filter(~or_(*conds))
         for row in q.all():
             # 越具体的层后处理，自然覆盖通用层
             out[row.key] = {

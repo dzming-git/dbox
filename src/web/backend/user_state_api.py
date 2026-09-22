@@ -37,15 +37,23 @@ def _require_user():
 
 @bp.route('/<ns>', methods=['GET'])
 def list_state(ns):
-    """列出当前身份在某命名空间下的全部状态（已按 global<user<device 合并）。"""
+    """列出当前身份在某命名空间下的全部状态（已按 global<user<device 合并）。
+
+    ?keys=a,b   只取这些键
+    ?exclude=x,y,z*  排除这些键（'*' 结尾按前缀匹配）
+    exclude 用于跨设备对账：插件的大体量数据缓存（内容镜像、搜索结果缓存等）没必要
+    每次来回传，只在查询层就能裁掉，避免把这些值也从库里解析出来。
+    """
     user_id, err = _require_user()
     if err:
         return err
     uid, dev = user_id, device_of(request)
     keys = request.args.get('keys')
     only = {k.strip() for k in keys.split(',') if k.strip()} if keys else None
+    excl = request.args.get('exclude')
+    exclude = [k.strip() for k in excl.split(',') if k.strip()] if excl else None
     return jsonify({'success': True, 'ns': ns,
-                    'data': merge_read(ns, uid, dev, only_keys=only)})
+                    'data': merge_read(ns, uid, dev, only_keys=only, exclude_keys=exclude)})
 
 
 @bp.route('/<ns>/<key>', methods=['GET'])
@@ -145,5 +153,9 @@ def sync_state(ns):
     for key in (body.get('delete') or []):
         delete_key(ns=ns, key=str(key), scope='user', owner=uid, device_id=dev)
 
+    # exclude：与 GET 一致——推送后的对账回包也不必带上大体量数据缓存
+    # （实测 ns=x 整包 4.4MB，每次 sync 都带一份会白白拖慢同期所有请求）
+    excl = body.get('exclude')
+    exclude = [str(k).strip() for k in excl if str(k).strip()] if isinstance(excl, list) else None
     return jsonify({'success': True, 'ns': ns, 'pushed': results,
-                    'data': merge_read(ns, uid, dev)})
+                    'data': merge_read(ns, uid, dev, exclude_keys=exclude)})
