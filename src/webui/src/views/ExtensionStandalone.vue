@@ -36,11 +36,16 @@ async function load() {
   error.value = ''
   console.log('[DBG-EXT] load start path=' + route.path + ' hash=' + (route.hash || ''))
   try {
-    const exts: any = await scriptApi.listExtensions()
-    const ext = (exts.extensions || []).find((e: any) => e.id === extId)
+    // 两个请求互不依赖（getPanel 只要 extId，manifest 只在下方用于 title/sandbox），
+    // 原先一前一后串行、白白多等一次往返。并发取回后再各自使用。
+    const [exts, panelHtml]: any = await Promise.all([
+      scriptApi.listExtensions(),
+      scriptApi.getPanel(extId),
+    ])
+    const ext = (exts?.extensions || []).find((e: any) => e.id === extId)
     // 前置共享运行时 + UI Kit（宿主主题变量与组件类），让插件与主站观感一致
     const html = withExtUiKit(
-      withExtRuntime((await scriptApi.getPanel(extId)) as unknown as string, extId),
+      withExtRuntime(panelHtml as unknown as string, extId),
       extId
     )
     const title = ext?.ui?.title || extId
