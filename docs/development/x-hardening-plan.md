@@ -356,10 +356,10 @@ SDK.pullProduced = function (keys) { … SDK.pullKeys(keys || SDK.producedKeys) 
 |---|---|---|---|
 | 0.1 验证规范 | 待办 | | |
 | 0.2 e2e 脚手架 | 待办 | | 本次 session 已有可用原型可复用 |
-| 1.1 键清单 | 待办 | | 草稿见 1.1，`cache` 键待查 |
-| 1.2 `x_keys.js` | 待办 | | |
-| 1.3 `pullProduced` 机制 | 待办 | | `pullKeys` 已在 `f743caa` 落地，可直接包 |
-| 1.4 guard（键部分） | 待办 | | |
+| 1.1 键清单 | ✅ 完成 | 主仓 `ba1e67b` | 20 键 + 6 localStorage；**`cache` 已查清＝无任何读写方的遗留死数据**（仅作视图名与 SQLite 文件名出现）；**新发现 `feed:stars:items` 此前未登记**（后端用变量 `key` 间接引用，人工清点必漏，靠守卫扫描才抓到） |
+| 1.2 键声明表 | ✅ 完成 | 主仓 `ba1e67b` / X 仓 `2b3caa1` | **落地形式有调整**：未新建 `ui/x_keys.js` 运行时文件（避免新增资源路由与加载风险），改为 `extensions/x/x_keys.json` + panel.html 内联块，由守卫保证两者一致、`--fix` 自动同步（行尾不敏感） |
+| 1.3 `pullProduced` 机制 | ✅ 完成 | 主仓 `ba1e67b` / X 仓 `2b3caa1` | `setProducedKeys`/`pullProduced` 落地；三处调用点（重搜 done / 打开搜索页 / 用户页）已改用；`producedKeys` 由注册表派生 |
+| 1.4 guard（键部分） | ✅ 完成 | 主仓 `ba1e67b` | `scripts/x_guard.js` 五项检查（A 内联一致 / B 字面量登记 / C 派生非硬编码 / D 产出键必有取回点 / E localStorage）；**突变测试验证**：移除用户页取回 → D 立即报 `feed:user:*` 并退出码 1 |
 | 2.1 契约测试 | 待办 | | |
 | 2.2 黄金路径 | 待办 | | 5 条 |
 | 2.3 接入方式 | 待办 | | |
