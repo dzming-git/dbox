@@ -131,6 +131,25 @@ async function case4(tok) {
       const afterProduced = XSTATE._cache[k] !== undefined;
       return { k, afterPull, afterProduced, intact: other === size(otherKey), other, other2: size(otherKey) };
     });
+    // 阶段 3.1 的契约检查（零代码改动版）：kwKey（前端）与后端 _kw_key 必须一致。
+    // 做法：清单里每个关键词的缓存值都存着 q（关键词原文）与它对应的 key，用前端 kwKey(q)
+    // 重算须等于该 key；且该键下确有内容（后端后台爬取用它自己的哈希写入，两边不一致就会
+    // 各写一份，表现为「关键词在清单里、结果却永远为空」）。
+    const hz = await f.evaluate(() => {
+      const list = (typeof srchKwList !== 'undefined' && srchKwList) ? srchKwList : [];
+      const bad = [], empty = [];
+      for (const e of list) {
+        const v = XSTATE._cache['search:kw:' + e.key];
+        const q = v && v.value ? v.value.q : null;
+        if (q) { let k = null; try { k = kwKey(q); } catch (_) { } if (k !== e.key) bad.push(`${q}: ${k} ≠ ${e.key}`); }
+        const n = (v && v.value) ? ((v.value.top || []).length + (v.value.latest || []).length) : 0;
+        if (!n) empty.push(q || e.key);
+      }
+      return { n: list.length, bad: bad.slice(0, 3), empty: empty.length, emptySample: empty.slice(0, 3) };
+    });
+    record('3.1 kwKey 前后端哈希一致（真实数据交叉校验）', hz.n > 0 && hz.bad.length === 0,
+      hz.n === 0 ? '关键词清单为空' : `校验 ${hz.n} 个；哈希不一致 ${hz.bad.length} 个${hz.bad.length ? '：' + hz.bad.join('; ') : ''}；无结果的关键词 ${hz.empty} 个${hz.empty ? '（' + hz.emptySample.join(',') + '）' : ''}`);
+
     if (cyc.skip) skip('3 产出键取回（真实 search:kw 键）', cyc.skip);
     else record('3 产出键取回（真实 search:kw 键）',
       cyc.afterPull === false && cyc.afterProduced === true && cyc.intact === true,
