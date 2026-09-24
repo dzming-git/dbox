@@ -137,6 +137,22 @@ async function waitStable(page, { quietMs = 400, max = 8000 } = {}) {
 
 const cards = (frame) => frame.evaluate(() => document.querySelectorAll('.bm-card').length).catch(() => 0);
 
+// 等列表「长稳」：卡片数连续 quietMs 不再变化。
+// 为什么需要：关注流首屏是**逐天分块加载**的，第一张卡片出现 ≠ 列表加载完。
+// 若一拿到首卡就断言「能否滚动」「本地缓存是否就绪」，会把「刚渲染首日几张」
+// 误判成「内容不足以滚动」（本轮就踩了一次，白查了半小时）。
+async function waitSettled(frame, { quietMs = 600, max = 12000 } = {}) {
+  const t0 = Date.now();
+  let last = -1, lastChange = Date.now(), n = 0;
+  for (;;) {
+    n = await cards(frame);
+    if (n !== last) { last = n; lastChange = Date.now(); }
+    if (n > 0 && Date.now() - lastChange >= quietMs) return { n, ms: Date.now() - t0, timedOut: false };
+    if (Date.now() - t0 > max) return { n, ms: Date.now() - t0, timedOut: true };
+    await sleep(60);
+  }
+}
+
 async function waitCards(frame, { min = 1, timeout = 8000, onTick } = {}) {
   const t0 = Date.now();
   for (;;) {
@@ -148,4 +164,4 @@ async function waitCards(frame, { min = 1, timeout = 8000, onTick } = {}) {
   }
 }
 
-module.exports = { BASE, login, openBrowser, openPanel, waitPanelFrame, waitFor, waitStable, waitCards, trackRequests, cards, sleep, playwright };
+module.exports = { BASE, login, openBrowser, openPanel, waitPanelFrame, waitFor, waitStable, waitCards, waitSettled, trackRequests, cards, sleep, playwright };

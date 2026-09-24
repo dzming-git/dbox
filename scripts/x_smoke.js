@@ -37,28 +37,36 @@ async function case1(page) {
   const f = await L.openPanel(page, '#/home');
   await L.waitStable(page);
   const t = await L.waitCards(f, { min: 1, timeout: 9000 });
-  record('1 打开关注流：内容出现', t !== null, t === null ? '9s 内无卡片' : (Date.now() - t0) + 'ms（含 boot）');
-  if (t === null) console.log(tr.dump());
+  if (t === null) { record('1 打开关注流：内容出现', false, '9s 内无卡片'); console.log(tr.dump()); return f; }
+  // 首卡出现 ≠ 列表加载完（逐天分块）。必须等它长稳，后面两条用例的判据才成立。
+  const st = await L.waitSettled(f);
+  record('1 打开关注流：内容出现', true, `首卡 ${Date.now() - t0}ms（含 boot）｜长稳后 ${st.n} 张卡片（+${st.ms}ms${st.timedOut ? '，未长稳' : ''}）`);
   return f;
 }
 
 async function case2(page, f) {
   // 1) 用产品自己的路径产生锚点：滚动容器 → 等防抖保存
-  const cont = await f.evaluate(() => { const c = document.querySelector('#view-browse'); return c ? { h: c.scrollHeight, kh: c.clientHeight } : null; });
-  if (!cont || cont.h <= cont.kh + 400) { skip('2 锚点恢复精度', '内容不足以滚动'); return; }
+  // ⚠️ 不要靠「比较高度」去找滚动容器：this 面板是内滚动/虚拟列表，本轮先后在
+  // #view-browse 与 document 上各判断错一次（334 张卡片却报「内容不足以滚动」）。
+  // 改用**经验法**：真滚一下，看哪个元素动了 —— 结构再变也不会失效。
   const before = await anchorOf(f);
-  // 必须用**真实滚轮事件**：面板刻意忽略程序化改动 scrollTop（避免在恢复过程中把自己的
-  // 锚点又存一遍），所以 `el.scrollTop = x` 不会触发保存——本用例最初就是这么 skip 的。
+  const probe = () => f.evaluate(() => {
+    const se = document.scrollingElement || document.documentElement;
+    if (se && se.scrollTop > 0) return { sel: 'document', y: se.scrollTop };
+    for (const el of document.querySelectorAll('*')) {
+      if (el.scrollTop > 0) return { sel: el.id ? '#' + el.id : (el.className || el.tagName), y: el.scrollTop };
+    }
+    return { sel: null, y: 0 };
+  });
   await page.mouse.move(195, 420);
-  let moved = 0;
-  for (let i = 0; i < 25 && moved < 1200; i++) {
-    await page.mouse.wheel(0, 200);
-    await L.sleep(70);
-    moved = await f.evaluate(() => { const c = document.querySelector('#view-browse'); return c ? c.scrollTop : 0; });
-  }
+  let pos = { sel: null, y: 0 };
+  for (let i = 0; i < 12 && !pos.sel; i++) { await page.mouse.wheel(0, 300); await L.sleep(120); pos = await probe(); }
+  if (!pos.sel) { skip('2 锚点恢复精度', '滚轮无效：找不到可滚动区域'); return; }
+  // 滚到足够深（真实滚轮事件：面板刻意忽略程序化 scrollTop，否则不会保存锚点）
+  for (let i = 0; i < 20 && pos.y < 1500; i++) { await page.mouse.wheel(0, 300); await L.sleep(70); pos = await probe(); }
   await L.sleep(1800);                                   // 滚动防抖保存
   const saved = await anchorOf(f);
-  if (!saved || !saved.id || (before && before.id === saved.id)) { skip('2 锚点恢复精度', `滚动后锚点未更新（实际滚动 ${moved}px）`); return; }
+  if (!saved || !saved.id || (before && before.id === saved.id)) { skip('2 锚点恢复精度', `滚动后锚点未更新（滚动容器 ${pos.sel}，已滚 ${pos.y}px）`); return; }
   const want = Number(saved.offset);
 
   // 2) 刷新，校验该卡片回到原位置
@@ -107,6 +115,26 @@ async function case4(tok) {
     const s = await kwState(f);
     record('4 新上下文搜索页：关键词缓存从 0 取回', s.n > 0 && s.have >= s.n,
       s.n === 0 ? '关键词清单为空（该账号没设关键词？）' : `${s.have}/${s.n} 个 search:kw:* 已取回`);
+
+    // 产出键取回机制的**确定性**版本：新 profile 里本机通常没有任何重键，
+    // 所以这里用刚取回的真实 search:kw 键做循环（不依赖"本地恰好有某个键"）。
+    const cyc = await f.evaluate(async () => {
+      const k = Object.keys(XSTATE._cache).find((x) => x.indexOf('search:kw:') === 0);
+      if (!k) return { skip: '本地无 search:kw:* 键' };
+      const otherKey = Object.keys(XSTATE._cache).find((x) => x !== k && x.indexOf('search:') !== 0 && x.indexOf('feed:') !== 0) || k;
+      const size = (kk) => (XSTATE._cache[kk] ? JSON.stringify(XSTATE._cache[kk].value).length : -1);
+      const other = size(otherKey);
+      delete XSTATE._cache[k];
+      await XSTATE.pull();
+      const afterPull = XSTATE._cache[k] !== undefined;
+      await XSTATE.pullProduced([k]);
+      const afterProduced = XSTATE._cache[k] !== undefined;
+      return { k, afterPull, afterProduced, intact: other === size(otherKey), other, other2: size(otherKey) };
+    });
+    if (cyc.skip) skip('3 产出键取回（真实 search:kw 键）', cyc.skip);
+    else record('3 产出键取回（真实 search:kw 键）',
+      cyc.afterPull === false && cyc.afterProduced === true && cyc.intact === true,
+      `${cyc.k}：pull 后=${cyc.afterPull}（应 false）｜pullProduced 后=${cyc.afterProduced}｜其它键 ${cyc.other}→${cyc.other2}`);
   } finally { await browser.close(); }
 }
 
@@ -119,7 +147,7 @@ async function case4(tok) {
     const f = await case1(page);
     await case2(page, f);
     const f2 = await L.waitPanelFrame(page).catch(() => null);
-    if (f2) await case3(f2); else record('3 产出键取回机制', false, '面板 frame 未就绪');
+    if (f2) { await L.waitSettled(f2); await case3(f2); } else record('3 产出键取回机制', false, '面板 frame 未就绪');
     await case4(tok);
     record('页面无未捕获错误', errs.length === 0, errs.slice(0, 2).join(' | '));
   } catch (e) {
