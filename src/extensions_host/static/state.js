@@ -294,6 +294,40 @@
     return _pullInflight;
   };
 
+  /* ---------------- 定向取回指定键 ----------------
+   * 用途：某些键被登记为 heavyKeys（对账时不来回传），但插件在**特定时机**确实需要
+   * 服务端的最新值。典型是「结果在服务端产出、本地要取回来渲染」——如 X 面板的
+   * 「全部重搜」：后台在服务端爬完，前端轮询到 done 后才 pull，而 search:kw:* 正是
+   * 被排除的重键 → 结果取不回来，表现为「提示已完成、页面毫无变化」。
+   * 这里按 ?keys= 精确取回并**合并**写入：不套用「服务端没返回即删除」的语义，
+   * 否则只带这几个键的请求会把本地其它键全部误删。
+   * ------------------------------------------------------ */
+  function _mergeServerData(data) {
+    if (!data) return;
+    var n = 0;
+    for (var k in data) {
+      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
+      // 本地尚未推送的改动优先，别被刚取回的服务端快照盖掉用户刚做的操作
+      if (Object.prototype.hasOwnProperty.call(SDK._pending, k)) continue;
+      var it = data[k] || {};
+      SDK._cache[k] = { value: it.value, rev: it.rev || 0, v: it.v || 1 };
+      n++;
+    }
+    if (n) _persist();
+  }
+
+  SDK.pullKeys = function (keys) {
+    var list = [];
+    (keys || []).forEach(function (k) {
+      k = String(k || '').trim();
+      if (k) list.push(k);
+    });
+    if (!list.length) return Promise.resolve(SDK.all());
+    return SDK._send('GET', '?keys=' + encodeURIComponent(list.join(',')), null, false)
+      .then(function (d) { _mergeServerData(d && d.data); return SDK.all(); })
+      .catch(function () { return SDK.all(); });
+  };
+
   // 卸载/隐藏时立即落盘：keepalive 保证请求不被浏览器掐断
   SDK.flushNow = function () {
     _flushPersist();     // 无论有没有待推送，先把合并中的本地改动落盘（卸载不丢）
