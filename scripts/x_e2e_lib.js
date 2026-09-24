@@ -59,10 +59,13 @@ async function login(user = process.env.X_E2E_USER || 'root', pass = process.env
 async function openBrowser(tok, opts = {}) {
   const pw = playwright();
   const browser = await pw.chromium.launch({ channel: opts.channel || 'msedge', headless: opts.headless !== false });
+  // ⚠️ opts.mobile=false 时关掉移动端模拟：isMobile/hasTouch 下 Chromium **忽略 mouse.wheel**
+  // （触屏视口靠触摸手势滚动），凡需要真实滚轮的用例都必须用桌面上下文。
+  const mobile = opts.mobile !== false;
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
-    viewport: { width: 390, height: 844 },
-    isMobile: true, hasTouch: true,
+    viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 },
+    isMobile: mobile, hasTouch: mobile,
   });
   if (tok) {
     await context.addInitScript((a) => {

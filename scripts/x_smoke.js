@@ -145,7 +145,15 @@ async function case4(tok) {
   page.on('pageerror', (e) => errs.push(String(e).slice(0, 140)));
   try {
     const f = await case1(page);
-    await case2(page, f);
+    // 锚点用例需要**真实滚轮** → 单独开一个桌面模拟上下文（移动模拟下 wheel 被忽略）
+    {
+      const d = await L.openBrowser(tok, { mobile: false });
+      try {
+        const fd = await L.openPanel(d.page, '#/home');
+        if ((await L.waitCards(fd, { min: 1, timeout: 9000 })) === null) skip('2 锚点恢复精度', '桌面上下文 9s 内无卡片');
+        else { await L.waitSettled(fd); await case2(d.page, fd); }
+      } finally { await d.browser.close(); }
+    }
     const f2 = await L.waitPanelFrame(page).catch(() => null);
     if (f2) { await L.waitSettled(f2); await case3(f2); } else record('3 产出键取回机制', false, '面板 frame 未就绪');
     await case4(tok);
