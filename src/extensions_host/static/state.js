@@ -328,6 +328,28 @@
       .catch(function () { return SDK.all(); });
   };
 
+  /* ---------------- 产出型键：登记 + 取回 ----------------
+   * 有些键的**值来自服务端后台任务**（如 X 面板的重搜结果、用户时间线缓存）。
+   * 若这类键同时被登记为 heavyKeys（对账不来回传），"本地不主动取"就会表现为：
+   * 任务提示已完成，页面却毫无变化。把「产出型键」显式登记下来，任务完成后调用一次
+   * pullProduced() 即可，插件不必各自记着去 pullKeys。
+   * 2026-09-24 教训：重搜完成 / 搜索页 / 用户页三处各漏一次，分了三次才暴露。
+   * ------------------------------------------------------ */
+  SDK.producedKeys = [];
+  SDK.setProducedKeys = function (list) {
+    SDK.producedKeys = (list || []).map(function (x) {
+      return String(x || '').trim();
+    }).filter(function (x) { return !!x; });
+    return SDK;
+  };
+
+  // 取回产出型键；不传参 = 取注册过的全部具体键（前缀键请由调用方给具体键名）。
+  SDK.pullProduced = function (keys) {
+    var list = (keys && keys.length) ? keys : (SDK.producedKeys || []);
+    if (!list || !list.length) return Promise.resolve(SDK.all());
+    return SDK.pullKeys(list);
+  };
+
   // 卸载/隐藏时立即落盘：keepalive 保证请求不被浏览器掐断
   SDK.flushNow = function () {
     _flushPersist();     // 无论有没有待推送，先把合并中的本地改动落盘（卸载不丢）
