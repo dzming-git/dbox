@@ -132,6 +132,14 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                 ri = ResourceIndex.query.filter_by(location=path, kind='video_file').first()
                 if not ri:
                     ri = _get_or_create_resource_index(library_id, path, 'video_file', meta)
+                elif ri.library_id is None and library_id is not None:
+                    # ⚠️ 复用既有索引时必须补齐库归属：这个索引很可能是「资源库监控」先建的
+                    # （文件刚落地就被 watcher 扫到），而 watcher 建的索引可能没有 library_id。
+                    # 不补的后果不是「少个字段」——帖子的可见性 = 其引用资源所属库的交集，
+                    # 未归类（None）不在任何授权集合里，于是**帖子和其中的资源一起对所有人不可见**，
+                    # 表现为「任务显示完成、帖子流里找不到」，且重试多少次都不会自愈。
+                    # 与 get_or_create_resource_index 的补齐语义保持一致。
+                    ri.library_id = library_id
                 # 优先复用既有 watcher 的扫描/去重/缩略图逻辑建 Video
                 v = None
                 from library_watcher import get_watcher
@@ -174,6 +182,9 @@ def ingest_file(library_id, path, app, kind=None, modes=('video',), collection_i
                 ).first()
                 if not ri:
                     ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
+                elif ri.library_id is None and library_id is not None:
+                    # 同上：复用既有索引时补齐库归属，否则引用它的帖子会因「未归类库」而整体不可见
+                    ri.library_id = library_id
             else:
                 # 非主模式（如只进帖子的 video、或 text）：直接建索引，不建富化实体
                 ri = _get_or_create_resource_index(library_id, path, ri_kind, meta)
