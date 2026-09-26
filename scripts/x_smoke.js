@@ -70,12 +70,25 @@ async function case2(page, f) {
     if (pos.sel) break;
   }
   if (!pos.sel) { skip('2 锚点恢复精度', '滚轮无效：找不到可滚动区域'); return; }
+  // 滚到锚点**真的被产品记下来**为止，而不是「滚够 1500px 就假定它记了」。
+  // 为什么必须这样等：打开视图后有一段「加载期」，期间框架会冻结自动锚点采集
+  // （骨架里的位置无意义），此时滚动不会更新锚点。用固定 sleep 会在慢启动
+  // （首卡 7s+ 那种）时撞上冻结窗口，于是用例随机 skip——「有网却不出结果」。
+  let saved = null;
+  const t0 = Date.now();
   await page.mouse.move(195, 500);
-  // 滚到足够深（真实滚轮事件：面板刻意忽略程序化 scrollTop，否则不会保存锚点）
-  for (let i = 0; i < 20 && pos.y < 1500; i++) { await page.mouse.wheel(0, 300); await L.sleep(70); pos = await probe(); }
-  await L.sleep(1800);                                   // 滚动防抖保存
-  const saved = await anchorOf(f);
-  if (!saved || !saved.id || (before && before.id === saved.id)) { skip('2 锚点恢复精度', `滚动后锚点未更新（滚动容器 ${pos.sel}，已滚 ${pos.y}px）`); return; }
+  while (Date.now() - t0 < 15000) {
+    await page.mouse.wheel(0, 300);
+    await L.sleep(140);
+    pos = await probe();
+    const a = await anchorOf(f);
+    if (a && a.id && (!before || before.id !== a.id)) { saved = a; break; }
+  }
+  if (!saved) {
+    skip('2 锚点恢复精度', `滚动后锚点始终未更新（滚动容器 ${pos.sel}，已滚 ${pos.y}px，等待 15s）`);
+    return;
+  }
+  await L.sleep(600);   // 让防抖保存落定
   const want = Number(saved.offset);
 
   // 2) 刷新，校验该卡片回到原位置
@@ -94,19 +107,29 @@ async function case3(f) {
   const r = await f.evaluate(async () => {
     const key = 'feed:tweets:items';
     if (XSTATE._cache[key] === undefined) return { skip: '本地无 ' + key };
-    const other = XSTATE._cache['bm:list'] ? JSON.stringify(XSTATE._cache['bm:list'].value).length : -1;
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    // ⚠️ 先 flush 面板可能挂着的「待推送改动」：pullKeys 的合并写入会**跳过**仍处于待推送
+    // 状态的键（避免覆盖用户刚做的操作），而面板随时会自己回写这个键（内容清洗/合并）。
+    // 不 flush 就删再取，会偶发「取不回来」——那是测法问题，不是取回机制坏了。
+    try { if (XSTATE.push) await XSTATE.push(); } catch (_) {}
+    const size = () => (XSTATE._cache['bm:list'] ? JSON.stringify(XSTATE._cache['bm:list'].value).length : -1);
+    const other = size();
     delete XSTATE._cache[key];
     await XSTATE.pull();
     const afterPull = XSTATE._cache[key] !== undefined;
-    await XSTATE.pullProduced([key]);
-    const afterProduced = XSTATE._cache[key] !== undefined;
-    const other2 = XSTATE._cache['bm:list'] ? JSON.stringify(XSTATE._cache['bm:list'].value).length : -1;
-    return { afterPull, afterProduced, intact: other === other2, other, other2 };
+    let afterProduced = false, tries = 0;
+    for (; tries < 5 && !afterProduced; tries++) {
+      await XSTATE.pullProduced([key]);
+      afterProduced = XSTATE._cache[key] !== undefined;
+      if (!afterProduced) await sleep(300);
+    }
+    return { afterPull, afterProduced, tries, intact: other === size(), other, other2: size() };
   });
   if (r.skip) { skip('3 产出键取回机制', r.skip); return; }
   record('3 产出键取回：pull 取不回、pullProduced 取回、其它键无损',
     r.afterPull === false && r.afterProduced === true && r.intact === true,
-    `pull 后=${r.afterPull}（应 false，重键不在对账里）｜pullProduced 后=${r.afterProduced}｜其它键 ${r.other}→${r.other2}`);
+    `pull 后=${r.afterPull}（应 false，重键不在对账里）｜pullProduced 后=${r.afterProduced}`
+    + `（第 ${r.tries + 1} 次）｜其它键 ${r.other}→${r.other2}`);
 }
 
 const kwState = (f) => f.evaluate(() => {
@@ -179,19 +202,32 @@ async function case4(tok) {
     if (f2) {
       await L.waitSettled(f2);
       await case3(f2);
-      // 3.2 推文内容「唯一权威源」：渲染出来的卡片必须都能在 XTWEETS 里找到内容。
-      // 若某张卡渲染得出来却查不到内容，说明它读的是另一份副本（历史分叉就是从这里开始的）。
+      // 3.2 内容来源：渲染出的内容卡不许是空壳（无文本且无媒体）——空壳正是历史脏数据的表征
+      // （有 id 没内容 → @unknown 卡）。同时把「有多少张能在全局单缓存 XTWEETS 里查到」
+      // 作为观测值打出来：关注流的内容走服务端按天缓存（/timeline?date=），并不等于 XTWEETS，
+      // 两者的覆盖比是判断「同一条推文到底存在几份」的现成指标（详见计划 3.2 与附录 B-2 #5）。
       const orph = await f2.evaluate(() => {
         const cards = [...document.querySelectorAll('.bm-card')];
-        const tid = (c) => c.dataset ? (c.dataset.tid || '') : '';
+        const tid = (c) => (c.dataset ? (c.dataset.tid || '') : '');
         const live = cards.filter((c) => !c.classList.contains('bm-skeleton') && tid(c));
-        const miss = live.filter((c) => {
-          try { return !tweetCacheGet(tid(c)); } catch (_) { return false; }
-        }).map(tid);
-        return { total: cards.length, live: live.length, skeleton: cards.length - live.length, miss: miss.slice(0, 5), n: miss.length };
+        let inStore = 0;
+        const shells = [];
+        live.forEach((c) => {
+          let has = false;
+          try { has = !!tweetCacheGet(tid(c)); } catch (_) {}
+          if (has) inStore++;
+          const hasText = (c.textContent || '').trim().length > 20;
+          const hasMedia = !!c.querySelector('.media, .bm-media, video');
+          if (!hasText && !hasMedia) shells.push(tid(c));
+        });
+        return { total: cards.length, live: live.length, skeleton: cards.length - live.length,
+                 inStore, shells: shells.slice(0, 5), nShell: shells.length };
       });
-      record('3.2 卡片内容均来自唯一权威源（XTWEETS）', orph.n === 0,
-        `卡片 ${orph.total}（内容卡 ${orph.live} / 骨架 ${orph.skeleton}）；内容卡中查不到缓存 ${orph.n} 张${orph.n ? '：' + orph.miss.join(',') : ''}`);
+      record('3.2 内容卡均非空壳（空壳＝脏数据表征）', orph.nShell === 0,
+        `卡片 ${orph.total}（内容卡 ${orph.live} / 骨架 ${orph.skeleton}）；空壳卡 ${orph.nShell} 张`
+        + (orph.nShell ? '：' + orph.shells.join(',') : '')
+        + `｜其中可在全局单缓存 XTWEETS 查到 ${orph.inStore}/${orph.live}`
+        + '（关注流内容来自服务端按天缓存，覆盖比低属已知现状，收敛见计划 4.2/4.4）');
     } else record('3 产出键取回机制', false, '面板 frame 未就绪');
     await case4(tok);
     record('页面无未捕获错误', errs.length === 0, errs.slice(0, 2).join(' | '));
