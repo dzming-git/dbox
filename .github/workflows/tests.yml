@@ -20,6 +20,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 契约守卫是 node 脚本（静态检查，无第三方依赖）
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -50,7 +56,13 @@ jobs:
             tests.test_suggestion_delete \
             tests.test_thumbnaild \
             tests.test_watch_later \
-            tests.test_path_isolation
+            tests.test_path_isolation \
+            tests.test_x_contracts
+
+      # X 插件的键/契约守卫（静态部分，--offline 跳过需要本机 dev 服务的那一项）
+      - name: Run X plugin contract guard
+        working-directory: ${{ github.workspace }}
+        run: node scripts/x_guard.js --offline
 
       # ServiceBus 集成测试为自定义入口（非 unittest 用例），需以脚本方式直接运行
       - name: Run ServiceBus integration tests
