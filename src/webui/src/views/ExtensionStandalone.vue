@@ -101,15 +101,12 @@ function pushRuntime() {
   const fresh = readToken()
   if (fresh) postToPanel(extId, { type: 'DBOX_TOKEN', token: fresh })
   postToPanel(extId, { type: 'DBOX_MODE', fullscreen: true })
-  // 始终带上 hash 与 query：面板据此知道自己被「深链」到哪个子页面
-  // （如 /ext/x#/search?q=foo），并据此把内部路由初始化到同一位置。
-  postToPanel(extId, { type: 'DBOX_ROUTE', hash: route.hash || '' })
-  if (route.query && Object.keys(route.query).length) {
-    postToPanel(extId, { type: 'DBOX_ROUTE', query: { ...route.query } })
-  }
-  // 路径式子路由（官方风格）：直接粘贴 /ext/<id>/users/123 进来时据此还原
-  const sp = subPathOf()
-  if (sp) postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp })
+  // 面板据此知道自己被「深链」到哪个子页面（如 /ext/x#/search?q=foo、/ext/ehentai/g/1/ab/）：
+  // 子路径 + query + hash 合成**一条**消息下发，理由见 pushRoute 的注释。
+  const msg: any = { type: 'DBOX_ROUTE', subPath: subPathOf() }
+  if (route.hash) msg.hash = route.hash
+  if (route.query && Object.keys(route.query).length) msg.query = { ...route.query }
+  postToPanel(extId, msg)
 }
 
 /**
@@ -177,20 +174,30 @@ watch(() => route.hash, (h) => {
   postToPanel(extId, { type: 'DBOX_ROUTE', hash: h || '' })
 })
 
+/**
+ * 把当前宿主 URL 的「子路径 + query + hash」作为**一条**消息下发给面板。
+ *
+ * 为什么必须合成一条：面板看到的消息就是它对 URL 的唯一认知。若拆成两条
+ * （先只给子路径、再补一条 query），面板会对第一条做出错误推论——
+ * 例如 `/ext/ehentai/?f_search=<关键词>` 的子路径是空、query 才是内容，
+ * 单看空子路径只能理解成「回插件首页」，于是刚渲染的搜索结果被清空，
+ * 随后那条 query 又因为「上一次请求还在飞」被丢弃。一条消息 = 一次明确的意图。
+ */
+function pushRoute() {
+  if (!getPanelIframe(extId)) return
+  const msg: any = { type: 'DBOX_ROUTE', subPath: subPathOf() }
+  if (route.hash) msg.hash = route.hash
+  if (route.query && Object.keys(route.query).length) msg.query = { ...route.query }
+  postToPanel(extId, msg)
+}
+
 // 路径式子路由（官方风格）同理：浏览器前进/后退在 /ext/<id>/users/123 之间切换时
 // 回推给面板，让面板内部视图跟着走（面板会自行忽略与自己当前位置相同的回推）。
-// 同时带上 query：有些插件的子路由靠**官方同名查询参数**表达（如 e-hentai 的
-// `?f_search=xx&page=2` 就对应官网搜索），只推子路径会让「后退回上一个搜索」
-// 这类操作在面板里失效（路径没变、只有 query 变），用户看到地址栏变了、界面没动。
 watch(() => route.path, () => {
   if (!getPanelIframe(extId)) return
   console.log('[DBG-EXT] watch path=' + route.path)
   setPanelMode(extId, 'fullscreen')   // 同上：独立页路径下必须是全屏形态
-  const sp = subPathOf()
-  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp })
-  if (route.query && Object.keys(route.query).length) {
-    postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp, query: { ...route.query } })
-  }
+  pushRoute()
 })
 
 // query 变化单独兜一层：Vue Router 的 route.path 不含 query，
@@ -199,7 +206,7 @@ watch(() => JSON.stringify(route.query || {}), () => {
   if (!getPanelIframe(extId)) return
   console.log('[DBG-EXT] watch query=' + JSON.stringify(route.query || {}))
   setPanelMode(extId, 'fullscreen')
-  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf(), query: { ...route.query } })
+  pushRoute()
 })
 
 function goBack() {
