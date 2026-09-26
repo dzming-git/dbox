@@ -193,38 +193,50 @@ class _StateProxy:
     def _url(self, suffix=''):
         return '%s/api/user-state/%s%s' % (self._base(), self._ns, suffix)
 
-    def _headers(self):
+    def _headers(self, auth=None, device=None):
+        """请求头。显式传入 auth/device 供**无请求上下文**的场景使用（后台线程）。
+
+        后台线程里没有 flask.request，此前插件只能自己手写一遍 HTTP 调用再把鉴权头
+        拼上——那是绕开本代理的第二条状态访问路径，与控制台/接口用的这一条重复，且
+        每加一个参数就少一处同步（实测漏了 cap / strategy 就静默丢合并语义）。
+        现在把「身份从哪来」收成这一个入口：有请求就取请求，没有就用调用方显式给的。
+        """
         h = {'Content-Type': 'application/json'}
         try:
             from flask import request as _req
-            auth = _req.headers.get('Authorization')
-            if auth:
-                h['Authorization'] = auth
-            dev = _req.headers.get('X-Dbox-Device-Id')
-            if dev:
-                h['X-Dbox-Device-Id'] = dev
+            if not auth:
+                auth = _req.headers.get('Authorization')
+            if not device:
+                device = _req.headers.get('X-Dbox-Device-Id')
         except Exception:
-            pass  # 无请求上下文（如后台任务）时退化为不带身份
+            pass  # 无请求上下文（如后台任务）：只能依赖调用方显式传入的身份
+        if auth:
+            h['Authorization'] = auth
+        if device:
+            h['X-Dbox-Device-Id'] = device
         return h
 
-    def _json(self, method, url, body=None, timeout=10):
+    def _json(self, method, url, body=None, timeout=10, auth=None, device=None):
         try:
             return http_request(method, url, json_body=body,
-                                headers=self._headers(), timeout=timeout)
+                                headers=self._headers(auth, device), timeout=timeout)
         except Exception as e:
             return {'success': False, 'raw': str(e)}
 
     # ---- 对外契约 ----
-    def get(self, key, default=None):
-        r = self._json('GET', self._url('/%s' % key))
+    def get(self, key, default=None, auth=None, device=None):
+        r = self._json('GET', self._url('/%s' % key), auth=auth, device=device)
         v = r.get('value') if r.get('success') else None
         return default if v is None else v
 
-    def put(self, key, value, strategy=None, v=1, cap=None, scope='user'):
+    def put(self, key, value, strategy=None, v=1, cap=None, scope='user',
+            auth=None, device=None):
         """写入（合并）单个键。
 
         union_by_id 的记录约定为 { id, order, ...载荷 }（见 state_merge），
         字段映射由各入口边界完成，故此处只透传 value/strategy/cap 等通用参数。
+
+        auth/device：请求上下文之外（后台线程）调用时显式传入的身份，见 _headers()。
         """
         body = {'value': value, 'scope': scope}
         if strategy:
@@ -233,7 +245,7 @@ class _StateProxy:
             body['cap'] = cap
         if v is not None:
             body['v'] = v
-        return self._json('PUT', self._url('/%s' % key), body)
+        return self._json('PUT', self._url('/%s' % key), body, auth=auth, device=device)
 
     def delete(self, key, scope='user'):
         r = self._json('DELETE', self._url('/%s?scope=%s' % (key, scope)))
