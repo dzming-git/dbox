@@ -375,6 +375,23 @@ SDK.pullProduced = function (keys) { … SDK.pullKeys(keys || SDK.producedKeys) 
 
 ---
 
+## 附录 B：全仓排查「绕开已有数据、重新抓取/重算」的结果（2026-09-26）
+
+起因：下载器修好一例（媒体元数据绕开缓存，提交 `c20fdc1`）后，系统性排查同类。按影响排序：
+
+| # | 位置 | 问题 | 可用什么 | 等级 | 性质 |
+|---|---|---|---|---|---|
+| 1 | `run.py:3368 download_video` + `run.py:3299 download_fmp4_stream` | 视频路径**无任何本地字节复用**（对比 `download_image` 有 `_cache_hit_path`，`run.py:3201`） | 同款 `_cache_hit_path` + `_CACHE_LRU_DIR` | 中 | 与已修例同源（媒体字节轴） |
+| 2 | `run.py:3444 download_document` | 文档附件不查缓存 | 同上 | 低 | 浪费 |
+| 3 | `panel.html:3874/3963` 书签/喜欢 | 缓存优先判定**只看成员表** `bm:list`/`like:list`；成员表缺失但 `XTWEETS` 已有内容时仍走网络分支 | 加一层 XTWEETS 判定 | 中 | 绕开已有数据 |
+| 4 | `server.py:3108 /me` | 每次联网打 X，却不读自己刚写入的 `users:<rest_id>`（3128） | `host.state.get('users:<rest_id>')` | 低-中 | 浪费 |
+| 5 | `search:kw:*` / `feed:tweets:items` / server sqlite `ns='search'` | 同一条推文**存 3 份**，三处都写 | 归入阶段 3.2 定权威源 | 中 | 重复缓存 |
+| 6 | `toMembership`(panel:5437)↔`_membership`(server:1705)；`mergeTweet`(panel:5234)↔`_merge_tweet`(server:2527)；`_iso_order`(server:1585)↔ panel 用 `timeline_at`(5476/5285)；媒体 shape(run.py:1961 ↔ panel 缓存) | 前后端**重复归一化**（kwKey 之外还有 4 处） | 归入阶段 3.1/3.2 | 中 | 漂移风险 |
+
+**"有标记但不被信任"的甄别**：`_force_arg`（`server.py:163/2314`）**正确区分**了用户刷新与首次进入 ✓；`/media?force=1`、`openTweetDetail` 补全属**有意** ✓。**嫌疑**：`panel.html:1815 acquireMaster`（由 `loadBrowse:6713` 调用）每次进入关注流都强制对账 pull（注释称"刻意使用本设备"，但与用户刷新未在同一入口区分）——**属推测，待证**。
+
+**第 1 项的前置验证（未完成，勿直接动手）**：按 `server.py:3198` 注释，媒体缓存按 **md5(原始 URL)** 落盘。实测该视频直链 md5=`275d556395cb62170b78caf843378cd6`，在 `data\plugins\x\media_cache\lru` 与 `data\plugins\x-downloader\media_cache\lru` **均无匹配**，且这两个目录**文件数为 0**；但 `data\plugins\x\cache\media` 尚未检查 → **结论未定**。动手前必须先确认：① 真实媒体缓存目录与命名约定；② 预览是否根本不缓存视频字节（若是，则第 1 项应改为"让预览也缓存视频字节"，而不是"下载时复用"）。
+
 ## 附录 A：本计划的立足事实（避免重复考古）
 
 - 本次 session 的性能工作链：`2571ms → 369ms`（首屏内容）→ 服务端取内容再降到几十毫秒；提交 `12cd43e`、`c4d851a`、`67e6946`、`f94ccca`、`c0c71c8`、`d483240`、`9e64f8c`、`f7e33f1`、`f743caa`、`789490b`。
