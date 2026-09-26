@@ -49,19 +49,28 @@ async function case2(page, f) {
   // ⚠️ 不要靠「比较高度」去找滚动容器：this 面板是内滚动/虚拟列表，本轮先后在
   // #view-browse 与 document 上各判断错一次（334 张卡片却报「内容不足以滚动」）。
   // 改用**经验法**：真滚一下，看哪个元素动了 —— 结构再变也不会失效。
+  // ⚠️ 另一处踩坑：曾经为「真实滚轮」另开 desktop 上下文（认为 isMobile 下 wheel 被忽略），
+  // 实测恰相反——desktop 布局下滚轮作用不到面板，移动视口下 #view-browse 才会动
+  // （默认 390×844 = 面板真实形态）。故本用例直接用主上下文（见文件末尾调用处）。
   const before = await anchorOf(f);
   const probe = () => f.evaluate(() => {
     const se = document.scrollingElement || document.documentElement;
-    if (se && se.scrollTop > 0) return { sel: 'document', y: se.scrollTop };
+    const hits = [];
+    if (se && se.scrollTop > 0) hits.push({ sel: 'document', y: se.scrollTop });
     for (const el of document.querySelectorAll('*')) {
-      if (el.scrollTop > 0) return { sel: el.id ? '#' + el.id : (el.className || el.tagName), y: el.scrollTop };
+      if (el.scrollTop > 0) hits.push({ sel: el.id ? '#' + el.id : (el.className || el.tagName), y: el.scrollTop });
     }
-    return { sel: null, y: 0 };
+    hits.sort((a, b) => b.y - a.y);
+    return hits[0] || { sel: null, y: 0 };
   });
-  await page.mouse.move(195, 420);
   let pos = { sel: null, y: 0 };
-  for (let i = 0; i < 12 && !pos.sel; i++) { await page.mouse.wheel(0, 300); await L.sleep(120); pos = await probe(); }
+  for (const [mx, my] of [[195, 500], [195, 400], [195, 650], [320, 500]]) {
+    await page.mouse.move(mx, my);
+    for (let i = 0; i < 10 && !pos.sel; i++) { await page.mouse.wheel(0, 300); await L.sleep(110); pos = await probe(); }
+    if (pos.sel) break;
+  }
   if (!pos.sel) { skip('2 锚点恢复精度', '滚轮无效：找不到可滚动区域'); return; }
+  await page.mouse.move(195, 500);
   // 滚到足够深（真实滚轮事件：面板刻意忽略程序化 scrollTop，否则不会保存锚点）
   for (let i = 0; i < 20 && pos.y < 1500; i++) { await page.mouse.wheel(0, 300); await L.sleep(70); pos = await probe(); }
   await L.sleep(1800);                                   // 滚动防抖保存
@@ -164,17 +173,26 @@ async function case4(tok) {
   page.on('pageerror', (e) => errs.push(String(e).slice(0, 140)));
   try {
     const f = await case1(page);
-    // 锚点用例需要**真实滚轮** → 单独开一个桌面模拟上下文（移动模拟下 wheel 被忽略）
-    {
-      const d = await L.openBrowser(tok, { mobile: false });
-      try {
-        const fd = await L.openPanel(d.page, '#/home');
-        if ((await L.waitCards(fd, { min: 1, timeout: 9000 })) === null) skip('2 锚点恢复精度', '桌面上下文 9s 内无卡片');
-        else { await L.waitSettled(fd); await case2(d.page, fd); }
-      } finally { await d.browser.close(); }
-    }
+    // 锚点用例需要**真实滚轮 + 已长稳的列表** → 就用主上下文（见 case2 内的踩坑说明）
+    await case2(page, f);
     const f2 = await L.waitPanelFrame(page).catch(() => null);
-    if (f2) { await L.waitSettled(f2); await case3(f2); } else record('3 产出键取回机制', false, '面板 frame 未就绪');
+    if (f2) {
+      await L.waitSettled(f2);
+      await case3(f2);
+      // 3.2 推文内容「唯一权威源」：渲染出来的卡片必须都能在 XTWEETS 里找到内容。
+      // 若某张卡渲染得出来却查不到内容，说明它读的是另一份副本（历史分叉就是从这里开始的）。
+      const orph = await f2.evaluate(() => {
+        const cards = [...document.querySelectorAll('.bm-card')];
+        const tid = (c) => c.dataset ? (c.dataset.tid || '') : '';
+        const live = cards.filter((c) => !c.classList.contains('bm-skeleton') && tid(c));
+        const miss = live.filter((c) => {
+          try { return !tweetCacheGet(tid(c)); } catch (_) { return false; }
+        }).map(tid);
+        return { total: cards.length, live: live.length, skeleton: cards.length - live.length, miss: miss.slice(0, 5), n: miss.length };
+      });
+      record('3.2 卡片内容均来自唯一权威源（XTWEETS）', orph.n === 0,
+        `卡片 ${orph.total}（内容卡 ${orph.live} / 骨架 ${orph.skeleton}）；内容卡中查不到缓存 ${orph.n} 张${orph.n ? '：' + orph.miss.join(',') : ''}`);
+    } else record('3 产出键取回机制', false, '面板 frame 未就绪');
     await case4(tok);
     record('页面无未捕获错误', errs.length === 0, errs.slice(0, 2).join(' | '));
   } catch (e) {
