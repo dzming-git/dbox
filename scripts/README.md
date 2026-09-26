@@ -72,6 +72,22 @@ python scripts/clean_temp_files.py --execute    # 执行清理
 python scripts/clean_temp_files.py --deep       # 深度清理（更多类型）
 ```
 
+### X 插件的两个验证网（`x_guard.js` / `x_smoke.js` / `x_e2e_lib.js` / `x_check.bat`）
+
+面向 `extensions/x`（X 面板）的契约守卫与黄金路径冒烟，规范见
+`docs/development/x-verification-rules.md`。
+
+```bash
+node scripts/x_guard.js            # 契约守卫：秒级、无副作用（键注册表/哈希一致性/writers/真产出登记）
+node scripts/x_guard.js --fix      # 用 x_keys.json 重写 panel.html 的内联注册表块，再检查
+node scripts/x_guard.js --offline  # 跳过需要本机 dev 服务的那一项（可在无服务/CI 里跑）
+node scripts/x_smoke.js            # 黄金路径冒烟：分钟级，需本机 5173/8080/8093 + 真实 X Cookie
+scripts\x_check.bat                # 一键跑上面两个（x_check.bat guard 只跑守卫）
+```
+
+> `x_e2e_lib.js` 是冒烟用的脚手架（登录取 token、注入登录态、定位面板 iframe、
+> 等「网络安静」再计时、抓请求时序），新增用例直接 require 它，别另写一份样板。
+
 ### `firewall_manager.bat` — 防火墙端口管理（需管理员）
 ```bat
 firewall_manager.bat 8080            # 添加 8080 端口入站规则

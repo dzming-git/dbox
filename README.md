@@ -331,6 +331,8 @@ cd src\webui && npm run lint  # 前端 lint
 - 后端服务说明：`src/web/README.md`
 - 脚本与运维：`scripts/README.md`
 - 架构与重构计划：`docs/architecture/`（ARCHITECTURE_SUMMARY、SERVICE_BUS、REFACTOR_PLAN）
+- 提交信息规范：`docs/development/commit-convention.md`
+- X 插件验证规范与加固计划：`docs/development/x-verification-rules.md`、`docs/development/x-hardening-plan.md`
 - 待办事项：`docs/development/TODO.md`、`TODO.md`
 
 ---
