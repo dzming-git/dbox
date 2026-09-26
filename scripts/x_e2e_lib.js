@@ -167,4 +167,4 @@ async function waitCards(frame, { min = 1, timeout = 8000, onTick } = {}) {
   }
 }
 
-module.exports = { BASE, login, openBrowser, openPanel, waitPanelFrame, waitFor, waitStable, waitCards, waitSettled, trackRequests, cards, sleep, playwright };
+module.exports = { BASE, request, login, openBrowser, openPanel, waitPanelFrame, waitFor, waitStable, waitCards, waitSettled, trackRequests, cards, sleep, playwright };
