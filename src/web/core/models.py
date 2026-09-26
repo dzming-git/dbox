@@ -455,13 +455,16 @@ def set_resource_modes(ri, modes, collection_id=None, user_id=None):
 
 def create_post(title, content=None, resource_index_ids=None, user_id=None, display_modes=None,
                 author_name=None, author_url=None, source_url=None, group_key=None,
-                library_id=None):
+                library_id=None, status=None):
     """由一组资源索引创建一条帖子（组合模式）。
 
     例：图文+视频一体的下载 -> [image_set_ri, video_ri] 合成一条帖子，视频模式不会单独出现。
     display_modes: 可选 {resource_index_id: 'link'|'embed'}，缺省按 'embed' 处理。
     author_name/author_url/source_url: 来源信息（X 下载器回填），前端展示为可点击链接。
     group_key: 下载来源分组键（如 X 的 tweet_id），用于重复下载时定位并更新同一条帖子。
+    status: 策展状态；缺省沿用模型默认（草稿）。**下载器/扩展的「保存」路径应显式传 published**
+        —— 用户点「存入」的意图就是立刻出现在帖子流里，走默认草稿会导致「任务显示完成、
+        帖子流里却没有」（见 upsert_post_by_group）。
     """
     # 帖子标题可选：用户不填则存空，前端展示时根本不渲染标题区域
     d = Post(
@@ -473,6 +476,7 @@ def create_post(title, content=None, resource_index_ids=None, user_id=None, disp
         source_url=source_url,
         group_key=group_key,
         library_id=library_id,
+        status=(status if status in POST_STATUSES else STATUS_DRAFT),
     )
     db.session.add(d)
     db.session.flush()
@@ -493,6 +497,12 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
     """按 group_key 查重：已存在同组帖子则更新（重建引用 + 同步来源信息），否则新建。
 
     重复下载同一来源（如同一推文）时避免产生多条重复帖子。
+
+    **这里创建的帖子一律为已发布（published）**：本函数只被扩展的「下载/保存」路径调用
+    （X / pixiv 等：用户点了存入），用户的意图就是立刻在帖子流看到它。而 Post 的模型默认是
+    草稿（那是「引用到帖子」手动攒素材的场景），列表接口默认只返回 published —— 走默认值
+    就会「后台任务显示完成、帖子流里什么都没有」，且即便按草稿列出，其引用资源若未归属库
+    （library_id=NULL）也会被按库可见性过滤掉，等于用户永远看不到自己刚存的东西。
     """
     existing = None
     if group_key:
@@ -505,6 +515,9 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
         existing.author_url = author_url
         existing.source_url = source_url
         existing.library_id = library_id
+        # 重复下载同一条时顺带把「历史遗留的草稿」修正为已发布：
+        # 旧版本创建的下载帖子都是草稿，只改新建逻辑的话，用户重新下载同一条仍然看不到。
+        existing.status = STATUS_PUBLISHED
         # 重复下载（同来源）视为「重新生成帖子」，应从回收站恢复，
         # 否则用户删除过一次后，后续重复下载只会更新同 group_key 帖子、
         # in_trash 保持 True，导致帖子流永远看不到该帖子。
@@ -526,7 +539,7 @@ def upsert_post_by_group(group_key, title, content, resource_index_ids, user_id=
     return create_post(title, content, resource_index_ids, user_id=user_id,
                        display_modes=display_modes, author_name=author_name,
                        author_url=author_url, source_url=source_url, group_key=group_key,
-                       library_id=library_id)
+                       library_id=library_id, status=STATUS_PUBLISHED)
 
 
 class Video(db.Model):
