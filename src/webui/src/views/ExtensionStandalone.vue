@@ -146,9 +146,13 @@ function handleMsg(data: any, id: string) {
   console.log('[DBG-EXT] msg ' + data.type + (data.hash !== undefined ? ' hash=' + data.hash : '') + (data.path ? ' path=' + data.path : ''))
   if (data.type === 'DBOX_REQUEST_TOKEN') pushRuntime()
   // 面板内跳转：全屏页本身就是「界面」，直接路由跳转即可（面板实例不动）。
+  // replace=true 用于「同一视图内的连续变化」（如翻看上一张/下一张图），
+  // 否则每一步都会压一条历史，用户按一次后退只退一张图、退不回列表。
   if (data.type === 'DBOX_NAVIGATE' && data.path) {
     if (data.path === '__back__') {
       if (route.fullPath !== '/' + extId) router.push('/' + extId)
+    } else if (data.replace) {
+      router.replace(data.path)
     } else {
       router.push(data.path)
     }
@@ -175,11 +179,27 @@ watch(() => route.hash, (h) => {
 
 // 路径式子路由（官方风格）同理：浏览器前进/后退在 /ext/<id>/users/123 之间切换时
 // 回推给面板，让面板内部视图跟着走（面板会自行忽略与自己当前位置相同的回推）。
+// 同时带上 query：有些插件的子路由靠**官方同名查询参数**表达（如 e-hentai 的
+// `?f_search=xx&page=2` 就对应官网搜索），只推子路径会让「后退回上一个搜索」
+// 这类操作在面板里失效（路径没变、只有 query 变），用户看到地址栏变了、界面没动。
 watch(() => route.path, () => {
   if (!getPanelIframe(extId)) return
   console.log('[DBG-EXT] watch path=' + route.path)
   setPanelMode(extId, 'fullscreen')   // 同上：独立页路径下必须是全屏形态
-  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf() })
+  const sp = subPathOf()
+  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp })
+  if (route.query && Object.keys(route.query).length) {
+    postToPanel(extId, { type: 'DBOX_ROUTE', subPath: sp, query: { ...route.query } })
+  }
+})
+
+// query 变化单独兜一层：Vue Router 的 route.path 不含 query，
+// 「同一个路径、只换 ?f_search=」不会触发上面的 watcher。
+watch(() => JSON.stringify(route.query || {}), () => {
+  if (!getPanelIframe(extId)) return
+  console.log('[DBG-EXT] watch query=' + JSON.stringify(route.query || {}))
+  setPanelMode(extId, 'fullscreen')
+  postToPanel(extId, { type: 'DBOX_ROUTE', subPath: subPathOf(), query: { ...route.query } })
 })
 
 function goBack() {
