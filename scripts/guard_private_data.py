@@ -45,8 +45,8 @@ except Exception:
 # (说明, 正则)。正则对**整行**匹配，命中即报告。
 RULES = [
     ("本机用户目录绝对路径（含真实用户名）",
-     r"[A-Za-z]:[\\/]+Users[\\/]+(?![Pp]ublic|[Dd]efault|All [Uu]sers|<|%|\*)"
-     r"([A-Za-z0-9._]|%USERNAME%)"),
+     r"[A-Za-z]:[\\/]+Users[\\/]+(?![Pp]ublic|[Dd]efault|All [Uu]sers|<|%|\*|me\b|user\b"
+     r"|username\b|you\b|someone\b)([A-Za-z0-9._]|%USERNAME%)"),
     ("本机工作目录名",
      r"<工作目录>"),  # guard-allow: 规则本身必须写出该字面量
     ("开发账号或邮箱",
