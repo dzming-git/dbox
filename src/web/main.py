@@ -20,6 +20,11 @@ import threading
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # _SRC_DIR: src/
 _SRC_DIR = os.path.dirname(_THIS_DIR)
+# ⚠️ 必须**先**把 src/ 放进 sys.path：下面的 backend.paths 在导入期就要解析数据目录，
+# 而它依赖 shared.data_paths（运行时路径的唯一解析入口）。顺序错了会在导入期
+# ModuleNotFoundError: No module named 'shared'，服务直接起不来。
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 # 路径常量统一收敛到 backend.paths，避免重复推导与硬编码
 from backend.paths import (
     PROJECT_ROOT,
