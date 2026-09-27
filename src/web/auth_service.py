@@ -330,6 +330,22 @@ class AuthService:
             return 0
 
 
+def _initial_root_password():
+    """首次创建 root 账户时的初始密码。
+
+    优先取环境变量 DBOX_ROOT_PASSWORD；未设置则**随机生成**并打印一次（只打印一次，
+    由部署者保管）。代码里不留可猜的默认口令——默认口令写进代码等于公开仓库里放钥匙。
+    """
+    import os
+    import secrets
+    pwd = os.environ.get('DBOX_ROOT_PASSWORD')
+    if pwd:
+        return pwd
+    pwd = secrets.token_urlsafe(12)
+    print('[auth] root 账户初始密码已随机生成（只打印这一次，请立即保存）：%s' % pwd, flush=True)
+    return pwd
+
+
 def init_root_user():
     """初始化超级管理员账户
     
@@ -343,14 +359,16 @@ def init_root_user():
             log.runtime('INFO', "超级管理员账户已存在")
             return
 
+        pwd = _initial_root_password()
+
         # 检查是否已有名为root的用户（非ROOT角色）
         existing_root_name = User.query.filter_by(username='root').first()
         if existing_root_name:
             # 如果存在同名用户但不是ROOT角色，将其升级为ROOT
             existing_root_name.role = UserRole.ROOT
-            existing_root_name.set_password('<初始密码>')
+            existing_root_name.set_password(pwd)
             db.session.commit()
-            log.debug('WARN', "已将现有root用户升级为超级管理员，密码已重置为: <初始密码>")
+            log.debug('WARN', "已将现有root用户升级为超级管理员（密码见上方提示）")
             return
 
         # 创建默认root用户
@@ -359,12 +377,12 @@ def init_root_user():
             role=UserRole.ROOT,
             email=None
         )
-        root_user.set_password('<初始密码>')  # 指定密码
+        root_user.set_password(pwd)
 
         db.session.add(root_user)
         db.session.commit()
 
-        log.debug('WARN', "已创建默认超级管理员账户: root / <初始密码>")
+        log.debug('WARN', "已创建超级管理员账户: root（密码见上方提示）")
 
     except Exception as e:
         db.session.rollback()

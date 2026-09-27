@@ -56,7 +56,8 @@ def main():
             if new_root:
                 print("[OK] root账号创建成功!")
                 print(f"[INFO] 用户名: {new_root.username}")
-                print(f"[INFO] 密码: <初始密码>")
+                print("[INFO] 密码: 由环境变量 DBOX_ROOT_PASSWORD 指定；未设置时为随机生成，")
+                print("[INFO]       见创建时的服务输出/日志（只打印一次，请及时保存）")
                 print(f"[INFO] 角色: {new_root.role_name}")
             else:
                 print("[ERROR] root账号创建失败!")
