@@ -55,7 +55,13 @@ RULES = [
      r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"),
     ("临时/调试产物（截图、*.tmp.*、临时日志）",
      r"(^|[\\/])shot[^\\/]*\.(png|jpg|js)$|\.tmp\.(js|py|ps1|txt|log|json)$|(^|[\\/])_?(test|debug)[^\\/]*\.tmp\."),
+    ("长数字 ID（推文/雪花 ID 等真实记录标识）",
+     r"\b\d{18,}\b"),  # guard-allow: 规则本身要匹配长数字
 ]
+
+# 个人词表：本机私有词（真实标题、账号名、特定 ID…）无法用通用正则枚举，放到**不入库**的
+# 本地文件里，一行一个（`#` 开头为注释）。提交信息与文件内容都会按字面量比对。
+TERMS_FILE = os.path.join(os.path.expanduser('~'), '.dbox_guard_terms')
 
 # 二进制/大文件不做文本扫描
 SKIP_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip',
@@ -80,20 +86,48 @@ def _iter_files(paths, tracked_all=False):
         yield p
 
 
-def scan(paths):
+def load_terms():
+    """读取本机私有词表（不入库）。"""
+    terms = []
+    try:
+        with open(TERMS_FILE, 'r', encoding='utf-8', errors='replace') as fh:
+            for line in fh:
+                t = line.strip()
+                if t and not t.startswith('#'):
+                    terms.append(t)
+    except Exception:
+        pass
+    return terms
+
+
+def scan_text(label, text, pats, terms):
+    """按规则 + 私人词表扫一段文本（文件内容或提交信息）。"""
+    hits = []
+    for i, line in enumerate(text.splitlines(), 1):
+        if ALLOW_MARK in line:
+            continue
+        matched = False
+        for desc, rx in pats:
+            if rx.search(line):
+                hits.append((label, i, desc, line.strip()[:160]))
+                matched = True
+                break
+        if matched:
+            continue
+        for t in terms:
+            if t in line:
+                hits.append((label, i, '命中本机私有词表', line.strip()[:160]))
+                break
+    return hits
+
+
+def scan(paths, pats, terms):
     """返回 [(文件, 行号, 规则说明, 该行内容)]。"""
     hits = []
-    pats = [(desc, re.compile(rx)) for desc, rx in RULES]
     for f in _iter_files(paths):
         try:
             with open(f, 'r', encoding='utf-8', errors='replace') as fh:
-                for i, line in enumerate(fh, 1):
-                    if ALLOW_MARK in line:
-                        continue
-                    for desc, rx in pats:
-                        if rx.search(line):
-                            hits.append((f, i, desc, line.strip()[:160]))
-                            break
+                hits.extend(scan_text(f, fh.read(), pats, terms))
         except Exception:
             continue
     return hits
@@ -103,7 +137,29 @@ def main():
     ap = argparse.ArgumentParser(description='检查入库内容是否含开发机真实信息')
     ap.add_argument('files', nargs='*', help='要检查的文件（默认取 git 已暂存文件）')
     ap.add_argument('--all', action='store_true', help='检查全部已跟踪文件')
+    ap.add_argument('--msg-file', help='检查提交信息文件（commit-msg 钩子用）')
     args = ap.parse_args()
+
+    pats = [(desc, re.compile(rx)) for desc, rx in RULES]
+    terms = load_terms()
+
+    # 提交信息模式：提交信息里同样不许出现本机信息与真实数据举例
+    if args.msg_file:
+        try:
+            with open(args.msg_file, 'r', encoding='utf-8', errors='replace') as fh:
+                text = fh.read()
+        except Exception as e:
+            print('[guard] 读不到提交信息（%s），跳过' % e)
+            return 0
+        hits = scan_text('提交信息', text, pats, terms)
+        if not hits:
+            print('[guard] 通过：提交信息未发现本机真实信息')
+            return 0
+        print('[guard] 拒绝提交：提交信息里出现本机真实信息（不要拿真实数据当例子）\n')
+        for f, i, desc, t in hits:
+            print('  %s:%d  [%s]\n      %s' % (f, i, desc, t))
+        print('\n改成虚构示例；确需保留的整行用注释 %s 放行。' % ALLOW_MARK)
+        return 1
 
     files = args.files
     if not files and not args.all:
@@ -114,7 +170,7 @@ def main():
             print('[guard] 没有暂存文件，跳过')
             return 0
 
-    hits = scan(files) if not args.all else scan(list(_iter_files([], tracked_all=True)))
+    hits = scan(files, pats, terms) if not args.all else scan(list(_iter_files([], tracked_all=True)), pats, terms)
     if not hits:
         print('[guard] 通过：未发现开发机真实信息')
         return 0
