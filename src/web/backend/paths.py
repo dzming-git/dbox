@@ -98,54 +98,35 @@ def _system_data_root():
 def _public_data_root():
     """公共数据区根目录（多服务共享，避开用户目录权限问题）。
 
-    可通过环境变量 DBOX_DATA_ROOT 覆盖（如 DBOX_DATA_ROOT=C:\\ProgramData\\Dbox）。
-    默认 Windows: C:\\ProgramData\\Dbox；Linux/macOS: /var/lib/Dbox。
+    规则统一由 shared.data_paths 定义（运行时产物绝不落项目目录）。这里只做转发，
+    避免同一套规则在本文件与各微服务/扩展宿主里各写一份、慢慢走样。
     """
-    env = os.environ.get('DBOX_DATA_ROOT')
-    if env:
-        return env
-    if sys.platform.startswith('win'):
-        return r'C:\ProgramData\Dbox'
-    return '/var/lib/Dbox'
+    from shared.data_paths import public_data_root
+    return public_data_root()
 
 
 def get_user_data_dir():
     """用户数据根目录（数据库、缩略图等运行时数据）。
 
-    优先级：
-    1. 环境变量 DBOX_DATA_DIR（显式指定完整 data 目录）
-    2. 公共数据区下的 Dbox/data（DBOX_DATA_ROOT 可覆盖根，默认 C:\\ProgramData\\Dbox）
-    3. 平台系统数据区下的 Dbox/data（兜底，仅当公共区不可写）
-    首次启动做一次从项目根 data/ 的迁移（仅当系统区为空且项目 data 存在）。
+    优先级见 shared.data_paths.data_root()：DBOX_DATA_DIR → <公共数据区>/data
+    → 平台系统数据区/data。测试隔离时用 _DATA_DIR_OVERRIDE 强制覆盖。
     """
     if _DATA_DIR_OVERRIDE:
         return _DATA_DIR_OVERRIDE
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        return env
-    public = os.path.join(_public_data_root(), 'data')
-    if os.path.isdir(public) or _is_writable(public):
-        return public
-    return os.path.join(_system_data_root(), 'Dbox', 'data')
+    from shared.data_paths import data_root
+    return data_root()
 
 
 def get_user_config_dir():
     """用户配置根目录（web_config.json 等运行时配置）。
 
-    优先级：
-    1. 环境变量 DBOX_USER_CONFIG_DIR
-    2. 公共数据区下的 Dbox/config（DBOX_DATA_ROOT 可覆盖根）
-    3. 平台系统数据区下的 Dbox/config（兜底）
+    优先级见 shared.data_paths.config_root()：DBOX_USER_CONFIG_DIR
+    → <公共数据区>/config → 平台系统数据区/config。
     """
     if _CONFIG_DIR_OVERRIDE:
         return _CONFIG_DIR_OVERRIDE
-    env = os.environ.get('DBOX_USER_CONFIG_DIR')
-    if env:
-        return env
-    public = os.path.join(_public_data_root(), 'config')
-    if os.path.isdir(public) or _is_writable(public):
-        return public
-    return os.path.join(_system_data_root(), 'Dbox', 'config')
+    from shared.data_paths import config_root
+    return config_root()
 
 
 def _is_writable(path):

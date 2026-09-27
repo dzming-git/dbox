@@ -313,6 +313,24 @@ def find_nssm() -> str | None:
 # 核心：注册 NSSM 服务
 # ============================================================
 
+def resolve_log_dir(source_dir: Path) -> Path:
+    """服务日志目录：平台数据根下的 logs，**不是项目目录**。
+
+    NSSM 的 AppStdout/AppStderr 以前写 <源码目录>/data/logs —— 实测攒到 4.3GB，
+    还随代码一起搬家。这里复用平台的统一解析（shared/data_paths），规则与
+    backend.paths / liblog 一致：DBOX_LOG_DIR → <数据根>/logs。
+    """
+    try:
+        sys.path.insert(0, str(source_dir / 'src'))
+        from shared.data_paths import logs_dir
+        return Path(logs_dir())
+    except Exception as e:
+        # 极端情况下退回公共数据区的 logs（仍然不落项目目录）
+        root = os.environ.get('DBOX_DATA_ROOT') or (r'C:\ProgramData\Dbox' if os.name == 'nt' else '/var/lib/Dbox')
+        log.warning(f'  解析日志目录失败（{e}），回退到 {root}')
+        return Path(root) / 'data' / 'logs'
+
+
 def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, services: list[str] | None = None):
     """
     使用 NSSM 注册服务，工作目录指向源码目录。
@@ -330,8 +348,8 @@ def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, serv
     python_exe = find_python_exe()
     log.info(f'  Python: {python_exe}')
 
-    log_dir = source_dir / 'data' / 'logs'
-    log_dir.mkdir(exist_ok=True)
+    log_dir = resolve_log_dir(source_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     keys_to_install = services or list(NSSM_SERVICES.keys())
 
@@ -368,11 +386,11 @@ def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, serv
             results[key] = {'success': False, 'message': msg}
             continue
 
-        # 设置环境变量：开发模式 vs 生产模式
-        if dev_mode:
-            env_extra = 'DBOX_DEV_MODE=1'
-        else:
-            env_extra = 'DBOX_SERVICE_MODE=1'
+        # 设置环境变量：开发模式 vs 生产模式；并把日志目录钉到数据根
+        # （liblog 默认写 %LOCALAPPDATA%，服务却常以 LocalSystem 运行 → 日志会落进
+        #  服务账户的用户目录，人根本找不到）
+        mode_env = 'DBOX_DEV_MODE=1' if dev_mode else 'DBOX_SERVICE_MODE=1'
+        env_list = [mode_env, f'DBOX_LOG_DIR={log_dir}']
 
         # 配置服务参数
         nssm_sets = [
@@ -383,13 +401,17 @@ def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, serv
             ('AppStdout',     str(log_dir / f'{log_prefix}_stdout.log')),
             ('AppStderr',     str(log_dir / f'{log_prefix}_stderr.log')),
             ('AppRestartDelay', '5000'),
-            ('AppEnvironmentExtra', env_extra),
+            # ⚠️ 每个 KEY=VAL 都必须是**独立的 argv**：NSSM 会把带空格的一整串当成
+            # 一条环境变量（实测 "A=1 B=2" 会被写成 name=A、value="1 B=2"），
+            # 于是路径里多出空格、服务起不来，而报错只出现在服务日志里。
+            ('AppEnvironmentExtra', env_list),
         ]
 
         for param, value in nssm_sets:
+            args = [nssm_exe, 'set', service_name, param] + (
+                list(value) if isinstance(value, list) else [str(value)])
             r = subprocess.run(
-                [nssm_exe, 'set', service_name, param, value],
-                capture_output=True, text=True, encoding='utf-8', errors='replace'
+                args, capture_output=True, text=True, encoding='utf-8', errors='replace'
             )
             if r.returncode != 0:
                 log.warning(f'    set {param} failed: {r.stderr.strip()}')
@@ -397,7 +419,7 @@ def register_nssm_services(source_dir: Path, nssm_exe: str, dev_mode: bool, serv
         log.info(f'  [OK]  {service_name} 已注册')
         log.info(f'        工作目录: {source_dir}')
         log.info(f'        入口脚本: {entry_script}')
-        log.info(f'        环境变量: {env_extra}')
+        log.info(f'        环境变量: {", ".join(env_list)}')
 
         results[key] = {'success': True, 'service_name': service_name}
 

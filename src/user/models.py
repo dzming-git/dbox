@@ -24,8 +24,11 @@ class UserRole(int, Enum):
     GUEST = 3     # 访客
 
 
-# 数据库路径（主数据库 - 复用 dbox.db）
-_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'databases')
+# 数据库路径（主数据库 - 复用 dbox.db）：落在平台数据根
+# （DBOX_DATA_DIR → C:\ProgramData\Dbox\data），**不落项目目录**
+from shared.data_paths import databases_dir  # noqa: E402
+
+_DB_DIR = databases_dir()
 _DB_PATH = os.path.join(_DB_DIR, 'dbox.db')
 
 

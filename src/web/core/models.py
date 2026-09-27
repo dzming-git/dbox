@@ -1322,12 +1322,11 @@ class ResourceLibrary(db.Model):
             # db_path = 'libraries' 表示新数据，相对路径
             if os.path.isabs(self.db_path):
                 return os.path.join(self.db_path, self.db_file)
-            # db_path = 'libraries' 相对路径：相对于项目根目录的 data/
-            # 正确计算：main.py 在 src/web/，向上两级到项目根目录
-            _src_web = os.path.dirname(os.path.abspath(__file__))  # src/web/core
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(_src_web)))  # dbox/
-            data_dir = os.path.join(project_root, 'data')
-            return os.path.join(data_dir, self.db_path, self.db_file)
+            # db_path 是相对**数据根**的路径（如 'libraries'）；数据根由
+            # shared.data_paths 统一解析（DBOX_DATA_DIR → C:\ProgramData\Dbox\data），
+            # 不落项目目录——库 db 曾因此跟着代码走，换个目录就像丢库
+            from shared.data_paths import data_root
+            return os.path.join(data_root(), self.db_path, self.db_file)
         # 环境变量方式
         if os.path.isabs(self.db_path):
             sub = os.path.basename(self.db_path.rstrip('/\\'))

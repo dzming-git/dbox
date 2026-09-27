@@ -13,8 +13,11 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 
-# 数据库路径
-_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'databases')
+# 数据库路径：落在平台数据根（DBOX_DATA_DIR → C:\ProgramData\Dbox\data），
+# **不落项目目录**——运行时产物跟着代码走，会让「换个目录/换台机器」变成丢数据
+from shared.data_paths import databases_dir  # noqa: E402
+
+_DB_DIR = databases_dir()
 _DB_PATH = os.path.join(_DB_DIR, 'collection.db')
 
 

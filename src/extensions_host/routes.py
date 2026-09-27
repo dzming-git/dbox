@@ -86,11 +86,9 @@ def admin_required(f):
         if uid:
             try:
                 import os, sqlite3 as _sqlite
-                _data_dir = os.environ.get('DBOX_DATA_DIR')
-                if not _data_dir:
-                    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-                    _project_root = os.path.dirname(os.path.dirname(_pkg_dir))
-                    _data_dir = os.path.join(_project_root, 'data')
+                # 数据根统一解析（不落项目目录）；老实现 env 没设就读项目根的 data/
+                from shared.data_paths import data_root as _data_root
+                _data_dir = _data_root()
                 _main_db = os.path.join(_data_dir, 'databases', 'dbox.db')
                 if os.path.exists(_main_db):
                     _conn = _sqlite.connect(_main_db)
@@ -139,11 +137,9 @@ def login_required(f):
         if uid:
             try:
                 import os, sqlite3 as _sqlite
-                _data_dir = os.environ.get('DBOX_DATA_DIR')
-                if not _data_dir:
-                    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-                    _project_root = os.path.dirname(os.path.dirname(_pkg_dir))
-                    _data_dir = os.path.join(_project_root, 'data')
+                # 数据根统一解析（不落项目目录）；老实现 env 没设就读项目根的 data/
+                from shared.data_paths import data_root as _data_root
+                _data_dir = _data_root()
                 _main_db = os.path.join(_data_dir, 'databases', 'dbox.db')
                 if os.path.exists(_main_db):
                     _conn = _sqlite.connect(_main_db)

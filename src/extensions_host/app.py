@@ -84,12 +84,14 @@ def create_app():
 
 
 def _data_dir():
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        return env
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))           # src/extensions_host
-    project_root = os.path.dirname(os.path.dirname(pkg_dir))        # 向上两级 -> 项目根 (dbox)
-    return os.path.join(project_root, 'data')
+    """插件数据根：统一走 shared.data_paths（DBOX_DATA_DIR → 平台公共数据区）。
+
+    ⚠️ 老实现 env 没设就回落到「项目根/data」——实测代价很具体：NSSM 重装服务时
+    环境变量被清掉，插件数据（含凭证保险库查找、下载进度库）就整体落到项目目录里，
+    表现为「插件突然变未登录」「换目录后数据对不上」。
+    """
+    from shared.data_paths import data_root
+    return data_root()
 
 
 def main():

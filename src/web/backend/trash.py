@@ -16,10 +16,11 @@ from core.models import (
     GalleryPlaylistItem, WatchLater,
 )
 
-_THIS = os.path.dirname(os.path.abspath(__file__))
-# src/web/backend/trash.py -> 上三级即项目根
-PROJECT_ROOT = os.path.abspath(os.path.join(_THIS, '..', '..', '..'))
-TRASH_ROOT = os.path.join(PROJECT_ROOT, 'data', 'trash')
+# 回收站属运行时数据：统一落在平台数据根（shared.data_paths），**不落项目目录**
+# ——否则软删除的文件会随代码一起被搬走，甚至被 git 看到
+from shared.data_paths import thumbnails_dir, trash_dir  # noqa: E402
+
+TRASH_ROOT = trash_dir()
 
 # 回收站资源超过此保留期（天）后，由后台调度器自动永久清理。
 # 文件若重新出现（被扫描恢复），in_trash 会被清零，不会进清理清单，
@@ -177,7 +178,7 @@ def purge_trash(obj, kind: str):
 
 
 def _delete_thumbnails(video_hash: str):
-    thumb_dir = os.path.join(PROJECT_ROOT, 'data', 'thumbnails')
+    thumb_dir = thumbnails_dir()
     if not os.path.isdir(thumb_dir):
         return
     # 删除该 hash 的完整缩略图文件集（poster / 旧 gif / png / sprite 雪碧图 / vtt 索引）

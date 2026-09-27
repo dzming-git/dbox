@@ -42,13 +42,12 @@ from typing import Dict, Any, List, Optional
 
 from .service_base import BaseDBusService
 
-# 日志：写到 data/logs/watchdog.log（与 NSSM 的 stdout/stderr 日志互补）
+# 日志：写到 <数据根>/logs/watchdog.log（与 NSSM 的 stdout/stderr 日志互补）。
+# ⚠️ 老实现是 (DBOX_DATA_DIR 或 项目根) + 'data/logs'：env 没设就落项目目录，
+# env 设了又会拼出 <数据根>/data/logs 这种多一层 data 的怪路径。统一走 data_paths。
 try:
-    _LOG_DIR = os.path.join(
-        os.environ.get('DBOX_DATA_DIR')
-        or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'data', 'logs'
-    )
+    from shared.data_paths import logs_dir as _logs_dir
+    _LOG_DIR = _logs_dir()
 except Exception:
     _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'logs')
 

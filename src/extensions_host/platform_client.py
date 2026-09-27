@@ -45,25 +45,14 @@ def _runtime_data_dirs():
 
 
 def _internal_key_path():
-    """定位主服务写入的进程间共享内部密钥（与 internal_api 同文件）。
+    """定位主服务写入的进程间共享内部密钥（与 internal_api 同规则）。
 
-    两端必须能找到同一份密钥文件，否则 /internal/* 调用会被 401 拒绝，进而使
-    「AI 处理完成却无法在反馈中心落单」这类静默失败。解析优先级：
-      1. 显式环境变量 DBOX_DATA_DIR（两端应一致设置）；
-      2. 生产运行时数据目录（见 _runtime_data_dirs，首个存在的即采用）；
-      3. 开发态兜底：本包向上两级为项目根 data/。
+    两端必须解析到同一份密钥文件，否则 /internal/* 调用会被 401 拒绝，进而使
+    「AI 处理完成却无法在反馈中心落单」这类静默失败。老实现的开发态兜底会把密钥
+    落到项目目录，且两端规则各写一份；现在统一走 shared.data_paths。
     """
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        return os.path.join(env, '.dbox_internal_key')
-    for cand in _runtime_data_dirs():
-        p = os.path.join(cand, '.dbox_internal_key')
-        if os.path.exists(p):
-            return p
-    # 开发态兜底：本包在 src/extensions_host，向上两级为项目根 (dbox)
-    here = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(here))
-    return os.path.join(root, 'data', '.dbox_internal_key')
+    from shared.data_paths import internal_key_path
+    return internal_key_path()
 
 
 def _internal_secret() -> str:
@@ -175,18 +164,12 @@ def resource_resolve(type_: str, ref: str) -> dict:
 def _feedback_spool_dir() -> str:
     """本地反馈建单的持久化兜底目录（主服务不可达时暂存，待恢复后重放）。
 
-    与主服务共用同一数据区（DBOX_DATA_DIR 或项目 data/），确保宿主进程即便在主服务
-    暂时离线时也能把建单意图落盘，避免「AI 处理完成却没单可跟踪」的静默丢单。
+    与主服务共用同一数据区，确保宿主进程即便在主服务暂时离线时也能把建单意图
+    落盘，避免「AI 处理完成却没单可跟踪」的静默丢单。老实现 env 没设会落到项目
+    目录（换目录=丢单），改走 shared.data_paths。
     """
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        base = env
-    else:
-        # 本包在 src/extensions_host，向上两级为项目根 (dbox)
-        here = os.path.dirname(os.path.abspath(__file__))
-        root = os.path.dirname(os.path.dirname(here))
-        base = os.path.join(root, 'data')
-    d = os.path.join(base, 'feedback_spool')
+    from shared.data_paths import feedback_spool_dir
+    d = feedback_spool_dir()
     try:
         os.makedirs(d, exist_ok=True)
     except Exception:

@@ -35,7 +35,9 @@ def _resolve_storage_dir(library_id, app):
         try:
             from backend.paths import DATA_DIR
         except Exception:
-            DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+            # 兜底也走平台数据根，绝不落项目目录
+            from shared.data_paths import data_root
+            DATA_DIR = data_root()
         storage = os.path.join(DATA_DIR, 'uploads', f'lib_{library_id}')
     return storage
 

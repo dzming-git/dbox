@@ -26,11 +26,17 @@ import subprocess
 from pathlib import Path
 
 # ============================================================
-# 路径（全部基于本文件，可随目录搬迁）
+# 路径
+#   源码路径基于本文件（可随目录搬迁）；
+#   **运行时产物（日志 / PID）落平台数据根，不落项目目录**——否则它们会跟着
+#   代码被搬走、被 git 看到（与 backend.paths、liblog 同一套规则）
 # ============================================================
 ROOT = Path(__file__).resolve().parent.parent
-LOG_DIR = ROOT / 'data' / 'logs'
-PID_FILE = ROOT / 'data' / '.green_pids.json'
+sys.path.insert(0, str(ROOT / 'src'))
+from shared.data_paths import data_root, logs_dir  # noqa: E402
+
+LOG_DIR = Path(logs_dir())
+PID_FILE = Path(data_root()) / '.green_pids.json'
 LAUNCHER_LOG = LOG_DIR / 'launcher.log'
 IS_WINDOWS = os.name == 'nt'
 

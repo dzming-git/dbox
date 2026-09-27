@@ -90,10 +90,15 @@ class ScriptJobManager:
 
     # ---------- 插件独立设置（由 manifest.settings schema 驱动） ----------
     def _settings_path(self, script_id: str):
+        """插件设置所在目录：<数据根>/plugins/<id>（调用方自行拼 settings.json）。
+
+        ⚠️ 老实现是 base_dir/../data/plugins/<id>（= 项目根 data/），把用户设置写进
+        源码树，换目录就丢。统一走 shared.data_paths。
+        """
         if not self.base_dir:
             return None
-        d = os.path.join(self.base_dir, '..', 'data', 'plugins', script_id)
-        return os.path.abspath(d)
+        from shared.data_paths import plugins_dir
+        return plugins_dir(script_id)
 
     def get_settings(self, script_id: str) -> dict:
         """返回插件当前保存的设置 {key: value}，缺失项回退到 manifest 默认值。"""

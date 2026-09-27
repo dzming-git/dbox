@@ -38,7 +38,9 @@ try:
     _DATA_DIR = _paths.get_user_data_dir()
     _THUMB_CONFIG_FILE = getattr(_paths, 'THUMB_CONFIG_FILE', '')
 except Exception:
-    _DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+    # 兜底也走平台数据根（DBOX_DATA_DIR → C:\ProgramData\Dbox\data），不落项目目录
+    from shared.data_paths import data_root
+    _DATA_DIR = data_root()
     _THUMB_CONFIG_FILE = ''
 THUMBNAIL_DIR = os.path.join(_DATA_DIR, 'thumbnails')
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)

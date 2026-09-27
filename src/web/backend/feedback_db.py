@@ -33,28 +33,16 @@ _log = get_service_logger('dbox-web')
 
 
 def get_runtime_dir():
-    """获取运行时目录（与 system_info_api.get_runtime_dir 保持一致）。
+    """运行时数据根目录（与 backend.paths 同规则）。
 
-    项目根的 data/ 为唯一权威数据存储位置。
+    ⚠️ 这里原先按「包目录向上四级」推导项目根的 data/，**无视 DBOX_DATA_DIR**：
+    反馈库因此常驻项目源码树，换目录跟着代码走、也容易被 git 看见。改走统一解析。
     """
-    if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    # 防止命中 src/data：当 base 解析到 src 目录时，再向上一层到项目根
-    if os.path.basename(base) == 'src':
-        base = os.path.dirname(base)
-    candidates = [
-        os.path.join(base, 'data'),
-        os.path.join(base, 'runtime'),
-    ]
-    for c in candidates:
-        if os.path.isdir(c):
-            return c
-    return candidates[0]
+    from shared.data_paths import data_root
+    return data_root()
 
 
-# 反馈独立数据库路径：{runtime_dir}/databases/feedback.db
+# 反馈独立数据库路径：{数据根}/databases/feedback.db
 FEEDBACK_DB_PATH = os.path.join(get_runtime_dir(), 'databases', 'feedback.db')
 FEEDBACK_DB_URI = 'sqlite:///' + FEEDBACK_DB_PATH
 

@@ -322,12 +322,11 @@ class Host:
         self.manifest = manifest
         self.config = manifest.get('backend', {}) or {}
         self.url_prefix = ext_api_path(self.key)
-        # 插件私有数据目录：<data_dir>/plugins/<key>
-        root = os.environ.get('DBOX_DATA_DIR')
-        if not root:
-            pkg_dir = os.path.dirname(os.path.abspath(__file__))
-            root = os.path.join(os.path.dirname(os.path.dirname(pkg_dir)), 'data')
-        self.data_dir = os.path.join(root, 'plugins', self.key)
+        # 插件私有数据目录：<数据根>/plugins/<key>
+        # ⚠️ 别再回落到项目根 data/：插件数据（DB/缓存/下载目录）落进源码树后，
+        # 会随代码一起被搬走、被 git 看到，且服务环境变量缺失时「静默换目录」。
+        from shared.data_paths import plugins_dir
+        self.data_dir = plugins_dir(self.key)
         os.makedirs(self.data_dir, exist_ok=True)
         # 插件进程级状态容器（框架不干预内容）
         self.app_state = {}

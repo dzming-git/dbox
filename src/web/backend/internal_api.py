@@ -28,13 +28,13 @@ _INTERNAL_KEY_FILENAME = '.dbox_internal_key'
 
 
 def _internal_key_path():
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        return os.path.join(env, _INTERNAL_KEY_FILENAME)
-    # 应用目录向上三级为项目根
-    here = os.path.dirname(os.path.abspath(__file__))            # src/web/backend
-    root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    return os.path.join(root, 'data', _INTERNAL_KEY_FILENAME)
+    """内部密钥文件路径（extensions_host 侧必须解析到同一份，见 platform_client）。
+
+    ⚠️ 老实现 env 没设就落项目根 data/，把密钥写进源码树；两端各写一份规则也容易走样。
+    统一走 shared.data_paths。
+    """
+    from shared.data_paths import data_root
+    return os.path.join(data_root(), _INTERNAL_KEY_FILENAME)
 
 
 def _read_internal_key():

@@ -443,14 +443,13 @@ def evaluate_health(decoded: dict):
 
 
 def data_dir_for(vault_subdir: str = '') -> str:
-    """解析通用保险库的数据目录（与运行时数据区一致）。"""
-    env = os.environ.get('DBOX_DATA_DIR')
-    if env:
-        base = env
-    else:
-        pkg_dir = os.path.dirname(os.path.abspath(__file__))  # src/shared
-        project_root = os.path.dirname(os.path.dirname(pkg_dir))
-        base = os.path.join(project_root, 'data')
+    """解析通用保险库的数据目录（与运行时数据区一致）。
+
+    ⚠️ 凭证明文/密钥是运行时产物：老实现 env 没设就落项目目录，等于把凭证写进
+    源码树（还会随代码被搬走）。统一走 shared.data_paths。
+    """
+    from shared.data_paths import data_root
+    base = data_root()
     if vault_subdir:
         return os.path.join(base, vault_subdir)
     return base
