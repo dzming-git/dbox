@@ -13,6 +13,7 @@
 'use strict';
 
 const https = require('https');
+const path = require('path');
 
 const BASE = process.env.X_E2E_BASE || 'https://127.0.0.1:5173';
 const PANEL_READY = `typeof XSTATE !== 'undefined' && !!XSTATE && typeof XSTATE.pullKeys === 'function'`;
@@ -20,8 +21,11 @@ const PANEL_READY = `typeof XSTATE !== 'undefined' && !!XSTATE && typeof XSTATE.
 let _pw = null;
 function playwright() {
   if (_pw) return _pw;
-  const cands = ['playwright-core', 'playwright',
-    'C:\\Users\\<用户>\\AppData\\Roaming\\npm\\node_modules\\@playwright\\cli\\node_modules\\playwright-core'];
+  // 需要复用本机全局安装的 playwright-core 时，用环境变量 PLAYWRIGHT_CORE_PATH 指定；
+  // 代码里不写死任何本机绝对路径（含用户名）
+  const cands = ['playwright-core', 'playwright', process.env.PLAYWRIGHT_CORE_PATH,
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm', 'node_modules',
+      '@playwright', 'cli', 'node_modules', 'playwright-core') : ''].filter(Boolean);
   for (const c of cands) {
     try { _pw = require(c); return _pw; } catch (_) { }
   }
@@ -46,7 +50,8 @@ function request(opts, body) {
 }
 
 // 登录取 token（本机 dev 默认账号；可用 X_E2E_USER/X_E2E_PASS 覆盖）
-async function login(user = process.env.X_E2E_USER || 'root', pass = process.env.X_E2E_PASS || '<初始密码>') {
+async function login(user = process.env.X_E2E_USER || 'root', pass = process.env.X_E2E_PASS) {
+  if (!pass) throw new Error('请用环境变量 X_E2E_PASS 提供测试账号密码（不要把密码写进代码或文档）');
   const body = JSON.stringify({ username: user, password: pass });
   const d = await request({
     path: '/api/v2/auth/login', method: 'POST',

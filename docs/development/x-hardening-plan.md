@@ -90,9 +90,9 @@ node scripts/x_smoke.js      # 黄金路径端到端（真服务 + 无头浏览�
 
 **改什么**：新增 `scripts/x_e2e_lib.js`，把本次反复手写的样板固化为库：
 
-- 登录取 token：`POST /api/v2/auth/login`（`{username:'root', password:'<初始密码>'}`）→ `data.access_token`；
+- 登录取 token：`POST /api/v2/auth/login`（账号/密码由环境变量 `X_E2E_USER` / `X_E2E_PASS` 提供，**不入库**）→ `data.access_token`；
 - 浏览器上下文注入：`localStorage.token / refresh_token / user`；`ignoreHTTPSErrors`、移动视口 `390×844`、`isMobile/hasTouch`；
-- playwright 复用：`require('C:/Users/<用户>/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core')`，`channel:'msedge'`, `headless:true`；
+- playwright 复用：`require('playwright-core')`；需要复用本机全局安装时用环境变量 `PLAYWRIGHT_CORE_PATH` 指定（代码里不写死本机路径），`channel:'msedge'`, `headless:true`；
 - **frame 定位**：轮询所有 frame，等 `typeof XSTATE !== 'undefined' && XSTATE.pullKeys`（面板就绪），而不是 `waitForTimeout` 猜；
 - **`waitStable()`**：等最近一次请求结束 ≥300ms 且无重载迹象，再开始计时（对抗热重载窗口）；
 - 资源拦截：`resourceType()==='font'` → abort。

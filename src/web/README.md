@@ -46,20 +46,20 @@ dbox/
 
 ```bash
 # 安装Web服务
-nssm install dbox-web "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\dbox\web.py"
-nssm set dbox-web AppDirectory "C:\Users\<用户>\<工作目录>\dbox"
+nssm install dbox-web "C:\Python311\python.exe" "<项目根>\web.py"
+nssm set dbox-web AppDirectory "<项目根>"
 nssm set dbox-web DisplayName "Dbox Web服务"
 nssm set dbox-web Start SERVICE_AUTO_START
 
 # 安装缩略图服务（通过 ServiceBus 总线）
-nssm install dbox-thumbnail "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\dbox\configs\services\thumbnaild.py"
-nssm set dbox-thumbnail AppDirectory "C:\Users\<用户>\<工作目录>\dbox"
+nssm install dbox-thumbnail "C:\Python311\python.exe" "<项目根>\configs\services\thumbnaild.py"
+nssm set dbox-thumbnail AppDirectory "<项目根>"
 nssm set dbox-thumbnail DisplayName "Dbox 缩略图服务"
 nssm set dbox-thumbnail Start SERVICE_AUTO_START
 
 # 安装服务总线代理
-nssm install dbox-bus "C:\Python311\python.exe" "C:\Users\<用户>\<工作目录>\dbox\configs\services\busbroker.py"
-nssm set dbox-bus AppDirectory "C:\Users\<用户>\<工作目录>\dbox"
+nssm install dbox-bus "C:\Python311\python.exe" "<项目根>\configs\services\busbroker.py"
+nssm set dbox-bus AppDirectory "<项目根>"
 nssm set dbox-bus DisplayName "Dbox 服务总线"
 nssm set dbox-bus Start SERVICE_AUTO_START
 
